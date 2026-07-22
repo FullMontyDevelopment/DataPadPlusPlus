@@ -1,8 +1,3 @@
-import type {
-  ConnectionProfile,
-  EnvironmentProfile,
-  QueryTabState,
-} from '@datapadplusplus/shared-types'
 import {
   DownloadIcon,
   ObjectServerIcon,
@@ -33,9 +28,6 @@ interface SecurityChecksIndicator {
 }
 
 interface StatusBarProps {
-  activeConnection?: ConnectionProfile
-  activeEnvironment?: EnvironmentProfile
-  activeTab?: QueryTabState
   apiServerIndicator?: ApiServerIndicator
   availableUpdateVersion?: string
   bottomPanelVisible: boolean
@@ -51,9 +43,6 @@ interface StatusBarProps {
 }
 
 export function StatusBar({
-  activeConnection,
-  activeEnvironment,
-  activeTab,
   apiServerIndicator,
   availableUpdateVersion,
   bottomPanelVisible,
@@ -74,13 +63,6 @@ export function StatusBar({
 
   return (
     <footer className="status-bar" aria-label="Status bar">
-      <div className="status-bar-group">
-        <span className="status-item">{activeConnection?.name ?? 'No connection'}</span>
-        <span className="status-item">{activeEnvironment?.label ?? 'No environment'}</span>
-        <span className="status-item">{activeTab?.language.toUpperCase() ?? 'READY'}</span>
-        <span className="status-item">{activeTab?.status ?? 'idle'}</span>
-      </div>
-
       <div className="status-bar-group">
         {apiServerIndicator?.visible ? (
           <button

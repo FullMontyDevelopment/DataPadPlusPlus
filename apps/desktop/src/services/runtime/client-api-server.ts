@@ -75,6 +75,7 @@ export const clientApiServer = {
       host: '127.0.0.1',
       port,
       autoStart: Boolean(request.autoStart),
+      requestTimeoutMs: normalizeRequestTimeout(request.requestTimeoutMs),
       protocol: request.protocol ?? 'rest',
       basePath: request.basePath ?? '',
       connectionId: request.connectionId,
@@ -106,6 +107,9 @@ export const clientApiServer = {
             description: request.description !== undefined ? request.description : server.description,
             port: request.port ?? server.port,
             autoStart: request.autoStart ?? server.autoStart,
+            requestTimeoutMs: request.requestTimeoutMs !== undefined
+              ? normalizeRequestTimeout(request.requestTimeoutMs)
+              : server.requestTimeoutMs,
             protocol: request.protocol ?? server.protocol,
             basePath: request.basePath !== undefined ? request.basePath : server.basePath,
             connectionId: request.connectionId !== undefined ? request.connectionId || undefined : server.connectionId,
@@ -397,7 +401,7 @@ export const clientApiServer = {
       running: false,
       connectionId: request.connectionId,
       environmentId: request.environmentId,
-      message: 'The experimental API server can only run in the desktop app.',
+      message: 'The API server can only run in the desktop app.',
       warnings: ['Browser preview cannot open local listener ports.'],
     }
   },
@@ -456,14 +460,15 @@ function browserApiServerStatus(): DatastoreApiServerStatus {
     running: false,
     host: '127.0.0.1' as const,
     port: clampPort(server.port),
+    requestTimeoutMs: server.requestTimeoutMs,
     protocol: server.protocol ?? 'rest',
     basePath: server.basePath ?? '',
     baseUrl: enabled ? `http://127.0.0.1:${clampPort(server.port)}` : undefined,
     connectionId: server.connectionId,
     environmentId: server.environmentId,
     message: enabled
-      ? 'The experimental API server is stopped in browser preview.'
-      : 'The experimental API server is disabled.',
+      ? 'The API server is stopped in browser preview.'
+      : 'The API server is disabled.',
     warnings: enabled ? ['Browser preview cannot open local listener ports.'] : [],
     resources: server.resources ?? [],
     customEndpoints: server.customEndpoints ?? [],
@@ -473,6 +478,7 @@ function browserApiServerStatus(): DatastoreApiServerStatus {
     running: false,
     host: '127.0.0.1',
     port,
+    requestTimeoutMs: active?.requestTimeoutMs,
     baseUrl: enabled && hasServers ? `http://127.0.0.1:${port}` : undefined,
     connectionId: active?.connectionId,
     environmentId: active?.environmentId,
@@ -485,8 +491,8 @@ function browserApiServerStatus(): DatastoreApiServerStatus {
     message: enabled && !hasServers
       ? 'No API servers are configured.'
       : enabled
-      ? 'The experimental API server is stopped in browser preview.'
-      : 'The experimental API server is disabled.',
+      ? 'The API server is stopped in browser preview.'
+      : 'The API server is disabled.',
     warnings: enabled && hasServers ? ['Browser preview cannot open local listener ports.'] : [],
     resources: active?.resources ?? [],
     customEndpoints: active?.customEndpoints ?? [],
@@ -528,6 +534,11 @@ function clampPort(value: number) {
   return Math.min(65535, Math.max(1024, Math.floor(value)))
 }
 
+function normalizeRequestTimeout(value: number | undefined) {
+  if (!value || value <= 0) return undefined
+  return Math.min(86_400_000, Math.max(1_000, Math.round(value)))
+}
+
 function clampRowLimit(value: number | undefined) {
   if (!Number.isFinite(value ?? Number.NaN)) return 100
   return Math.min(500, Math.max(1, Math.floor(value ?? 100)))
@@ -540,6 +551,7 @@ function defaultBrowserServer(): DatastoreApiServerConfig {
     host: '127.0.0.1',
     port: 17640,
     autoStart: false,
+    requestTimeoutMs: undefined,
     protocol: 'rest',
     basePath: '',
     resources: [],
@@ -599,6 +611,9 @@ function upsertBrowserServer(
     host: '127.0.0.1',
     port,
     autoStart: Boolean(request.autoStart ?? existingServer?.autoStart ?? false),
+    requestTimeoutMs: request.requestTimeoutMs !== undefined
+      ? normalizeRequestTimeout(request.requestTimeoutMs)
+      : existingServer?.requestTimeoutMs,
     protocol: normalizeBrowserProtocol(request.protocol ?? existingServer?.protocol),
     basePath: normalizeBrowserBasePath(
       request.basePath !== undefined ? request.basePath : existingServer?.basePath,
@@ -664,6 +679,7 @@ function browserRequestUpdatesServer(request: DatastoreApiServerSettingsRequest)
     request.description !== undefined ||
     request.port !== undefined ||
     request.autoStart !== undefined ||
+    request.requestTimeoutMs !== undefined ||
     request.protocol !== undefined ||
     request.basePath !== undefined ||
     request.connectionId !== undefined ||
@@ -682,6 +698,7 @@ function normalizeBrowserServer(server: DatastoreApiServerConfig, index: number)
     host: '127.0.0.1',
     port,
     autoStart: Boolean(server.autoStart),
+    requestTimeoutMs: normalizeRequestTimeout(server.requestTimeoutMs),
     protocol: normalizeBrowserProtocol(server.protocol),
     basePath: normalizeBrowserBasePath(server.basePath),
     connectionId: server.connectionId,

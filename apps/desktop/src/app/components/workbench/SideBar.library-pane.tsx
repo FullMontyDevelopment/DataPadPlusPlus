@@ -102,6 +102,7 @@ interface LibraryPaneProps {
   onDeleteConnection?(connectionId: string): void
   onDeleteEnvironment?(environmentId: string): void
   onDuplicateConnection?(connectionId: string): void
+  onDuplicateNode?(nodeId: string): void
   onEditEnvironment?(environmentId: string): void
   onLibraryFilterChange(value: string): void
   onLoadExplorerScope?(
@@ -242,6 +243,7 @@ export function LibraryPane({
   onDeleteEnvironment = noop,
   onDeleteNode,
   onDuplicateConnection = noop,
+  onDuplicateNode = noop,
   onEditEnvironment = noop,
   onLibraryFilterChange,
   onLoadExplorerScope = noop,
@@ -1318,19 +1320,6 @@ export function LibraryPane({
                 <RenameIcon className="connection-context-menu-icon" />
                 <span>Edit Connection</span>
               </button>
-              <button
-                type="button"
-                className="connection-context-menu-item"
-                role="menuitem"
-                aria-label={`Duplicate connection ${contextMenuConnection.name}`}
-                onClick={() => {
-                  onDuplicateConnection(contextMenuConnection.id)
-                  setContextMenu(undefined)
-                }}
-              >
-                <PlusIcon className="connection-context-menu-icon" />
-                <span>Duplicate</span>
-              </button>
               <div
                 className="connection-context-menu-separator"
                 role="separator"
@@ -1389,6 +1378,21 @@ export function LibraryPane({
             >
               <PlayIcon className="connection-context-menu-icon" />
               <span>Open</span>
+            </button>
+          ) : null}
+          {contextMenu.node.kind === 'query' || contextMenu.node.kind === 'script' ? (
+            <button
+              type="button"
+              className="connection-context-menu-item"
+              role="menuitem"
+              aria-label={`Duplicate ${contextMenu.node.name}`}
+              onClick={() => {
+                onDuplicateNode(contextMenu.node.id)
+                setContextMenu(undefined)
+              }}
+            >
+              <PlusIcon className="connection-context-menu-icon" />
+              <span>Duplicate</span>
             </button>
           ) : null}
           <button

@@ -50,12 +50,12 @@ impl ManagedAppState {
         environment_id: &str,
     ) -> Result<BootstrapPayload, CommandError> {
         validate_required_tab_id(tab_id)?;
-        validate_environment_id(environment_id)?;
-        let environment_exists = self
-            .snapshot
-            .environments
-            .iter()
-            .any(|item| item.id == environment_id);
+        let environment_exists = environment_id.is_empty()
+            || self
+                .snapshot
+                .environments
+                .iter()
+                .any(|item| item.id == environment_id);
 
         if !environment_exists {
             return Err(CommandError::new(

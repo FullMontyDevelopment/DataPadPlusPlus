@@ -1807,7 +1807,7 @@ describe('App', () => {
     })
   })
 
-  it('creates, stores a secret for, duplicates, and deletes connections', async () => {
+  it('creates, stores a secret for, and deletes connections without offering duplication', async () => {
     const storeSecretSpy = vi.spyOn(desktopClient, 'storeSecret')
     render(<App />)
 
@@ -1830,34 +1830,26 @@ describe('App', () => {
     ).not.toBeInTheDocument()
 
     fireEvent.contextMenu(getConnectionRow('PostgreSQL connection'))
-    fireEvent.click(
-      await screen.findByRole('menuitem', {
+    expect(
+      screen.queryByRole('menuitem', {
         name: 'Duplicate connection PostgreSQL connection',
       }),
-    )
-
-    await waitFor(() => {
-      expect(
-        within(screen.getByLabelText('connection drawer')).getByLabelText('Name'),
-      ).toHaveValue('Copy of PostgreSQL connection')
-    })
-
-    fireEvent.contextMenu(getConnectionRow('Copy of PostgreSQL connection'))
+    ).not.toBeInTheDocument()
     fireEvent.click(
       await screen.findByRole('menuitem', {
-        name: 'Delete connection Copy of PostgreSQL connection',
+        name: 'Delete connection PostgreSQL connection',
       }),
     )
 
     const deleteDialog = await screen.findByRole('dialog', {
-      name: 'Remove Copy of PostgreSQL connection?',
+      name: 'Remove PostgreSQL connection?',
     })
     fireEvent.click(within(deleteDialog).getByRole('button', { name: 'Delete Connection' }))
 
     await waitFor(() => {
       expect(
         within(screen.getByLabelText('library sidebar')).queryByText(
-          'Copy of PostgreSQL connection',
+          'PostgreSQL connection',
         ),
       ).not.toBeInTheDocument()
     })

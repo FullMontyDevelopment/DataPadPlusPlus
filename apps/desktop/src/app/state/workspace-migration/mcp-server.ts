@@ -1,6 +1,8 @@
 import type {
+  ConnectionProfile,
   DatastoreMcpServerConfig,
   DatastoreMcpServerScope,
+  LibraryNode,
   DatastoreMcpServerTokenConfig,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
@@ -8,7 +10,21 @@ import type {
 export function normalizeDatastoreMcpServerPreferences(
   preferences: WorkspaceSnapshot['preferences']['datastoreMcpServer'] | undefined,
 ) {
-  const rawServers = Array.isArray(preferences?.servers) ? preferences.servers : []
+  const rawServers = Array.isArray(preferences?.servers) && preferences.servers.length > 0
+    ? preferences.servers
+    : [{
+        id: preferences?.activeServerId || 'mcp-server-default',
+        name: 'MCP Server',
+        host: '127.0.0.1' as const,
+        port: preferences?.port ?? 17641,
+        autoStart: Boolean(preferences?.autoStart),
+        requestTimeoutMs: undefined,
+        allowedOrigins: [],
+        connectionIds: [],
+        environmentIds: [],
+        allowNoEnvironment: false,
+        tokens: [],
+      }]
   const servers: DatastoreMcpServerConfig[] = rawServers.map((server, index) => {
     const port = clampNumber(server.port, 17641, 1024, 65535)
     return {
@@ -24,9 +40,11 @@ export function normalizeDatastoreMcpServerPreferences(
       host: '127.0.0.1' as const,
       port,
       autoStart: Boolean(server.autoStart),
+      requestTimeoutMs: normalizeRequestTimeout(server.requestTimeoutMs),
       allowedOrigins: normalizeStringList(server.allowedOrigins),
       connectionIds: normalizeStringList(server.connectionIds),
       environmentIds: normalizeStringList(server.environmentIds),
+      allowNoEnvironment: Boolean(server.allowNoEnvironment),
       tokens: normalizeDatastoreMcpServerTokens(server.tokens),
     }
   })
@@ -97,7 +115,55 @@ function normalizeStringList(values: unknown): string[] {
 }
 
 function defaultMcpServerName(port: number) {
-  return port === 17641 ? 'Local MCP Server' : `Local MCP Server ${port}`
+  return port === 17641 ? 'MCP Server' : `MCP Server ${port}`
+}
+
+function normalizeRequestTimeout(value: unknown) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined
+  return Math.min(86_400_000, Math.max(1_000, Math.round(value)))
+}
+
+export function normalizeMcpEffectiveAccess(
+  preferences: WorkspaceSnapshot['preferences']['datastoreMcpServer'],
+  connections: ConnectionProfile[],
+  libraryNodes: LibraryNode[],
+) {
+  if (!preferences?.servers) return
+  for (const server of preferences.servers) {
+    const selectedEnvironmentIds = new Set(server.environmentIds)
+    server.connectionIds = server.connectionIds.filter((connectionId) => {
+      const connection = connections.find((item) => item.id === connectionId)
+      const assignedEnvironmentIds = connection
+        ? effectiveConnectionEnvironmentIds(connection, libraryNodes)
+        : []
+      return Boolean(connection && (
+        assignedEnvironmentIds.some((environmentId) => selectedEnvironmentIds.has(environmentId)) ||
+        (server.allowNoEnvironment && assignedEnvironmentIds.length === 0)
+      ))
+    })
+  }
+}
+
+function effectiveConnectionEnvironmentIds(
+  connection: ConnectionProfile,
+  libraryNodes: LibraryNode[],
+) {
+  const environmentIds = new Set(connection.environmentIds)
+  const nodeById = new Map(libraryNodes.map((node) => [node.id, node]))
+  for (const node of libraryNodes) {
+    if (node.kind !== 'connection' || node.connectionId !== connection.id) continue
+    let current: LibraryNode | undefined = node
+    const visited = new Set<string>()
+    while (current && !visited.has(current.id)) {
+      visited.add(current.id)
+      if (current.environmentId) {
+        environmentIds.add(current.environmentId)
+        break
+      }
+      current = current.parentId ? nodeById.get(current.parentId) : undefined
+    }
+  }
+  return [...environmentIds]
 }
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {

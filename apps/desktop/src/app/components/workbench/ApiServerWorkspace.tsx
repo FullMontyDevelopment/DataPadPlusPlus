@@ -36,14 +36,17 @@ import {
   PlusIcon,
   QueryIcon,
   RefreshIcon,
+  SearchIcon,
   StopIcon,
   TrashIcon,
 } from './icons'
+import { ApiResourcePicker } from './ApiResourcePicker'
+import { resourceGroup } from './ApiResourcePicker.helpers'
 
 const DEFAULT_API_PORT = 17640
 const RESOURCE_DISCOVERY_TIMEOUT_MS = 15000
 
-type ApiServerView = 'overview' | 'docs' | 'metrics' | 'logs'
+type ApiServerView = 'overview' | 'resources' | 'docs' | 'metrics' | 'logs'
 type ApiServerPreferences = NonNullable<
   WorkspaceSnapshot['preferences']['datastoreApiServer']
 >
@@ -51,7 +54,7 @@ type PersistedApiServerConfig = NonNullable<
   ApiServerPreferences['servers']
 >[number]
 type ApiServerProtocol = NonNullable<PersistedApiServerConfig['protocol']>
-type ApiServerTextField = 'name' | 'description' | 'basePath'
+type ApiServerTextField = 'name' | 'description' | 'basePath' | 'requestTimeoutSeconds'
 type ApiServerConfig = Omit<
   PersistedApiServerConfig,
   | 'host'
@@ -191,6 +194,7 @@ export function ApiServerWorkspace({
   const [observabilityBusy, setObservabilityBusy] = useState(false)
   const [resourcePicker, setResourcePicker] =
     useState<DatastoreApiServerResourceConfig[]>()
+  const [resourceSearch, setResourceSearch] = useState('')
   const [selectedResourceIds, setSelectedResourceIds] = useState<Set<string>>(
     new Set(),
   )
@@ -222,9 +226,6 @@ export function ApiServerWorkspace({
   const selectedConnection = connections.find(
     (item) => item.id === server?.connectionId,
   )
-  const selectedEnvironment = environments.find(
-    (item) => item.id === server?.environmentId,
-  )
   const baseUrl =
     selectedStatus?.baseUrl ??
     (apiServer.enabled && server
@@ -253,10 +254,36 @@ export function ApiServerWorkspace({
   const serverBasePathValue = server
     ? (serverDrafts[server.id]?.basePath ?? server.basePath ?? '')
     : ''
+  const requestTimeoutSecondsValue = server
+    ? (serverDrafts[server.id]?.requestTimeoutSeconds ??
+      (server.requestTimeoutMs ? String(server.requestTimeoutMs / 1000) : ''))
+    : ''
   const serverActionDisabled = Boolean(busy && busy !== 'refresh')
   const serverResourceCount = server?.resources.length ?? 0
   const serverCustomEndpointCount = server?.customEndpoints.length ?? 0
   const serverProtocolLabel = protocolDisplayName(server?.protocol)
+  const filteredConfiguredResources = useMemo(() => {
+    const query = resourceSearch.trim().toLocaleLowerCase()
+    if (!server || !query) return server?.resources ?? []
+    return server.resources.filter((resource) =>
+      [resource.label, resource.kind, resource.detail, resourceGroup(resource)]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase()
+        .includes(query),
+    )
+  }, [resourceSearch, server])
+  const filteredCustomEndpoints = useMemo(() => {
+    const query = resourceSearch.trim().toLocaleLowerCase()
+    if (!server || !query) return server?.customEndpoints ?? []
+    return server.customEndpoints.filter((endpoint) =>
+      [endpoint.label, endpoint.sourceName, endpoint.method, endpoint.endpointSlug]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase()
+        .includes(query),
+    )
+  }, [resourceSearch, server])
 
   const refreshStatus = useCallback(async () => {
     setBusy('refresh')
@@ -341,6 +368,9 @@ export function ApiServerWorkspace({
           patch.basePath !== undefined ? patch.basePath : server.basePath,
         port: patch.port ?? server.port,
         autoStart: patch.autoStart ?? server.autoStart,
+        requestTimeoutMs: patch.requestTimeoutMs !== undefined
+          ? patch.requestTimeoutMs
+          : server.requestTimeoutMs,
         connectionId:
           patch.connectionId !== undefined
             ? patch.connectionId
@@ -406,6 +436,18 @@ export function ApiServerWorkspace({
     if (!server) return
     const draft = serverDrafts[server.id]?.[field]
     if (draft === undefined) return
+
+    if (field === 'requestTimeoutSeconds') {
+      const nextTimeout = requestTimeoutMilliseconds(draft)
+      const currentTimeout = server.requestTimeoutMs ?? 0
+      if (nextTimeout === currentTimeout) {
+        clearServerDraft(server.id, field)
+        return
+      }
+      const saved = await saveServer({ requestTimeoutMs: nextTimeout })
+      if (saved) clearServerDraft(server.id, field)
+      return
+    }
 
     const currentValue =
       field === 'description'
@@ -686,7 +728,6 @@ export function ApiServerWorkspace({
         aria-label="API Server workspace"
       >
         <div className="environment-empty">
-          <p className="sidebar-eyebrow">Experimental</p>
           <h1>API Server</h1>
           <p>
             Enable the datastore API server plugin from Settings before opening
@@ -711,13 +752,10 @@ export function ApiServerWorkspace({
     >
       <header className="environment-header api-server-header">
         <div>
-          <p className="sidebar-eyebrow">Experimental</p>
-          <h1>API Server</h1>
-          {server ? (
-            <p className="api-server-header-description">
-              {server.name}
-              {server.description ? ` - ${server.description}` : ''}
-            </p>
+          <p className="sidebar-eyebrow">API Server</p>
+          <h1>{server?.name ?? 'API Server'}</h1>
+          {server?.description ? (
+            <p className="api-server-header-description">{server.description}</p>
           ) : null}
         </div>
         <div className="environment-actions api-server-header-actions">
@@ -764,7 +802,7 @@ export function ApiServerWorkspace({
           </span>
           <button
             type="button"
-            className="icon-button"
+            className="icon-button api-server-header-control"
             aria-label="Refresh API Server status"
             title="Refresh status"
             disabled={Boolean(busy)}
@@ -823,9 +861,22 @@ export function ApiServerWorkspace({
           </section>
         ) : null}
 
-        {view === 'overview' && server ? (
+        {view === 'resources' && server ? (
+          <label className="mcp-access-search api-server-resources-search">
+            <SearchIcon className="panel-inline-icon" />
+            <input
+              type="search"
+              value={resourceSearch}
+              placeholder="Search configured resources and custom endpoints"
+              onChange={(event) => setResourceSearch(event.target.value)}
+            />
+          </label>
+        ) : null}
+
+        {(view === 'overview' || view === 'resources') && server ? (
           <>
             <div className="api-server-overview-grid">
+              {view === 'overview' ? (
               <section className="environment-card api-server-server-card">
                 <div className="environment-section-header">
                   <div className="api-server-section-title">
@@ -923,6 +974,26 @@ export function ApiServerWorkspace({
                     />
                   </label>
                   <label className="environment-field">
+                    <span>Request timeout (seconds)</span>
+                    <input
+                      type="number"
+                      min={-1}
+                      max={86400}
+                      value={requestTimeoutSecondsValue}
+                      disabled={Boolean(busy)}
+                      placeholder="Unlimited"
+                      onBlur={() => void commitServerTextField('requestTimeoutSeconds')}
+                      onChange={(event) =>
+                        updateServerDraft(
+                          server.id,
+                          'requestTimeoutSeconds',
+                          event.target.value,
+                        )
+                      }
+                    />
+                    <small>Empty, 0, or -1 allows requests to run without a server deadline.</small>
+                  </label>
+                  <label className="environment-field">
                     <span>Datastore</span>
                     <select
                       value={server.connectionId ?? ''}
@@ -954,38 +1025,30 @@ export function ApiServerWorkspace({
                       ))}
                     </select>
                   </label>
-                  <label className="settings-check-row api-server-auto-start-row">
-                    <input
-                      type="checkbox"
-                      checked={server.autoStart}
-                      disabled={Boolean(busy)}
-                      onChange={(event) =>
-                        void saveServer({ autoStart: event.target.checked })
-                      }
-                    />
-                    <span>Start automatically</span>
+                  <label className="environment-field api-server-auto-start-field">
+                    <span>Startup</span>
+                    <span className="settings-check-row api-server-auto-start-row">
+                      <input
+                        type="checkbox"
+                        checked={server.autoStart}
+                        disabled={Boolean(busy)}
+                        onChange={(event) =>
+                          void saveServer({ autoStart: event.target.checked })
+                        }
+                      />
+                      <span>Start automatically</span>
+                    </span>
                   </label>
                 </div>
-                <div className="api-server-card-footer">
-                  <div className="api-server-target-summary">
-                    <ObjectServerIcon className="panel-inline-icon" />
-                    <span>
-                      {selectedConnection
-                        ? `${selectedConnection.engine} / ${selectedConnection.family}`
-                        : 'Select a datastore'}
-                      {selectedEnvironment
-                        ? ` / ${selectedEnvironment.label}`
-                        : ''}
-                    </span>
-                  </div>
-                  {startDisabledReason && !serverRunning ? (
-                    <p className="settings-inline-note">
-                      {startDisabledReason}
-                    </p>
-                  ) : null}
-                </div>
+                {startDisabledReason && !serverRunning ? (
+                  <p className="settings-inline-note">
+                    {startDisabledReason}
+                  </p>
+                ) : null}
               </section>
+              ) : null}
 
+              {view === 'resources' ? (
               <section className="environment-card api-server-resources-card">
                 <div className="environment-section-header">
                   <div className="api-server-section-title">
@@ -1010,33 +1073,37 @@ export function ApiServerWorkspace({
                     </button>
                   ) : null}
                 </div>
-                {server.resources.length ? (
+                {filteredConfiguredResources.length ? (
                   <div className="api-server-resource-grid">
-                    {server.resources.map((resource) => (
-                      <div
-                        key={resource.id}
-                        className="api-server-resource-row"
-                      >
-                        <div className="api-server-resource-main">
-                          <strong>{resource.label}</strong>
-                          <span>
-                            {resource.kind}
-                            {resource.detail ? ` / ${resource.detail}` : ''}
-                          </span>
-                        </div>
-                        <code>{resourcePath(server, resource)}</code>
-                        <button
-                          type="button"
-                          className="drawer-button"
-                          disabled={Boolean(busy)}
-                          onClick={() => void removeResource(resource.id)}
-                        >
-                          <TrashIcon className="panel-inline-icon" />
-                          Remove
-                        </button>
-                      </div>
+                    {groupResourcesForDisplay(filteredConfiguredResources).map(([group, resources]) => (
+                      <section key={group} className="api-server-resource-group">
+                        <header><strong>{group}</strong><span>{resources.length}</span></header>
+                        {resources.map((resource) => (
+                          <div key={resource.id} className="api-server-resource-row">
+                            <div className="api-server-resource-main">
+                              <strong>{resource.label}</strong>
+                              <span>
+                                {resource.kind}
+                                {resource.detail ? ` / ${resource.detail}` : ''}
+                              </span>
+                            </div>
+                            <code>{resourcePath(server, resource)}</code>
+                            <button
+                              type="button"
+                              className="drawer-button"
+                              disabled={Boolean(busy)}
+                              onClick={() => void removeResource(resource.id)}
+                            >
+                              <TrashIcon className="panel-inline-icon" />
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </section>
                     ))}
                   </div>
+                ) : server.resources.length ? (
+                  <div className="settings-empty">No configured resources match the search.</div>
                 ) : (
                   <div className="settings-empty api-server-empty-state">
                     <p>
@@ -1061,99 +1128,21 @@ export function ApiServerWorkspace({
                   </div>
                 )}
               </section>
+              ) : null}
             </div>
 
-            {resourcePicker ? (
-              <section className="environment-card api-server-picker-card">
-                <div className="environment-section-header">
-                  <div className="api-server-section-title">
-                    <strong>Select Resources</strong>
-                    <span>Choose the objects this server should expose.</span>
-                  </div>
-                  <div className="api-server-picker-actions">
-                    <span>{resourcePicker.length} available</span>
-                    {resourcePicker.length ? (
-                      <>
-                        <button
-                          type="button"
-                          className="drawer-button drawer-button--compact"
-                          onClick={() =>
-                            setSelectedResourceIds(
-                              new Set(resourcePicker.map((resource) => resource.id)),
-                            )
-                          }
-                        >
-                          Select all
-                        </button>
-                        <button
-                          type="button"
-                          className="drawer-button drawer-button--compact"
-                          onClick={() => setSelectedResourceIds(new Set())}
-                        >
-                          Deselect all
-                        </button>
-                      </>
-                    ) : null}
-                  </div>
-                </div>
-                {resourcePicker.length ? (
-                  <div className="api-server-resource-grid">
-                    {resourcePicker.map((resource) => (
-                      <label
-                        key={resource.id}
-                        className="settings-check-row api-server-resource-picker-row"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedResourceIds.has(resource.id)}
-                          onChange={(event) => {
-                            setSelectedResourceIds((current) => {
-                              const next = new Set(current)
-                              if (event.target.checked) next.add(resource.id)
-                              else next.delete(resource.id)
-                              return next
-                            })
-                          }}
-                        />
-                        <span>
-                          <strong>{resource.label}</strong>
-                          <small>
-                            {resource.kind}
-                            {resource.detail ? ` / ${resource.detail}` : ''}
-                            {resource.path?.length
-                              ? ` / ${resource.path.join(' / ')}`
-                              : ''}
-                          </small>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="settings-empty">
-                    No new CRUD-capable resources were discovered.
-                  </div>
-                )}
-                <div className="drawer-button-row">
-                  <button
-                    type="button"
-                    className="drawer-button drawer-button--primary"
-                    disabled={!selectedResourceIds.size || Boolean(busy)}
-                    onClick={() => void addSelectedResources()}
-                  >
-                    <PlusIcon className="panel-inline-icon" />
-                    Add Selected
-                  </button>
-                  <button
-                    type="button"
-                    className="drawer-button"
-                    onClick={() => setResourcePicker(undefined)}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </section>
+            {view === 'resources' && resourcePicker ? (
+              <ApiResourcePicker
+                resources={resourcePicker}
+                selectedIds={selectedResourceIds}
+                busy={Boolean(busy)}
+                onSelectionChange={setSelectedResourceIds}
+                onConfirm={() => void addSelectedResources()}
+                onCancel={() => setResourcePicker(undefined)}
+              />
             ) : null}
 
+            {view === 'resources' ? (
             <section className="environment-card api-server-custom-endpoints-card">
               <div className="environment-section-header">
                 <div className="api-server-section-title">
@@ -1184,9 +1173,9 @@ export function ApiServerWorkspace({
                   REST/OpenAPI servers serve them in this version.
                 </p>
               ) : null}
-              {server.customEndpoints.length ? (
+              {filteredCustomEndpoints.length ? (
                 <div className="api-server-custom-endpoint-grid">
-                  {server.customEndpoints.map((endpoint) => (
+                  {filteredCustomEndpoints.map((endpoint) => (
                     <div
                       key={endpoint.id}
                       className={`api-server-custom-endpoint-row${
@@ -1232,6 +1221,8 @@ export function ApiServerWorkspace({
                     </div>
                   ))}
                 </div>
+              ) : server.customEndpoints.length ? (
+                <div className="settings-empty">No custom endpoints match the search.</div>
               ) : (
                 <div className="settings-empty api-server-empty-state">
                   <p>
@@ -1256,7 +1247,9 @@ export function ApiServerWorkspace({
                 </div>
               )}
             </section>
+            ) : null}
 
+            {view === 'overview' ? (
             <section
               className="environment-card api-server-danger-zone"
               aria-label="Danger zone"
@@ -1283,6 +1276,7 @@ export function ApiServerWorkspace({
                 </button>
               </div>
             </section>
+            ) : null}
           </>
         ) : null}
 
@@ -1292,41 +1286,41 @@ export function ApiServerWorkspace({
               <strong>{docsTitle(server)}</strong>
               <span>{serverRunning ? 'Available' : 'Start the server'}</span>
             </div>
-            <div className="drawer-button-row">
-              <button
-                type="button"
-                className="drawer-button"
-                disabled={!docsUrl}
-                onClick={() => openInBrowser(docsUrl)}
-              >
-                Open Docs
-              </button>
-              <button
-                type="button"
-                className="drawer-button"
-                disabled={!openApiUrl && !graphqlUrl && !protoUrl}
-                onClick={() =>
-                  openInBrowser(openApiUrl ?? graphqlUrl ?? protoUrl)
-                }
-              >
-                Open{' '}
-                {server?.protocol === 'grpc'
-                  ? 'Proto'
-                  : server?.protocol === 'graphql'
-                    ? 'Schema'
-                    : 'JSON'}
-              </button>
-            </div>
-            {docsUrl ? (
-              <iframe
-                className="api-server-docs-frame"
-                title="API Server documentation"
-                src={docsUrl}
-              />
-            ) : (
-              <div className="settings-empty">
-                Start the API server to view interactive docs.
+            {!serverRunning ? (
+              <div className="api-server-docs-unavailable">
+                <ObjectServerIcon className="api-server-docs-unavailable-icon" />
+                <strong>Documentation is unavailable while the server is stopped.</strong>
+                <span>Start the server to load its live interactive documentation.</span>
+                <button
+                  type="button"
+                  className="drawer-button drawer-button--primary"
+                  disabled={Boolean(startDisabledReason || busy)}
+                  title={startDisabledReason}
+                  onClick={() => void startServer()}
+                >
+                  <PlayIcon className="panel-inline-icon" />
+                  Start Server
+                </button>
               </div>
+            ) : (
+              <>
+                <div className="drawer-button-row">
+                  <button type="button" className="drawer-button" onClick={() => openInBrowser(docsUrl)}>
+                    Open Docs
+                  </button>
+                  <button
+                    type="button"
+                    className="drawer-button"
+                    disabled={!openApiUrl && !graphqlUrl && !protoUrl}
+                    onClick={() => openInBrowser(openApiUrl ?? graphqlUrl ?? protoUrl)}
+                  >
+                    Open {server.protocol === 'grpc' ? 'Proto' : server.protocol === 'graphql' ? 'Schema' : 'JSON'}
+                  </button>
+                </div>
+                {docsUrl ? (
+                  <iframe className="api-server-docs-frame" title="API Server documentation" src={docsUrl} />
+                ) : null}
+              </>
             )}
           </section>
         ) : null}
@@ -1509,6 +1503,7 @@ export function ApiServerWorkspace({
 
 const apiServerViews: Array<{ id: ApiServerView; label: string }> = [
   { id: 'overview', label: 'Overview' },
+  { id: 'resources', label: 'Resources' },
   { id: 'docs', label: 'Docs' },
   { id: 'metrics', label: 'Metrics' },
   { id: 'logs', label: 'Logs' },
@@ -2038,6 +2033,7 @@ function normalizeApiServerConfigs(
             host: '127.0.0.1' as const,
             port: preferences.port ?? DEFAULT_API_PORT,
             autoStart: preferences.autoStart,
+            requestTimeoutMs: undefined,
             connectionId: preferences.connectionId,
             environmentId: preferences.environmentId,
             protocol: 'rest' as const,
@@ -2057,6 +2053,7 @@ function normalizeApiServerConfigs(
       host: '127.0.0.1',
       port,
       autoStart: Boolean(server.autoStart),
+      requestTimeoutMs: server.requestTimeoutMs,
       protocol: normalizeProtocol(server.protocol),
       basePath: normalizeBasePath(server.basePath),
       connectionId: server.connectionId,
@@ -2080,6 +2077,7 @@ function statusToInstance(
     running: status.running,
     host: status.host,
     port: status.port,
+    requestTimeoutMs: status.requestTimeoutMs,
     protocol: status.protocol ?? 'rest',
     basePath: status.basePath ?? '',
     baseUrl: status.baseUrl,
@@ -2131,6 +2129,7 @@ function mergeStatusIntoServer(
     host: '127.0.0.1',
     port: status.port,
     autoStart: Boolean(server?.autoStart),
+    requestTimeoutMs: status.requestTimeoutMs ?? server?.requestTimeoutMs,
     protocol: normalizeProtocol(status.protocol ?? server?.protocol),
     basePath: normalizeBasePath(status.basePath ?? server?.basePath),
     connectionId: status.connectionId ?? server?.connectionId,
@@ -2149,6 +2148,15 @@ function normalizeResources(resources: DatastoreApiServerResourceConfig[]) {
     endpointSlug: slug(resource.endpointSlug || resource.label),
     enabled: resource.enabled !== false,
   }))
+}
+
+function groupResourcesForDisplay(resources: DatastoreApiServerResourceConfig[]) {
+  const groups = new Map<string, DatastoreApiServerResourceConfig[]>()
+  for (const resource of resources) {
+    const group = resourceGroup(resource)
+    groups.set(group, [...(groups.get(group) ?? []), resource])
+  }
+  return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right))
 }
 
 function normalizeCustomEndpoints(
@@ -2489,6 +2497,12 @@ function pascalName(value: string, fallback: string) {
 function clampPort(value: number) {
   if (!Number.isFinite(value)) return DEFAULT_API_PORT
   return Math.min(65535, Math.max(1024, Math.floor(value)))
+}
+
+function requestTimeoutMilliseconds(value: string) {
+  const seconds = Number(value.trim())
+  if (!value.trim() || !Number.isFinite(seconds) || seconds <= 0) return 0
+  return Math.min(86_400, Math.max(1, Math.round(seconds))) * 1000
 }
 
 function clampRowLimit(value: number | undefined) {

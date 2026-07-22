@@ -26,11 +26,11 @@ export function uniqueStrings(values: string[]) {
 
 export function defaultMcpServerName(port: number) {
   const safePort = clampPort(port)
-  return safePort === DEFAULT_MCP_PORT ? 'Local MCP Server' : `Local MCP Server ${safePort}`
+  return safePort === DEFAULT_MCP_PORT ? 'MCP Server' : `MCP Server ${safePort}`
 }
 
 export function formatAllowlistCount(connectionCount: number, environmentCount: number) {
-  return `${formatNumber(connectionCount)} datastores / ${formatNumber(environmentCount)} contexts`
+  return `${formatNumber(connectionCount)} datastores / ${formatNumber(environmentCount)} environments`
 }
 
 export function formatTokenCount(count: number) {

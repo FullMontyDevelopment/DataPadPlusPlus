@@ -53,6 +53,7 @@ interface SideBarProps {
   onSidebarSectionExpandedChange(sectionId: string, expanded: boolean): void
   onCollapseExplorerItems(sectionIds: string[]): void
   onDuplicateConnection(connectionId: string): void
+  onDuplicateLibraryNode(nodeId: string): void
   onDeleteConnection(connectionId: string): void
   onOpenConnectionExplorer(connectionId: string): void
   onOpenConnectionMetrics(connectionId: string): void
@@ -127,6 +128,7 @@ export function SideBar({
   onSidebarSectionExpandedChange,
   onCollapseExplorerItems,
   onDuplicateConnection,
+  onDuplicateLibraryNode,
   onDeleteConnection,
   onOpenConnectionExplorer,
   onOpenConnectionMetrics,
@@ -335,6 +337,7 @@ export function SideBar({
           onDeleteEnvironment={onDeleteEnvironment}
           onDeleteNode={onDeleteLibraryNode}
           onDuplicateConnection={onDuplicateConnection}
+          onDuplicateNode={onDuplicateLibraryNode}
           onEditEnvironment={onEditEnvironment}
           onMoveNode={onMoveLibraryNode}
           onLoadExplorerScope={onLoadExplorerScope}

@@ -19,7 +19,7 @@ import {
   validateConnectionTestRequest,
   validateEnvironmentProfile,
 } from './request-validation'
-import { validateRequiredId } from './datastores/common/request-validation-core'
+import { validateEnvironmentContextId, validateRequiredId } from './datastores/common/request-validation-core'
 
 export const clientConnections = {
   async setActiveConnection(connectionId: string): Promise<BootstrapPayload> {
@@ -80,7 +80,7 @@ export const clientConnections = {
   },
 
   async deleteEnvironment(environmentId: string): Promise<BootstrapPayload> {
-    validateRequiredId(environmentId, 'Environment id')
+    validateEnvironmentContextId(environmentId)
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('delete_environment_profile', { environmentId })
     }

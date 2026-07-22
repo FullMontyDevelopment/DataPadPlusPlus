@@ -70,7 +70,7 @@ describe('browser connection runtime', () => {
     expect(storedConnection?.connectionMode).toBe('connection-string')
   })
 
-  it('deletes an environment and moves references to a fallback environment', () => {
+  it('deletes an environment and clears references to No environment', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-orders')
 
@@ -98,22 +98,32 @@ describe('browser connection runtime', () => {
     const next = deleteEnvironment(snapshot, 'env-prod')
 
     expect(next.environments.some((environment) => environment.id === 'env-prod')).toBe(false)
-    expect(next.ui.activeEnvironmentId).not.toBe('env-prod')
+    expect(next.ui.activeEnvironmentId).toBe('')
     expect(next.connections.find((item) => item.id === 'conn-orders')?.environmentIds).not.toContain(
       'env-prod',
     )
-    expect(next.tabs[0]?.environmentId).not.toBe('env-prod')
+    expect(next.tabs[0]?.environmentId).toBe('')
     expect(next.libraryNodes.find((item) => item.id === 'library-query-orders-audit')?.environmentId).toBeUndefined()
   })
 
-  it('keeps at least one environment', () => {
+  it('permits deleting the final environment', () => {
     const snapshot = createSeedSnapshot()
     const firstEnvironment = snapshot.environments[0]
     expect(firstEnvironment).toBeDefined()
     snapshot.environments = [firstEnvironment!]
 
-    expect(() => deleteEnvironment(snapshot, firstEnvironment!.id)).toThrow(
-      'At least one environment is required.',
-    )
+    snapshot.connections.forEach((connection) => {
+      connection.environmentIds = [firstEnvironment!.id]
+    })
+    snapshot.tabs.forEach((tab) => {
+      tab.environmentId = firstEnvironment!.id
+    })
+
+    const next = deleteEnvironment(snapshot, firstEnvironment!.id)
+
+    expect(next.environments).toEqual([])
+    expect(next.connections.every((connection) => connection.environmentIds.length === 0)).toBe(true)
+    expect(next.tabs.every((tab) => tab.environmentId === '')).toBe(true)
+    expect(next.ui.activeEnvironmentId).toBe('')
   })
 })

@@ -4,6 +4,23 @@ import type { WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import { createSeedSnapshot } from '../../../fixtures/seed-workspace'
 import { WorkspaceSearchWorkspace } from '../../../../src/app/components/workbench/WorkspaceSearchWorkspace'
 
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: ({ count, estimateSize }: { count: number; estimateSize(index: number): number }) => {
+    const sizes = Array.from({ length: count }, (_, index) => estimateSize(index))
+    return {
+      getTotalSize: () => sizes.reduce((total, size) => total + size, 0),
+      getVirtualItems: () => {
+        let start = 0
+        return sizes.map((size, index) => {
+          const item = { index, key: index, size, start }
+          start += size
+          return item
+        })
+      },
+    }
+  },
+}))
+
 function renderWorkspaceSearch(snapshot: WorkspaceSnapshot = searchSnapshot()) {
   const props = {
     snapshot,
@@ -31,7 +48,7 @@ describe('WorkspaceSearchWorkspace', () => {
       target: { value: 'needle' },
     })
 
-    expect(screen.getByText('Needle query')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open Needle query' })).toBeInTheDocument()
     expect(screen.getByText(/matches in 1 item/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Needle query' }))
@@ -44,13 +61,13 @@ describe('WorkspaceSearchWorkspace', () => {
     const input = screen.getByLabelText('Search workspace')
 
     fireEvent.change(input, { target: { value: 'needle' } })
-    expect(screen.getByText('Needle query')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open Needle query' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('Match case'))
     expect(screen.getByText('No results')).toBeInTheDocument()
 
     fireEvent.change(input, { target: { value: 'Needle' } })
-    expect(screen.getByText('Needle query')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open Needle query' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('Match whole word'))
     expect(within(screen.getByRole('button', { name: 'Open Needle query' })).getByText('2')).toBeInTheDocument()

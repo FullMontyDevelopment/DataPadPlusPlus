@@ -21,15 +21,18 @@ pub(super) fn string_set(values: &[String]) -> HashSet<String> {
 }
 
 pub(super) fn redacted_connection_summary(
+    snapshot: &WorkspaceSnapshot,
     connection: &ConnectionProfile,
     allowed_environment_ids: &HashSet<String>,
 ) -> Value {
-    let environment_ids = connection
-        .environment_ids
-        .iter()
-        .filter(|id| allowed_environment_ids.contains(*id))
-        .cloned()
-        .collect::<Vec<_>>();
+    let mut environment_ids = effective_connection_environment_ids(
+        connection,
+        &snapshot.library_nodes,
+    )
+    .into_iter()
+    .filter(|id| allowed_environment_ids.contains(id))
+    .collect::<Vec<_>>();
+    environment_ids.sort();
     json!({
         "id": connection.id,
         "connectionId": connection.id,
@@ -93,6 +96,7 @@ pub(super) fn redacted_environment_summary(environment: &EnvironmentProfile) -> 
 }
 
 pub(super) fn ensure_allowed_target(
+    snapshot: &WorkspaceSnapshot,
     config: &DatastoreMcpServerConfig,
     connection_id: &str,
     environment_id: &str,
@@ -103,10 +107,38 @@ pub(super) fn ensure_allowed_target(
             Some(json!({ "connectionId": connection_id })),
         ));
     }
-    if !config.environment_ids.iter().any(|id| id == environment_id) {
+    if environment_id.is_empty() {
+        if !config.allow_no_environment {
+            return Err(McpError::invalid_params(
+                "This MCP server has not enabled the No environment context.",
+                None,
+            ));
+        }
+    } else if !config.environment_ids.iter().any(|id| id == environment_id) {
         return Err(McpError::invalid_params(
             "This MCP server has not allowlisted the requested environment.",
             Some(json!({ "environmentId": environment_id })),
+        ));
+    }
+    let connection = snapshot
+        .connections
+        .iter()
+        .find(|connection| connection.id == connection_id)
+        .ok_or_else(|| McpError::invalid_params("The requested datastore was not found.", None))?;
+    let assigned_environment_ids =
+        effective_connection_environment_ids(connection, &snapshot.library_nodes);
+    let assigned = if environment_id.is_empty() {
+        assigned_environment_ids.is_empty()
+    } else {
+        assigned_environment_ids.contains(environment_id)
+    };
+    if !assigned {
+        return Err(McpError::invalid_params(
+            "The requested datastore is not assigned to this workspace context.",
+            Some(json!({
+                "connectionId": connection_id,
+                "environmentId": environment_id
+            })),
         ));
     }
     Ok(())
@@ -275,8 +307,16 @@ pub(super) fn workspace_summary_for_snapshot(
         .iter()
         .filter(|environment| allowed_environment_ids.contains(&environment.id))
         .count();
-    let active_allowed = allowed_connection_ids.contains(&snapshot.ui.active_connection_id)
-        && allowed_environment_ids.contains(&snapshot.ui.active_environment_id);
+    let active_allowed = snapshot
+        .connections
+        .iter()
+        .find(|connection| connection.id == snapshot.ui.active_connection_id)
+        .is_some_and(|connection| {
+            allowed_connection_ids.contains(&connection.id)
+                && allowed_environment_ids.contains(&snapshot.ui.active_environment_id)
+                && effective_connection_environment_ids(connection, &snapshot.library_nodes)
+                    .contains(&snapshot.ui.active_environment_id)
+        });
     let active = active_allowed.then(|| {
         json!({
             "connectionId": snapshot.ui.active_connection_id,

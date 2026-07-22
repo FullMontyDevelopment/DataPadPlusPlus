@@ -39,6 +39,7 @@ type QueryTabActions = Pick<
   | 'moveLibraryNode'
   | 'setLibraryNodeEnvironment'
   | 'deleteLibraryNode'
+  | 'duplicateLibraryNode'
   | 'openLibraryItem'
   | 'saveQueryTabToLibrary'
   | 'saveQueryTabToLocalFile'
@@ -551,6 +552,18 @@ export function useQueryTabActions({
     [applyPayload, handleError, state.payload],
   )
 
+  const duplicateLibraryNode = useCallback<Actions['duplicateLibraryNode']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.duplicateLibraryNode(request))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
   const openLibraryItem = useCallback<Actions['openLibraryItem']>(
     async (libraryItemId) => {
       try {
@@ -643,6 +656,7 @@ export function useQueryTabActions({
       moveLibraryNode,
       setLibraryNodeEnvironment,
       deleteLibraryNode,
+      duplicateLibraryNode,
       openLibraryItem,
       saveQueryTabToLibrary,
       saveQueryTabToLocalFile,
@@ -665,6 +679,7 @@ export function useQueryTabActions({
       createScopedTab,
       createTab,
       deleteLibraryNode,
+      duplicateLibraryNode,
       deleteSavedWork,
       moveLibraryNode,
       openLibraryItem,

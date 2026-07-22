@@ -109,6 +109,7 @@ export interface DatastoreApiServerConfig {
   host: '127.0.0.1'
   port: number
   autoStart: boolean
+  requestTimeoutMs?: number
   protocol?: DatastoreApiServerProtocol
   basePath?: string
   connectionId?: string
@@ -151,9 +152,11 @@ export interface DatastoreMcpServerConfig {
   host: '127.0.0.1'
   port: number
   autoStart: boolean
+  requestTimeoutMs?: number
   allowedOrigins: string[]
   connectionIds: string[]
   environmentIds: string[]
+  allowNoEnvironment?: boolean
   tokens: DatastoreMcpServerTokenConfig[]
 }
 

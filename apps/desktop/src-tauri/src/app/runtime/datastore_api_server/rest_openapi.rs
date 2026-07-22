@@ -37,7 +37,7 @@ async fn openapi_document(
     Ok(json!({
         "openapi": "3.1.0",
         "info": {
-            "title": "DataPad++ Experimental Datastore API",
+            "title": "DataPad++ Datastore API",
             "version": "0.1.0",
             "description": "Local-only CRUD API for the selected DataPad++ datastore and environment."
         },

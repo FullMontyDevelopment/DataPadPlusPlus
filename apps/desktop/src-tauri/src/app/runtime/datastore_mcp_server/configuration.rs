@@ -84,7 +84,6 @@ const DEFAULT_LOG_LIMIT: usize = 100;
 const MAX_LOG_LIMIT: usize = 500;
 const DEFAULT_QUERY_ROW_LIMIT: u32 = 100;
 const MAX_QUERY_ROW_LIMIT: u32 = 500;
-const QUERY_TIMEOUT_SECONDS: u64 = 30;
 const RATE_LIMIT_WINDOW_SECONDS: u64 = 60;
 const RATE_LIMIT_REQUESTS: u32 = 120;
 
@@ -176,6 +175,7 @@ pub fn update_settings(
     if let Some(port) = request.port {
         validate_port(port)?;
     }
+    validate_request_timeout(request.request_timeout_ms)?;
     if let Some(connection_ids) = &request.connection_ids {
         validate_connection_ids(runtime, connection_ids)?;
     }
@@ -183,6 +183,8 @@ pub fn update_settings(
         validate_environment_ids(runtime, environment_ids)?;
     }
 
+    let connections = runtime.snapshot.connections.clone();
+    let library_nodes = runtime.snapshot.library_nodes.clone();
     let preferences = &mut runtime.snapshot.preferences.datastore_mcp_server;
     preferences.servers = normalized_servers(preferences);
     preferences.enabled = request.enabled;
@@ -204,9 +206,11 @@ pub fn update_settings(
         || request.description.is_some()
         || request.port.is_some()
         || request.auto_start.is_some()
+        || request.request_timeout_ms.is_some()
         || request.allowed_origins.is_some()
         || request.connection_ids.is_some()
-        || request.environment_ids.is_some();
+        || request.environment_ids.is_some()
+        || request.allow_no_environment.is_some();
 
     if !updates_server {
         sync_legacy_preferences_from_active(preferences);
@@ -244,6 +248,7 @@ pub fn update_settings(
             host: MCP_HOST.into(),
             port: request.port.unwrap_or(DEFAULT_MCP_PORT),
             auto_start: request.auto_start.unwrap_or(false),
+            request_timeout_ms: normalize_request_timeout(request.request_timeout_ms),
             allowed_origins: normalize_string_list(
                 request.allowed_origins.clone().unwrap_or_default(),
             ),
@@ -253,6 +258,7 @@ pub fn update_settings(
             environment_ids: normalize_string_list(
                 request.environment_ids.clone().unwrap_or_default(),
             ),
+            allow_no_environment: request.allow_no_environment.unwrap_or(false),
             tokens: Vec::new(),
         });
         preferences.servers.len() - 1
@@ -275,6 +281,9 @@ pub fn update_settings(
     if let Some(auto_start) = request.auto_start {
         server.auto_start = auto_start;
     }
+    if request.request_timeout_ms.is_some() {
+        server.request_timeout_ms = normalize_request_timeout(request.request_timeout_ms);
+    }
     if let Some(allowed_origins) = request.allowed_origins {
         server.allowed_origins = normalize_string_list(allowed_origins);
     }
@@ -284,6 +293,10 @@ pub fn update_settings(
     if let Some(environment_ids) = request.environment_ids {
         server.environment_ids = normalize_string_list(environment_ids);
     }
+    if let Some(allow_no_environment) = request.allow_no_environment {
+        server.allow_no_environment = allow_no_environment;
+    }
+    normalize_effective_access(server, &connections, &library_nodes);
     preferences.active_server_id = Some(server.id.clone());
     sync_legacy_preferences_from_active(preferences);
     runtime.snapshot.updated_at = timestamp_now();
@@ -299,16 +312,19 @@ pub fn create_server_config(
     if let Some(port) = request.port {
         validate_port(port)?;
     }
+    validate_request_timeout(request.request_timeout_ms)?;
     validate_connection_ids(runtime, &request.connection_ids)?;
     validate_environment_ids(runtime, &request.environment_ids)?;
 
+    let connections = runtime.snapshot.connections.clone();
+    let library_nodes = runtime.snapshot.library_nodes.clone();
     let preferences = &mut runtime.snapshot.preferences.datastore_mcp_server;
     preferences.servers = normalized_servers(preferences);
     let port = request
         .port
         .unwrap_or_else(|| next_available_port(&preferences.servers));
     let server_id = generate_id("mcp-server");
-    preferences.servers.push(DatastoreMcpServerConfig {
+    let mut server = DatastoreMcpServerConfig {
         id: server_id.clone(),
         name: request
             .name
@@ -322,11 +338,15 @@ pub fn create_server_config(
         host: MCP_HOST.into(),
         port,
         auto_start: request.auto_start.unwrap_or(false),
+        request_timeout_ms: normalize_request_timeout(request.request_timeout_ms),
         allowed_origins: normalize_string_list(request.allowed_origins),
         connection_ids: normalize_string_list(request.connection_ids),
         environment_ids: normalize_string_list(request.environment_ids),
+        allow_no_environment: request.allow_no_environment.unwrap_or(false),
         tokens: Vec::new(),
-    });
+    };
+    normalize_effective_access(&mut server, &connections, &library_nodes);
+    preferences.servers.push(server);
     preferences.active_server_id = Some(server_id);
     sync_legacy_preferences_from_active(preferences);
     runtime.snapshot.updated_at = timestamp_now();
@@ -343,6 +363,7 @@ pub fn update_server_config(
     if let Some(port) = request.port {
         validate_port(port)?;
     }
+    validate_request_timeout(request.request_timeout_ms)?;
     if let Some(connection_ids) = &request.connection_ids {
         validate_connection_ids(runtime, connection_ids)?;
     }
@@ -350,6 +371,8 @@ pub fn update_server_config(
         validate_environment_ids(runtime, environment_ids)?;
     }
 
+    let connections = runtime.snapshot.connections.clone();
+    let library_nodes = runtime.snapshot.library_nodes.clone();
     let preferences = &mut runtime.snapshot.preferences.datastore_mcp_server;
     preferences.servers = normalized_servers(preferences);
     let server = preferences
@@ -378,6 +401,9 @@ pub fn update_server_config(
     if let Some(auto_start) = request.auto_start {
         server.auto_start = auto_start;
     }
+    if request.request_timeout_ms.is_some() {
+        server.request_timeout_ms = normalize_request_timeout(request.request_timeout_ms);
+    }
     if let Some(allowed_origins) = request.allowed_origins {
         server.allowed_origins = normalize_string_list(allowed_origins);
     }
@@ -387,6 +413,10 @@ pub fn update_server_config(
     if let Some(environment_ids) = request.environment_ids {
         server.environment_ids = normalize_string_list(environment_ids);
     }
+    if let Some(allow_no_environment) = request.allow_no_environment {
+        server.allow_no_environment = allow_no_environment;
+    }
+    normalize_effective_access(server, &connections, &library_nodes);
     let updated_server = server.clone();
     preferences.active_server_id = Some(updated_server.id.clone());
     sync_legacy_preferences_from_active(preferences);
@@ -408,7 +438,7 @@ pub fn start_server(
     if !runtime.snapshot.preferences.datastore_mcp_server.enabled {
         return Err(CommandError::new(
             "mcp-server-disabled",
-            "Turn on the experimental MCP server in Settings before starting it.",
+            "Turn on the MCP server in Settings before starting it.",
         ));
     }
     let normalized = normalized_servers(&runtime.snapshot.preferences.datastore_mcp_server);
@@ -457,9 +487,11 @@ pub fn start_server(
             host: MCP_HOST.into(),
             port,
             auto_start: false,
+            request_timeout_ms: None,
             allowed_origins: Vec::new(),
             connection_ids: Vec::new(),
             environment_ids: Vec::new(),
+            allow_no_environment: false,
             tokens: Vec::new(),
         });
     }
@@ -636,22 +668,32 @@ pub fn auto_start_if_configured(
         return Ok(None);
     }
 
-    let mut started = None;
-    for server in preferences.servers {
-        if !server.auto_start {
-            continue;
-        }
-        started = start_server(
-            app.clone(),
-            manager,
-            runtime,
-            DatastoreMcpServerStartRequest {
-                server_id: Some(server.id),
-                port: Some(server.port),
-            },
-        )
-        .map(Some)?;
+    let Some(server) = active_server(&preferences) else {
+        return Ok(None);
+    };
+    if !server.auto_start {
+        return Ok(None);
     }
-    Ok(started)
+    start_server(
+        app,
+        manager,
+        runtime,
+        DatastoreMcpServerStartRequest {
+            server_id: Some(server.id),
+            port: Some(server.port),
+        },
+    )
+    .map(Some)
+}
+
+pub fn hot_reload_active_config(
+    manager: &SharedDatastoreMcpServer,
+    preferences: &DatastoreMcpServerPreferences,
+) -> Result<(), CommandError> {
+    let Some(server) = active_server(preferences) else {
+        return Ok(());
+    };
+    let mut manager = manager.lock().map_err(|_| state_error())?;
+    manager.hot_reload_config(server)
 }
 

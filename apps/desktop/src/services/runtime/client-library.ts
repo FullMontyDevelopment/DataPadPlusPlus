@@ -2,6 +2,7 @@ import type {
   BootstrapPayload,
   LibraryCreateFolderRequest,
   LibraryDeleteNodeRequest,
+  LibraryDuplicateNodeRequest,
   LibraryMoveNodeRequest,
   LibraryRenameNodeRequest,
   LibrarySetEnvironmentRequest,
@@ -11,6 +12,7 @@ import type {
 import {
   createLibraryFolder,
   deleteLibraryNode,
+  duplicateLibraryNode,
   moveLibraryNode,
   openLibraryItem,
   renameLibraryNode,
@@ -23,6 +25,7 @@ import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
 import {
   validateCreateLibraryFolderRequest,
   validateDeleteLibraryNodeRequest,
+  validateDuplicateLibraryNodeRequest,
   validateMoveLibraryNodeRequest,
   validateRenameLibraryNodeRequest,
   validateRequiredTabId,
@@ -86,6 +89,17 @@ export const clientLibrary = {
     }
 
     const snapshot = deleteLibraryNode(loadBrowserSnapshot(), request)
+    saveBrowserSnapshot(snapshot)
+    return buildBrowserPayload(snapshot)
+  },
+
+  async duplicateLibraryNode(request: LibraryDuplicateNodeRequest): Promise<BootstrapPayload> {
+    request = validateDuplicateLibraryNodeRequest(request)
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('duplicate_library_node', { request })
+    }
+
+    const snapshot = duplicateLibraryNode(loadBrowserSnapshot(), request)
     saveBrowserSnapshot(snapshot)
     return buildBrowserPayload(snapshot)
   },

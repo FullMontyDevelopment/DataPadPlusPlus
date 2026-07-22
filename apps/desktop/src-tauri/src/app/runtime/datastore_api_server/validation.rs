@@ -4,9 +4,24 @@ fn validate_local_host(host: &str) -> Result<(), CommandError> {
     } else {
         Err(CommandError::new(
             "api-server-host-invalid",
-            "The experimental API server only supports 127.0.0.1.",
+            "The API server only supports 127.0.0.1.",
         ))
     }
+}
+
+fn validate_request_timeout(timeout_ms: Option<u64>) -> Result<(), CommandError> {
+    if timeout_ms.is_none_or(|value| value == 0 || (1_000..=86_400_000).contains(&value)) {
+        Ok(())
+    } else {
+        Err(CommandError::new(
+            "api-server-timeout-invalid",
+            "Request timeout must be unlimited or between 1 and 86,400 seconds.",
+        ))
+    }
+}
+
+fn normalize_request_timeout(timeout_ms: Option<u64>) -> Option<u64> {
+    timeout_ms.filter(|value| *value > 0)
 }
 
 fn validate_port(port: u16) -> Result<(), CommandError> {

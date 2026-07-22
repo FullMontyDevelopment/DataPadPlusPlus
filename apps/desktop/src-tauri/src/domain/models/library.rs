@@ -74,6 +74,12 @@ pub struct LibraryDeleteNodeRequest {
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct LibraryDuplicateNodeRequest {
+    pub node_id: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct LibraryMoveNodeRequest {
     pub node_id: String,
     pub parent_id: Option<String>,

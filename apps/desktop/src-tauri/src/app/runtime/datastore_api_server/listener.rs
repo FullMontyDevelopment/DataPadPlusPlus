@@ -303,7 +303,22 @@ async fn handle_stream(
     let response = match parse_http_request(&buffer) {
         Ok(request) => {
             let context = telemetry_context_for_request(&request, buffer.len());
-            let response = handle_request(request, Arc::clone(&state)).await;
+            let timeout_ms = current_server_config(&state)
+                .ok()
+                .and_then(|config| config.request_timeout_ms);
+            let response = if let Some(timeout_ms) = timeout_ms {
+                match tokio::time::timeout(
+                    Duration::from_millis(timeout_ms),
+                    handle_request(request, Arc::clone(&state)),
+                )
+                .await
+                {
+                    Ok(response) => response,
+                    Err(_) => request_timeout_response(&state),
+                }
+            } else {
+                handle_request(request, Arc::clone(&state)).await
+            };
             if should_record_telemetry(&context.path) {
                 record_telemetry(
                     &state,
@@ -331,6 +346,30 @@ async fn handle_stream(
         }
     };
     write_response(&mut stream, response).await
+}
+
+fn request_timeout_response(state: &ApiServerRuntime) -> HttpResponse {
+    let protocol = current_server_config(state)
+        .map(|config| config.protocol)
+        .unwrap_or_else(|_| "rest".into());
+    let message = "The API request exceeded the configured request timeout.";
+    let mut response = match protocol.as_str() {
+        "graphql" => json_response(
+            504,
+            json!({
+                "data": Value::Null,
+                "errors": [{ "message": message, "extensions": { "code": "TIMEOUT" } }]
+            }),
+        ),
+        "grpc" => json_response(
+            504,
+            json!({ "error": { "code": "DEADLINE_EXCEEDED", "message": message } }),
+        ),
+        _ => http_error(504, "api-request-timeout", message),
+    };
+    response.error_code = Some("api-request-timeout".into());
+    response.error_message = Some(message.into());
+    response
 }
 
 async fn handle_request(request: HttpRequest, state: Arc<ApiServerRuntime>) -> HttpResponse {

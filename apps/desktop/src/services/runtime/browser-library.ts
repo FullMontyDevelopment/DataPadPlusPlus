@@ -1,6 +1,7 @@
 import type {
   LibraryCreateFolderRequest,
   LibraryDeleteNodeRequest,
+  LibraryDuplicateNodeRequest,
   LibraryMoveNodeRequest,
   LibraryNode,
   LibraryRenameNodeRequest,
@@ -138,6 +139,48 @@ export function deleteLibraryNode(
   })
   next.updatedAt = new Date().toISOString()
   return next
+}
+
+export function duplicateLibraryNode(
+  snapshot: WorkspaceSnapshot,
+  request: LibraryDuplicateNodeRequest,
+) {
+  const next = cloneSnapshot(snapshot)
+  const source = next.libraryNodes.find((node) => node.id === request.nodeId)
+  if (!source) {
+    throw new Error('Library item was not found.')
+  }
+  if (source.kind !== 'query' && source.kind !== 'script') {
+    throw new Error('Only Library queries and scripts can be duplicated.')
+  }
+  const timestamp = new Date().toISOString()
+  next.libraryNodes.push({
+    ...source,
+    id: createId('library-item'),
+    name: nextLibraryCopyName(next.libraryNodes, source),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    lastOpenedAt: undefined,
+    snapshotResultId: undefined,
+  })
+  next.updatedAt = timestamp
+  return next
+}
+
+function nextLibraryCopyName(nodes: LibraryNode[], source: LibraryNode) {
+  const siblingNames = new Set(
+    nodes.filter((node) => node.parentId === source.parentId).map((node) => node.name),
+  )
+  const base = `Copy of ${source.name}`
+  if (!siblingNames.has(base)) {
+    return base
+  }
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${base} (${suffix})`
+    if (!siblingNames.has(candidate)) {
+      return candidate
+    }
+  }
 }
 
 export function saveQueryTabToLibrary(

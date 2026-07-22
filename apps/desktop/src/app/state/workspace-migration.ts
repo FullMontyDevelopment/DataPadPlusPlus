@@ -17,7 +17,10 @@ import { sanitizeEnvironmentProfile } from './environment-variables'
 import { migrateLegacyVariableTokens } from './workspace-variable-migration'
 import { stripDemoRecords } from './workspace-migration-demo'
 import { normalizeDatastoreApiServerPreferences } from './workspace-migration/api-server'
-import { normalizeDatastoreMcpServerPreferences } from './workspace-migration/mcp-server'
+import {
+  normalizeDatastoreMcpServerPreferences,
+  normalizeMcpEffectiveAccess,
+} from './workspace-migration/mcp-server'
 import {
   normalizeDatastoreSecurityCheckSnapshot,
   normalizeDatastoreSecurityChecksPreferences,
@@ -257,6 +260,11 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   migrateLegacyVariableTokens(next)
   migrateConnectionModes(next.connections)
   next.preferences = normalizePreferences(next.preferences)
+  normalizeMcpEffectiveAccess(
+    next.preferences.datastoreMcpServer,
+    next.connections,
+    next.libraryNodes,
+  )
   next.datastoreSecurityChecks = normalizeDatastoreSecurityCheckSnapshot(
     next.datastoreSecurityChecks,
   )

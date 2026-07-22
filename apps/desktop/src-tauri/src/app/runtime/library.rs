@@ -16,7 +16,7 @@ use crate::domain::{
     error::CommandError,
     models::{
         BootstrapPayload, LibraryCreateFolderRequest, LibraryDeleteNodeRequest,
-        LibraryMoveNodeRequest, LibraryNode, LibraryRenameNodeRequest,
+        LibraryDuplicateNodeRequest, LibraryMoveNodeRequest, LibraryNode, LibraryRenameNodeRequest,
         LibrarySetEnvironmentRequest, QuerySaveTarget, QueryTabState, SaveQueryTabToLibraryRequest,
         SaveQueryTabToLocalFileRequest, SavedWorkItem, WorkspaceSnapshot,
     },
@@ -535,6 +535,43 @@ impl ManagedAppState {
         Ok(self.bootstrap_payload())
     }
 
+    pub fn duplicate_library_node(
+        &mut self,
+        request: LibraryDuplicateNodeRequest,
+    ) -> Result<BootstrapPayload, CommandError> {
+        self.ensure_unlocked()?;
+        validate_library_id(&request.node_id, "Library node id")?;
+        let source = self
+            .snapshot
+            .library_nodes
+            .iter()
+            .find(|node| node.id == request.node_id)
+            .cloned()
+            .ok_or_else(|| {
+                CommandError::new("library-node-missing", "Library item was not found.")
+            })?;
+        if !matches!(source.kind.as_str(), "query" | "script") {
+            return Err(CommandError::new(
+                "library-duplicate-unsupported",
+                "Only Library queries and scripts can be duplicated.",
+            ));
+        }
+        let name = next_library_copy_name(&self.snapshot.library_nodes, &source);
+        let timestamp = timestamp_now();
+        self.snapshot.library_nodes.push(LibraryNode {
+            id: generate_id("library-item"),
+            name,
+            created_at: timestamp.clone(),
+            updated_at: timestamp.clone(),
+            last_opened_at: None,
+            snapshot_result_id: None,
+            ..source
+        });
+        self.snapshot.updated_at = timestamp;
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+
     pub fn move_library_node(
         &mut self,
         request: LibraryMoveNodeRequest,
@@ -902,6 +939,25 @@ impl ManagedAppState {
     fn effective_library_environment_id(&self, node_id: &str) -> Option<String> {
         effective_library_environment_id_for_nodes(&self.snapshot.library_nodes, node_id)
     }
+}
+
+fn next_library_copy_name(nodes: &[LibraryNode], source: &LibraryNode) -> String {
+    let base = format!("Copy of {}", source.name);
+    let sibling_names = nodes
+        .iter()
+        .filter(|node| node.parent_id == source.parent_id)
+        .map(|node| node.name.as_str())
+        .collect::<HashSet<_>>();
+    if !sibling_names.contains(base.as_str()) {
+        return base;
+    }
+    for suffix in 2.. {
+        let candidate = format!("{base} ({suffix})");
+        if !sibling_names.contains(candidate.as_str()) {
+            return candidate;
+        }
+    }
+    unreachable!()
 }
 
 fn validate_local_save_path(path: &Path) -> Result<(), CommandError> {

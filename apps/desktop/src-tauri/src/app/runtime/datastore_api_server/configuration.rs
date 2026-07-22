@@ -3,7 +3,7 @@ use std::{
     io::{Cursor, Write},
     net::SocketAddr,
     sync::{Arc, Mutex},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use serde::Serialize;
@@ -274,6 +274,7 @@ fn normalized_servers(
             host: API_HOST.into(),
             port: preferences.port,
             auto_start: preferences.auto_start,
+            request_timeout_ms: None,
             protocol: "rest".into(),
             base_path: String::new(),
             connection_id: preferences.connection_id.clone(),
@@ -295,6 +296,7 @@ fn normalized_servers(
         }
         server.protocol = normalize_protocol(&server.protocol);
         server.base_path = normalize_base_path(&server.base_path);
+        server.request_timeout_ms = normalize_request_timeout(server.request_timeout_ms);
         server.resources = normalize_resource_configs(server.resources.clone());
         server.custom_endpoints =
             normalize_custom_endpoint_configs(server.custom_endpoints.clone(), &server.resources);
@@ -364,6 +366,7 @@ pub fn update_settings(
     if let Some(port) = request.port {
         validate_port(port)?;
     }
+    validate_request_timeout(request.request_timeout_ms)?;
     if let Some(connection_id) = request.connection_id.as_deref() {
         if !connection_id.is_empty() {
             runtime.connection_by_id(connection_id)?;
@@ -389,6 +392,7 @@ pub fn update_settings(
         || request.description.is_some()
         || request.port.is_some()
         || request.auto_start.is_some()
+        || request.request_timeout_ms.is_some()
         || request.protocol.is_some()
         || request.base_path.is_some()
         || request.connection_id.is_some()
@@ -431,6 +435,7 @@ pub fn update_settings(
             host: API_HOST.into(),
             port: request.port.unwrap_or(17640),
             auto_start: request.auto_start.unwrap_or(false),
+            request_timeout_ms: normalize_request_timeout(request.request_timeout_ms),
             protocol: request
                 .protocol
                 .as_deref()
@@ -469,6 +474,9 @@ pub fn update_settings(
     }
     if let Some(auto_start) = request.auto_start {
         server.auto_start = auto_start;
+    }
+    if request.request_timeout_ms.is_some() {
+        server.request_timeout_ms = normalize_request_timeout(request.request_timeout_ms);
     }
     if request.description.is_some() {
         server.description = request
@@ -520,6 +528,7 @@ pub fn create_server_config(
     if let Some(port) = request.port {
         validate_port(port)?;
     }
+    validate_request_timeout(request.request_timeout_ms)?;
 
     let preferences = &mut runtime.snapshot.preferences.datastore_api_server;
     preferences.servers = normalized_servers(preferences);
@@ -544,6 +553,7 @@ pub fn create_server_config(
         host: API_HOST.into(),
         port,
         auto_start: request.auto_start.unwrap_or(false),
+        request_timeout_ms: normalize_request_timeout(request.request_timeout_ms),
         protocol: request
             .protocol
             .as_deref()
@@ -575,6 +585,7 @@ pub fn update_server_config(
     if let Some(port) = request.port {
         validate_port(port)?;
     }
+    validate_request_timeout(request.request_timeout_ms)?;
     if let Some(connection_id) = request.connection_id.as_deref() {
         if !connection_id.is_empty() {
             runtime.connection_by_id(connection_id)?;
@@ -612,6 +623,9 @@ pub fn update_server_config(
     }
     if let Some(auto_start) = request.auto_start {
         server.auto_start = auto_start;
+    }
+    if request.request_timeout_ms.is_some() {
+        server.request_timeout_ms = normalize_request_timeout(request.request_timeout_ms);
     }
     if let Some(protocol) = request.protocol {
         server.protocol = normalize_protocol(&protocol);
@@ -1406,7 +1420,7 @@ pub fn start_server(
     if !runtime.snapshot.preferences.datastore_api_server.enabled {
         return Err(CommandError::new(
             "api-server-disabled",
-            "Turn on the experimental API server in Settings before starting it.",
+            "Turn on the API server in Settings before starting it.",
         ));
     }
     let normalized = normalized_servers(&runtime.snapshot.preferences.datastore_api_server);
@@ -1487,6 +1501,7 @@ pub fn start_server(
             host: API_HOST.into(),
             port,
             auto_start: false,
+            request_timeout_ms: None,
             protocol: "rest".into(),
             base_path: String::new(),
             connection_id: Some(connection_id.clone()),

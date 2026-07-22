@@ -27,25 +27,13 @@ export function resolveEnvironment(
     }
   }
 
-  const fallback =
-    environments[0] ??
-    ({
-      id: 'environment-missing',
-      label: 'Missing environment',
-      color: '#000000',
-      risk: 'low',
-      variables: {},
-      sensitiveKeys: [],
-      variableDefinitions: [],
-      requiresConfirmation: false,
-      safeMode: false,
-      exportable: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    } satisfies EnvironmentProfile)
   const environmentMap = new Map(
     environments.map((environment) => [environment.id, environment]),
   )
+  const requestedEnvironment = environmentMap.get(environmentId)
+  if (!requestedEnvironment) {
+    throw new Error(`Environment '${environmentId}' was not found.`)
+  }
   const resolvedChain: EnvironmentProfile[] = []
   const visited = new Set<string>()
   let current = environmentMap.get(environmentId)
@@ -58,7 +46,7 @@ export function resolveEnvironment(
       : undefined
   }
 
-  const activeEnvironment = environmentMap.get(environmentId) ?? fallback
+  const activeEnvironment = requestedEnvironment
   const inheritedChain: string[] = []
 
   for (const environment of resolvedChain) {

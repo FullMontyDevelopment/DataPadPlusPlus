@@ -57,6 +57,10 @@ import { useQueryIntellisenseCatalog } from './components/workbench/intellisense
 import { SavedWorkIcon } from './components/workbench/icons'
 import { resolveActiveLibraryNodeId } from './components/workbench/SideBar.library-tree-helpers'
 import { AppStateProvider, useAppState } from './state/app-state'
+import {
+  ApiServerCreateWizard,
+  type ApiServerWizardInitialState,
+} from './components/workbench/ApiServerCreateWizard'
 import type { Actions } from './state/app-state-types'
 import {
   explorerCacheKey,
@@ -169,6 +173,21 @@ const TestSuiteWorkspace = lazy(() =>
   })),
 )
 
+const NO_ENVIRONMENT_PROFILE = {
+  id: '',
+  label: 'No environment',
+  color: '#6b7280',
+  risk: 'low',
+  variables: {},
+  sensitiveKeys: [],
+  variableDefinitions: [],
+  requiresConfirmation: false,
+  safeMode: false,
+  exportable: true,
+  createdAt: '1970-01-01T00:00:00.000Z',
+  updatedAt: '1970-01-01T00:00:00.000Z',
+} satisfies EnvironmentProfile
+
 const EMPTY_STRING_ARRAY: string[] = []
 
 export function App() {
@@ -248,6 +267,7 @@ function DesktopWorkspace() {
   const [guideFolderDialogCloseRequestRevision, setGuideFolderDialogCloseRequestRevision] = useState(0)
   const [connectionDraft, setConnectionDraft] = useState<ConnectionProfile | undefined>()
   const [connectionDraftParentId, setConnectionDraftParentId] = useState<string | undefined>()
+  const [apiServerWizard, setApiServerWizard] = useState<ApiServerWizardInitialState>()
   const [environmentDrafts, setEnvironmentDrafts] = useState<
     Record<string, EnvironmentProfile>
   >({})
@@ -378,9 +398,10 @@ function DesktopWorkspace() {
   const activeTabIsMcpServer = activeTab?.tabKind === 'mcp-server'
   const activeTabIsWorkspaceSearch = activeTab?.tabKind === 'workspace-search'
   const activeTabIsSecurityChecks = activeTab?.tabKind === 'security-checks'
-  const activeEnvironment =
-    snapshot?.environments.find((item) => item.id === snapshot.ui.activeEnvironmentId) ??
-    snapshot?.environments[0]
+  const selectedActiveEnvironmentId = activeTab?.environmentId ?? snapshot?.ui.activeEnvironmentId ?? ''
+  const activeEnvironment = selectedActiveEnvironmentId
+    ? snapshot?.environments.find((item) => item.id === selectedActiveEnvironmentId)
+    : NO_ENVIRONMENT_PROFILE
   const apiServerPreferences = snapshot?.preferences.datastoreApiServer
   const apiServerPreferenceKey = useMemo(
     () =>
@@ -610,16 +631,6 @@ function DesktopWorkspace() {
   const getMcpServerStatus = useCallback(
     async () => refreshMcpServerStatus(),
     [refreshMcpServerStatus],
-  )
-  const updateMcpServerSettings = useCallback(
-    async (request: Parameters<Actions['updateDatastoreMcpServerSettings']>[0]) => {
-      const updated = await actions.updateDatastoreMcpServerSettings(request)
-      if (updated) {
-        await refreshMcpServerStatus()
-      }
-      return updated
-    },
-    [actions, refreshMcpServerStatus],
   )
   const startMcpServer = useCallback(
     async (request: Parameters<Actions['startDatastoreMcpServer']>[0]) => {
@@ -2473,27 +2484,13 @@ function DesktopWorkspace() {
     const resource = apiServerResourceFromExplorerNode(node)
     const name = resource ? `${resource.label} API` : `${node.label} API`
 
-    if (!environmentId) {
-      void actions.createApiServerTab()
-      return
-    }
-
-    void (async () => {
-      const created = await actions.createDatastoreApiServer({
-        connectionId,
-        environmentId,
-        name,
-        description: resource ? `CRUD API for ${resource.label}.` : undefined,
-        protocol: 'rest',
-        resources: resource ? [resource] : [],
-      })
-      let serverId: string | undefined
-      if (created) {
-        const nextStatus = await refreshApiServerStatus()
-        serverId = nextStatus?.activeServerId ?? nextStatus?.serverId
-      }
-      await actions.createApiServerTab(serverId)
-    })()
+    setApiServerWizard({
+      connectionId,
+      environmentId,
+      name,
+      description: resource ? `CRUD API for ${resource.label}.` : undefined,
+      resource,
+    })
   }
 
   const createApiServerFromSidebar = () => {
@@ -2505,20 +2502,7 @@ function DesktopWorkspace() {
         : undefined) ??
       snapshot.environments[0]?.id
 
-    void (async () => {
-      const created = await actions.createDatastoreApiServer({
-        connectionId,
-        environmentId,
-        protocol: 'rest',
-        resources: [],
-      })
-      let serverId: string | undefined
-      if (created) {
-        const nextStatus = await refreshApiServerStatus()
-        serverId = nextStatus?.activeServerId ?? nextStatus?.serverId
-      }
-      await actions.createApiServerTab(serverId)
-    })()
+    setApiServerWizard({ connectionId, environmentId })
   }
 
   const addNodeToApiServer = (connectionId: string, node: ExplorerNode) => {
@@ -2895,6 +2879,9 @@ function DesktopWorkspace() {
               onDuplicateConnection={(connectionId) =>
                 void actions.duplicateConnection(connectionId)
               }
+              onDuplicateLibraryNode={(nodeId) =>
+                void actions.duplicateLibraryNode({ nodeId })
+              }
               onDeleteConnection={requestDeleteConnection}
               onOpenConnectionExplorer={openConnectionExplorer}
               onOpenConnectionMetrics={openConnectionMetrics}
@@ -3103,15 +3090,13 @@ function DesktopWorkspace() {
                     serverId={activeMcpServerId}
                     connections={snapshot.connections}
                     environments={snapshot.environments}
+                    libraryNodes={snapshot.libraryNodes}
                     preferences={snapshot.preferences}
                     onOpenExperimentalSettings={() => openDiagnosticsDrawer('experimental')}
                     onGetStatus={getMcpServerStatus}
                     onGetMetrics={actions.getDatastoreMcpServerMetrics}
                     onGetLogs={actions.getDatastoreMcpServerLogs}
-                    onCreateServer={actions.createDatastoreMcpServer}
-                    onDeleteServer={actions.deleteDatastoreMcpServer}
                     onUpdateServer={actions.updateDatastoreMcpServer}
-                    onUpdateSettings={updateMcpServerSettings}
                     onStart={startMcpServer}
                     onStop={stopMcpServer}
                     onCreateToken={actions.createDatastoreMcpServerToken}
@@ -3170,6 +3155,7 @@ function DesktopWorkspace() {
                       }))
                     }
                     onSaveEnvironment={() => void saveEnvironmentTabDraft(activeTab.id)}
+                    onDeleteEnvironment={requestDeleteEnvironmentProfile}
                   />
                 ) : activeTabIsExplorer ? (
                   <StructureWorkspace
@@ -3616,6 +3602,27 @@ function DesktopWorkspace() {
         ) : null}
       </div>
 
+      {apiServerWizard ? (
+        <ApiServerCreateWizard
+          key={`${apiServerWizard.connectionId ?? 'none'}:${apiServerWizard.resource?.id ?? 'new'}`}
+          connections={snapshot.connections}
+          environments={snapshot.environments}
+          libraryNodes={snapshot.libraryNodes}
+          initial={apiServerWizard}
+          onCancel={() => setApiServerWizard(undefined)}
+          onDiscover={actions.discoverDatastoreApiServerResources}
+          onFinish={async (request) => {
+            const created = await actions.createDatastoreApiServer(request)
+            if (!created) return false
+            const nextStatus = await refreshApiServerStatus()
+            const serverId = nextStatus?.activeServerId ?? nextStatus?.serverId
+            await actions.createApiServerTab(serverId)
+            setApiServerWizard(undefined)
+            return true
+          }}
+        />
+      ) : null}
+
       <FirstInstallGuide
         snapshot={snapshot}
         connectionDraftOpen={Boolean(connectionDraft)}
@@ -3645,9 +3652,6 @@ function DesktopWorkspace() {
       />
 
       <StatusBar
-        activeConnection={activeConnection}
-        activeEnvironment={activeEnvironment}
-        activeTab={activeTab}
         apiServerIndicator={{
           visible: showApiServerStatusIndicator,
           runningCount: runningApiServerCount,
@@ -3729,8 +3733,8 @@ function apiServerInstancesFromPreferences(
       connectionId: server.connectionId,
       environmentId: server.environmentId,
       message: enabled
-        ? 'Experimental datastore API server is stopped.'
-        : 'Experimental datastore API server is disabled.',
+        ? 'Datastore API server is stopped.'
+        : 'Datastore API server is disabled.',
       warnings: enabled ? ['Localhost only.'] : [],
       resources: server.resources ?? [],
       customEndpoints: server.customEndpoints ?? [],
@@ -3756,7 +3760,7 @@ function mcpServerInstancesFromPreferences(
     : hasLegacyServer
       ? [{
         id: preferences?.activeServerId || 'mcp-server-default',
-        name: 'Local MCP Server',
+        name: 'MCP Server',
         host: '127.0.0.1' as const,
         port: preferences?.port ?? 17641,
         autoStart: preferences?.autoStart ?? false,
@@ -3772,15 +3776,15 @@ function mcpServerInstancesFromPreferences(
     const port = clampMcpServerPort(server.port)
     return {
       id: server.id || `mcp-server-${index + 1}`,
-      name: server.name?.trim() || (port === 17641 ? 'Local MCP Server' : `Local MCP Server ${port}`),
+      name: server.name?.trim() || (port === 17641 ? 'MCP Server' : `MCP Server ${port}`),
       description: server.description,
       running: false,
       host: '127.0.0.1',
       port,
       endpoint: enabled ? `http://127.0.0.1:${port}/mcp` : undefined,
       message: enabled
-        ? 'Experimental MCP server is stopped.'
-        : 'Experimental MCP server is disabled.',
+        ? 'MCP server is stopped.'
+        : 'MCP server is disabled.',
       warnings: enabled ? ['Localhost only. Bearer token required.'] : [],
       allowedOrigins: server.allowedOrigins ?? [],
       connectionIds: server.connectionIds ?? [],

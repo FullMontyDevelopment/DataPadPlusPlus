@@ -2,6 +2,7 @@ import type { DocumentNodeChildrenRequest } from '@datapadplusplus/shared-types'
 import {
   assertJsonSize,
   MAX_OBJECT_NAME_LENGTH,
+  validateEnvironmentContextId,
   validateOptionalText,
   validateQueryText,
   validateRequiredId,
@@ -13,7 +14,7 @@ export function validateDocumentNodeChildrenRequest(
 ): DocumentNodeChildrenRequest {
   validateRequiredId(request.tabId, 'Tab id')
   validateRequiredId(request.connectionId, 'Connection id')
-  validateRequiredId(request.environmentId, 'Environment id')
+  validateEnvironmentContextId(request.environmentId)
   validateRequiredText(request.collection, 'Collection name', MAX_OBJECT_NAME_LENGTH)
   validateOptionalText(request.database, 'Database name', MAX_OBJECT_NAME_LENGTH)
   validateDocumentPath(request.path)

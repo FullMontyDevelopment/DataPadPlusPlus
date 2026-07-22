@@ -7,13 +7,10 @@ import type {
   DatastoreMcpClientSetupClientId,
   DatastoreMcpClientSetupPreview,
   DatastoreMcpClientSetupRequest,
-  DatastoreMcpServerCreateRequest,
-  DatastoreMcpServerDeleteRequest,
   DatastoreMcpServerLogs,
   DatastoreMcpServerLogsRequest,
   DatastoreMcpServerMetrics,
   DatastoreMcpServerScope,
-  DatastoreMcpServerSettingsRequest,
   DatastoreMcpServerStartRequest,
   DatastoreMcpServerStatus,
   DatastoreMcpServerStopRequest,
@@ -22,8 +19,10 @@ import type {
   DatastoreMcpServerTokenDeleteRequest,
   DatastoreMcpServerUpdateRequest,
   EnvironmentProfile,
+  LibraryNode,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
+import { McpAccessTree } from './McpAccessTree'
 import {
   clampPort,
   defaultMcpServerName,
@@ -36,7 +35,6 @@ import {
   formatTokenCount,
   isMcpServerScope,
   normalizeLines,
-  toggleValue,
   uniqueStrings,
 } from './McpServerWorkspace.helpers'
 import {
@@ -52,14 +50,14 @@ import {
 
 const MCP_HOST = '127.0.0.1' as const
 
-type McpServerView = 'overview' | 'setup' | 'tokens' | 'metrics' | 'logs'
+type McpServerView = 'overview' | 'access' | 'setup' | 'tokens' | 'metrics' | 'logs'
 type McpServerPreferences = NonNullable<
   WorkspaceSnapshot['preferences']['datastoreMcpServer']
 >
 type PersistedMcpServerConfig = NonNullable<
   McpServerPreferences['servers']
 >[number]
-type McpServerTextField = 'name' | 'description' | 'allowedOrigins'
+type McpServerTextField = 'allowedOrigins' | 'requestTimeoutSeconds'
 type McpServerConfig = Omit<
   PersistedMcpServerConfig,
   'host' | 'port' | 'autoStart' | 'allowedOrigins' | 'connectionIds' | 'environmentIds' | 'tokens'
@@ -77,6 +75,7 @@ interface McpServerWorkspaceProps {
   serverId?: string
   connections: ConnectionProfile[]
   environments: EnvironmentProfile[]
+  libraryNodes: LibraryNode[]
   preferences: WorkspaceSnapshot['preferences']
   onOpenExperimentalSettings(): void
   onGetStatus(): Promise<DatastoreMcpServerStatus | undefined>
@@ -84,10 +83,7 @@ interface McpServerWorkspaceProps {
   onGetLogs(
     request?: DatastoreMcpServerLogsRequest,
   ): Promise<DatastoreMcpServerLogs | undefined>
-  onCreateServer(request: DatastoreMcpServerCreateRequest): Promise<boolean>
-  onDeleteServer(request: DatastoreMcpServerDeleteRequest): Promise<boolean>
   onUpdateServer(request: DatastoreMcpServerUpdateRequest): Promise<boolean>
-  onUpdateSettings(request: DatastoreMcpServerSettingsRequest): Promise<boolean>
   onStart(
     request: DatastoreMcpServerStartRequest,
   ): Promise<DatastoreMcpServerStatus | undefined>
@@ -112,15 +108,13 @@ export function McpServerWorkspace({
   serverId,
   connections,
   environments,
+  libraryNodes,
   preferences,
   onOpenExperimentalSettings,
   onGetStatus,
   onGetMetrics,
   onGetLogs,
-  onCreateServer,
-  onDeleteServer,
   onUpdateServer,
-  onUpdateSettings,
   onStart,
   onStop,
   onCreateToken,
@@ -144,8 +138,7 @@ export function McpServerWorkspace({
   )
   const initialServerId =
     serverId || mcpServer.activeServerId || configuredServers[0]?.id || ''
-  const [selectedServerId, setSelectedServerId] =
-    useResettableState(initialServerId)
+  const [selectedServerId] = useResettableState(initialServerId)
   const selectedServer =
     configuredServers.find((server) => server.id === selectedServerId) ??
     configuredServers[0]
@@ -156,8 +149,6 @@ export function McpServerWorkspace({
   const [busy, setBusy] = useState<
     | 'refresh'
     | 'save'
-    | 'create'
-    | 'delete'
     | 'start'
     | 'stop'
     | 'token'
@@ -200,15 +191,13 @@ export function McpServerWorkspace({
   const tokenCount = server?.tokens.filter((token) => token.enabled).length ?? 0
   const allowlistedConnections = server?.connectionIds.length ?? 0
   const allowlistedEnvironments = server?.environmentIds.length ?? 0
-  const serverNameValue = server
-    ? (serverDrafts[server.id]?.name ?? server.name)
-    : ''
-  const serverDescriptionValue = server
-    ? (serverDrafts[server.id]?.description ?? server.description ?? '')
-    : ''
   const allowedOriginsValue = server
     ? (serverDrafts[server.id]?.allowedOrigins ??
       server.allowedOrigins.join('\n'))
+    : ''
+  const requestTimeoutSecondsValue = server
+    ? (serverDrafts[server.id]?.requestTimeoutSeconds ??
+      (server.requestTimeoutMs ? String(server.requestTimeoutMs / 1000) : ''))
     : ''
   const serverActionDisabled = Boolean(busy && busy !== 'refresh')
   const startDisabledReason = serverStartDisabledReason(server)
@@ -257,32 +246,6 @@ export function McpServerWorkspace({
     }
   }, [refreshObservability, serverRunning, view])
 
-  const selectServer = async (nextServerId: string) => {
-    setSelectedServerId(nextServerId)
-    await onUpdateSettings({
-      enabled: true,
-      host: MCP_HOST,
-      activeServerId: nextServerId,
-    })
-  }
-
-  const createServer = async () => {
-    setBusy('create')
-    try {
-      await onCreateServer({
-        name: 'Local MCP Server',
-        port: DEFAULT_MCP_PORT,
-        autoStart: false,
-        allowedOrigins: [],
-        connectionIds: [],
-        environmentIds: [],
-      })
-      await refreshStatus()
-    } finally {
-      setBusy(undefined)
-    }
-  }
-
   const saveServer = async (patch: Omit<DatastoreMcpServerUpdateRequest, 'serverId'>) => {
     if (!server) return false
     setBusy('save')
@@ -313,14 +276,9 @@ export function McpServerWorkspace({
     if (!server) return
     const draft = serverDrafts[server.id]?.[field]
     if (draft === undefined) return
-    const request =
-      field === 'allowedOrigins'
-        ? { allowedOrigins: normalizeLines(draft) }
-        : {
-            [field]: field === 'name'
-              ? draft.trim() || defaultMcpServerName(server.port)
-              : draft.trim() || undefined,
-          }
+    const request = field === 'allowedOrigins'
+      ? { allowedOrigins: normalizeLines(draft) }
+      : { requestTimeoutMs: requestTimeoutMilliseconds(draft) }
     const ok = await saveServer(request)
     if (ok) {
       setServerDrafts((current) => ({
@@ -351,29 +309,6 @@ export function McpServerWorkspace({
     } finally {
       setBusy(undefined)
     }
-  }
-
-  const deleteServer = async (serverId: string) => {
-    setBusy('delete')
-    try {
-      await onDeleteServer({ serverId })
-      setCreatedToken(undefined)
-      await refreshStatus()
-    } finally {
-      setBusy(undefined)
-    }
-  }
-
-  const toggleConnection = (connectionId: string, enabled: boolean) => {
-    if (!server) return
-    const next = toggleValue(server.connectionIds, connectionId, enabled)
-    void saveServer({ connectionIds: next })
-  }
-
-  const toggleEnvironment = (environmentId: string, enabled: boolean) => {
-    if (!server) return
-    const next = toggleValue(server.environmentIds, environmentId, enabled)
-    void saveServer({ environmentIds: next })
   }
 
   const toggleScope = (scope: DatastoreMcpServerScope, enabled: boolean) => {
@@ -473,7 +408,6 @@ export function McpServerWorkspace({
         aria-label="MCP Server workspace"
       >
         <div className="environment-empty">
-          <p className="sidebar-eyebrow">Experimental</p>
           <h1>MCP Server</h1>
           <p>
             Enable the datastore MCP server plugin from Settings before opening
@@ -498,14 +432,10 @@ export function McpServerWorkspace({
     >
       <header className="environment-header api-server-header">
         <div>
-          <p className="sidebar-eyebrow">Experimental</p>
           <h1>MCP Server</h1>
-          {server ? (
-            <p className="api-server-header-description">
-              {server.name}
-              {server.description ? ` - ${server.description}` : ''}
-            </p>
-          ) : null}
+          <p className="api-server-header-description">
+            Built-in local Model Context Protocol endpoint
+          </p>
         </div>
         <div className="environment-actions api-server-header-actions">
           {server ? (
@@ -539,7 +469,7 @@ export function McpServerWorkspace({
           </span>
           <button
             type="button"
-            className="icon-button"
+            className="icon-button api-server-header-control"
             aria-label="Refresh MCP Server status"
             title="Refresh status"
             disabled={Boolean(busy)}
@@ -590,266 +520,86 @@ export function McpServerWorkspace({
       ) : null}
 
       <div className="environment-body api-server-body">
-        {!server ? (
-          <section className="environment-card">
-            <div className="settings-empty api-server-empty-state">
-              <p>No MCP server is configured yet.</p>
-              <button
-                type="button"
-                className="drawer-button drawer-button--primary"
-                disabled={Boolean(busy)}
-                onClick={() => void createServer()}
-              >
-                <PlusIcon className="panel-inline-icon" />
-                Create Local MCP Server
-              </button>
+        {view === 'overview' && server ? (
+          <section className="environment-card api-server-server-card">
+            <div className="environment-section-header">
+              <div className="api-server-section-title">
+                <strong>Settings</strong>
+                <span>The built-in server listens only on this computer.</span>
+              </div>
+              <ObjectServerIcon className="panel-inline-icon" />
             </div>
+            <div className="environment-form-grid api-server-server-form">
+              <label className="environment-field">
+                <span>Host</span>
+                <input type="text" value={MCP_HOST} disabled />
+              </label>
+              <label className="environment-field">
+                <span>Port</span>
+                <input
+                  type="number"
+                  min={1024}
+                  max={65535}
+                  value={server.port}
+                  disabled={serverRunning || Boolean(busy)}
+                  onChange={(event) => void saveServer({ port: clampPort(Number(event.target.value)) })}
+                />
+              </label>
+              <label className="environment-field">
+                <span>Request timeout (seconds)</span>
+                <input
+                  type="number"
+                  min={-1}
+                  max={86400}
+                  value={requestTimeoutSecondsValue}
+                  disabled={Boolean(busy)}
+                  placeholder="Unlimited"
+                  onBlur={() => void commitServerTextField('requestTimeoutSeconds')}
+                  onChange={(event) => updateServerDraft(server.id, 'requestTimeoutSeconds', event.target.value)}
+                />
+                <small>Empty, 0, or -1 allows requests to run without a server deadline.</small>
+              </label>
+              <label className="environment-field api-server-auto-start-field">
+                <span>Startup</span>
+                <span className="settings-check-row api-server-auto-start-row">
+                  <input
+                    type="checkbox"
+                    checked={server.autoStart}
+                    disabled={Boolean(busy)}
+                    onChange={(event) => void saveServer({ autoStart: event.target.checked })}
+                  />
+                  <span>Start automatically</span>
+                </span>
+              </label>
+            </div>
+            <label className="environment-field">
+              <span>Allowed browser origins</span>
+              <textarea
+                rows={3}
+                value={allowedOriginsValue}
+                disabled={serverActionDisabled}
+                placeholder="https://trusted-client.example"
+                onBlur={() => void commitServerTextField('allowedOrigins')}
+                onChange={(event) => updateServerDraft(server.id, 'allowedOrigins', event.target.value)}
+              />
+            </label>
+            {startDisabledReason && !serverRunning ? (
+              <p className="settings-inline-note">{startDisabledReason}</p>
+            ) : null}
           </section>
         ) : null}
 
-        {view === 'overview' && server ? (
-          <>
-            <div className="api-server-overview-grid">
-              <section className="environment-card api-server-server-card">
-                <div className="environment-section-header">
-                  <div className="api-server-section-title">
-                    <strong>Server</strong>
-                    <span>Bound to loopback and served only at /mcp.</span>
-                  </div>
-                  <span>{server.port}</span>
-                </div>
-
-                {configuredServers.length > 1 ? (
-                  <label className="environment-field">
-                    <span>Active server</span>
-                    <select
-                      value={server.id}
-                      disabled={Boolean(busy)}
-                      onChange={(event) => void selectServer(event.target.value)}
-                    >
-                      {configuredServers.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : null}
-
-                <div className="environment-form-grid api-server-server-form">
-                  <label className="environment-field">
-                    <span>Name</span>
-                    <input
-                      type="text"
-                      value={serverNameValue}
-                      disabled={serverActionDisabled}
-                      onBlur={() => void commitServerTextField('name')}
-                      onChange={(event) =>
-                        updateServerDraft(server.id, 'name', event.target.value)
-                      }
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') event.currentTarget.blur()
-                      }}
-                    />
-                  </label>
-                  <label className="environment-field">
-                    <span>Description</span>
-                    <input
-                      type="text"
-                      value={serverDescriptionValue}
-                      disabled={serverActionDisabled}
-                      onBlur={() => void commitServerTextField('description')}
-                      onChange={(event) =>
-                        updateServerDraft(
-                          server.id,
-                          'description',
-                          event.target.value,
-                        )
-                      }
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') event.currentTarget.blur()
-                      }}
-                    />
-                  </label>
-                  <label className="environment-field">
-                    <span>Host</span>
-                    <input type="text" value={MCP_HOST} disabled />
-                  </label>
-                  <label className="environment-field">
-                    <span>Port</span>
-                    <input
-                      type="number"
-                      min={1024}
-                      max={65535}
-                      value={server.port}
-                      disabled={serverRunning || Boolean(busy)}
-                      onChange={(event) =>
-                        void saveServer({
-                          port: clampPort(Number(event.target.value)),
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="settings-check-row api-server-auto-start-row">
-                    <input
-                      type="checkbox"
-                      checked={server.autoStart}
-                      disabled={Boolean(busy)}
-                      onChange={(event) =>
-                        void saveServer({ autoStart: event.target.checked })
-                      }
-                    />
-                    <span>Start automatically</span>
-                  </label>
-                </div>
-
-                <label className="environment-field">
-                  <span>Allowed browser origins</span>
-                  <textarea
-                    rows={4}
-                    value={allowedOriginsValue}
-                    disabled={serverActionDisabled}
-                    placeholder="https://trusted-client.example"
-                    onBlur={() => void commitServerTextField('allowedOrigins')}
-                    onChange={(event) =>
-                      updateServerDraft(
-                        server.id,
-                        'allowedOrigins',
-                        event.target.value,
-                      )
-                    }
-                  />
-                </label>
-
-                <div className="api-server-card-footer">
-                  <div className="api-server-target-summary">
-                    <ObjectServerIcon className="panel-inline-icon" />
-                    <span>
-                      {endpoint ?? `http://${MCP_HOST}:${server.port}/mcp`}
-                    </span>
-                  </div>
-                  {startDisabledReason && !serverRunning ? (
-                    <p className="settings-inline-note">
-                      {startDisabledReason}
-                    </p>
-                  ) : null}
-                </div>
-              </section>
-
-              <section className="environment-card api-server-resources-card">
-                <div className="environment-section-header">
-                  <div className="api-server-section-title">
-                    <strong>Datastore Allowlist</strong>
-                    <span>Only selected datastores are visible to MCP clients.</span>
-                  </div>
-                  <span>{formatNumber(allowlistedConnections)} selected</span>
-                </div>
-                {connections.length ? (
-                  <div className="api-server-resource-grid mcp-server-picker-grid">
-                    {connections.map((connection) => (
-                      <label
-                        key={connection.id}
-                        className="settings-check-row api-server-resource-picker-row"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={server.connectionIds.includes(connection.id)}
-                          disabled={Boolean(busy)}
-                          onChange={(event) =>
-                            toggleConnection(connection.id, event.target.checked)
-                          }
-                        />
-                        <span>
-                          <strong>{connection.name}</strong>
-                          <small>
-                            {connection.engine} / {connection.family}
-                            {connection.readOnly ? ' / read-only' : ''}
-                          </small>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="settings-empty">
-                    Add a datastore connection before exposing anything to MCP.
-                  </div>
-                )}
-              </section>
-            </div>
-
-            <section className="environment-card api-server-picker-card">
-              <div className="environment-section-header">
-                <div className="api-server-section-title">
-                  <strong>Workspace Context Allowlist</strong>
-                  <span>
-                    MCP clients can list or switch only selected environments.
-                  </span>
-                </div>
-                <span>{formatNumber(allowlistedEnvironments)} selected</span>
-              </div>
-              {environments.length ? (
-                <div className="api-server-resource-grid mcp-server-picker-grid">
-                  {environments.map((environment) => (
-                    <label
-                      key={environment.id}
-                      className="settings-check-row api-server-resource-picker-row"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={server.environmentIds.includes(environment.id)}
-                        disabled={Boolean(busy)}
-                        onChange={(event) =>
-                          toggleEnvironment(
-                            environment.id,
-                            event.target.checked,
-                          )
-                        }
-                      />
-                      <span>
-                        <strong>{environment.label}</strong>
-                        <small>
-                          {environment.risk}
-                          {environment.safeMode ? ' / safe mode' : ''}
-                        </small>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              ) : (
-                <div className="settings-empty">
-                  Add a workspace environment before exposing context tools.
-                </div>
-              )}
-            </section>
-
-            <section
-              className="environment-card api-server-danger-zone"
-              aria-label="Danger zone"
-            >
-              <div className="environment-section-header">
-                <strong>Danger Zone</strong>
-              </div>
-              <div className="api-server-danger-row">
-                <div>
-                  <strong>Delete this MCP server</strong>
-                  <p>
-                    Remove this server, client auth token metadata, metrics,
-                    and logs.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="drawer-button drawer-button--danger"
-                  aria-label="Delete selected MCP server"
-                  disabled={Boolean(busy)}
-                  onClick={() => void deleteServer(server.id)}
-                >
-                  <TrashIcon className="panel-inline-icon" />
-                  Delete Server
-                </button>
-              </div>
-            </section>
-          </>
+        {view === 'access' && server ? (
+          <McpAccessTree
+            connections={connections}
+            environments={environments}
+            libraryNodes={libraryNodes}
+            environmentIds={server.environmentIds}
+            connectionIds={server.connectionIds}
+            allowNoEnvironment={Boolean(server.allowNoEnvironment)}
+            disabled={Boolean(busy)}
+            onChange={(next) => void saveServer(next)}
+          />
         ) : null}
 
         {view === 'setup' && server ? (
@@ -1003,75 +753,116 @@ export function McpServerWorkspace({
               <span>{formatTokenCount(tokenCount)}</span>
             </div>
 
-            <div className="environment-form-grid api-server-server-form">
-              <label className="environment-field">
-                <span>Auth token label</span>
-                <input
-                  type="text"
-                  value={tokenLabel}
-                  disabled={busy === 'token'}
-                  onChange={(event) => setTokenLabel(event.target.value)}
-                />
-              </label>
-              <div
-                className="mcp-server-scope-list"
-                aria-label="Auth token scopes"
-              >
-                {DATASTORE_MCP_SERVER_SCOPES.map((scope) => (
-                  <label
-                    key={scope}
-                    className="settings-check-row api-server-resource-picker-row"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedScopes.has(scope)}
-                      disabled={busy === 'token'}
-                      onChange={(event) =>
-                        toggleScope(scope, event.target.checked)
-                      }
-                    />
-                    <span>
-                      <strong>{scope}</strong>
-                      <small>{scopeDescription(scope)}</small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="drawer-button-row">
-              <button
-                type="button"
-                className="drawer-button drawer-button--primary"
-                disabled={!selectedScopes.size || Boolean(busy)}
-                onClick={() => void createToken()}
-              >
-                <PlusIcon className="panel-inline-icon" />
-                {busy === 'token' ? 'Creating...' : 'Create Auth Token'}
-              </button>
+            <div className="mcp-auth-token-create-layout">
+              <section className="mcp-auth-token-details">
+                <div className="api-server-section-title">
+                  <strong>Token details</strong>
+                  <span>Name this token for the MCP client that will use it.</span>
+                </div>
+                <label className="environment-field">
+                  <span>Label</span>
+                  <input
+                    type="text"
+                    value={tokenLabel}
+                    disabled={busy === 'token'}
+                    placeholder="For example: Claude Desktop"
+                    onChange={(event) => setTokenLabel(event.target.value)}
+                  />
+                </label>
+                <p className="settings-inline-note">
+                  The token value is shown once. DataPad++ stores only a secure verifier.
+                </p>
+                <button
+                  type="button"
+                  className="drawer-button drawer-button--primary"
+                  disabled={!selectedScopes.size || Boolean(busy)}
+                  onClick={() => void createToken()}
+                >
+                  <PlusIcon className="panel-inline-icon" />
+                  {busy === 'token' ? 'Creating...' : 'Create Auth Token'}
+                </button>
+              </section>
+              <section className="mcp-auth-token-permissions">
+                <div className="environment-section-header">
+                  <div className="api-server-section-title">
+                    <strong>Permissions</strong>
+                    <span>Grant only the tools this client needs.</span>
+                  </div>
+                  <span>{selectedScopes.size} selected</span>
+                </div>
+                <div
+                  className="mcp-server-scope-list"
+                  aria-label="Auth token scopes"
+                >
+                  {DATASTORE_MCP_SERVER_SCOPES.map((scope) => (
+                    <label
+                      key={scope}
+                      className="settings-check-row api-server-resource-picker-row"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedScopes.has(scope)}
+                        disabled={busy === 'token'}
+                        onChange={(event) =>
+                          toggleScope(scope, event.target.checked)
+                        }
+                      />
+                      <span>
+                        <strong>{scope}</strong>
+                        <small>{scopeDescription(scope)}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </section>
             </div>
 
             {createdToken ? (
-              <section className="api-server-endpoint-subsection">
+              <section className="api-server-endpoint-subsection mcp-one-time-token">
                 <div className="environment-section-header">
-                  <strong>One-Time Auth Token</strong>
+                  <div className="api-server-section-title">
+                    <strong>One-Time Auth Token</strong>
+                    <span>Copy it now. It cannot be displayed again.</span>
+                  </div>
                   <span>{createdToken.config.label}</span>
                 </div>
                 {createdToken.token ? (
                   <>
-                    <textarea
-                      className="mcp-server-token-textarea"
-                      readOnly
-                      rows={3}
-                      value={createdToken.token}
-                    />
-                    <div className="environment-section-header">
-                      <strong>Auth Token Env</strong>
-                      <span>Copy before leaving this tab</span>
+                    <div className="mcp-token-copy-row">
+                      <input
+                        aria-label="One-time auth token"
+                        readOnly
+                        value={createdToken.token}
+                        onFocus={(event) => event.currentTarget.select()}
+                      />
+                      <button
+                        type="button"
+                        className="drawer-button drawer-button--primary"
+                        onClick={() => void copyText('Auth token', createdToken.token!)}
+                      >
+                        <CopyIcon className="panel-inline-icon" />
+                        Copy Token
+                      </button>
                     </div>
-                    <pre className="api-server-query-preview">
-                      {tokenEnvironmentSnippet(createdToken.token)}
-                    </pre>
+                    <div className="mcp-token-environment-block">
+                      <div className="environment-section-header">
+                        <strong>Environment Variable</strong>
+                        <button
+                          type="button"
+                          className="drawer-button"
+                          onClick={() => void copyText(
+                            'Environment variable',
+                            tokenEnvironmentSnippet(createdToken.token!),
+                          )}
+                        >
+                          <CopyIcon className="panel-inline-icon" />
+                          Copy
+                        </button>
+                      </div>
+                      <pre className="api-server-query-preview">
+                        {tokenEnvironmentSnippet(createdToken.token)}
+                      </pre>
+                    </div>
                     <div className="drawer-button-row drawer-button-row--compact">
                       <button
                         type="button"
@@ -1282,6 +1073,7 @@ export function McpServerWorkspace({
 
 const mcpServerViews: Array<{ id: McpServerView; label: string }> = [
   { id: 'overview', label: 'Overview' },
+  { id: 'access', label: 'Access' },
   { id: 'setup', label: 'Setup' },
   { id: 'tokens', label: 'Auth Tokens' },
   { id: 'metrics', label: 'Metrics' },
@@ -1325,7 +1117,7 @@ function normalizeMcpServerConfigs(
       ? [
           {
             id: preferences.activeServerId || 'mcp-server-default',
-            name: 'Local MCP Server',
+            name: 'MCP Server',
             host: MCP_HOST,
             port: preferences.port ?? DEFAULT_MCP_PORT,
             autoStart: preferences.autoStart,
@@ -1335,9 +1127,22 @@ function normalizeMcpServerConfigs(
             tokens: [],
           },
         ]
-      : []
-
-  return servers.map((server, index) => normalizeMcpServerConfig(server, index))
+      : [{
+          id: 'mcp-server-default',
+          name: 'MCP Server',
+          host: MCP_HOST,
+          port: DEFAULT_MCP_PORT,
+          autoStart: false,
+          requestTimeoutMs: undefined,
+          allowedOrigins: [],
+          connectionIds: [],
+          environmentIds: [],
+          allowNoEnvironment: false,
+          tokens: [],
+        }]
+  const normalized = servers.map((server, index) => normalizeMcpServerConfig(server, index))
+  const activeId = preferences.activeServerId
+  return [normalized.find((server) => server.id === activeId) ?? normalized[0]!]
 }
 
 function normalizeMcpServerConfig(
@@ -1352,9 +1157,11 @@ function normalizeMcpServerConfig(
     host: MCP_HOST,
     port,
     autoStart: Boolean(server.autoStart),
+    requestTimeoutMs: server.requestTimeoutMs,
     allowedOrigins: uniqueStrings(server.allowedOrigins ?? []),
     connectionIds: uniqueStrings(server.connectionIds ?? []),
     environmentIds: uniqueStrings(server.environmentIds ?? []),
+    allowNoEnvironment: Boolean(server.allowNoEnvironment),
     tokens: (server.tokens ?? []).map((token, tokenIndex) => ({
       ...token,
       id: token.id || `mcp-token-${tokenIndex + 1}`,
@@ -1382,6 +1189,8 @@ function statusToInstance(
     allowedOrigins: status.allowedOrigins,
     connectionIds: status.connectionIds,
     environmentIds: status.environmentIds,
+    requestTimeoutMs: status.requestTimeoutMs,
+    allowNoEnvironment: status.allowNoEnvironment,
     tokenCount: status.tokenCount,
   }
 }
@@ -1397,9 +1206,11 @@ function mergeStatusIntoServer(
     host: MCP_HOST,
     port: status.port,
     autoStart: Boolean(server?.autoStart),
+    requestTimeoutMs: status.requestTimeoutMs ?? server?.requestTimeoutMs,
     allowedOrigins: status.allowedOrigins ?? server?.allowedOrigins ?? [],
     connectionIds: status.connectionIds ?? server?.connectionIds ?? [],
     environmentIds: status.environmentIds ?? server?.environmentIds ?? [],
+    allowNoEnvironment: status.allowNoEnvironment ?? server?.allowNoEnvironment ?? false,
     tokens: server?.tokens ?? [],
   }
 }
@@ -1407,6 +1218,12 @@ function mergeStatusIntoServer(
 function serverStartDisabledReason(server: McpServerConfig | undefined) {
   if (!server) return 'Create an MCP server before starting it.'
   return undefined
+}
+
+function requestTimeoutMilliseconds(value: string) {
+  const seconds = Number(value.trim())
+  if (!value.trim() || !Number.isFinite(seconds) || seconds <= 0) return 0
+  return Math.min(86_400, Math.max(1, Math.round(seconds))) * 1000
 }
 
 const TOKEN_ENV_VAR = 'DATAPAD_MCP_TOKEN'

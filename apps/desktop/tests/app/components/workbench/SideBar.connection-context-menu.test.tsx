@@ -53,6 +53,13 @@ describe('ConnectionContextMenu', () => {
     expect(onClose).toHaveBeenCalled()
     expect(onTestConnection).toHaveBeenCalledWith('conn-metrics')
   })
+
+  it('does not offer connection duplication', () => {
+    renderMenu()
+
+    expect(screen.queryByRole('menuitem', { name: /Duplicate connection/i }))
+      .not.toBeInTheDocument()
+  })
 })
 
 function renderMenu(overrides: Partial<Parameters<typeof ConnectionContextMenu>[0]> = {}) {
@@ -68,7 +75,6 @@ function defaultProps(
     onClose: vi.fn(),
     onCreateTab: vi.fn(),
     onDeleteConnection: vi.fn(),
-    onDuplicateConnection: vi.fn(),
     onOpenConnectionDrawer: vi.fn(),
     onOpenConnectionExplorer: vi.fn(),
     onOpenConnectionMetrics: vi.fn(),

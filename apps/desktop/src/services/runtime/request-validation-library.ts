@@ -1,6 +1,7 @@
 import type {
   LibraryCreateFolderRequest,
   LibraryDeleteNodeRequest,
+  LibraryDuplicateNodeRequest,
   LibraryMoveNodeRequest,
   LibraryRenameNodeRequest,
   LibrarySetEnvironmentRequest,
@@ -75,6 +76,13 @@ export function validateSetLibraryNodeEnvironmentRequest(
 export function validateDeleteLibraryNodeRequest(
   request: LibraryDeleteNodeRequest,
 ): LibraryDeleteNodeRequest {
+  validateRequiredId(request.nodeId, 'Library node id')
+  return request
+}
+
+export function validateDuplicateLibraryNodeRequest(
+  request: LibraryDuplicateNodeRequest,
+): LibraryDuplicateNodeRequest {
   validateRequiredId(request.nodeId, 'Library node id')
   return request
 }

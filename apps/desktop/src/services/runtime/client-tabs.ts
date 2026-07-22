@@ -15,7 +15,7 @@ import {
   validateUpdateQueryTabTargetRequest,
   validateUpdateQueryTabRequest,
 } from './request-validation'
-import { validateOptionalId, validateRequiredId, validateRequiredText } from './datastores/common/request-validation-core'
+import { validateEnvironmentContextId, validateOptionalId, validateRequiredId, validateRequiredText } from './datastores/common/request-validation-core'
 
 export const clientTabs = {
   async setActiveTab(tabId: string): Promise<BootstrapPayload> {
@@ -44,7 +44,7 @@ export const clientTabs = {
     environmentId: string,
   ): Promise<BootstrapPayload> {
     validateRequiredTabId(tabId)
-    validateRequiredId(environmentId, 'Environment id')
+    validateEnvironmentContextId(environmentId)
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('set_tab_environment', {
         tabId,
@@ -56,11 +56,11 @@ export const clientTabs = {
     const tab = findTab(next, tabId)
     const environment = next.environments.find((item) => item.id === environmentId)
 
-    if (!tab || !environment) {
+    if (!tab || (environmentId && !environment)) {
       return buildBrowserPayload(next)
     }
 
-    tab.environmentId = environment.id
+    tab.environmentId = environment?.id ?? ''
     tab.status = 'idle'
     tab.error = undefined
     tab.result = undefined

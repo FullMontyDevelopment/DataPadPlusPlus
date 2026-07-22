@@ -90,7 +90,7 @@ describe('clientApiServer browser preview', () => {
       connectionId: 'conn-sqlite',
       environmentId: 'env-local',
     })
-    expect(status.message).toBe('The experimental API server can only run in the desktop app.')
+    expect(status.message).toBe('The API server can only run in the desktop app.')
     expect(status.warnings).toContain('Browser preview cannot open local listener ports.')
 
     const metrics = await clientApiServer.getDatastoreApiServerMetrics()

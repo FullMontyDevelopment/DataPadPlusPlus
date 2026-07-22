@@ -1,11 +1,15 @@
 impl DatastoreMcpServerManager {
     fn status(&self, preferences: &DatastoreMcpServerPreferences) -> DatastoreMcpServerStatus {
-        let servers = normalized_servers(preferences);
+        let all_servers = normalized_servers(preferences);
         let active_id = preferences
             .active_server_id
             .clone()
-            .filter(|id| servers.iter().any(|server| server.id == *id))
-            .or_else(|| servers.first().map(|server| server.id.clone()));
+            .filter(|id| all_servers.iter().any(|server| server.id == *id))
+            .or_else(|| all_servers.first().map(|server| server.id.clone()));
+        let servers = all_servers
+            .into_iter()
+            .filter(|server| active_id.as_deref() == Some(server.id.as_str()))
+            .collect::<Vec<_>>();
         let server_statuses = servers
             .iter()
             .map(|server| self.instance_status(preferences.enabled, server))
@@ -22,6 +26,7 @@ impl DatastoreMcpServerManager {
                     running: active_status.running,
                     host: MCP_HOST.into(),
                     port: active_status.port,
+                    request_timeout_ms: active_status.request_timeout_ms,
                     endpoint: active_status.endpoint.clone(),
                     server_id: Some(active_status.id.clone()),
                     name: Some(active_status.name.clone()),
@@ -33,6 +38,7 @@ impl DatastoreMcpServerManager {
                     allowed_origins: active_status.allowed_origins.clone(),
                     connection_ids: active_status.connection_ids.clone(),
                     environment_ids: active_status.environment_ids.clone(),
+                    allow_no_environment: active_status.allow_no_environment,
                     token_count: active_status.token_count,
                     servers: server_statuses,
                 };
@@ -45,6 +51,7 @@ impl DatastoreMcpServerManager {
             running: false,
             host: MCP_HOST.into(),
             port: preferences.port,
+            request_timeout_ms: None,
             endpoint: (preferences.enabled && has_servers)
                 .then(|| format!("http://{MCP_HOST}:{}/mcp", preferences.port)),
             server_id: active_id.clone(),
@@ -55,9 +62,9 @@ impl DatastoreMcpServerManager {
             message: if preferences.enabled && !has_servers {
                 "No MCP servers are configured.".into()
             } else if preferences.enabled {
-                "Experimental MCP server is stopped.".into()
+                "MCP server is stopped.".into()
             } else {
-                "Experimental MCP server is disabled.".into()
+                "MCP server is disabled.".into()
             },
             warnings: if preferences.enabled && has_servers {
                 local_warnings()
@@ -67,6 +74,7 @@ impl DatastoreMcpServerManager {
             allowed_origins: Vec::new(),
             connection_ids: Vec::new(),
             environment_ids: Vec::new(),
+            allow_no_environment: false,
             token_count: 0,
             servers: server_statuses,
         }
@@ -87,13 +95,15 @@ impl DatastoreMcpServerManager {
                 running: true,
                 host: MCP_HOST.into(),
                 port: running.port,
+                request_timeout_ms: config_ref.request_timeout_ms,
                 endpoint: Some(format!("http://{MCP_HOST}:{}/mcp", running.port)),
                 started_at: Some(running.started_at.clone()),
-                message: "Experimental MCP server is running.".into(),
+                message: "MCP server is running.".into(),
                 warnings: local_warnings(),
                 allowed_origins: config_ref.allowed_origins.clone(),
                 connection_ids: config_ref.connection_ids.clone(),
                 environment_ids: config_ref.environment_ids.clone(),
+                allow_no_environment: config_ref.allow_no_environment,
                 token_count: config_ref
                     .tokens
                     .iter()
@@ -109,12 +119,13 @@ impl DatastoreMcpServerManager {
             running: false,
             host: MCP_HOST.into(),
             port: server.port,
+            request_timeout_ms: server.request_timeout_ms,
             endpoint: feature_enabled.then(|| format!("http://{MCP_HOST}:{}/mcp", server.port)),
             started_at: None,
             message: if feature_enabled {
-                "Experimental MCP server is stopped.".into()
+                "MCP server is stopped.".into()
             } else {
-                "Experimental MCP server is disabled.".into()
+                "MCP server is disabled.".into()
             },
             warnings: if feature_enabled {
                 local_warnings()
@@ -124,6 +135,7 @@ impl DatastoreMcpServerManager {
             allowed_origins: server.allowed_origins.clone(),
             connection_ids: server.connection_ids.clone(),
             environment_ids: server.environment_ids.clone(),
+            allow_no_environment: server.allow_no_environment,
             token_count: server.tokens.iter().filter(|token| token.enabled).count(),
         }
     }

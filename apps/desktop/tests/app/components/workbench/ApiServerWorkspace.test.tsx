@@ -10,6 +10,23 @@ import type { ComponentProps } from 'react'
 import { ApiServerWorkspace } from '../../../../src/app/components/workbench/ApiServerWorkspace'
 import { createSeedSnapshot } from '../../../fixtures/seed-workspace'
 
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: ({ count, estimateSize }: { count: number; estimateSize(index: number): number }) => {
+    const sizes = Array.from({ length: count }, (_, index) => estimateSize(index))
+    return {
+      getTotalSize: () => sizes.reduce((total, size) => total + size, 0),
+      getVirtualItems: () => {
+        let start = 0
+        return sizes.map((size, index) => {
+          const item = { index, key: index, size, start }
+          start += size
+          return item
+        })
+      },
+    }
+  },
+}))
+
 const usersResource = {
   id: 'api-resource:table:users',
   kind: 'table' as const,
@@ -303,7 +320,7 @@ describe('ApiServerWorkspace', () => {
   it('starts the selected datastore API server and lists generated endpoint routes', async () => {
     const props = renderApiServerWorkspace()
 
-    expect(await screen.findByText('Resources')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'Resources' }))
     expect(screen.getByText('/users')).toBeInTheDocument()
     expect(screen.queryByText('GET /health')).not.toBeInTheDocument()
     expect(screen.queryByText('GET /v1/meta')).not.toBeInTheDocument()
@@ -399,7 +416,7 @@ describe('ApiServerWorkspace', () => {
       }),
     })
 
-    expect(await screen.findByText('Resources')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'Resources' }))
     expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled()
     expect(
       screen.getByText(
@@ -416,24 +433,19 @@ describe('ApiServerWorkspace', () => {
         limit: 500,
       })
     })
-    expect(await screen.findByText('Select Resources')).toBeInTheDocument()
-    const picker = screen.getByText('Select Resources').closest('section')
-    if (!(picker instanceof HTMLElement)) {
-      throw new Error('Expected resource picker section.')
-    }
+    const picker = await screen.findByRole('dialog', { name: 'Choose Resources' })
     const pickerControls = within(picker)
     const resourceCheckboxes = () => pickerControls.getAllByRole('checkbox')
 
-    fireEvent.click(pickerControls.getByRole('button', { name: 'Deselect all' }))
     expect(resourceCheckboxes()).toHaveLength(2)
-    expect(
-      resourceCheckboxes().every((checkbox) => !(checkbox as HTMLInputElement).checked),
-    ).toBe(true)
-
-    fireEvent.click(pickerControls.getByRole('button', { name: 'Select all' }))
     expect(
       resourceCheckboxes().every((checkbox) => (checkbox as HTMLInputElement).checked),
     ).toBe(true)
+
+    fireEvent.click(resourceCheckboxes()[0]!)
+    expect(resourceCheckboxes()[0]).not.toBeChecked()
+    fireEvent.click(resourceCheckboxes()[0]!)
+    expect(resourceCheckboxes()[0]).toBeChecked()
 
     fireEvent.click(pickerControls.getByRole('button', { name: 'Add Selected' }))
 
@@ -450,9 +462,10 @@ describe('ApiServerWorkspace', () => {
       })
     })
     await waitFor(() => {
-      expect(screen.queryByText('Select Resources')).not.toBeInTheDocument()
+      expect(screen.queryByRole('dialog', { name: 'Choose Resources' })).not.toBeInTheDocument()
     })
 
+    fireEvent.click(screen.getByRole('button', { name: 'Overview' }))
     fireEvent.click(
       screen.getByRole('button', { name: 'Delete selected API server' }),
     )
@@ -472,6 +485,7 @@ describe('ApiServerWorkspace', () => {
       }),
     })
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Resources' }))
     fireEvent.click(
       (await screen.findAllByRole('button', { name: 'Add Query Endpoint' }))[0],
     )
@@ -605,6 +619,7 @@ describe('ApiServerWorkspace', () => {
       }),
     })
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Resources' }))
     expect(await screen.findByText('/users-by-email')).toBeInTheDocument()
     const start = screen.getByRole('button', { name: 'Start' })
     expect(start).toBeEnabled()
@@ -657,7 +672,7 @@ describe('ApiServerWorkspace', () => {
       }),
     })
 
-    expect(await screen.findByText('Resources')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'Resources' }))
     fireEvent.click(screen.getByRole('button', { name: 'Export Project' }))
 
     const dialog = await screen.findByRole('dialog', {
@@ -766,7 +781,7 @@ describe('ApiServerWorkspace', () => {
       onDiscoverResources,
     })
 
-    expect(await screen.findByText('Resources')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'Resources' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Choose Resources' }))
 
@@ -775,9 +790,9 @@ describe('ApiServerWorkspace', () => {
     ).toBeDisabled()
     rejectDiscovery(new Error('Discovery failed'))
 
-    expect(await screen.findByText('Select Resources')).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: 'Choose Resources' })).toBeInTheDocument()
     expect(
-      screen.getByText('No new CRUD-capable resources were discovered.'),
+      screen.getByText('No matching resources were discovered.'),
     ).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Choose Resources' }),
@@ -881,6 +896,19 @@ describe('ApiServerWorkspace', () => {
     expect(props.onGetLogs).toHaveBeenCalledWith({
       serverId: 'api-server-default',
       limit: 80,
+    })
+  })
+
+  it('shows a clear stopped state in Docs and can start the server there', async () => {
+    const props = renderApiServerWorkspace()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Docs' }))
+
+    expect(screen.getByText(/documentation is unavailable while the server is stopped/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Start Server' }))
+
+    await waitFor(() => {
+      expect(props.onStart).toHaveBeenCalledWith({ serverId: 'api-server-default' })
     })
   })
 })

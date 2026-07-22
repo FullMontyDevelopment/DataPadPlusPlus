@@ -5,6 +5,7 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { describe, expect, it } from 'vitest'
 import {
+  duplicateLibraryNode,
   moveLibraryNode,
   openLibraryItem,
   saveQueryTabToLibrary,
@@ -14,6 +15,55 @@ import {
 import { connectionLibraryNodeId } from '../../../src/services/runtime/library-connection-helpers'
 
 describe('browser Library runtime', () => {
+  it('duplicates queries beside the source with collision-safe names', () => {
+    const snapshot = workspaceSnapshot()
+    snapshot.libraryNodes[0] = {
+      ...snapshot.libraryNodes[0]!,
+      parentId: 'folder-queries',
+      name: 'Orders',
+    }
+    snapshot.libraryNodes.push(
+      {
+        ...snapshot.libraryNodes[0]!,
+        id: 'library-copy-1',
+        name: 'Copy of Orders',
+      },
+      {
+        ...snapshot.libraryNodes[0]!,
+        id: 'library-copy-2',
+        name: 'Copy of Orders (2)',
+      },
+    )
+
+    const next = duplicateLibraryNode(snapshot, { nodeId: 'library-query-1' })
+    const duplicate = next.libraryNodes.at(-1)
+
+    expect(duplicate).toMatchObject({
+      kind: 'query',
+      name: 'Copy of Orders (3)',
+      parentId: 'folder-queries',
+      queryText: snapshot.libraryNodes[0]?.queryText,
+    })
+    expect(duplicate?.id).not.toBe('library-query-1')
+    expect(next.tabs).toEqual(snapshot.tabs)
+  })
+
+  it('rejects duplication for connections and folders', () => {
+    const snapshot = workspaceSnapshot()
+    snapshot.libraryNodes.push({
+      id: 'folder-queries',
+      kind: 'folder',
+      name: 'Queries',
+      tags: [],
+      createdAt: '2026-05-14T00:00:00.000Z',
+      updatedAt: '2026-05-14T00:00:00.000Z',
+    })
+
+    expect(() => duplicateLibraryNode(snapshot, { nodeId: 'folder-queries' })).toThrow(
+      /queries and scripts/i,
+    )
+  })
+
   it('selects an already-open library item instead of opening a duplicate tab', () => {
     const snapshot = workspaceSnapshot()
 

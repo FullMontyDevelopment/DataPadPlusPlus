@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use tauri::AppHandle;
 
@@ -24,8 +24,8 @@ use crate::{
     domain::{
         error::CommandError,
         models::{
-            AppHealth, AppPreferences, BootstrapPayload, DatastoreApiServerConfig,
-            DatastoreApiServerPreferences, DatastoreMcpServerPreferences,
+            AppHealth, AppPreferences, BootstrapPayload, ConnectionProfile,
+            DatastoreApiServerConfig, DatastoreApiServerPreferences, DatastoreMcpServerPreferences,
             DatastoreMcpServerTokenConfig, DatastoreSecurityChecksPreferences, DiagnosticsCounts,
             DiagnosticsReport, ExportBundle, LockState, ResolvedEnvironment, UiState,
             WorkspaceCreateRequest, WorkspaceRenameRequest, WorkspaceSearchSettingsRequest,
@@ -348,6 +348,10 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     migrate_connection_modes(&mut snapshot);
     normalize_datastore_api_server_preferences(&mut snapshot.preferences.datastore_api_server);
     normalize_datastore_mcp_server_preferences(&mut snapshot.preferences.datastore_mcp_server);
+    normalize_datastore_mcp_effective_access(
+        &mut snapshot.preferences.datastore_mcp_server,
+        &snapshot.connections,
+    );
     normalize_datastore_security_checks_preferences(
         &mut snapshot.preferences.datastore_security_checks,
     );
@@ -476,6 +480,7 @@ fn normalize_datastore_api_server_preferences(preferences: &mut DatastoreApiServ
             host: API_SERVER_HOST.into(),
             port: normalize_api_server_port(preferences.port),
             auto_start: preferences.auto_start,
+            request_timeout_ms: None,
             protocol: "rest".into(),
             base_path: String::new(),
             connection_id: preferences.connection_id.clone(),
@@ -781,6 +786,9 @@ fn normalize_datastore_mcp_server_preferences(preferences: &mut DatastoreMcpServ
         }
         server.host = MCP_SERVER_HOST.into();
         server.port = normalize_mcp_server_port(server.port);
+        server.request_timeout_ms = server
+            .request_timeout_ms
+            .filter(|value| (1_000..=86_400_000).contains(value));
         normalize_string_list(&mut server.allowed_origins);
         normalize_string_list(&mut server.connection_ids);
         normalize_string_list(&mut server.environment_ids);
@@ -809,6 +817,27 @@ fn normalize_datastore_mcp_server_preferences(preferences: &mut DatastoreMcpServ
     }
 
     preferences.servers = servers;
+}
+
+fn normalize_datastore_mcp_effective_access(
+    preferences: &mut DatastoreMcpServerPreferences,
+    connections: &[ConnectionProfile],
+) {
+    for server in &mut preferences.servers {
+        let selected_environments = server.environment_ids.iter().collect::<HashSet<_>>();
+        server.connection_ids.retain(|connection_id| {
+            connections
+                .iter()
+                .find(|connection| connection.id == *connection_id)
+                .is_some_and(|connection| {
+                    connection
+                        .environment_ids
+                        .iter()
+                        .any(|environment_id| selected_environments.contains(environment_id))
+                        || (server.allow_no_environment && connection.environment_ids.is_empty())
+                })
+        });
+    }
 }
 
 fn normalize_datastore_security_checks_preferences(
@@ -883,9 +912,9 @@ fn normalize_mcp_server_port(port: u16) -> u16 {
 fn default_mcp_server_name(port: u16) -> String {
     let port = normalize_mcp_server_port(port);
     if port == DEFAULT_MCP_SERVER_PORT {
-        "Local MCP Server".into()
+        "MCP Server".into()
     } else {
-        format!("Local MCP Server {port}")
+        format!("MCP Server {port}")
     }
 }
 

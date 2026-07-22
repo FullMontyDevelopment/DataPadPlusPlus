@@ -31,6 +31,22 @@ impl DatapadMcpTools {
             .map(|config| config.clone())
             .map_err(|_| McpError::internal_error("MCP server config is unavailable.", None))
     }
+
+    fn authorized_runtime(
+        &self,
+        config: &DatastoreMcpServerConfig,
+        connection_id: &str,
+        environment_id: &str,
+    ) -> Result<ManagedAppState, McpError> {
+        let runtime = self.runtime()?;
+        ensure_allowed_target(
+            &runtime.snapshot,
+            config,
+            connection_id,
+            environment_id,
+        )?;
+        Ok(runtime)
+    }
 }
 
 #[tool_router]
@@ -183,8 +199,20 @@ impl DatapadMcpTools {
             .snapshot
             .connections
             .iter()
-            .filter(|connection| connection_ids.contains(&connection.id))
-            .map(|connection| redacted_connection_summary(connection, &environment_ids))
+            .filter(|connection| {
+                let assigned_environment_ids = effective_connection_environment_ids(
+                    connection,
+                    &runtime.snapshot.library_nodes,
+                );
+                connection_ids.contains(&connection.id)
+                    && (assigned_environment_ids
+                        .iter()
+                        .any(|id| environment_ids.contains(id))
+                        || (config.allow_no_environment && assigned_environment_ids.is_empty()))
+            })
+            .map(|connection| {
+                redacted_connection_summary(&runtime.snapshot, connection, &environment_ids)
+            })
             .collect::<Vec<_>>();
         let environments = runtime
             .snapshot
@@ -199,6 +227,7 @@ impl DatapadMcpTools {
             "exposure": {
                 "connectionIds": config.connection_ids,
                 "environmentIds": config.environment_ids,
+                "allowNoEnvironment": config.allow_no_environment,
                 "query": "read-only",
                 "writes": "blocked"
             }
@@ -215,8 +244,11 @@ impl DatapadMcpTools {
     ) -> Result<CallToolResult, McpError> {
         authorize_tool(&context, SCOPE_DATASTORE_EXPLORE)?;
         let config = self.current_config()?;
-        ensure_allowed_target(&config, &request.connection_id, &request.environment_id)?;
-        let mut runtime = self.runtime()?;
+        let mut runtime = self.authorized_runtime(
+            &config,
+            &request.connection_id,
+            &request.environment_id,
+        )?;
         let response = runtime
             .list_explorer_nodes(ExplorerRequest {
                 connection_id: request.connection_id,
@@ -239,8 +271,11 @@ impl DatapadMcpTools {
     ) -> Result<CallToolResult, McpError> {
         authorize_tool(&context, SCOPE_DATASTORE_EXPLORE)?;
         let config = self.current_config()?;
-        ensure_allowed_target(&config, &request.connection_id, &request.environment_id)?;
-        let runtime = self.runtime()?;
+        let runtime = self.authorized_runtime(
+            &config,
+            &request.connection_id,
+            &request.environment_id,
+        )?;
         let response = runtime
             .inspect_explorer_node(ExplorerInspectRequest {
                 connection_id: request.connection_id,
@@ -262,7 +297,7 @@ impl DatapadMcpTools {
     ) -> Result<CallToolResult, McpError> {
         authorize_tool(&context, SCOPE_QUERY_READ)?;
         let config = self.current_config()?;
-        ensure_allowed_target(&config, &request.connection_id, &request.environment_id)?;
+        self.authorized_runtime(&config, &request.connection_id, &request.environment_id)?;
         let row_limit = request
             .row_limit
             .unwrap_or(DEFAULT_QUERY_ROW_LIMIT)
@@ -283,8 +318,11 @@ impl DatapadMcpTools {
     ) -> Result<CallToolResult, McpError> {
         authorize_tool(&context, SCOPE_OPERATION_DIAGNOSTIC)?;
         let config = self.current_config()?;
-        ensure_allowed_target(&config, &request.connection_id, &request.environment_id)?;
-        let runtime = self.runtime()?;
+        let runtime = self.authorized_runtime(
+            &config,
+            &request.connection_id,
+            &request.environment_id,
+        )?;
         let mut response = runtime
             .list_operation_manifests(OperationManifestRequest {
                 connection_id: request.connection_id,
@@ -305,8 +343,11 @@ impl DatapadMcpTools {
     ) -> Result<CallToolResult, McpError> {
         authorize_tool(&context, SCOPE_OPERATION_DIAGNOSTIC)?;
         let config = self.current_config()?;
-        ensure_allowed_target(&config, &request.connection_id, &request.environment_id)?;
-        let runtime = self.runtime()?;
+        let runtime = self.authorized_runtime(
+            &config,
+            &request.connection_id,
+            &request.environment_id,
+        )?;
         let manifests = runtime
             .list_operation_manifests(OperationManifestRequest {
                 connection_id: request.connection_id.clone(),
@@ -372,7 +413,7 @@ impl DatapadMcpTools {
     ) -> Result<CallToolResult, McpError> {
         authorize_tool(&context, SCOPE_WORKSPACE_SWITCH)?;
         let config = self.current_config()?;
-        ensure_allowed_target(&config, &request.connection_id, &request.environment_id)?;
+        self.authorized_runtime(&config, &request.connection_id, &request.environment_id)?;
         let state = self.app.state::<SharedAppState>();
         let mut state = state
             .lock()
@@ -562,12 +603,8 @@ async fn execute_mcp_query(
         builder_state: None,
         scoped_target: None,
     };
-    let result = tokio::time::timeout(
-        Duration::from_secs(QUERY_TIMEOUT_SECONDS),
-        adapters::execute(&resolved_connection, &execution_request, execution_notices),
-    )
+    let result = adapters::execute(&resolved_connection, &execution_request, execution_notices)
     .await
-    .map_err(|_| McpError::invalid_params("MCP query timed out.", None))?
     .map_err(|error| {
         let error = enrich_sql_execution_error(&resolved_connection, &query_text, error);
         command_to_mcp(error)

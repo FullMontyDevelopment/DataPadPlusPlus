@@ -57,7 +57,7 @@ describe('AppDialogs delete confirmations', () => {
     expect(
       screen.getByRole('dialog', { name: 'Delete environment Production?' }),
     ).toBeInTheDocument()
-    expect(screen.getByText(/will fall back to another environment/i)).toBeInTheDocument()
+    expect(screen.getByText(/will continue with No environment/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete Environment' }))
 

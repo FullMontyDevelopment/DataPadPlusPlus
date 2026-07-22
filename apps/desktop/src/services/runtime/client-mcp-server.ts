@@ -74,11 +74,14 @@ export const clientMcpServer = {
       host: MCP_HOST,
       port,
       autoStart: Boolean(request.autoStart),
+      requestTimeoutMs: request.requestTimeoutMs,
       allowedOrigins: request.allowedOrigins ?? [],
       connectionIds: request.connectionIds ?? [],
       environmentIds: request.environmentIds ?? [],
+      allowNoEnvironment: Boolean(request.allowNoEnvironment),
       tokens: [],
     }, servers.length)
+    normalizeBrowserEffectiveAccess(server, snapshot.connections)
     snapshot.preferences.datastoreMcpServer = browserPreferencesFromServers(existing, [...servers, server], server.id)
     snapshot.updatedAt = new Date().toISOString()
     saveBrowserSnapshot(snapshot)
@@ -102,12 +105,17 @@ export const clientMcpServer = {
             description: request.description !== undefined ? request.description : server.description,
             port: request.port ?? server.port,
             autoStart: request.autoStart ?? server.autoStart,
+            requestTimeoutMs: request.requestTimeoutMs !== undefined
+              ? normalizeRequestTimeout(request.requestTimeoutMs)
+              : server.requestTimeoutMs,
             allowedOrigins: request.allowedOrigins ?? server.allowedOrigins,
             connectionIds: request.connectionIds ?? server.connectionIds,
             environmentIds: request.environmentIds ?? server.environmentIds,
+            allowNoEnvironment: request.allowNoEnvironment ?? server.allowNoEnvironment,
           }, index)
         : server,
     )
+    nextServers.forEach((server) => normalizeBrowserEffectiveAccess(server, snapshot.connections))
     snapshot.preferences.datastoreMcpServer = browserPreferencesFromServers(existing, nextServers, request.serverId)
     snapshot.updatedAt = new Date().toISOString()
     saveBrowserSnapshot(snapshot)
@@ -125,6 +133,7 @@ export const clientMcpServer = {
     snapshot.preferences.datastoreMcpServer = browserRequestUpdatesServer(
       snapshot.preferences.datastoreMcpServer,
       request,
+      snapshot.connections,
     )
     snapshot.updatedAt = new Date().toISOString()
     saveBrowserSnapshot(snapshot)
@@ -271,7 +280,10 @@ function browserMcpServerStatus(): DatastoreMcpServerStatus {
   const activeId = preferences?.activeServerId && servers.some((server) => server.id === preferences.activeServerId)
     ? preferences.activeServerId
     : servers[0]?.id
-  const statuses = servers.map((server) => browserServerStatus(server, Boolean(preferences?.enabled)))
+  const activeServer = servers.find((server) => server.id === activeId) ?? servers[0]
+  const statuses = activeServer
+    ? [browserServerStatus(activeServer, Boolean(preferences?.enabled))]
+    : []
   const active = statuses.find((server) => server.id === activeId) ?? statuses[0]
   if (active) {
     return {
@@ -279,6 +291,7 @@ function browserMcpServerStatus(): DatastoreMcpServerStatus {
       running: false,
       host: MCP_HOST,
       port: active.port,
+      requestTimeoutMs: active.requestTimeoutMs,
       endpoint: active.endpoint,
       serverId: active.id,
       name: active.name,
@@ -289,6 +302,7 @@ function browserMcpServerStatus(): DatastoreMcpServerStatus {
       allowedOrigins: active.allowedOrigins,
       connectionIds: active.connectionIds,
       environmentIds: active.environmentIds,
+      allowNoEnvironment: active.allowNoEnvironment,
       tokenCount: active.tokenCount,
       servers: statuses,
     }
@@ -299,8 +313,8 @@ function browserMcpServerStatus(): DatastoreMcpServerStatus {
     host: MCP_HOST,
     port: preferences?.port ?? DEFAULT_MCP_PORT,
     message: preferences?.enabled
-      ? 'No MCP servers are configured.'
-      : 'Experimental MCP server is disabled.',
+      ? 'The MCP server is not configured.'
+      : 'MCP server is disabled.',
     warnings: preferences?.enabled ? browserWarnings() : [],
     allowedOrigins: [],
     connectionIds: [],
@@ -318,14 +332,16 @@ function browserServerStatus(server: DatastoreMcpServerConfig, enabled: boolean)
     running: false,
     host: MCP_HOST,
     port: server.port,
+    requestTimeoutMs: server.requestTimeoutMs,
     endpoint: enabled ? `http://${MCP_HOST}:${server.port}/mcp` : undefined,
     message: enabled
       ? 'MCP server is desktop-only and unavailable in browser preview.'
-      : 'Experimental MCP server is disabled.',
+      : 'MCP server is disabled.',
     warnings: enabled ? browserWarnings() : [],
     allowedOrigins: server.allowedOrigins ?? [],
     connectionIds: server.connectionIds ?? [],
     environmentIds: server.environmentIds ?? [],
+    allowNoEnvironment: Boolean(server.allowNoEnvironment),
     tokenCount: (server.tokens ?? []).filter((token) => token.enabled).length,
   }
 }
@@ -378,22 +394,37 @@ function browserServers(preferences: DatastoreMcpServerPreferences | undefined):
     : preferences?.activeServerId
       ? [{
           id: preferences.activeServerId,
-          name: 'Local MCP Server',
+          name: 'MCP Server',
           host: MCP_HOST,
           port: preferences.port ?? DEFAULT_MCP_PORT,
           autoStart: Boolean(preferences.autoStart),
+          requestTimeoutMs: undefined,
           allowedOrigins: [],
           connectionIds: [],
           environmentIds: [],
+          allowNoEnvironment: false,
           tokens: [],
         }]
-      : []
+      : [{
+          id: 'mcp-server-default',
+          name: 'MCP Server',
+          host: MCP_HOST,
+          port: DEFAULT_MCP_PORT,
+          autoStart: false,
+          requestTimeoutMs: undefined,
+          allowedOrigins: [],
+          connectionIds: [],
+          environmentIds: [],
+          allowNoEnvironment: false,
+          tokens: [],
+        }]
   return servers.map(normalizeBrowserServer)
 }
 
 function browserRequestUpdatesServer(
   preferences: DatastoreMcpServerPreferences | undefined,
   request: DatastoreMcpServerSettingsRequest,
+  connections: import('@datapadplusplus/shared-types').ConnectionProfile[],
 ): DatastoreMcpServerPreferences {
   const servers = browserServers(preferences)
   const selectedId = request.activeServerId ?? request.serverId ?? preferences?.activeServerId ?? servers[0]?.id
@@ -403,9 +434,11 @@ function browserRequestUpdatesServer(
     request.description !== undefined ||
     request.port !== undefined ||
     request.autoStart !== undefined ||
+    request.requestTimeoutMs !== undefined ||
     request.allowedOrigins !== undefined ||
     request.connectionIds !== undefined ||
     request.environmentIds !== undefined
+    || request.allowNoEnvironment !== undefined
   let nextServers = servers
   if (updatesServer) {
     const existingIndex = servers.findIndex((server) => server.id === selectedId)
@@ -418,9 +451,13 @@ function browserRequestUpdatesServer(
               description: request.description !== undefined ? request.description : server.description,
               port: request.port ?? server.port,
               autoStart: request.autoStart ?? server.autoStart,
+              requestTimeoutMs: request.requestTimeoutMs !== undefined
+                ? normalizeRequestTimeout(request.requestTimeoutMs)
+                : server.requestTimeoutMs,
               allowedOrigins: request.allowedOrigins ?? server.allowedOrigins,
               connectionIds: request.connectionIds ?? server.connectionIds,
               environmentIds: request.environmentIds ?? server.environmentIds,
+              allowNoEnvironment: request.allowNoEnvironment ?? server.allowNoEnvironment,
             }, index)
           : server,
       )
@@ -435,14 +472,17 @@ function browserRequestUpdatesServer(
           host: MCP_HOST,
           port,
           autoStart: Boolean(request.autoStart),
+          requestTimeoutMs: normalizeRequestTimeout(request.requestTimeoutMs),
           allowedOrigins: request.allowedOrigins ?? [],
           connectionIds: request.connectionIds ?? [],
           environmentIds: request.environmentIds ?? [],
+          allowNoEnvironment: Boolean(request.allowNoEnvironment),
           tokens: [],
         }, servers.length),
       ]
     }
   }
+  nextServers.forEach((server) => normalizeBrowserEffectiveAccess(server, connections))
   return browserPreferencesFromServers(
     {
       enabled: Boolean(preferences?.enabled),
@@ -485,9 +525,11 @@ function normalizeBrowserServer(server: DatastoreMcpServerConfig, index: number)
     host: MCP_HOST,
     port,
     autoStart: Boolean(server.autoStart),
+    requestTimeoutMs: normalizeRequestTimeout(server.requestTimeoutMs),
     allowedOrigins: uniqueStrings(server.allowedOrigins ?? []),
     connectionIds: uniqueStrings(server.connectionIds ?? []),
     environmentIds: uniqueStrings(server.environmentIds ?? []),
+    allowNoEnvironment: Boolean(server.allowNoEnvironment),
     tokens: (server.tokens ?? []).map((token, tokenIndex) => ({
       ...token,
       id: token.id || `mcp-token-${tokenIndex + 1}`,
@@ -503,7 +545,26 @@ function clampPort(value: number | undefined) {
 }
 
 function defaultBrowserServerName(port: number) {
-  return port === DEFAULT_MCP_PORT ? 'Local MCP Server' : `Local MCP Server ${port}`
+  return port === DEFAULT_MCP_PORT ? 'MCP Server' : `MCP Server ${port}`
+}
+
+function normalizeRequestTimeout(value: number | undefined) {
+  if (!value || value <= 0) return undefined
+  return Math.min(86_400_000, Math.max(1_000, Math.round(value)))
+}
+
+function normalizeBrowserEffectiveAccess(
+  server: DatastoreMcpServerConfig,
+  connections: import('@datapadplusplus/shared-types').ConnectionProfile[],
+) {
+  const selectedEnvironmentIds = new Set(server.environmentIds)
+  server.connectionIds = server.connectionIds.filter((connectionId) => {
+    const connection = connections.find((item) => item.id === connectionId)
+    return Boolean(connection && (
+      connection.environmentIds.some((environmentId) => selectedEnvironmentIds.has(environmentId)) ||
+      (server.allowNoEnvironment && connection.environmentIds.length === 0)
+    ))
+  })
 }
 
 function nextAvailableBrowserPort(servers: DatastoreMcpServerConfig[]) {

@@ -14,6 +14,7 @@ describe('EnvironmentWorkspace', () => {
         environments={[environment]}
         onCreateEnvironment={vi.fn()}
         onCloneEnvironment={vi.fn()}
+        onDeleteEnvironment={vi.fn()}
         onEnvironmentChange={onEnvironmentChange}
         onSaveEnvironment={vi.fn()}
       />,
@@ -42,6 +43,7 @@ describe('EnvironmentWorkspace', () => {
         secretDrafts={{ API_TOKEN: 'draft-token' }}
         onCreateEnvironment={vi.fn()}
         onCloneEnvironment={vi.fn()}
+        onDeleteEnvironment={vi.fn()}
         onEnvironmentChange={onEnvironmentChange}
         onSaveEnvironment={vi.fn()}
         onSecretDraftsChange={onSecretDraftsChange}
@@ -62,6 +64,30 @@ describe('EnvironmentWorkspace', () => {
       expect.arrayContaining([expect.objectContaining({ key: 'API_TOKEN' })]),
     )
     expect(onSecretDraftsChange).toHaveBeenCalledWith({})
+  })
+
+  it('explains safety settings and delegates deletion from the Danger Zone', () => {
+    const onDeleteEnvironment = vi.fn()
+
+    render(
+      <EnvironmentWorkspace
+        activeEnvironment={environment}
+        environments={[environment]}
+        onCreateEnvironment={vi.fn()}
+        onCloneEnvironment={vi.fn()}
+        onDeleteEnvironment={onDeleteEnvironment}
+        onEnvironmentChange={vi.fn()}
+        onSaveEnvironment={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText(/prompt before write, destructive, costly/i)).toBeInTheDocument()
+    expect(screen.getByText(/block inline result editing/i)).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Environment danger zone' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Environment' }))
+
+    expect(onDeleteEnvironment).toHaveBeenCalledWith('env-qa')
   })
 })
 

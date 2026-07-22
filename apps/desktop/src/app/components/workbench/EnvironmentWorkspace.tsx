@@ -19,6 +19,7 @@ export function EnvironmentWorkspace({
   onCloneEnvironment,
   onEnvironmentChange,
   onSaveEnvironment,
+  onDeleteEnvironment,
   secretDrafts = {},
   onSecretDraftsChange,
 }: {
@@ -28,6 +29,7 @@ export function EnvironmentWorkspace({
   onCloneEnvironment(environment: EnvironmentProfile): void
   onEnvironmentChange(environment: EnvironmentProfile): void
   onSaveEnvironment(environment: EnvironmentProfile, secretDrafts?: Record<string, string>): void
+  onDeleteEnvironment(environmentId: string): void
   secretDrafts?: Record<string, string>
   onSecretDraftsChange?(secretDrafts: Record<string, string>): void
 }) {
@@ -308,25 +310,29 @@ export function EnvironmentWorkspace({
             </label>
           </div>
 
-          <div className="drawer-toggle-row">
-            <button
-              type="button"
-              className={`drawer-toggle${environmentDraft.requiresConfirmation ? ' is-active' : ''}`}
-              onClick={() =>
-                updateDraft({
-                  requiresConfirmation: !environmentDraft.requiresConfirmation,
-                })
-              }
-            >
-              Confirm risky actions
-            </button>
-            <button
-              type="button"
-              className={`drawer-toggle${environmentDraft.safeMode ? ' is-active' : ''}`}
-              onClick={() => updateDraft({ safeMode: !environmentDraft.safeMode })}
-            >
-              Safe mode
-            </button>
+          <div className="environment-safety-list" aria-label="Environment safety controls">
+            <label className="environment-safety-row">
+              <span>
+                <strong>Confirm risky actions</strong>
+                <small>Prompt before write, destructive, costly, and high-risk operations.</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={environmentDraft.requiresConfirmation}
+                onChange={(event) => updateDraft({ requiresConfirmation: event.target.checked })}
+              />
+            </label>
+            <label className="environment-safety-row">
+              <span>
+                <strong>Safe mode</strong>
+                <small>Add confirmation to risky execution and block inline result editing.</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={environmentDraft.safeMode}
+                onChange={(event) => updateDraft({ safeMode: event.target.checked })}
+              />
+            </label>
           </div>
         </section>
 
@@ -404,6 +410,25 @@ export function EnvironmentWorkspace({
               </button>
             </div>
           </div>
+        </section>
+
+        <section
+          className="environment-card environment-danger-zone"
+          aria-label="Environment danger zone"
+        >
+          <div>
+            <strong>Danger Zone</strong>
+            <p>
+              Delete this environment. Connections and saved work will continue with No environment.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="drawer-button drawer-button--danger"
+            onClick={() => onDeleteEnvironment(environmentDraft.id)}
+          >
+            Delete Environment
+          </button>
         </section>
       </div>
       {pendingVariableDelete ? (

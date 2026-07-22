@@ -9,21 +9,23 @@ fn normalized_servers(
                 .active_server_id
                 .as_deref()
                 .is_some_and(|value| value != DEFAULT_MCP_SERVER_ID));
-    if has_legacy_server {
+    if has_legacy_server || servers.is_empty() {
         servers.push(DatastoreMcpServerConfig {
             id: preferences
                 .active_server_id
                 .clone()
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| DEFAULT_MCP_SERVER_ID.into()),
-            name: "Local MCP Server".into(),
+            name: "MCP Server".into(),
             description: None,
             host: MCP_HOST.into(),
             port: preferences.port,
             auto_start: preferences.auto_start,
+            request_timeout_ms: None,
             allowed_origins: Vec::new(),
             connection_ids: Vec::new(),
             environment_ids: Vec::new(),
+            allow_no_environment: false,
             tokens: Vec::new(),
         });
     }
@@ -41,6 +43,7 @@ fn normalized_servers(
         server.allowed_origins = normalize_string_list(server.allowed_origins.clone());
         server.connection_ids = normalize_string_list(server.connection_ids.clone());
         server.environment_ids = normalize_string_list(server.environment_ids.clone());
+        server.request_timeout_ms = normalize_request_timeout(server.request_timeout_ms);
         server.tokens = normalize_tokens(server.tokens.clone());
     }
     servers
@@ -148,13 +151,86 @@ fn validate_environment_ids(runtime: &ManagedAppState, ids: &[String]) -> Result
     Ok(())
 }
 
+fn normalize_effective_access(
+    server: &mut DatastoreMcpServerConfig,
+    connections: &[ConnectionProfile],
+    library_nodes: &[LibraryNode],
+) {
+    let selected_environments = server.environment_ids.iter().collect::<HashSet<_>>();
+    server.connection_ids.retain(|connection_id| {
+        connections
+            .iter()
+            .find(|connection| connection.id == *connection_id)
+            .is_some_and(|connection| {
+                let assigned_environment_ids =
+                    effective_connection_environment_ids(connection, library_nodes);
+                assigned_environment_ids
+                    .iter()
+                    .any(|environment_id| selected_environments.contains(environment_id))
+                    || (server.allow_no_environment && assigned_environment_ids.is_empty())
+            })
+    });
+}
+
+fn effective_connection_environment_ids(
+    connection: &ConnectionProfile,
+    library_nodes: &[LibraryNode],
+) -> HashSet<String> {
+    let mut environment_ids = connection
+        .environment_ids
+        .iter()
+        .filter(|id| !id.trim().is_empty())
+        .cloned()
+        .collect::<HashSet<_>>();
+
+    for node in library_nodes.iter().filter(|node| {
+        node.kind == "connection" && node.connection_id.as_deref() == Some(connection.id.as_str())
+    }) {
+        let mut current = Some(node);
+        let mut visited = HashSet::new();
+        while let Some(candidate) = current {
+            if !visited.insert(candidate.id.as_str()) {
+                break;
+            }
+            if let Some(environment_id) = candidate
+                .environment_id
+                .as_ref()
+                .filter(|id| !id.trim().is_empty())
+            {
+                environment_ids.insert(environment_id.clone());
+                break;
+            }
+            current = candidate.parent_id.as_ref().and_then(|parent_id| {
+                library_nodes.iter().find(|parent| parent.id == *parent_id)
+            });
+        }
+    }
+
+    environment_ids
+}
+
+fn validate_request_timeout(timeout_ms: Option<u64>) -> Result<(), CommandError> {
+    if timeout_ms.is_none_or(|value| value == 0 || (1_000..=86_400_000).contains(&value)) {
+        Ok(())
+    } else {
+        Err(CommandError::new(
+            "mcp-server-timeout-invalid",
+            "Request timeout must be unlimited or between 1 and 86,400 seconds.",
+        ))
+    }
+}
+
+fn normalize_request_timeout(timeout_ms: Option<u64>) -> Option<u64> {
+    timeout_ms.filter(|value| *value > 0)
+}
+
 fn validate_local_host(host: &str) -> Result<(), CommandError> {
     if host == MCP_HOST {
         Ok(())
     } else {
         Err(CommandError::new(
             "mcp-server-host-invalid",
-            "The experimental MCP server only supports 127.0.0.1.",
+            "The MCP server only supports 127.0.0.1.",
         ))
     }
 }
@@ -187,9 +263,9 @@ fn next_available_port(servers: &[DatastoreMcpServerConfig]) -> u16 {
 
 fn default_server_name(port: u16) -> String {
     if port == DEFAULT_MCP_PORT {
-        "Local MCP Server".into()
+        "MCP Server".into()
     } else {
-        format!("Local MCP Server {port}")
+        format!("MCP Server {port}")
     }
 }
 

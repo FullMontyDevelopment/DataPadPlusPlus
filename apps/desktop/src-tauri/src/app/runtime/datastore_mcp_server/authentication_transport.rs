@@ -30,10 +30,30 @@ async fn mcp_security_middleware(
 
     let auth_result = authorize_http_request(&state, peer, &request);
     let token_id = auth_result.as_ref().ok().map(|token| token.id.clone());
+    let mut timeout_error = false;
     let response = match auth_result {
         Ok(token) => {
             request.extensions_mut().insert(token);
-            next.run(request).await
+            let timeout_ms = state
+                .config
+                .lock()
+                .ok()
+                .and_then(|config| config.request_timeout_ms);
+            if let Some(timeout_ms) = timeout_ms {
+                match tokio::time::timeout(Duration::from_millis(timeout_ms), next.run(request)).await {
+                    Ok(response) => response,
+                    Err(_) => {
+                        timeout_error = true;
+                        security_rejection(
+                            StatusCode::GATEWAY_TIMEOUT,
+                            "mcp-request-timeout",
+                            "The MCP tool call exceeded the configured request timeout.",
+                        )
+                    }
+                }
+            } else {
+                next.run(request).await
+            }
         }
         Err(error) => security_rejection(error.status, &error.code, &error.message),
     };
@@ -50,8 +70,9 @@ async fn mcp_security_middleware(
             request_bytes,
             response_bytes,
             token_id,
-            error_code: None,
-            error_message: None,
+            error_code: timeout_error.then(|| "mcp-request-timeout".into()),
+            error_message: timeout_error
+                .then(|| "The MCP tool call exceeded the configured request timeout.".into()),
         });
     }
     response

@@ -246,7 +246,9 @@ fn mcp_operation_filter_excludes_costly_metrics_diagnostics() {
 #[test]
 fn redacted_connection_summary_separates_connection_and_mcp_read_policy() {
     let allowed_environments = string_set(&["env-allowed".to_string()]);
+    let snapshot = crate::app::runtime::blank_workspace_snapshot();
     let summary = redacted_connection_summary(
+        &snapshot,
         &mcp_test_connection(
             "conn-allowed",
             vec!["env-allowed".into(), "env-blocked".into()],
@@ -307,6 +309,78 @@ fn workspace_summary_reports_only_mcp_allowlisted_counts() {
     assert_eq!(summary["mcpExposure"]["query"], "read-only");
     assert_eq!(summary["mcpExposure"]["writes"], "blocked");
     assert_eq!(summary["mcpExposure"]["maxRowLimit"], MAX_QUERY_ROW_LIMIT);
+}
+
+#[test]
+fn effective_access_keeps_only_connections_assigned_to_selected_contexts() {
+    let connections = vec![
+        mcp_test_connection("conn-dev", vec!["env-dev".into()]),
+        mcp_test_connection("conn-shared", vec!["env-dev".into(), "env-prod".into()]),
+        mcp_test_connection("conn-prod", vec!["env-prod".into()]),
+    ];
+    let mut config = DatastoreMcpServerConfig {
+        environment_ids: vec!["env-dev".into()],
+        connection_ids: vec![
+            "conn-dev".into(),
+            "conn-shared".into(),
+            "conn-prod".into(),
+            "conn-stale".into(),
+        ],
+        ..Default::default()
+    };
+
+    normalize_effective_access(&mut config, &connections, &[]);
+
+    assert_eq!(config.connection_ids, vec!["conn-dev", "conn-shared"]);
+}
+
+#[test]
+fn effective_access_requires_explicit_no_environment_context() {
+    let connections = vec![mcp_test_connection("conn-local", Vec::new())];
+    let mut config = DatastoreMcpServerConfig {
+        connection_ids: vec!["conn-local".into()],
+        allow_no_environment: false,
+        ..Default::default()
+    };
+
+    normalize_effective_access(&mut config, &connections, &[]);
+    assert!(config.connection_ids.is_empty());
+
+    config.connection_ids = vec!["conn-local".into()];
+    config.allow_no_environment = true;
+    normalize_effective_access(&mut config, &connections, &[]);
+    assert_eq!(config.connection_ids, vec!["conn-local"]);
+}
+
+#[test]
+fn effective_access_includes_library_inherited_environment_assignments() {
+    let connections = vec![mcp_test_connection("conn-mongodb", Vec::new())];
+    let library_nodes = vec![
+        LibraryNode {
+            id: "folder-prod".into(),
+            kind: "folder".into(),
+            name: "PROD".into(),
+            environment_id: Some("env-prod".into()),
+            ..Default::default()
+        },
+        LibraryNode {
+            id: "node-mongodb".into(),
+            kind: "connection".into(),
+            parent_id: Some("folder-prod".into()),
+            name: "MongoDB 1".into(),
+            connection_id: Some("conn-mongodb".into()),
+            ..Default::default()
+        },
+    ];
+    let mut config = DatastoreMcpServerConfig {
+        environment_ids: vec!["env-prod".into()],
+        connection_ids: vec!["conn-mongodb".into()],
+        ..Default::default()
+    };
+
+    normalize_effective_access(&mut config, &connections, &library_nodes);
+
+    assert_eq!(config.connection_ids, vec!["conn-mongodb"]);
 }
 
 #[test]

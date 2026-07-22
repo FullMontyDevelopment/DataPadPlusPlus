@@ -115,10 +115,6 @@ export function deleteEnvironment(
     throw new Error('Environment was not found.')
   }
 
-  if (next.environments.length <= 1) {
-    throw new Error('At least one environment is required.')
-  }
-
   next.environments = next.environments
     .filter((environment) => environment.id !== environmentId)
     .map((environment) =>
@@ -127,14 +123,11 @@ export function deleteEnvironment(
         : environment,
     )
 
-  const fallbackEnvironmentId =
-    next.environments.find((environment) => environment.id !== environmentId)?.id ?? ''
-
   next.connections = next.connections.map((connection) => {
     const environmentIds = connection.environmentIds.filter((id) => id !== environmentId)
     return {
       ...connection,
-      environmentIds: environmentIds.length > 0 ? environmentIds : [fallbackEnvironmentId],
+      environmentIds,
       updatedAt: new Date().toISOString(),
     }
   })
@@ -143,15 +136,15 @@ export function deleteEnvironment(
     .filter((tab) => !(tab.tabKind === 'environment' && tab.environmentId === environmentId))
     .map((tab) =>
       tab.environmentId === environmentId
-        ? { ...tab, environmentId: fallbackEnvironmentId }
-        : tab,
+        ? clearEnvironmentReferences({ ...tab, environmentId: '' }, environmentId)
+        : clearEnvironmentReferences(tab, environmentId),
     )
   next.closedTabs = next.closedTabs
     .filter((tab) => !(tab.tabKind === 'environment' && tab.environmentId === environmentId))
     .map((tab) =>
       tab.environmentId === environmentId
-        ? { ...tab, environmentId: fallbackEnvironmentId }
-        : tab,
+        ? clearEnvironmentReferences({ ...tab, environmentId: '' }, environmentId)
+        : clearEnvironmentReferences(tab, environmentId),
     )
   next.libraryNodes = next.libraryNodes.map((node) =>
     node.environmentId === environmentId
@@ -164,9 +157,53 @@ export function deleteEnvironment(
       : item,
   )
 
-  if (next.ui.activeEnvironmentId === environmentId) {
-    next.ui.activeEnvironmentId = fallbackEnvironmentId
+  if (
+    next.ui.activeEnvironmentId === environmentId ||
+    !next.environments.some((environment) => environment.id === next.ui.activeEnvironmentId)
+  ) {
+    next.ui.activeEnvironmentId = ''
   }
+
+  const apiPreferences = next.preferences.datastoreApiServer ?? {
+    enabled: false,
+    host: '127.0.0.1' as const,
+    port: 17640,
+    autoStart: false,
+    servers: [],
+  }
+  next.preferences.datastoreApiServer = apiPreferences
+  apiPreferences.environmentId =
+    apiPreferences.environmentId === environmentId ? undefined : apiPreferences.environmentId
+  apiPreferences.servers = apiPreferences.servers?.map((server) => ({
+    ...server,
+    environmentId: server.environmentId === environmentId ? undefined : server.environmentId,
+  }))
+
+  const connectionById = new Map(next.connections.map((connection) => [connection.id, connection]))
+  const mcpPreferences = next.preferences.datastoreMcpServer ?? {
+    enabled: false,
+    host: '127.0.0.1' as const,
+    port: 17641,
+    autoStart: false,
+    servers: [],
+  }
+  next.preferences.datastoreMcpServer = mcpPreferences
+  mcpPreferences.servers =
+    mcpPreferences.servers?.map((server) => {
+      const environmentIds = server.environmentIds.filter((id) => id !== environmentId)
+      return {
+        ...server,
+        environmentIds,
+        connectionIds: server.connectionIds.filter((connectionId) => {
+          const connection = connectionById.get(connectionId)
+          return Boolean(
+            connection &&
+              (connection.environmentIds.some((id) => environmentIds.includes(id)) ||
+                (server.allowNoEnvironment && connection.environmentIds.length === 0)),
+          )
+        }),
+      }
+    })
 
   if (!next.tabs.some((tab) => tab.id === next.ui.activeTabId)) {
     const activeTab = next.tabs[0]
@@ -177,4 +214,26 @@ export function deleteEnvironment(
 
   next.updatedAt = new Date().toISOString()
   return next
+}
+
+function clearEnvironmentReferences<T>(value: T, environmentId: string): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => clearEnvironmentReferences(item, environmentId)) as T
+  }
+  if (!value || typeof value !== 'object') {
+    return value
+  }
+  const next = { ...(value as Record<string, unknown>) }
+  for (const [key, nested] of Object.entries(next)) {
+    if (key === 'environmentId' && nested === environmentId) {
+      next[key] = ''
+    } else if (key === 'inheritsFrom' && nested === environmentId) {
+      next[key] = undefined
+    } else if (key === 'environmentIds' && Array.isArray(nested)) {
+      next[key] = nested.filter((id) => id !== environmentId)
+    } else {
+      next[key] = clearEnvironmentReferences(nested, environmentId)
+    }
+  }
+  return next as T
 }

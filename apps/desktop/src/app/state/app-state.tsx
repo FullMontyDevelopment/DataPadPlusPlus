@@ -56,6 +56,7 @@ const defaultActions: Actions = {
   moveLibraryNode: noop,
   setLibraryNodeEnvironment: noop,
   deleteLibraryNode: noop,
+  duplicateLibraryNode: noop,
   openLibraryItem: noop,
   saveQueryTabToLibrary: noop,
   saveQueryTabToLocalFile: noop,

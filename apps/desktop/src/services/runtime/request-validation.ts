@@ -38,6 +38,7 @@ import {
   QUERY_LANGUAGES,
   RESULT_RENDERERS,
   stripWindowsDrivePrefix,
+  validateEnvironmentContextId,
   validateOperationId,
   validateOptionalId,
   validateOptionalText,
@@ -53,7 +54,7 @@ export * from './datastores/common/document/request-validation-documents'
 
 export function validateExplorerRequest(request: ExplorerRequest): ExplorerRequest {
   validateRequiredId(request.connectionId, 'Connection id')
-  validateRequiredId(request.environmentId, 'Environment id')
+  validateEnvironmentContextId(request.environmentId)
   return {
     ...request,
     scope: validateOptionalText(request.scope, 'Explorer scope', MAX_SCOPE_LENGTH),
@@ -63,7 +64,7 @@ export function validateExplorerRequest(request: ExplorerRequest): ExplorerReque
 
 export function validateStructureRequest(request: StructureRequest): StructureRequest {
   validateRequiredId(request.connectionId, 'Connection id')
-  validateRequiredId(request.environmentId, 'Environment id')
+  validateEnvironmentContextId(request.environmentId)
   const mode = validateOptionalText(request.mode, 'Structure mode', 32)
   validateOptionalId(request.focusNodeId, 'Structure focus node id')
 
@@ -88,7 +89,7 @@ export function validateExplorerInspectRequest(
   request: ExplorerInspectRequest,
 ): ExplorerInspectRequest {
   validateRequiredId(request.connectionId, 'Connection id')
-  validateRequiredId(request.environmentId, 'Environment id')
+  validateEnvironmentContextId(request.environmentId)
   validateRequiredId(request.nodeId, 'Explorer node id')
   return request
 }
@@ -107,7 +108,7 @@ export function validateCreateObjectViewTabRequest(
 
 export function validateRedisKeyScanRequest(request: RedisKeyScanRequest): RedisKeyScanRequest {
   validateRequiredId(request.connectionId, 'Connection id')
-  validateRequiredId(request.environmentId, 'Environment id')
+  validateEnvironmentContextId(request.environmentId)
   const summaryMode = validateOptionalText(request.summaryMode, 'Redis scan summary mode', 32)
   if (summaryMode && summaryMode !== 'fast' && summaryMode !== 'metadata') {
     throw new Error('Redis scan summary mode is invalid.')
@@ -136,7 +137,7 @@ export function validateRedisKeyInspectRequest(
 ): RedisKeyInspectRequest {
   validateRequiredId(request.tabId, 'Tab id')
   validateRequiredId(request.connectionId, 'Connection id')
-  validateRequiredId(request.environmentId, 'Environment id')
+  validateEnvironmentContextId(request.environmentId)
   validateRequiredText(request.key, 'Redis key', MAX_SCOPE_LENGTH)
   return {
     ...request,
@@ -159,7 +160,7 @@ export function validateOperationManifestRequest(
   request: OperationManifestRequest,
 ): OperationManifestRequest {
   validateRequiredId(request.connectionId, 'Connection id')
-  validateRequiredId(request.environmentId, 'Environment id')
+  validateEnvironmentContextId(request.environmentId)
   return {
     ...request,
     scope: validateOptionalText(request.scope, 'Operation scope', MAX_SCOPE_LENGTH),
@@ -168,7 +169,7 @@ export function validateOperationManifestRequest(
 
 export function validateOperationPlanRequest(request: OperationPlanRequest): OperationPlanRequest {
   validateRequiredId(request.connectionId, 'Connection id')
-  validateRequiredId(request.environmentId, 'Environment id')
+  validateEnvironmentContextId(request.environmentId)
   validateOperationId(request.operationId)
   assertJsonSize(request.parameters, 'Operation parameters')
   return {
@@ -202,7 +203,7 @@ export function validatePermissionInspectionRequest(
   request: PermissionInspectionRequest,
 ): PermissionInspectionRequest {
   validateRequiredId(request.connectionId, 'Connection id')
-  validateRequiredId(request.environmentId, 'Environment id')
+  validateEnvironmentContextId(request.environmentId)
   return request
 }
 
@@ -210,7 +211,7 @@ export function validateAdapterDiagnosticsRequest(
   request: AdapterDiagnosticsRequest,
 ): AdapterDiagnosticsRequest {
   validateRequiredId(request.connectionId, 'Connection id')
-  validateRequiredId(request.environmentId, 'Environment id')
+  validateEnvironmentContextId(request.environmentId)
   return {
     ...request,
     scope: validateOptionalText(request.scope, 'Diagnostics scope', MAX_SCOPE_LENGTH),
@@ -219,7 +220,7 @@ export function validateAdapterDiagnosticsRequest(
 
 export function validateDataEditPlanRequest(request: DataEditPlanRequest): DataEditPlanRequest {
   validateRequiredId(request.connectionId, 'Connection id')
-  validateRequiredId(request.environmentId, 'Environment id')
+  validateEnvironmentContextId(request.environmentId)
   if (!DATA_EDIT_KINDS.has(request.editKind)) {
     throw new Error(`Unsupported data edit kind: ${request.editKind || '(empty)'}.`)
   }
@@ -262,7 +263,7 @@ export function validateExecutionRequest(request: ExecutionRequest): ExecutionRe
   validateOptionalText(request.executionId, 'Execution id', MAX_ID_LENGTH)
   validateRequiredId(request.tabId, 'Tab id')
   validateRequiredId(request.connectionId, 'Connection id')
-  validateRequiredId(request.environmentId, 'Environment id')
+  validateEnvironmentContextId(request.environmentId)
   const language = validateQueryLanguage(request.language)
   validateQueryText(request.queryText, 'Query text')
   const executionInputMode = validateOptionalExecutionInputMode(request.executionInputMode)
@@ -329,7 +330,7 @@ export function validateResultPageRequest(request: ResultPageRequest): ResultPag
   }
   validateRequiredId(request.tabId, 'Tab id')
   validateRequiredId(request.connectionId, 'Connection id')
-  validateRequiredId(request.environmentId, 'Environment id')
+  validateEnvironmentContextId(request.environmentId)
   const language = validateQueryLanguage(request.language)
   validateQueryText(request.queryText, 'Query text')
   if (request.selectedText !== undefined) {

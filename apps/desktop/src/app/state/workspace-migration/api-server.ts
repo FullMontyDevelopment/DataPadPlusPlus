@@ -29,6 +29,7 @@ export function normalizeDatastoreApiServerPreferences(
         host: '127.0.0.1' as const,
         port: preferences?.port,
         autoStart: preferences?.autoStart,
+        requestTimeoutMs: undefined,
         connectionId: preferences?.connectionId,
         environmentId: preferences?.environmentId,
         protocol: 'rest' as const,
@@ -57,6 +58,7 @@ export function normalizeDatastoreApiServerPreferences(
       host: '127.0.0.1' as const,
       port,
       autoStart: Boolean(server.autoStart),
+      requestTimeoutMs: normalizeRequestTimeout(server.requestTimeoutMs),
       protocol: normalizeApiServerProtocol(server.protocol),
       basePath: normalizeApiServerBasePath(server.basePath),
       connectionId: typeof server.connectionId === 'string' ? server.connectionId : undefined,
@@ -85,6 +87,11 @@ export function normalizeDatastoreApiServerPreferences(
 
 function defaultApiServerName(port: number) {
   return port === 17640 ? 'Local API Server' : `Local API Server ${port}`
+}
+
+function normalizeRequestTimeout(value: unknown) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined
+  return Math.min(86_400_000, Math.max(1_000, Math.round(value)))
 }
 
 function normalizeDatastoreApiServerResources(resources: unknown): DatastoreApiServerResourceConfig[] {

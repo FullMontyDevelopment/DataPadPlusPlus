@@ -71,6 +71,7 @@ export interface WorkspaceSearchMatch {
 export interface WorkspaceSearchGroup {
   document: WorkspaceSearchDocument
   matches: WorkspaceSearchMatch[]
+  titleMatch?: { start: number; end: number }
 }
 
 export interface WorkspaceSearchResult {
@@ -81,7 +82,7 @@ export interface WorkspaceSearchResult {
   truncated: boolean
 }
 
-const DEFAULT_MAX_MATCHES = 500
+const DEFAULT_MAX_MATCHES = 50_000
 const SNIPPET_CONTEXT = 72
 const SENSITIVE_KEY_PATTERN = /(auth|credential|password|secret|token|privatekey|clientkey)/i
 
@@ -132,6 +133,25 @@ export function searchWorkspaceIndex(
     }
 
     const matches: WorkspaceSearchMatch[] = []
+    let titleMatch: WorkspaceSearchGroup['titleMatch']
+    const titleHaystack = options.matchCase ? document.title : document.title.toLowerCase()
+    let titleSearchFrom = 0
+    while (titleSearchFrom <= titleHaystack.length - needle.length) {
+      const matchIndex = titleHaystack.indexOf(needle, titleSearchFrom)
+      if (matchIndex < 0) {
+        break
+      }
+      const matchEnd = matchIndex + needle.length
+      titleSearchFrom = matchEnd === matchIndex ? matchIndex + 1 : matchEnd
+      if (options.wholeWord && !isWholeWordMatch(document.title, matchIndex, matchEnd)) {
+        continue
+      }
+      totalMatches += 1
+      if (displayedMatches < maxMatches) {
+        titleMatch ??= { start: matchIndex, end: matchEnd }
+        displayedMatches += 1
+      }
+    }
 
     for (const [lineIndex, line] of document.lines.entries()) {
       const haystack = options.matchCase ? line.text : line.lowerText
@@ -178,8 +198,8 @@ export function searchWorkspaceIndex(
       }
     }
 
-    if (matches.length > 0) {
-      groups.push({ document, matches })
+    if (matches.length > 0 || titleMatch) {
+      groups.push({ document, matches, titleMatch })
     }
   }
 
@@ -209,7 +229,6 @@ function buildConnectionDocument(
     subtitle: 'Connection',
     detail: [connection.engine, connection.family].filter(Boolean).join(' / '),
     fields: [
-      ['Name', connection.name],
       ['Engine', connection.engine],
       ['Family', connection.family],
       ['Host', connection.host],
@@ -234,7 +253,6 @@ function buildLibraryDocument(node: LibraryNode): WorkspaceSearchDocument {
     subtitle: libraryKindLabel(node.kind),
     detail: node.summary ?? '',
     fields: [
-      ['Name', node.name],
       ['Kind', libraryKindLabel(node.kind)],
       ['Summary', node.summary],
       ['Tags', node.tags],
@@ -264,7 +282,6 @@ function buildTabDocument(
     subtitle: sourceKind === 'tab' ? 'Open tab' : 'Recently closed tab',
     detail: [tab.editorLabel, tab.language, savePath].filter(Boolean).join(' / '),
     fields: [
-      ['Title', tab.title],
       ['Editor', tab.editorLabel],
       ['Kind', tab.tabKind ?? 'query'],
       ['Language', tab.language],

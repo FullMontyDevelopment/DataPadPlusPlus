@@ -22,10 +22,11 @@ import {
   WholeWordIcon,
 } from './icons'
 
-const ROW_HEIGHT = 58
-const GROUP_HEIGHT = 52
+const ROW_HEIGHT = 36
+const GROUP_HEIGHT = 44
+const TYPE_HEIGHT = 30
 const ROW_OVERSCAN = 14
-const MAX_DISPLAYED_MATCHES = 500
+const MAX_DISPLAYED_MATCHES = 50_000
 const RECENT_SEARCH_STORAGE_KEY = 'datapadplusplus.workspaceSearch.recentSearches.v1'
 const RECENT_SEARCH_LIMIT = 8
 const MIN_RECENT_SEARCH_LENGTH = 2
@@ -49,6 +50,7 @@ const DEFAULT_RESULT_TYPE_FILTERS = Object.fromEntries(
 ) as Record<WorkspaceSearchResultType, boolean>
 
 type WorkspaceSearchRow =
+  | { kind: 'type'; id: string; type: WorkspaceSearchResultType; count: number }
   | { kind: 'group'; id: string; group: WorkspaceSearchGroup }
   | { kind: 'match'; id: string; match: WorkspaceSearchMatch }
 
@@ -130,22 +132,18 @@ export function WorkspaceSearchWorkspace({
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: (index) => (rows[index]?.kind === 'group' ? GROUP_HEIGHT : ROW_HEIGHT),
+    initialRect: { width: 1024, height: 640 },
+    estimateSize: (index) => {
+      const row = rows[index]
+      return row?.kind === 'type' ? TYPE_HEIGHT : row?.kind === 'group' ? GROUP_HEIGHT : ROW_HEIGHT
+    },
     overscan: ROW_OVERSCAN,
   })
-  const virtualItems = virtualizer.getVirtualItems()
-  const renderedRows =
-    virtualItems.length > 0
-      ? virtualItems.map((item) => ({
-          key: item.key,
-          index: item.index,
-          start: item.start,
-        }))
-      : rows.map((_row, index) => ({
-          key: index,
-          index,
-          start: index * ROW_HEIGHT,
-        }))
+  const renderedRows = virtualizer.getVirtualItems().map((item) => ({
+    key: item.key,
+    index: item.index,
+    start: item.start,
+  }))
 
   const openMatch = (match: WorkspaceSearchMatch) => {
     commitRecentSearch(query)
@@ -162,6 +160,25 @@ export function WorkspaceSearchWorkspace({
         break
       case 'closed-tab':
         onReopenClosedTab(match.sourceId)
+        break
+    }
+  }
+
+  const openGroup = (group: WorkspaceSearchGroup) => {
+    commitRecentSearch(query)
+    const { sourceKind, sourceId } = group.document
+    switch (sourceKind) {
+      case 'connection':
+        onOpenConnection(sourceId)
+        break
+      case 'library':
+        onOpenLibraryItem(sourceId)
+        break
+      case 'tab':
+        onSelectTab(sourceId)
+        break
+      case 'closed-tab':
+        onReopenClosedTab(sourceId)
         break
     }
   }
@@ -185,11 +202,7 @@ export function WorkspaceSearchWorkspace({
     <section className="environment-workspace workspace-search-workspace" aria-label="Workspace Search">
       <header className="environment-header workspace-search-header">
         <div>
-          <span className="sidebar-eyebrow">Plugin</span>
           <h2>Search</h2>
-          <p>
-            {index.documents.length} indexed items across connections, Library files, open tabs, and recently closed tabs.
-          </p>
         </div>
       </header>
 
@@ -293,8 +306,10 @@ export function WorkspaceSearchWorkspace({
                   className={`workspace-search-virtual-row workspace-search-virtual-row--${row.kind}`}
                   style={{ transform: `translateY(${virtualRow.start}px)` }}
                 >
-                  {row.kind === 'group' ? (
-                    <SearchGroupRow group={row.group} onOpenMatch={openMatch} />
+                  {row.kind === 'type' ? (
+                    <SearchTypeRow type={row.type} count={row.count} />
+                  ) : row.kind === 'group' ? (
+                    <SearchGroupRow group={row.group} onOpen={() => openGroup(row.group)} />
                   ) : (
                     <SearchMatchRow match={row.match} onOpen={openMatch} />
                   )}
@@ -354,27 +369,35 @@ function RecentSearches({
 
 function SearchGroupRow({
   group,
-  onOpenMatch,
+  onOpen,
 }: {
   group: WorkspaceSearchGroup
-  onOpenMatch(match: WorkspaceSearchMatch): void
+  onOpen(): void
 }) {
-  const firstMatch = group.matches[0]
   const { Icon, label } = resultTypeConfig(group.document.resultType)
+  const titleMatch = group.titleMatch
 
   return (
     <button
       type="button"
       className={`workspace-search-group workspace-search-type--${group.document.resultType}`}
       aria-label={`Open ${group.document.title}`}
-      onClick={() => firstMatch && onOpenMatch(firstMatch)}
+      onClick={onOpen}
     >
       <span className="workspace-search-type-icon">
         <Icon />
       </span>
       <span className="workspace-search-group-main">
         <span className="workspace-search-group-title">
-          <strong>{group.document.title}</strong>
+          <strong>
+            {titleMatch ? (
+              <>
+                {group.document.title.slice(0, titleMatch.start)}
+                <mark>{group.document.title.slice(titleMatch.start, titleMatch.end)}</mark>
+                {group.document.title.slice(titleMatch.end)}
+              </>
+            ) : group.document.title}
+          </strong>
           <span>{label}</span>
         </span>
         <small>
@@ -383,9 +406,20 @@ function SearchGroupRow({
         </small>
       </span>
       <span className="workspace-search-count">
-        {group.matches.length}
+        {group.matches.length + (group.titleMatch ? 1 : 0)}
       </span>
     </button>
+  )
+}
+
+function SearchTypeRow({ type, count }: { type: WorkspaceSearchResultType; count: number }) {
+  const { Icon, label } = resultTypeConfig(type)
+  return (
+    <div className={`workspace-search-type-row workspace-search-type--${type}`} role="heading" aria-level={2}>
+      <Icon />
+      <strong>{label}</strong>
+      <span>{count}</span>
+    </div>
   )
 }
 
@@ -417,18 +451,28 @@ function SearchMatchRow({
 }
 
 function flattenGroups(groups: WorkspaceSearchGroup[]): WorkspaceSearchRow[] {
-  return groups.flatMap((group) => [
-    {
-      kind: 'group' as const,
-      id: group.document.id,
-      group,
-    },
-    ...group.matches.map((match) => ({
-      kind: 'match' as const,
-      id: match.id,
-      match,
-    })),
-  ])
+  return RESULT_TYPE_FILTERS.flatMap(({ type }) => {
+    const typeGroups = groups.filter((group) => group.document.resultType === type)
+    if (typeGroups.length === 0) {
+      return []
+    }
+    return [
+      {
+        kind: 'type' as const,
+        id: `type:${type}`,
+        type,
+        count: typeGroups.length,
+      },
+      ...typeGroups.flatMap((group) => [
+        { kind: 'group' as const, id: group.document.id, group },
+        ...group.matches.map((match) => ({
+          kind: 'match' as const,
+          id: match.id,
+          match,
+        })),
+      ]),
+    ]
+  })
 }
 
 function resultTypeConfig(type: WorkspaceSearchResultType) {

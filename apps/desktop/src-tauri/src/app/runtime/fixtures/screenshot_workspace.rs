@@ -171,6 +171,7 @@ pub(super) fn screenshot_api_server_preferences(
             host: "127.0.0.1".into(),
             port: 17640,
             auto_start: false,
+            request_timeout_ms: None,
             protocol: "rest".into(),
             base_path: "/showcase".into(),
             connection_id,
@@ -198,6 +199,7 @@ pub(super) fn screenshot_mcp_server_preferences(
             host: "127.0.0.1".into(),
             port: 17641,
             auto_start: false,
+            request_timeout_ms: None,
             allowed_origins: Vec::new(),
             connection_ids: connections
                 .iter()
@@ -215,6 +217,7 @@ pub(super) fn screenshot_mcp_server_preferences(
                 .map(|connection| connection.id.clone())
                 .collect(),
             environment_ids: vec![environment_id.into()],
+            allow_no_environment: false,
             tokens: Vec::new(),
         }],
     }

@@ -120,6 +120,11 @@ export function validateOptionalId(value: string | null | undefined, label: stri
   }
 }
 
+export function validateEnvironmentContextId(value: string | null | undefined) {
+  if (value === '') return
+  validateRequiredId(value, 'Environment id')
+}
+
 export function validateRequiredText(
   value: string | null | undefined,
   label: string,

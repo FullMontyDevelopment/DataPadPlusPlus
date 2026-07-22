@@ -37,6 +37,7 @@ use crate::{
     },
     security,
 };
+use serde_json::Value;
 use std::time::Instant;
 use tokio::time::{timeout, Duration};
 
@@ -203,21 +204,7 @@ impl ManagedAppState {
             ));
         }
 
-        if self.snapshot.environments.len() <= 1 {
-            return Err(CommandError::new(
-                "environment-required",
-                "At least one environment is required.",
-            ));
-        }
-
         let updated_at = timestamp_now();
-        let fallback_environment_id = self
-            .snapshot
-            .environments
-            .iter()
-            .find(|environment| environment.id != environment_id)
-            .map(|environment| environment.id.clone())
-            .unwrap_or_default();
 
         self.snapshot
             .environments
@@ -231,11 +218,6 @@ impl ManagedAppState {
 
         for connection in &mut self.snapshot.connections {
             connection.environment_ids.retain(|id| id != environment_id);
-            if connection.environment_ids.is_empty() && !fallback_environment_id.is_empty() {
-                connection
-                    .environment_ids
-                    .push(fallback_environment_id.clone());
-            }
             connection.updated_at = updated_at.clone();
         }
 
@@ -246,8 +228,13 @@ impl ManagedAppState {
 
         for tab in &mut self.snapshot.tabs {
             if tab.environment_id == environment_id {
-                tab.environment_id = fallback_environment_id.clone();
+                tab.environment_id.clear();
             }
+            clear_environment_references(&mut tab.builder_state, environment_id);
+            clear_environment_references(&mut tab.metrics_state, environment_id);
+            clear_environment_references(&mut tab.object_view_state, environment_id);
+            clear_environment_references(&mut tab.test_suite, environment_id);
+            clear_environment_references(&mut tab.test_run, environment_id);
         }
 
         self.snapshot.closed_tabs.retain(|closed_tab| {
@@ -257,8 +244,13 @@ impl ManagedAppState {
 
         for closed_tab in &mut self.snapshot.closed_tabs {
             if closed_tab.tab.environment_id == environment_id {
-                closed_tab.tab.environment_id = fallback_environment_id.clone();
+                closed_tab.tab.environment_id.clear();
             }
+            clear_environment_references(&mut closed_tab.tab.builder_state, environment_id);
+            clear_environment_references(&mut closed_tab.tab.metrics_state, environment_id);
+            clear_environment_references(&mut closed_tab.tab.object_view_state, environment_id);
+            clear_environment_references(&mut closed_tab.tab.test_suite, environment_id);
+            clear_environment_references(&mut closed_tab.tab.test_run, environment_id);
         }
 
         for node in &mut self.snapshot.library_nodes {
@@ -266,6 +258,7 @@ impl ManagedAppState {
                 node.environment_id = None;
                 node.updated_at = updated_at.clone();
             }
+            clear_environment_references(&mut node.test_suite, environment_id);
         }
 
         for item in &mut self.snapshot.saved_work {
@@ -275,8 +268,43 @@ impl ManagedAppState {
             }
         }
 
-        if self.snapshot.ui.active_environment_id == environment_id {
-            self.snapshot.ui.active_environment_id = fallback_environment_id;
+        if self.snapshot.ui.active_environment_id == environment_id
+            || !self
+                .snapshot
+                .environments
+                .iter()
+                .any(|environment| environment.id == self.snapshot.ui.active_environment_id)
+        {
+            self.snapshot.ui.active_environment_id.clear();
+        }
+
+        let api_preferences = &mut self.snapshot.preferences.datastore_api_server;
+        if api_preferences.environment_id.as_deref() == Some(environment_id) {
+            api_preferences.environment_id = None;
+        }
+        for server in &mut api_preferences.servers {
+            if server.environment_id.as_deref() == Some(environment_id) {
+                server.environment_id = None;
+            }
+        }
+
+        for server in &mut self.snapshot.preferences.datastore_mcp_server.servers {
+            server.environment_ids.retain(|id| id != environment_id);
+            let selected_environment_ids = server.environment_ids.clone();
+            let allow_no_environment = server.allow_no_environment;
+            server.connection_ids.retain(|connection_id| {
+                self.snapshot
+                    .connections
+                    .iter()
+                    .find(|connection| connection.id == *connection_id)
+                    .is_some_and(|connection| {
+                        connection
+                            .environment_ids
+                            .iter()
+                            .any(|environment_id| selected_environment_ids.contains(environment_id))
+                            || (allow_no_environment && connection.environment_ids.is_empty())
+                    })
+            });
         }
 
         if !self
@@ -312,6 +340,15 @@ impl ManagedAppState {
         &self,
         environment_id: &str,
     ) -> Result<EnvironmentProfile, CommandError> {
+        if environment_id.trim().is_empty() {
+            return Ok(EnvironmentProfile {
+                label: "No environment".into(),
+                risk: "low".into(),
+                color: "#737373".into(),
+                exportable: false,
+                ..Default::default()
+            });
+        }
         self.snapshot
             .environments
             .iter()
@@ -631,5 +668,40 @@ fn connection_test_failure_result(
         resolved_host: connection.host.clone(),
         resolved_database: connection.database.clone(),
         duration_ms: Some(started.elapsed().as_millis() as u64),
+    }
+}
+
+fn clear_environment_references(value: &mut Option<Value>, environment_id: &str) {
+    if let Some(value) = value {
+        clear_environment_references_in_value(value, environment_id);
+    }
+}
+
+fn clear_environment_references_in_value(value: &mut Value, environment_id: &str) {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                clear_environment_references_in_value(value, environment_id);
+            }
+        }
+        Value::Object(object) => {
+            for (key, value) in object {
+                match key.as_str() {
+                    "environmentId" if value.as_str() == Some(environment_id) => {
+                        *value = Value::String(String::new());
+                    }
+                    "inheritsFrom" if value.as_str() == Some(environment_id) => {
+                        *value = Value::Null;
+                    }
+                    "environmentIds" => {
+                        if let Some(values) = value.as_array_mut() {
+                            values.retain(|value| value.as_str() != Some(environment_id));
+                        }
+                    }
+                    _ => clear_environment_references_in_value(value, environment_id),
+                }
+            }
+        }
+        _ => {}
     }
 }

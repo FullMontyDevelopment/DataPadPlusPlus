@@ -58,10 +58,36 @@ pub fn upsert_environment_profile(
 #[tauri::command]
 pub fn delete_environment_profile(
     state: State<'_, SharedAppState>,
+    api_server: State<'_, datastore_api_server::SharedDatastoreApiServer>,
+    mcp_server: State<'_, datastore_mcp_server::SharedDatastoreMcpServer>,
     environment_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(&state)?;
-    state.delete_environment(&environment_id)
+    let affected_api_servers = state
+        .snapshot
+        .preferences
+        .datastore_api_server
+        .servers
+        .iter()
+        .filter(|server| server.environment_id.as_deref() == Some(&environment_id))
+        .map(|server| server.id.clone())
+        .collect::<Vec<_>>();
+    let payload = state.delete_environment(&environment_id)?;
+    for server_id in affected_api_servers {
+        datastore_api_server::stop_server(
+            &api_server,
+            &state.snapshot.preferences.datastore_api_server,
+            DatastoreApiServerStopRequest {
+                server_id: Some(server_id),
+                reason: Some("environment-deleted".into()),
+            },
+        )?;
+    }
+    datastore_mcp_server::hot_reload_active_config(
+        &mcp_server,
+        &state.snapshot.preferences.datastore_mcp_server,
+    )?;
+    Ok(payload)
 }
 
 #[tauri::command]

@@ -27,6 +27,14 @@ describe('resolveEnvironment', () => {
     expect(resolved.variables).toEqual({})
     expect(resolved.inheritedChain).toEqual([])
   })
+
+  it('rejects an unknown non-empty environment id', () => {
+    const snapshot = createSeedSnapshot()
+
+    expect(() => resolveEnvironment(snapshot.environments, 'env-missing')).toThrow(
+      "Environment 'env-missing' was not found.",
+    )
+  })
 })
 
 describe('evaluateGuardrails', () => {

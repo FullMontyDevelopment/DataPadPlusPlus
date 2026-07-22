@@ -115,7 +115,7 @@ pub fn run() {
                             Ok(Some(status)) => infrastructure::log_info(
                                 "api-server",
                                 format!(
-                                    "Auto-started experimental API server at {}.",
+                                    "Auto-started API server at {}.",
                                     status.base_url.unwrap_or_else(|| "127.0.0.1".into())
                                 ),
                             ),
@@ -212,6 +212,7 @@ pub fn run() {
             commands::workspace::delete_connection_profile,
             commands::workspace::delete_environment_profile,
             commands::workspace::delete_library_node,
+            commands::workspace::duplicate_library_node,
             commands::workspace::delete_datastore_api_server,
             commands::workspace::delete_datastore_mcp_server,
             commands::workspace::delete_datastore_mcp_server_token,

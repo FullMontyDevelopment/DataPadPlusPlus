@@ -88,6 +88,26 @@ fn library_save_uses_the_connection_default_for_new_or_stale_items() {
 }
 
 #[test]
+fn library_copy_names_are_scoped_to_the_immediate_parent() {
+    let mut source = test_node("query", Some("queries"), None);
+    source.name = "Orders".into();
+    let mut first_copy = test_node("query-copy", Some("queries"), None);
+    first_copy.name = "Copy of Orders".into();
+    let mut second_copy = test_node("query-copy-2", Some("queries"), None);
+    second_copy.name = "Copy of Orders (2)".into();
+    let mut other_folder_copy = test_node("query-copy-other", Some("archive"), None);
+    other_folder_copy.name = "Copy of Orders (3)".into();
+
+    assert_eq!(
+        next_library_copy_name(
+            &[source.clone(), first_copy, second_copy, other_folder_copy],
+            &source,
+        ),
+        "Copy of Orders (3)"
+    );
+}
+
+#[test]
 fn local_file_content_uses_script_text_for_script_tabs() {
     let tab = QueryTabState {
         query_text: "{ \"collection\": \"products\" }".into(),

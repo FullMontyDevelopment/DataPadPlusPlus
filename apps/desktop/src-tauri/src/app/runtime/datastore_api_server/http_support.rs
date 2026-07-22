@@ -1,6 +1,6 @@
 fn local_warnings() -> Vec<String> {
     vec![
-        "Experimental local API; bind address is fixed to 127.0.0.1.".into(),
+        "Local API; bind address is fixed to 127.0.0.1.".into(),
         "No CORS headers are emitted; browser clients from other origins are intentionally unsupported.".into(),
     ]
 }

@@ -77,6 +77,7 @@ import type {
   FirstInstallGuideStepId,
   LibraryCreateFolderRequest,
   LibraryDeleteNodeRequest,
+  LibraryDuplicateNodeRequest,
   LibraryMoveNodeRequest,
   LibraryRenameNodeRequest,
   LibrarySetEnvironmentRequest,
@@ -303,6 +304,7 @@ export interface Actions {
   moveLibraryNode(request: LibraryMoveNodeRequest): Promise<void>
   setLibraryNodeEnvironment(request: LibrarySetEnvironmentRequest): Promise<void>
   deleteLibraryNode(request: LibraryDeleteNodeRequest): Promise<void>
+  duplicateLibraryNode(request: LibraryDuplicateNodeRequest): Promise<void>
   openLibraryItem(libraryItemId: string): Promise<void>
   saveQueryTabToLibrary(request: SaveQueryTabToLibraryRequest): Promise<void>
   saveQueryTabToLocalFile(request: SaveQueryTabToLocalFileRequest): Promise<void>

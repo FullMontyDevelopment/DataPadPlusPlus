@@ -7,6 +7,7 @@ pub struct DatastoreMcpServerSettingsRequest {
     pub host: Option<String>,
     pub port: Option<u16>,
     pub auto_start: Option<bool>,
+    pub request_timeout_ms: Option<u64>,
     pub server_id: Option<String>,
     pub name: Option<String>,
     pub description: Option<String>,
@@ -16,6 +17,7 @@ pub struct DatastoreMcpServerSettingsRequest {
     pub connection_ids: Option<Vec<String>>,
     #[serde(default)]
     pub environment_ids: Option<Vec<String>>,
+    pub allow_no_environment: Option<bool>,
     pub active_server_id: Option<String>,
 }
 
@@ -26,12 +28,14 @@ pub struct DatastoreMcpServerCreateRequest {
     pub description: Option<String>,
     pub port: Option<u16>,
     pub auto_start: Option<bool>,
+    pub request_timeout_ms: Option<u64>,
     #[serde(default)]
     pub allowed_origins: Vec<String>,
     #[serde(default)]
     pub connection_ids: Vec<String>,
     #[serde(default)]
     pub environment_ids: Vec<String>,
+    pub allow_no_environment: Option<bool>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -42,9 +46,11 @@ pub struct DatastoreMcpServerUpdateRequest {
     pub description: Option<String>,
     pub port: Option<u16>,
     pub auto_start: Option<bool>,
+    pub request_timeout_ms: Option<u64>,
     pub allowed_origins: Option<Vec<String>>,
     pub connection_ids: Option<Vec<String>>,
     pub environment_ids: Option<Vec<String>>,
+    pub allow_no_environment: Option<bool>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -151,6 +157,7 @@ pub struct DatastoreMcpServerInstanceStatus {
     pub running: bool,
     pub host: String,
     pub port: u16,
+    pub request_timeout_ms: Option<u64>,
     pub endpoint: Option<String>,
     pub started_at: Option<String>,
     pub message: String,
@@ -158,6 +165,7 @@ pub struct DatastoreMcpServerInstanceStatus {
     pub allowed_origins: Vec<String>,
     pub connection_ids: Vec<String>,
     pub environment_ids: Vec<String>,
+    pub allow_no_environment: bool,
     pub token_count: usize,
 }
 
@@ -168,6 +176,7 @@ pub struct DatastoreMcpServerStatus {
     pub running: bool,
     pub host: String,
     pub port: u16,
+    pub request_timeout_ms: Option<u64>,
     pub endpoint: Option<String>,
     pub server_id: Option<String>,
     pub name: Option<String>,
@@ -179,6 +188,7 @@ pub struct DatastoreMcpServerStatus {
     pub allowed_origins: Vec<String>,
     pub connection_ids: Vec<String>,
     pub environment_ids: Vec<String>,
+    pub allow_no_environment: bool,
     pub token_count: usize,
     pub servers: Vec<DatastoreMcpServerInstanceStatus>,
 }
@@ -304,9 +314,11 @@ pub struct DatastoreMcpServerConfig {
     pub host: String,
     pub port: u16,
     pub auto_start: bool,
+    pub request_timeout_ms: Option<u64>,
     pub allowed_origins: Vec<String>,
     pub connection_ids: Vec<String>,
     pub environment_ids: Vec<String>,
+    pub allow_no_environment: bool,
     pub tokens: Vec<DatastoreMcpServerTokenConfig>,
 }
 
@@ -314,14 +326,16 @@ impl Default for DatastoreMcpServerConfig {
     fn default() -> Self {
         Self {
             id: "mcp-server-default".into(),
-            name: "Local MCP Server".into(),
+            name: "MCP Server".into(),
             description: None,
             host: "127.0.0.1".into(),
             port: 17641,
             auto_start: false,
+            request_timeout_ms: None,
             allowed_origins: Vec::new(),
             connection_ids: Vec::new(),
             environment_ids: Vec::new(),
+            allow_no_environment: false,
             tokens: Vec::new(),
         }
     }

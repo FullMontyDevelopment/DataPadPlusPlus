@@ -303,7 +303,7 @@ export function DeleteEnvironmentDialog({
     <DeleteConfirmationDialog
       eyebrow="Delete Environment"
       title={`Delete environment ${environment.label}?`}
-      body="Connections, tabs, and Library items using this environment will fall back to another environment or inherit from their parent."
+      body="Connections, tabs, API servers, MCP access, and saved work using this environment will continue with No environment."
       confirmLabel="Delete Environment"
       onCancel={onCancel}
       onConfirm={onConfirm}

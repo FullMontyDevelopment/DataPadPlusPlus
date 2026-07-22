@@ -1048,6 +1048,10 @@ export interface LibraryDeleteNodeRequest {
   nodeId: string
 }
 
+export interface LibraryDuplicateNodeRequest {
+  nodeId: string
+}
+
 export interface LibraryMoveNodeRequest {
   nodeId: string
   parentId?: string

@@ -42,7 +42,7 @@ fn rest_docs_html(
 <body data-docs-protocol="rest">
   <aside class="scalar-sidebar" aria-label="API Reference navigation">
     <div class="docs-brand">
-      <span>Experimental</span>
+      <span>API Server</span>
       <strong>__SERVER_NAME__</strong>
       <small>__BASE_URL__</small>
     </div>
@@ -214,7 +214,7 @@ fn protocol_docs_html(
   <main class="protocol-docs">
     <section class="intro-panel">
       <div class="badge-row">
-        <span class="badge">Experimental</span>
+        <span class="badge">DataPad++</span>
         <span class="badge">__PROTOCOL_LABEL__</span>
         <span class="badge">Local only</span>
       </div>
@@ -1080,6 +1080,7 @@ fn json_response<T: Serialize>(status: u16, body: T) -> HttpResponse {
         415 => "Unsupported Media Type",
         500 => "Internal Server Error",
         503 => "Service Unavailable",
+        504 => "Gateway Timeout",
         _ => "OK",
     };
     HttpResponse {

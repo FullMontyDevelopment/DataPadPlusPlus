@@ -46,6 +46,15 @@ pub fn rename_library_node(
 }
 
 #[tauri::command]
+pub fn duplicate_library_node(
+    state: State<'_, SharedAppState>,
+    request: LibraryDuplicateNodeRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.duplicate_library_node(request)
+}
+
+#[tauri::command]
 pub fn move_library_node(
     state: State<'_, SharedAppState>,
     request: LibraryMoveNodeRequest,

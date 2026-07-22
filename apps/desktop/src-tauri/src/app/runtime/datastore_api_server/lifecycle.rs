@@ -22,6 +22,7 @@ impl DatastoreApiServerManager {
                     running: active_status.running,
                     host: API_HOST.into(),
                     port: active_status.port,
+                    request_timeout_ms: active_status.request_timeout_ms,
                     base_url: active_status.base_url.clone(),
                     connection_id: active_status.connection_id.clone(),
                     environment_id: active_status.environment_id.clone(),
@@ -47,6 +48,7 @@ impl DatastoreApiServerManager {
             running: false,
             host: API_HOST.into(),
             port: preferences.port,
+            request_timeout_ms: None,
             base_url: (preferences.enabled && has_servers)
                 .then(|| format!("http://{API_HOST}:{}", preferences.port)),
             connection_id: preferences.connection_id.clone(),
@@ -61,9 +63,9 @@ impl DatastoreApiServerManager {
             message: if preferences.enabled && !has_servers {
                 "No API servers are configured.".into()
             } else if preferences.enabled {
-                "Experimental datastore API server is stopped.".into()
+                "API server is stopped.".into()
             } else {
-                "Experimental datastore API server is disabled.".into()
+                "API server is disabled.".into()
             },
             warnings: if preferences.enabled && has_servers {
                 local_warnings()
@@ -93,6 +95,11 @@ impl DatastoreApiServerManager {
                 running: true,
                 host: API_HOST.into(),
                 port: running.port,
+                request_timeout_ms: running
+                    .config
+                    .lock()
+                    .ok()
+                    .and_then(|config| config.request_timeout_ms),
                 protocol: running.protocol.clone(),
                 base_path: running
                     .config
@@ -104,7 +111,7 @@ impl DatastoreApiServerManager {
                 connection_id: Some(running.connection_id.clone()),
                 environment_id: Some(running.environment_id.clone()),
                 started_at: Some(running.started_at.clone()),
-                message: "Experimental datastore API server is running.".into(),
+                message: "API server is running.".into(),
                 warnings: local_warnings(),
                 resources: running
                     .config
@@ -128,6 +135,7 @@ impl DatastoreApiServerManager {
             running: false,
             host: API_HOST.into(),
             port: server.port,
+            request_timeout_ms: server.request_timeout_ms,
             protocol: server.protocol.clone(),
             base_path: server.base_path.clone(),
             base_url: feature_enabled.then(|| format!("http://{API_HOST}:{}", server.port)),
@@ -135,9 +143,9 @@ impl DatastoreApiServerManager {
             environment_id: server.environment_id.clone(),
             started_at: None,
             message: if feature_enabled {
-                "Experimental datastore API server is stopped.".into()
+                "API server is stopped.".into()
             } else {
-                "Experimental datastore API server is disabled.".into()
+                "API server is disabled.".into()
             },
             warnings: if feature_enabled {
                 local_warnings()

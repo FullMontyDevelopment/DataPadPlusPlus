@@ -208,6 +208,7 @@ export interface DatastoreApiServerSettingsRequest {
   host?: '127.0.0.1'
   port?: number
   autoStart?: boolean
+  requestTimeoutMs?: number
   connectionId?: string
   environmentId?: string
   serverId?: string
@@ -227,6 +228,7 @@ export interface DatastoreApiServerCreateRequest {
   basePath?: string
   port?: number
   autoStart?: boolean
+  requestTimeoutMs?: number
   connectionId?: string
   environmentId?: string
   resources?: import('./security').DatastoreApiServerResourceConfig[]
@@ -241,6 +243,7 @@ export interface DatastoreApiServerUpdateRequest {
   basePath?: string
   port?: number
   autoStart?: boolean
+  requestTimeoutMs?: number
   connectionId?: string
   environmentId?: string
   resources?: import('./security').DatastoreApiServerResourceConfig[]
@@ -348,6 +351,7 @@ export interface DatastoreApiServerInstanceStatus {
   running: boolean
   host: '127.0.0.1'
   port: number
+  requestTimeoutMs?: number
   protocol?: 'rest' | 'graphql' | 'grpc'
   basePath?: string
   baseUrl?: string
@@ -365,6 +369,7 @@ export interface DatastoreApiServerStatus {
   running: boolean
   host: '127.0.0.1'
   port: number
+  requestTimeoutMs?: number
   baseUrl?: string
   connectionId?: string
   environmentId?: string
@@ -452,12 +457,14 @@ export interface DatastoreMcpServerSettingsRequest {
   host?: '127.0.0.1'
   port?: number
   autoStart?: boolean
+  requestTimeoutMs?: number
   serverId?: string
   name?: string
   description?: string
   allowedOrigins?: string[]
   connectionIds?: string[]
   environmentIds?: string[]
+  allowNoEnvironment?: boolean
   activeServerId?: string
 }
 
@@ -466,9 +473,11 @@ export interface DatastoreMcpServerCreateRequest {
   description?: string
   port?: number
   autoStart?: boolean
+  requestTimeoutMs?: number
   allowedOrigins?: string[]
   connectionIds?: string[]
   environmentIds?: string[]
+  allowNoEnvironment?: boolean
 }
 
 export interface DatastoreMcpServerUpdateRequest {
@@ -477,9 +486,11 @@ export interface DatastoreMcpServerUpdateRequest {
   description?: string
   port?: number
   autoStart?: boolean
+  requestTimeoutMs?: number
   allowedOrigins?: string[]
   connectionIds?: string[]
   environmentIds?: string[]
+  allowNoEnvironment?: boolean
 }
 
 export interface DatastoreMcpServerStartRequest {
@@ -559,6 +570,7 @@ export interface DatastoreMcpServerInstanceStatus {
   running: boolean
   host: '127.0.0.1'
   port: number
+  requestTimeoutMs?: number
   endpoint?: string
   startedAt?: string
   message: string
@@ -566,6 +578,7 @@ export interface DatastoreMcpServerInstanceStatus {
   allowedOrigins: string[]
   connectionIds: string[]
   environmentIds: string[]
+  allowNoEnvironment?: boolean
   tokenCount: number
 }
 
@@ -574,6 +587,7 @@ export interface DatastoreMcpServerStatus {
   running: boolean
   host: '127.0.0.1'
   port: number
+  requestTimeoutMs?: number
   endpoint?: string
   serverId?: string
   name?: string
@@ -585,6 +599,7 @@ export interface DatastoreMcpServerStatus {
   allowedOrigins: string[]
   connectionIds: string[]
   environmentIds: string[]
+  allowNoEnvironment?: boolean
   tokenCount: number
   servers: DatastoreMcpServerInstanceStatus[]
 }
