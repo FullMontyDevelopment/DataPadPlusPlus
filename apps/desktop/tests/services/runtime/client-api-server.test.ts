@@ -102,6 +102,24 @@ describe('clientApiServer browser preview', () => {
     expect(logs.running).toBe(false)
     expect(logs.entries).toEqual([])
 
+    const exportCapabilities =
+      await clientApiServer.getDatastoreApiServerProjectExportCapabilities({
+        serverId: 'api-server-default',
+      })
+    expect(exportCapabilities.engine).toBe('sqlite')
+    expect(exportCapabilities.frameworks).toEqual([
+      expect.objectContaining({
+        framework: 'rust',
+        supported: true,
+        client: 'SQLx / SQLite',
+      }),
+      expect.objectContaining({
+        framework: 'dotnet',
+        supported: true,
+        client: 'Dapper / Microsoft.Data.Sqlite',
+      }),
+    ])
+
     await clientApiServer.deleteDatastoreApiServer({ serverId: 'api-server-default' })
 
     const deletedSnapshot = loadBrowserSnapshot().preferences.datastoreApiServer
@@ -233,6 +251,67 @@ describe('clientApiServer browser preview', () => {
       ['support', 'Collections'],
     ])
   })
+
+  it.each([
+    ['mongodb', 'MongoDB Rust Driver', 'MongoDB.Driver'],
+    ['dynamodb', 'AWS SDK for Rust / DynamoDB', 'AWS SDK for .NET / DynamoDB'],
+  ])(
+    'reports both framework adapters for %s project export',
+    async (engine, rustClient, dotnetClient) => {
+      const snapshot = createBlankSnapshot()
+      snapshot.connections = [
+        {
+          id: `conn-${engine}`,
+          name: engine,
+          engine,
+          family: engine === 'mongodb' ? 'document' : 'widecolumn',
+          host: 'localhost',
+          database: engine === 'mongodb' ? 'catalog' : undefined,
+          environmentIds: ['env-local'],
+          tags: [],
+          favorite: false,
+          readOnly: false,
+          icon: 'DB',
+          auth: {},
+          createdAt: '2026-06-14T00:00:00.000Z',
+          updatedAt: '2026-06-14T00:00:00.000Z',
+        },
+      ]
+      snapshot.preferences.datastoreApiServer = {
+        enabled: true,
+        host: '127.0.0.1',
+        port: 17641,
+        autoStart: false,
+        activeServerId: 'api-server-document',
+        servers: [
+          {
+            id: 'api-server-document',
+            name: 'Document API',
+            host: '127.0.0.1',
+            port: 17641,
+            autoStart: false,
+            protocol: 'rest',
+            basePath: '',
+            connectionId: `conn-${engine}`,
+            environmentId: 'env-local',
+            resources: [],
+            customEndpoints: [],
+          },
+        ],
+      }
+      saveBrowserSnapshot(snapshot)
+
+      const capabilities =
+        await clientApiServer.getDatastoreApiServerProjectExportCapabilities({
+          serverId: 'api-server-document',
+        })
+
+      expect(capabilities.frameworks).toEqual([
+        expect.objectContaining({ framework: 'rust', supported: true, client: rustClient }),
+        expect.objectContaining({ framework: 'dotnet', supported: true, client: dotnetClient }),
+      ])
+    },
+  )
 })
 
 function savedQuery(

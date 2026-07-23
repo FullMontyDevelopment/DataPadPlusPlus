@@ -3079,6 +3079,7 @@ function DesktopWorkspace() {
                     onAddCustomEndpoint={actions.addDatastoreApiServerCustomEndpoint}
                     onUpdateCustomEndpoint={actions.updateDatastoreApiServerCustomEndpoint}
                     onRemoveCustomEndpoint={actions.removeDatastoreApiServerCustomEndpoint}
+                    onGetProjectExportCapabilities={actions.getDatastoreApiServerProjectExportCapabilities}
                     onExportProject={actions.exportDatastoreApiServerProjectFile}
                     onUpdateSettings={updateApiServerSettings}
                     onStart={startApiServer}

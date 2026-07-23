@@ -5,6 +5,8 @@ import type {
   DatastoreApiServerMetrics,
   DatastoreApiServerAddCustomEndpointRequest,
   DatastoreApiServerAddResourcesRequest,
+  DatastoreApiServerProjectExportCapabilitiesRequest,
+  DatastoreApiServerProjectExportCapabilitiesResponse,
   DatastoreApiServerProjectExportRequest,
   DatastoreApiServerProjectExportResponse,
   DatastoreApiServerCreateRequest,
@@ -287,6 +289,58 @@ export const clientApiServer = {
     }
 
     throw new Error('API server project export is available in the desktop app.')
+  },
+
+  async getDatastoreApiServerProjectExportCapabilities(
+    request: DatastoreApiServerProjectExportCapabilitiesRequest,
+  ): Promise<DatastoreApiServerProjectExportCapabilitiesResponse> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<DatastoreApiServerProjectExportCapabilitiesResponse>(
+        'get_datastore_api_server_project_export_capabilities',
+        { request },
+      )
+    }
+
+    const snapshot = cloneSnapshot(loadBrowserSnapshot())
+    const server = browserServers(snapshot.preferences.datastoreApiServer)
+      .find((candidate) => candidate.id === request.serverId)
+    const engine = snapshot.connections.find(
+      (connection) => connection.id === server?.connectionId,
+    )?.engine ?? ''
+    const supported = ['postgresql', 'sqlite', 'mongodb', 'dynamodb'].includes(engine)
+    const reason = supported
+      ? undefined
+      : 'Project export supports PostgreSQL, SQLite, MongoDB, and DynamoDB only.'
+    const clients = {
+      rust: {
+        postgresql: 'SQLx / PostgreSQL',
+        sqlite: 'SQLx / SQLite',
+        mongodb: 'MongoDB Rust Driver',
+        dynamodb: 'AWS SDK for Rust / DynamoDB',
+      },
+      dotnet: {
+        postgresql: 'Dapper / Npgsql',
+        sqlite: 'Dapper / Microsoft.Data.Sqlite',
+        mongodb: 'MongoDB.Driver',
+        dynamodb: 'AWS SDK for .NET / DynamoDB',
+      },
+    } as const
+    return {
+      serverId: request.serverId,
+      engine,
+      frameworks: (['rust', 'dotnet'] as const).map((framework) => ({
+        framework,
+        supported,
+        client: supported
+          ? clients[framework][engine as keyof (typeof clients)[typeof framework]]
+          : '',
+        protocols: supported ? ['rest', 'graphql', 'grpc'] : [],
+        reason,
+        resources: [],
+        customEndpoints: [],
+        warnings: [],
+      })),
+    }
   },
 
   async addDatastoreApiServerResources(

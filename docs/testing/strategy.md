@@ -37,6 +37,7 @@ Cover:
 - result paging and virtualization guardrails
 - per-tab concurrent execution, stale completion handling, and visible render timing
 - API Server resource discovery, custom endpoint parameter handling, project-export request shaping, and metrics/log routing
+- API Server project-export registry cardinality, relational/document/keyed-document planning, SQL safety, MongoDB and DynamoDB codecs and mutation guards, capability UI, exact dependency manifests, and real repository source generation
 - MCP Server token creation/deletion, setup preview behavior, local-only status, and metrics/log routing
 - Workspace Search opening behavior for connections, Library items, tabs, and recently closed tabs
 - test-suite execution orchestration, cancellation, and environment propagation
@@ -54,6 +55,8 @@ Cover:
 - switching result renderers
 - saving and reopening work
 - query builder toolbar modes
+
+Generated API project validation has two compile lanes. `npm run api-export:validate` compiles a pairwise Rust/.NET set covering PostgreSQL, SQLite, MongoDB, DynamoDB, and REST/GraphQL/gRPC in normal CI. `npm run api-export:validate:full` compiles all 24 supported combinations; Rust DynamoDB projects use Rust 1.94.1 or newer. The dedicated manually dispatched matrix runs `npm run api-export:validate:full-live`, which also starts generated projects against the documented SQLite, MongoDB replica-set, and DynamoDB Local fixtures when those services are available. Local subsets are available through `api-export:validate:live-sqlite`, `api-export:validate:live-mongodb`, and `api-export:validate:live-dynamodb`. The fixture lane verifies health, real repository reads, CRUD safety, composite keys, tagged values, duplicate protection, and public GraphQL/gRPC data rather than fixed responses. Cloud credentials and production mutations remain opt-in.
 - document-field drag-and-drop into builder sections
 - safe inline document edits where supported
 - environment switching and read-only behavior

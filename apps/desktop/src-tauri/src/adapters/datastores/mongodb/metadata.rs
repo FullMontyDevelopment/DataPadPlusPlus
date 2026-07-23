@@ -1,13 +1,16 @@
 use std::collections::BTreeMap;
 
 use futures_util::TryStreamExt;
-use mongodb::bson::{self, doc, Document};
+use mongodb::{
+    bson::{self, doc, Document},
+    results::CollectionType,
+};
 
 use super::super::super::*;
 use super::bson_extjson::mongodb_document_to_json;
 use super::connection::{mongodb_client, mongodb_database_name};
 
-const MONGODB_SCHEMA_SAMPLE_LIMIT: i64 = 50;
+const MONGODB_SCHEMA_SAMPLE_LIMIT: i64 = 25;
 
 pub(crate) async fn load_mongodb_structure(
     connection: &ResolvedConnectionProfile,
@@ -17,11 +20,17 @@ pub(crate) async fn load_mongodb_structure(
     let client = mongodb_client(connection).await?;
     let database_name = mongodb_database_name(connection);
     let database = client.database(&database_name);
-    let collections = database.list_collection_names().await?;
+    let collections = database
+        .list_collections()
+        .await?
+        .try_collect::<Vec<_>>()
+        .await?;
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
     let mut collection_names = Vec::new();
-    for collection_name in collections.iter().take(limit as usize) {
+    for specification in collections.iter().take(limit as usize) {
+        let collection_name = &specification.name;
+        let is_view = specification.collection_type == CollectionType::View;
         collection_names.push(collection_name.clone());
         let collection = database.collection::<Document>(collection_name);
         let index_names = collection.list_index_names().await.unwrap_or_default();
@@ -46,7 +55,7 @@ pub(crate) async fn load_mongodb_structure(
             id: collection_name.clone(),
             family: "document".into(),
             label: collection_name.clone(),
-            kind: "collection".into(),
+            kind: if is_view { "view" } else { "collection" }.into(),
             group_id: Some(database_name.clone()),
             detail: Some(format!("{} index(es)", index_names.len())),
             database: Some(database_name.clone()),
@@ -58,7 +67,7 @@ pub(crate) async fn load_mongodb_structure(
             row_count_estimate: Some(count),
             index_count: Some(index_names.len() as u32),
             is_system: Some(false),
-            is_view: Some(false),
+            is_view: Some(is_view),
             metrics: vec![
                 structure_metric("Documents", count.to_string()),
                 structure_metric("Indexes", index_names.len().to_string()),

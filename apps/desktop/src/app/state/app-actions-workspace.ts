@@ -46,6 +46,7 @@ type WorkspaceActions = Pick<
   | 'addDatastoreApiServerCustomEndpoint'
   | 'updateDatastoreApiServerCustomEndpoint'
   | 'removeDatastoreApiServerCustomEndpoint'
+  | 'getDatastoreApiServerProjectExportCapabilities'
   | 'exportDatastoreApiServerProjectFile'
   | 'updateDatastoreApiServerSettings'
   | 'startDatastoreApiServer'
@@ -617,6 +618,21 @@ export function useWorkspaceActions({
     [handleError, state.payload],
   )
 
+  const getDatastoreApiServerProjectExportCapabilities = useCallback<
+    Actions['getDatastoreApiServerProjectExportCapabilities']
+  >(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        return await desktopClient.getDatastoreApiServerProjectExportCapabilities(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError, state.payload],
+  )
+
   const updateDatastoreApiServerSettings = useCallback<Actions['updateDatastoreApiServerSettings']>(
     async (request) => {
       try {
@@ -931,6 +947,7 @@ export function useWorkspaceActions({
       addDatastoreApiServerCustomEndpoint,
       updateDatastoreApiServerCustomEndpoint,
       removeDatastoreApiServerCustomEndpoint,
+      getDatastoreApiServerProjectExportCapabilities,
       exportDatastoreApiServerProjectFile,
       updateDatastoreApiServerSettings,
       startDatastoreApiServer,
@@ -981,6 +998,7 @@ export function useWorkspaceActions({
       addDatastoreApiServerCustomEndpoint,
       updateDatastoreApiServerCustomEndpoint,
       removeDatastoreApiServerCustomEndpoint,
+      getDatastoreApiServerProjectExportCapabilities,
       exportDatastoreApiServerProjectFile,
       updateDatastoreApiServerSettings,
       startDatastoreApiServer,

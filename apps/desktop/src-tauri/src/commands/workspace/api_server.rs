@@ -134,6 +134,15 @@ pub fn remove_datastore_api_server_custom_endpoint(
 }
 
 #[tauri::command]
+pub async fn get_datastore_api_server_project_export_capabilities(
+    state: State<'_, SharedAppState>,
+    request: DatastoreApiServerProjectExportCapabilitiesRequest,
+) -> Result<DatastoreApiServerProjectExportCapabilitiesResponse, CommandError> {
+    let mut runtime = clone_runtime(&state)?;
+    datastore_api_server::project_export_capabilities(&mut runtime, request).await
+}
+
+#[tauri::command]
 pub async fn export_datastore_api_server_project_file(
     app: AppHandle,
     state: State<'_, SharedAppState>,

@@ -504,6 +504,42 @@ pub fn query_looks_write(query_text: &str) -> bool {
     classify_tokenized_query_risk(query_text).looks_write
 }
 
+pub fn sql_query_is_read_only(query_text: &str) -> bool {
+    let tokens = query_tokens(query_text);
+    if !matches!(tokens.first().map(String::as_str), Some("select" | "with"))
+        || classify_tokens(&tokens).looks_write
+    {
+        return false;
+    }
+    if tokens.iter().any(|token| {
+        matches!(
+            token.as_str(),
+            "analyze"
+                | "attach"
+                | "begin"
+                | "call"
+                | "commit"
+                | "copy"
+                | "detach"
+                | "exec"
+                | "execute"
+                | "lock"
+                | "pragma"
+                | "reindex"
+                | "rollback"
+                | "savepoint"
+                | "set"
+                | "vacuum"
+        )
+    }) {
+        return false;
+    }
+    !tokens.windows(2).any(|window| {
+        (window[0] == "for" && matches!(window[1].as_str(), "update" | "share"))
+            || (window[0] == "select" && window[1] == "into")
+    })
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 struct QueryRisk {
     looks_write: bool,

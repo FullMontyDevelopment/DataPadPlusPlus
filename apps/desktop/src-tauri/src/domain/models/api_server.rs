@@ -159,6 +159,54 @@ pub struct DatastoreApiServerProjectExportResponse {
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerProjectExportCapabilitiesRequest {
+    pub server_id: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerProjectExportCapabilitiesResponse {
+    pub server_id: String,
+    pub engine: String,
+    #[serde(default)]
+    pub frameworks: Vec<DatastoreApiServerProjectExportFrameworkCapability>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerProjectExportFrameworkCapability {
+    pub framework: String,
+    pub supported: bool,
+    pub client: String,
+    #[serde(default)]
+    pub protocols: Vec<String>,
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub resources: Vec<DatastoreApiServerProjectExportResourceCapability>,
+    #[serde(default)]
+    pub custom_endpoints: Vec<DatastoreApiServerProjectExportEndpointCapability>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerProjectExportResourceCapability {
+    pub resource_id: String,
+    pub mode: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreApiServerProjectExportEndpointCapability {
+    pub endpoint_id: String,
+    pub supported: bool,
+    pub reason: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct DatastoreApiServerStartRequest {
     pub server_id: Option<String>,
     pub connection_id: Option<String>,

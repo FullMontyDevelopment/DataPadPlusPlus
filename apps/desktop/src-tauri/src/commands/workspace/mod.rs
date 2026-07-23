@@ -29,6 +29,8 @@ use crate::{
             DatastoreApiServerAddCustomEndpointRequest, DatastoreApiServerAddResourcesRequest,
             DatastoreApiServerCreateRequest, DatastoreApiServerDeleteRequest,
             DatastoreApiServerLogs, DatastoreApiServerLogsRequest, DatastoreApiServerMetrics,
+            DatastoreApiServerProjectExportCapabilitiesRequest,
+            DatastoreApiServerProjectExportCapabilitiesResponse,
             DatastoreApiServerProjectExportRequest, DatastoreApiServerProjectExportResponse,
             DatastoreApiServerQuerySourceDiscoveryRequest,
             DatastoreApiServerQuerySourceDiscoveryResponse,

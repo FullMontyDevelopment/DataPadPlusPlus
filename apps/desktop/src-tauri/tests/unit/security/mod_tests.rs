@@ -201,6 +201,19 @@ fn tokenized_write_detection_ignores_keyword_inside_identifier() {
 }
 
 #[test]
+fn sql_read_only_classifier_rejects_non_query_and_locking_statements() {
+    assert!(sql_query_is_read_only(
+        "with active as (select * from accounts) select * from active"
+    ));
+    assert!(!sql_query_is_read_only("pragma journal_mode = wal"));
+    assert!(!sql_query_is_read_only("select * from accounts for update"));
+    assert!(!sql_query_is_read_only(
+        "select * into archived_accounts from accounts"
+    ));
+    assert!(!sql_query_is_read_only("copy accounts to stdout"));
+}
+
+#[test]
 fn oracle_guardrails_confirm_plsql_locks_and_block_read_only_writes() {
     let mut oracle = connection(false);
     oracle.engine = "oracle".into();

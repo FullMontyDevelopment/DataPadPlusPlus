@@ -189,6 +189,7 @@ fn configured_custom_endpoint_for_path(
     Ok(Some(endpoint.clone()))
 }
 
+#[cfg(test)]
 fn resource_config_for_node(
     kind: String,
     label: String,
@@ -197,7 +198,19 @@ fn resource_config_for_node(
     path: Option<Vec<String>>,
     scope: Option<String>,
 ) -> Option<DatastoreApiServerResourceConfig> {
-    let crud_kind = crud_kind_for_node(&kind)?;
+    resource_config_for_node_in_family(String::new(), kind, label, node_id, detail, path, scope)
+}
+
+fn resource_config_for_node_in_family(
+    family: String,
+    kind: String,
+    label: String,
+    node_id: String,
+    detail: String,
+    path: Option<Vec<String>>,
+    scope: Option<String>,
+) -> Option<DatastoreApiServerResourceConfig> {
+    let crud_kind = crud_kind_for_node(&family, &kind)?;
     let slug = api_server_slug(&label);
     let normalized_path = path.unwrap_or_default();
     let mut id_parts = vec![crud_kind.clone(), node_id.clone(), slug.clone()];
@@ -246,7 +259,10 @@ async fn execute_custom_endpoint(
     let query_template =
         render_custom_endpoint_query(endpoint, &parameters, &resolved_environment.variables)?;
 
-    if security::query_looks_write(&query_template) {
+    if security::query_looks_write(&query_template)
+        || (endpoint.language.to_ascii_lowercase().contains("sql")
+            && !security::sql_query_is_read_only(&query_template))
+    {
         return Err(ApiRouteError {
             status: 409,
             code: "custom-query-write-blocked".into(),

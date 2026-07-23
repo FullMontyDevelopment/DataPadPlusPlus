@@ -154,7 +154,7 @@ An API Server profile can define:
 - endpoint parameters discovered from tokens such as `{{api.customerId}}`
 - metrics and request logs for the running local server
 
-Servers do not expose the whole workspace automatically. You add resources or saved-query endpoints deliberately, and every server still carries the selected connection and environment context. Exported API projects use environment-variable references for runtime secrets; DataPad++ secret values are not written into generated Rust or .NET projects.
+Servers do not expose the whole workspace automatically. You add resources or saved-query endpoints deliberately, and every server still carries the selected connection and environment context. PostgreSQL, SQLite, MongoDB, and DynamoDB servers can be exported as working Rust or .NET projects for the configured REST/OpenAPI, GraphQL, or gRPC surface. Relational exports use SQLx or Dapper with catalog-qualified identifiers and bound request values. MongoDB exports use the official native driver, exact `_id` filters, Extended JSON, and guarded top-level patches. DynamoDB exports use the official AWS SDK, configured-table health checks, exact typed keys, bounded scans, lossless tagged document JSON, and conditional create/update/delete operations. Custom query endpoints remain relational-only. Other datastores are explicitly disabled for project export. Exported projects use environment-variable references for runtime secrets; DataPad++ secret values are not written into generated archives.
 
 ## Workspace Search
 

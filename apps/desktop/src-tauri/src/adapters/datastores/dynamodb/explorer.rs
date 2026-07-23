@@ -544,27 +544,56 @@ async fn enrich_dynamodb_inspection(
     node_id: &str,
     payload: &mut Value,
 ) {
-    let tables = optional_dynamodb_call(connection, "ListTables", &json!({})).await;
+    let items_view = dynamodb_object_view_kind(node_id) == "items";
+    let tables = if items_view {
+        None
+    } else {
+        optional_dynamodb_call(connection, "ListTables", &json!({})).await
+    };
     let table_name = dynamodb_table_from_node_id(node_id);
     let described_table = if let Some(table) = table_name.as_deref() {
         optional_dynamodb_call(connection, "DescribeTable", &json!({ "TableName": table })).await
     } else {
         None
     };
-    let ttl_description = if let Some(table) = table_name.as_deref() {
-        optional_dynamodb_call(
-            connection,
-            "DescribeTimeToLive",
-            &json!({ "TableName": table }),
-        )
-        .await
+    let ttl_description = if !items_view {
+        if let Some(table) = table_name.as_deref() {
+            optional_dynamodb_call(
+                connection,
+                "DescribeTimeToLive",
+                &json!({ "TableName": table }),
+            )
+            .await
+        } else {
+            None
+        }
     } else {
         None
     };
-    let backups = if let Some(table) = table_name.as_deref() {
+    let backups = if items_view {
+        None
+    } else if let Some(table) = table_name.as_deref() {
         optional_dynamodb_call(connection, "ListBackups", &json!({ "TableName": table })).await
     } else {
         optional_dynamodb_call(connection, "ListBackups", &json!({})).await
+    };
+    let sample = if items_view {
+        if let Some(table) = table_name.as_deref() {
+            optional_dynamodb_call(
+                connection,
+                "Scan",
+                &json!({
+                    "TableName": table,
+                    "Limit": 25,
+                    "ConsistentRead": false
+                }),
+            )
+            .await
+        } else {
+            None
+        }
+    } else {
+        None
     };
     let table = described_table
         .as_ref()
@@ -580,6 +609,11 @@ async fn enrich_dynamodb_inspection(
         ))
     };
     payload["keys"] = json!(dynamodb_key_records(table));
+    payload["items"] = sample
+        .as_ref()
+        .and_then(|value| value.get("Items"))
+        .cloned()
+        .unwrap_or_else(|| json!([]));
     payload["globalSecondaryIndexes"] =
         json!(dynamodb_index_records(table, "GlobalSecondaryIndexes"));
     payload["localSecondaryIndexes"] =
@@ -606,9 +640,13 @@ async fn enrich_dynamodb_inspection(
         .cloned()
         .unwrap_or_else(|| json!("provisioned or on-demand"));
 
-    if tables.is_none() && described_table.is_none() {
+    if described_table.is_none() {
         payload["warnings"] =
             json!(["DynamoDB metadata is unavailable from the configured endpoint right now."]);
+    } else if items_view && sample.is_none() {
+        payload["warnings"] = json!([
+            "DynamoDB item sampling was unavailable; export can continue using the discovered key schema."
+        ]);
     }
 }
 

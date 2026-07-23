@@ -9,6 +9,8 @@ import type {
   DatastoreApiServerLogs,
   DatastoreApiServerLogsRequest,
   DatastoreApiServerMetrics,
+  DatastoreApiServerProjectExportCapabilitiesRequest,
+  DatastoreApiServerProjectExportCapabilitiesResponse,
   DatastoreApiServerProjectExportFramework,
   DatastoreApiServerProjectExportRequest,
   DatastoreApiServerProjectExportResponse,
@@ -101,6 +103,7 @@ export function ApiServerWorkspace({
   onAddCustomEndpoint = async () => false,
   onUpdateCustomEndpoint = async () => false,
   onRemoveCustomEndpoint = async () => false,
+  onGetProjectExportCapabilities = async () => undefined,
   onExportProject = async () => undefined,
   onStart,
   onStop,
@@ -137,6 +140,9 @@ export function ApiServerWorkspace({
   onRemoveCustomEndpoint?(
     request: DatastoreApiServerRemoveCustomEndpointRequest,
   ): Promise<boolean>
+  onGetProjectExportCapabilities?(
+    request: DatastoreApiServerProjectExportCapabilitiesRequest,
+  ): Promise<DatastoreApiServerProjectExportCapabilitiesResponse | undefined>
   onExportProject?(
     request: DatastoreApiServerProjectExportRequest,
   ): Promise<DatastoreApiServerProjectExportResponse | undefined>
@@ -208,6 +214,10 @@ export function ApiServerWorkspace({
     useState<ProjectExportDraft>(defaultProjectExportDraft())
   const [projectExportResult, setProjectExportResult] =
     useState<DatastoreApiServerProjectExportResponse>()
+  const [projectExportCapabilities, setProjectExportCapabilities] =
+    useState<DatastoreApiServerProjectExportCapabilitiesResponse>()
+  const [projectExportCapabilitiesLoading, setProjectExportCapabilitiesLoading] =
+    useState(false)
   const [projectExportError, setProjectExportError] = useState<string>()
   const [serverDrafts, setServerDrafts] = useState<
     Record<string, Partial<Record<ApiServerTextField, string>>>
@@ -664,19 +674,39 @@ export function ApiServerWorkspace({
     }
   }
 
-  const openProjectExportDialog = () => {
+  const openProjectExportDialog = async () => {
     if (!server) return
     setProjectExportDraft(defaultProjectExportDraft(server.name))
     setProjectExportResult(undefined)
+    setProjectExportCapabilities(undefined)
     setProjectExportError(undefined)
     setProjectExportDialogOpen(true)
+    setProjectExportCapabilitiesLoading(true)
+    try {
+      const capabilities = await onGetProjectExportCapabilities({
+        serverId: server.id,
+      })
+      if (capabilities) {
+        setProjectExportCapabilities(capabilities)
+      } else {
+        setProjectExportError(
+          'Project export capabilities could not be loaded.',
+        )
+      }
+    } finally {
+      setProjectExportCapabilitiesLoading(false)
+    }
   }
 
   const exportProject = async () => {
     if (!server) return
     const disabledReason = projectExportDisabledReason(server)
-    if (disabledReason) {
-      setProjectExportError(disabledReason)
+    const capabilityReason = projectExportCapabilityBlockingReason(
+      projectExportCapabilities,
+      projectExportDraft.framework,
+    )
+    if (disabledReason || capabilityReason) {
+      setProjectExportError(disabledReason ?? capabilityReason)
       return
     }
     const projectName = projectExportDraft.projectName.trim()
@@ -765,7 +795,7 @@ export function ApiServerWorkspace({
               className="drawer-button"
               disabled={Boolean(projectExportDisabledReason(server) || busy)}
               title={projectExportDisabledReason(server)}
-              onClick={openProjectExportDialog}
+              onClick={() => void openProjectExportDialog()}
             >
               <DownloadIcon className="panel-inline-icon" />
               Export Project
@@ -1460,6 +1490,8 @@ export function ApiServerWorkspace({
       {projectExportDialogOpen && server ? (
         <ProjectExportDialog
           busy={busy === 'export'}
+          capabilities={projectExportCapabilities}
+          capabilitiesLoading={projectExportCapabilitiesLoading}
           draft={projectExportDraft}
           error={projectExportError}
           result={projectExportResult}
@@ -1467,6 +1499,7 @@ export function ApiServerWorkspace({
           onCancel={() => {
             setProjectExportDialogOpen(false)
             setProjectExportResult(undefined)
+            setProjectExportCapabilities(undefined)
             setProjectExportError(undefined)
           }}
           onExport={() => void exportProject()}
@@ -1520,6 +1553,8 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function ProjectExportDialog({
   busy,
+  capabilities,
+  capabilitiesLoading,
   draft,
   error,
   result,
@@ -1529,6 +1564,8 @@ function ProjectExportDialog({
   onUpdate,
 }: {
   busy: boolean
+  capabilities?: DatastoreApiServerProjectExportCapabilitiesResponse
+  capabilitiesLoading: boolean
   draft: ProjectExportDraft
   error?: string
   result?: DatastoreApiServerProjectExportResponse
@@ -1537,8 +1574,13 @@ function ProjectExportDialog({
   onExport(): void
   onUpdate(patch: Partial<ProjectExportDraft>): void
 }) {
-  const disabledReason = projectExportDisabledReason(server)
+  const disabledReason =
+    projectExportDisabledReason(server) ??
+    projectExportCapabilityBlockingReason(capabilities, draft.framework)
   const validationMessages = projectExportValidationMessages(server)
+  const frameworkCapability = capabilities?.frameworks.find(
+    (capability) => capability.framework === draft.framework,
+  )
   const enabledResources = server.resources.filter(
     (resource) => resource.enabled !== false,
   )
@@ -1586,8 +1628,22 @@ function ProjectExportDialog({
                 })
               }
             >
-              <option value="rust">Rust / axum</option>
-              <option value="dotnet">.NET / ASP.NET Core</option>
+              <option
+                value="rust"
+                disabled={capabilities?.frameworks.find(
+                  (capability) => capability.framework === 'rust',
+                )?.supported === false}
+              >
+                Rust / axum
+              </option>
+              <option
+                value="dotnet"
+                disabled={capabilities?.frameworks.find(
+                  (capability) => capability.framework === 'dotnet',
+                )?.supported === false}
+              >
+                .NET / ASP.NET Core
+              </option>
             </select>
           </label>
           <label className="environment-field">
@@ -1631,7 +1687,7 @@ function ProjectExportDialog({
         <section className="api-server-endpoint-subsection">
           <div className="environment-section-header">
             <strong>Export Contents</strong>
-            <span>{frameworkLabel}</span>
+            <span>{frameworkCapability?.client || frameworkLabel}</span>
           </div>
           <div className="api-server-export-list">
             {enabledResources.map((resource) => (
@@ -1641,8 +1697,23 @@ function ProjectExportDialog({
                   {resource.kind} / {resourcePath(server, resource)}
                 </span>
                 <small>
-                  Schema: {projectExportSchemaSourceLabel(resource.kind)}
+                  {resourceCapabilityLabel(
+                    frameworkCapability?.resources.find(
+                      (capability) => capability.resourceId === resource.id,
+                    )?.mode,
+                  )}
                 </small>
+                {frameworkCapability?.resources.find(
+                  (capability) => capability.resourceId === resource.id,
+                )?.reason ? (
+                  <small>
+                    {
+                      frameworkCapability.resources.find(
+                        (capability) => capability.resourceId === resource.id,
+                      )?.reason
+                    }
+                  </small>
+                ) : null}
               </div>
             ))}
             {enabledCustomEndpoints.map((endpoint) => (
@@ -1651,6 +1722,17 @@ function ProjectExportDialog({
                 <span>
                   {endpoint.method} / {customEndpointPath(server, endpoint)}
                 </span>
+                {frameworkCapability?.customEndpoints.find(
+                  (capability) => capability.endpointId === endpoint.id,
+                )?.reason ? (
+                  <small>
+                    {
+                      frameworkCapability.customEndpoints.find(
+                        (capability) => capability.endpointId === endpoint.id,
+                      )?.reason
+                    }
+                  </small>
+                ) : null}
               </div>
             ))}
           </div>
@@ -1669,6 +1751,18 @@ function ProjectExportDialog({
             </ul>
           </section>
         ) : null}
+        {frameworkCapability?.reason ? (
+          <p className="settings-inline-note is-error">
+            {frameworkCapability.reason}
+          </p>
+        ) : null}
+        {frameworkCapability?.warnings.length ? (
+          <ul className="api-server-export-validation">
+            {frameworkCapability.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        ) : null}
 
         {result?.saved ? (
           <p className="settings-inline-note">
@@ -1685,6 +1779,11 @@ function ProjectExportDialog({
         {error ? (
           <p className="settings-inline-note is-error">{error}</p>
         ) : null}
+        {capabilitiesLoading ? (
+          <p className="settings-inline-note">
+            Checking datastore client capabilities...
+          </p>
+        ) : null}
 
         <div className="workbench-dialog-actions">
           <button type="button" className="drawer-button" onClick={onCancel}>
@@ -1694,7 +1793,11 @@ function ProjectExportDialog({
             type="button"
             className="drawer-button drawer-button--primary"
             disabled={
-              busy || Boolean(disabledReason) || !draft.projectName.trim()
+              busy ||
+              capabilitiesLoading ||
+              !capabilities ||
+              Boolean(disabledReason) ||
+              !draft.projectName.trim()
             }
             title={disabledReason}
             onClick={onExport}
@@ -2374,7 +2477,7 @@ function projectExportDisabledReason(server: ApiServerConfig | undefined) {
 function projectExportValidationMessages(server: ApiServerConfig) {
   const messages = [
     'Export uses environment variables only; DataPad++ secrets are not included.',
-    'Typed models use catalog metadata, declared schemas, mappings, bounded samples, or resource-shape wrappers.',
+    'Typed models and physical identifiers come from datastore catalog metadata.',
   ]
   if (
     server.protocol !== 'rest' &&
@@ -2387,23 +2490,37 @@ function projectExportValidationMessages(server: ApiServerConfig) {
   return messages
 }
 
-function projectExportSchemaSourceLabel(
-  kind: DatastoreApiServerResourceConfig['kind'],
+function projectExportCapabilityBlockingReason(
+  capabilities: DatastoreApiServerProjectExportCapabilitiesResponse | undefined,
+  framework: DatastoreApiServerProjectExportFramework,
 ) {
-  switch (kind) {
-    case 'table':
-      return 'catalog columns'
-    case 'collection':
-      return 'declared schema or bounded samples'
-    case 'index':
-      return 'mapping or document wrapper'
-    case 'item':
-      return 'key schema and bounded samples'
-    case 'key':
-      return 'key/value resource shape'
-    default:
-      return 'inferred model'
+  if (!capabilities) return 'Project export capabilities have not loaded.'
+  const capability = capabilities.frameworks.find(
+    (candidate) => candidate.framework === framework,
+  )
+  if (!capability) return 'This framework has no project export renderer.'
+  if (!capability.supported) {
+    return capability.reason ?? 'This framework and datastore are not supported.'
   }
+  const blockedResource = capability.resources.find(
+    (resource) => resource.mode === 'unsupported',
+  )
+  if (blockedResource) {
+    return blockedResource.reason ?? 'A configured resource cannot be exported.'
+  }
+  const blockedEndpoint = capability.customEndpoints.find(
+    (endpoint) => !endpoint.supported,
+  )
+  return blockedEndpoint?.reason
+}
+
+function resourceCapabilityLabel(
+  mode: 'crud' | 'read-only' | 'unsupported' | undefined,
+) {
+  if (mode === 'crud') return 'CRUD client'
+  if (mode === 'read-only') return 'Read-only client'
+  if (mode === 'unsupported') return 'Unsupported'
+  return 'Checking catalog metadata'
 }
 
 function defaultProjectExportDraft(

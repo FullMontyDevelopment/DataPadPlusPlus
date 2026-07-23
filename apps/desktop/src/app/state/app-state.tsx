@@ -124,6 +124,7 @@ const defaultActions: Actions = {
   addDatastoreApiServerCustomEndpoint: noopFalse,
   updateDatastoreApiServerCustomEndpoint: noopFalse,
   removeDatastoreApiServerCustomEndpoint: noopFalse,
+  getDatastoreApiServerProjectExportCapabilities: async () => undefined,
   exportDatastoreApiServerProjectFile: async () => undefined,
   updateDatastoreApiServerSettings: noopFalse,
   startDatastoreApiServer: async () => undefined,

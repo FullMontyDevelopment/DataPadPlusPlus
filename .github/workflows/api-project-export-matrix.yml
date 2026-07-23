@@ -1,26 +1,15 @@
-name: CI
+name: Generated API Project Full Matrix
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-      - 'release/**'
-    tags:
-      - 'app-v*'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  deterministic-tests:
-    name: Unit and dependency-free integration tests
+  full-matrix:
+    name: Rust and .NET datastore client exports
     runs-on: ubuntu-22.04
-    env:
-      # CI intentionally avoids Docker, cloud credentials, and live datastore fixtures.
-      DATAPADPLUSPLUS_FIXTURE_RUN: '0'
-      RUST_BACKTRACE: '1'
 
     steps:
       - name: Checkout
@@ -49,8 +38,6 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
 
       - name: Install .NET
         uses: actions/setup-dotnet@v4
@@ -65,8 +52,14 @@ jobs:
       - name: Install workspace dependencies
         run: npm ci
 
-      - name: Run deterministic CI checks
-        run: npm run ci:test
+      - name: Start and seed MongoDB and DynamoDB Local fixtures
+        run: |
+          npm run fixtures:up:profile -- cloud-contract
+          npm run fixtures:seed:all
 
-      - name: Compile generated API project pairwise matrix
-        run: npm run api-export:validate
+      - name: Compile all 24 generated projects and run available local fixtures
+        run: npm run api-export:validate:full-live
+
+      - name: Stop local fixtures
+        if: always()
+        run: npm run fixtures:down

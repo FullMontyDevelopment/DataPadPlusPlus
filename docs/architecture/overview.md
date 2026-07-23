@@ -113,6 +113,8 @@ The current repo uses:
 
 Rust domain models are split by adapter, execution, workspace, Library, API Server, MCP Server, security, and UI-state ownership. `domain::models` re-exports those modules so existing command paths and serialized shapes remain stable. Tauri workspace commands are similarly split by command domain and re-exported through `commands::workspace`, preserving every registered command name.
 
+API Server project export has three independent registries. Framework renderers own the Rust and .NET host/project layouts, datastore planning providers own physical metadata and resource policy, and client adapters own dependencies, configuration, codecs, and repository generation for one `(framework, engine)` pair. A neutral planner carries relational tables/views, document collections, and keyed document tables without selecting behavior by engine name. PostgreSQL, SQLite, MongoDB, and DynamoDB are enabled only when both framework adapters and the datastore provider are registered; no family or compatibility fallback promotes another engine automatically. MongoDB uses bounded top-level schema sampling and Extended JSON, while DynamoDB uses `DescribeTable`, optional bounded item sampling, and the same lossless tagged document JSON in Rust and .NET.
+
 Architecture checks enforce ownership, allowed dependencies, registry completeness, and compatibility facades. They intentionally do not impose a numeric source-file line limit; a split is required when responsibilities or dependencies cross a durable boundary, not when a counter is exceeded.
 
 ## Naming

@@ -328,6 +328,39 @@ export interface DatastoreApiServerProjectExportResponse {
   warnings: string[]
 }
 
+export interface DatastoreApiServerProjectExportCapabilitiesRequest {
+  serverId: string
+}
+
+export interface DatastoreApiServerProjectExportCapabilitiesResponse {
+  serverId: string
+  engine: string
+  frameworks: DatastoreApiServerProjectExportFrameworkCapability[]
+}
+
+export interface DatastoreApiServerProjectExportFrameworkCapability {
+  framework: DatastoreApiServerProjectExportFramework
+  supported: boolean
+  client: string
+  protocols: Array<'rest' | 'graphql' | 'grpc'>
+  reason?: string
+  resources: DatastoreApiServerProjectExportResourceCapability[]
+  customEndpoints: DatastoreApiServerProjectExportEndpointCapability[]
+  warnings: string[]
+}
+
+export interface DatastoreApiServerProjectExportResourceCapability {
+  resourceId: string
+  mode: 'crud' | 'read-only' | 'unsupported'
+  reason?: string
+}
+
+export interface DatastoreApiServerProjectExportEndpointCapability {
+  endpointId: string
+  supported: boolean
+  reason?: string
+}
+
 export interface DatastoreApiServerStartRequest {
   serverId?: string
   connectionId?: string

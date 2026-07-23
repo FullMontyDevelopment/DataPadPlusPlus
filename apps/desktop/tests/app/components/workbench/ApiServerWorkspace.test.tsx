@@ -206,6 +206,40 @@ function renderApiServerWorkspace(
     onAddCustomEndpoint: vi.fn().mockResolvedValue(true),
     onUpdateCustomEndpoint: vi.fn().mockResolvedValue(true),
     onRemoveCustomEndpoint: vi.fn().mockResolvedValue(true),
+    onGetProjectExportCapabilities: vi.fn().mockResolvedValue({
+      serverId: 'api-server-default',
+      engine: 'postgresql',
+      frameworks: [
+        {
+          framework: 'rust',
+          supported: true,
+          client: 'SQLx / PostgreSQL',
+          protocols: ['rest', 'graphql', 'grpc'],
+          resources: [
+            {
+              resourceId: usersResource.id,
+              mode: 'crud',
+            },
+          ],
+          customEndpoints: [],
+          warnings: [],
+        },
+        {
+          framework: 'dotnet',
+          supported: true,
+          client: 'Dapper / Npgsql',
+          protocols: ['rest', 'graphql', 'grpc'],
+          resources: [
+            {
+              resourceId: usersResource.id,
+              mode: 'crud',
+            },
+          ],
+          customEndpoints: [],
+          warnings: [],
+        },
+      ],
+    }),
     onExportProject: vi.fn().mockResolvedValue({
       saved: true,
       path: 'C:\\Exports\\LocalAPIServer-rust.zip',
@@ -680,7 +714,12 @@ describe('ApiServerWorkspace', () => {
     })
     expect(within(dialog).getByText('Typed models required')).toBeInTheDocument()
     expect(dialog).toHaveTextContent('/users')
-    expect(dialog).toHaveTextContent('Schema: catalog columns')
+    expect(await within(dialog).findByText('CRUD client')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(props.onGetProjectExportCapabilities).toHaveBeenCalledWith({
+        serverId: 'api-server-default',
+      })
+    })
 
     fireEvent.change(within(dialog).getByLabelText('Framework'), {
       target: { value: 'dotnet' },
@@ -704,6 +743,91 @@ describe('ApiServerWorkspace', () => {
     ).toBeInTheDocument()
     expect(
       within(dialog).getByText('Model `users` is inferred from sample metadata.'),
+    ).toBeInTheDocument()
+  })
+
+  it('disables unsupported project export combinations', async () => {
+    const props = renderApiServerWorkspace({
+      onGetProjectExportCapabilities: vi.fn().mockResolvedValue({
+        serverId: 'api-server-default',
+        engine: 'mongodb',
+        frameworks: [
+          {
+            framework: 'rust',
+            supported: false,
+            client: '',
+            protocols: [],
+            reason:
+              'Rust project export supports PostgreSQL and SQLite only; `mongodb` is not supported.',
+            resources: [],
+            customEndpoints: [],
+            warnings: [],
+          },
+          {
+            framework: 'dotnet',
+            supported: false,
+            client: '',
+            protocols: [],
+            reason:
+              '.NET project export supports PostgreSQL and SQLite only; `mongodb` is not supported.',
+            resources: [],
+            customEndpoints: [],
+            warnings: [],
+          },
+        ],
+      }),
+    })
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Export Project' }),
+    )
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Export API Server Project',
+    })
+    expect(
+      await within(dialog).findByText(/Rust project export supports PostgreSQL/),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole('button', { name: 'Export Zip' }),
+    ).toBeDisabled()
+    expect(props.onExportProject).not.toHaveBeenCalled()
+  })
+
+  it('labels resources downgraded to read-only by the backend planner', async () => {
+    renderApiServerWorkspace({
+      onGetProjectExportCapabilities: vi.fn().mockResolvedValue({
+        serverId: 'api-server-default',
+        engine: 'postgresql',
+        frameworks: ['rust', 'dotnet'].map((framework) => ({
+          framework,
+          supported: true,
+          client:
+            framework === 'rust' ? 'SQLx / PostgreSQL' : 'Dapper / Npgsql',
+          protocols: ['rest', 'graphql', 'grpc'],
+          resources: [
+            {
+              resourceId: usersResource.id,
+              mode: 'read-only',
+              reason: 'Keyless resources are exported with list-only routes.',
+            },
+          ],
+          customEndpoints: [],
+          warnings: [],
+        })),
+      }),
+    })
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Export Project' }),
+    )
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Export API Server Project',
+    })
+    expect(await within(dialog).findByText('Read-only client')).toBeInTheDocument()
+    expect(
+      within(dialog).getByText(
+        'Keyless resources are exported with list-only routes.',
+      ),
     ).toBeInTheDocument()
   })
 

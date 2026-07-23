@@ -24,6 +24,8 @@ import type {
   DatastoreApiServerAddCustomEndpointRequest,
   DatastoreApiServerCreateRequest,
   DatastoreApiServerDeleteRequest,
+  DatastoreApiServerProjectExportCapabilitiesRequest,
+  DatastoreApiServerProjectExportCapabilitiesResponse,
   DatastoreApiServerProjectExportRequest,
   DatastoreApiServerProjectExportResponse,
   DatastoreApiServerQuerySourceDiscoveryRequest,
@@ -419,6 +421,9 @@ export interface Actions {
   addDatastoreApiServerCustomEndpoint(request: DatastoreApiServerAddCustomEndpointRequest): Promise<boolean>
   updateDatastoreApiServerCustomEndpoint(request: DatastoreApiServerUpdateCustomEndpointRequest): Promise<boolean>
   removeDatastoreApiServerCustomEndpoint(request: DatastoreApiServerRemoveCustomEndpointRequest): Promise<boolean>
+  getDatastoreApiServerProjectExportCapabilities(
+    request: DatastoreApiServerProjectExportCapabilitiesRequest,
+  ): Promise<DatastoreApiServerProjectExportCapabilitiesResponse | undefined>
   exportDatastoreApiServerProjectFile(
     request: DatastoreApiServerProjectExportRequest,
   ): Promise<DatastoreApiServerProjectExportResponse | undefined>

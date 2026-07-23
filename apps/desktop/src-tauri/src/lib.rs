@@ -232,6 +232,7 @@ pub fn run() {
             commands::workspace::fetch_result_page,
             commands::workspace::get_datastore_api_server_logs,
             commands::workspace::get_datastore_api_server_metrics,
+            commands::workspace::get_datastore_api_server_project_export_capabilities,
             commands::workspace::get_datastore_api_server_status,
             commands::workspace::get_datastore_mcp_server_logs,
             commands::workspace::get_datastore_mcp_server_metrics,

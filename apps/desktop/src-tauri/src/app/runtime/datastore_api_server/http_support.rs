@@ -158,9 +158,11 @@ fn resource_endpoint(kind: &str, name: &str) -> String {
     )
 }
 
-fn crud_kind_for_node(kind: &str) -> Option<String> {
+fn crud_kind_for_node(family: &str, kind: &str) -> Option<String> {
     match kind {
-        "table" | "view" => Some("table".into()),
+        "table" => Some("table".into()),
+        "view" if family == "document" => Some("collection".into()),
+        "view" => Some("table".into()),
         "collection" => Some("collection".into()),
         "key" | "known-key" => Some("key".into()),
         "item" => Some("item".into()),

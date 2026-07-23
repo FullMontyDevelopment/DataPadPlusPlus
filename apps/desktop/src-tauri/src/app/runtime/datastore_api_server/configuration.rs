@@ -1,6 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque},
-    io::{Cursor, Write},
+    collections::{HashMap, HashSet, VecDeque},
     net::SocketAddr,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -33,7 +32,13 @@ use crate::{
             DatastoreApiServerCustomEndpointParameterConfig, DatastoreApiServerDeleteRequest,
             DatastoreApiServerInstanceStatus, DatastoreApiServerLogEntry, DatastoreApiServerLogs,
             DatastoreApiServerLogsRequest, DatastoreApiServerMetrics,
-            DatastoreApiServerPreferences, DatastoreApiServerProjectExportRequest,
+            DatastoreApiServerPreferences,
+            DatastoreApiServerProjectExportCapabilitiesRequest,
+            DatastoreApiServerProjectExportCapabilitiesResponse,
+            DatastoreApiServerProjectExportEndpointCapability,
+            DatastoreApiServerProjectExportFrameworkCapability,
+            DatastoreApiServerProjectExportRequest,
+            DatastoreApiServerProjectExportResourceCapability,
             DatastoreApiServerQuerySource, DatastoreApiServerQuerySourceDiscoveryRequest,
             DatastoreApiServerQuerySourceDiscoveryResponse,
             DatastoreApiServerRemoveCustomEndpointRequest, DatastoreApiServerRemoveResourceRequest,
@@ -90,118 +95,6 @@ pub struct DatastoreApiServerProjectArchive {
     pub project_name: String,
     pub default_file_name: String,
     pub warnings: Vec<String>,
-}
-
-#[derive(Clone)]
-struct ProjectExportSpec {
-    framework: String,
-    project_name: String,
-    namespace: String,
-    package_name: String,
-    protocol: String,
-    base_path: String,
-    connection_engine: String,
-    connection_family: String,
-    provider: ExportProvider,
-    env_var: String,
-    resources: Vec<ProjectResourceModel>,
-    custom_endpoints: Vec<ProjectCustomEndpoint>,
-    warnings: Vec<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ExportProvider {
-    DynamoDb,
-    LiteDb,
-    Sql,
-    Redis,
-    Search,
-    MongoDb,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ProjectSchemaSource {
-    Catalog,
-    DeclaredSchema,
-    Mapping,
-    Sample,
-    ResourceShape,
-}
-
-impl ProjectSchemaSource {
-    fn id(self) -> &'static str {
-        match self {
-            ProjectSchemaSource::Catalog => "catalog",
-            ProjectSchemaSource::DeclaredSchema => "declared-schema",
-            ProjectSchemaSource::Mapping => "mapping",
-            ProjectSchemaSource::Sample => "sample",
-            ProjectSchemaSource::ResourceShape => "resource-shape",
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            ProjectSchemaSource::Catalog => "Catalog",
-            ProjectSchemaSource::DeclaredSchema => "Declared schema",
-            ProjectSchemaSource::Mapping => "Mapping",
-            ProjectSchemaSource::Sample => "Sample",
-            ProjectSchemaSource::ResourceShape => "Resource shape",
-        }
-    }
-}
-
-struct ProjectResourceSchema {
-    fields: Vec<StructureField>,
-    source: ProjectSchemaSource,
-    warnings: Vec<String>,
-}
-
-#[derive(Clone)]
-struct ProjectResourceModel {
-    label: String,
-    kind: String,
-    endpoint_slug: String,
-    endpoint_path: String,
-    model_name: String,
-    schema_source: String,
-    schema_source_label: String,
-    fields: Vec<ProjectFieldModel>,
-    primary_fields: Vec<String>,
-}
-
-#[derive(Clone)]
-struct ProjectFieldModel {
-    source_name: String,
-    rust_name: String,
-    csharp_name: String,
-    json_name: String,
-    rust_type: String,
-    csharp_type: String,
-    data_type: String,
-    nullable: bool,
-    primary: bool,
-}
-
-#[derive(Clone)]
-struct ProjectCustomEndpoint {
-    label: String,
-    method: String,
-    endpoint_path: String,
-    function_name: String,
-    parameters: Vec<ProjectEndpointParameter>,
-}
-
-#[derive(Clone)]
-struct ProjectEndpointParameter {
-    name: String,
-    rust_type: String,
-    csharp_type: String,
-    required: bool,
-}
-
-struct ProjectFile {
-    path: String,
-    contents: String,
 }
 
 impl Drop for DatastoreApiServerManager {
@@ -884,7 +777,8 @@ fn resource_discovery_kind_can_contain_resources(kind: &str) -> bool {
 fn resource_config_from_explorer_node(
     node: &ExplorerNode,
 ) -> Option<DatastoreApiServerResourceConfig> {
-    resource_config_for_node(
+    resource_config_for_node_in_family(
+        node.family.clone(),
         node.kind.clone(),
         node.label.clone(),
         node.id.clone(),
@@ -1085,115 +979,20 @@ pub async fn build_project_export_archive(
             "Choose a datastore before exporting this API server project.",
         )
     })?;
-    let environment_id = server.environment_id.as_deref().ok_or_else(|| {
-        CommandError::new(
-            "api-server-export-environment-required",
-            "Choose an environment before exporting this API server project.",
-        )
-    })?;
     let connection = runtime.connection_by_id(connection_id)?;
-    let environment = runtime.environment_by_id(environment_id)?;
-    let (resolved_connection, resolved_environment, _) =
-        runtime.resolve_connection_profile(&connection, environment_id)?;
-    let provider = export_provider_for_connection(&connection.family, &connection.engine)?;
-    let protocol = normalize_protocol(&server.protocol);
-    let resources = server
-        .resources
-        .iter()
-        .filter(|resource| resource.enabled)
-        .cloned()
-        .collect::<Vec<_>>();
-    let custom_endpoints = server
-        .custom_endpoints
-        .iter()
-        .filter(|endpoint| endpoint.enabled)
-        .cloned()
-        .collect::<Vec<_>>();
-
-    if resources.is_empty() && custom_endpoints.is_empty() {
-        return Err(CommandError::new(
-            "api-server-export-empty",
-            "Add at least one enabled resource or custom endpoint before exporting this project.",
-        ));
-    }
-    validate_project_export_resources(provider, &resources)?;
-    validate_project_export_custom_endpoints(provider, &protocol, &custom_endpoints)?;
-
-    let mut warnings = Vec::new();
-    let structure_nodes = if resources.is_empty() {
-        Vec::new()
-    } else {
-        match runtime
-            .load_structure_map(StructureRequest {
-                connection_id: connection_id.into(),
-                environment_id: environment_id.into(),
-                limit: Some(1_000),
-                scope: None,
-                cursor: None,
-                focus_node_id: None,
-                include_system_objects: Some(false),
-                include_inferred_relationships: Some(true),
-                max_nodes: Some(1_000),
-                max_edges: Some(4_000),
-                depth: Some(2),
-                mode: Some("overview".into()),
-            })
-            .await
-        {
-            Ok(response) => response.nodes,
-            Err(error) => {
-                warnings.push(format!(
-                    "Structure metadata could not be loaded before export: {}",
-                    error.message
-                ));
-                Vec::new()
-            }
-        }
-    };
-    let resource_models = {
-        let mut context = ProjectResourceModelContext {
-            config: &server,
-            provider,
-            connection: &connection,
-            environment: &environment,
-            resolved_connection: &resolved_connection,
-            resolved_environment: &resolved_environment,
-            safe_mode_enabled: runtime.snapshot.preferences.safe_mode_enabled,
-            nodes: &structure_nodes,
-            warnings: &mut warnings,
-        };
-        let mut resource_models = Vec::new();
-        for resource in &resources {
-            resource_models.push(project_resource_model(&mut context, resource).await?);
-        }
-        resource_models
-    };
-    let custom_models = custom_endpoints
-        .iter()
-        .map(|endpoint| project_custom_endpoint(&server, endpoint))
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut spec = ProjectExportSpec {
+    let spec = build_project_export_spec(
+        runtime,
+        &server,
+        &connection,
         framework,
         project_name,
         namespace,
         package_name,
-        protocol,
-        base_path: normalize_base_path(&server.base_path),
-        connection_engine: connection.engine.clone(),
-        connection_family: connection.family.clone(),
-        provider,
-        env_var: export_provider_env_var(provider).into(),
-        resources: resource_models,
-        custom_endpoints: custom_models,
-        warnings,
-    };
-    spec.warnings.sort();
-    spec.warnings.dedup();
-
-    let files = match spec.framework.as_str() {
-        "dotnet" => dotnet_project_files(&spec),
-        _ => rust_project_files(&spec),
-    };
+    )
+    .await?;
+    let adapter = client_adapter_for(&spec.framework, &spec.connection_engine)?;
+    let renderer = framework_renderer_for(&spec.framework)?;
+    let files = (renderer.render)(&spec, adapter);
     let bytes = zip_project_files(files)?;
     Ok(DatastoreApiServerProjectArchive {
         default_file_name: format!(
@@ -1206,6 +1005,13 @@ pub async fn build_project_export_archive(
         warnings: spec.warnings,
         bytes,
     })
+}
+
+pub async fn project_export_capabilities(
+    runtime: &mut ManagedAppState,
+    request: DatastoreApiServerProjectExportCapabilitiesRequest,
+) -> Result<DatastoreApiServerProjectExportCapabilitiesResponse, CommandError> {
+    build_project_export_capabilities(runtime, request).await
 }
 
 pub fn add_custom_endpoint(
