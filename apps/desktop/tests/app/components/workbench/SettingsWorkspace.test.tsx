@@ -447,7 +447,7 @@ describe('SettingsWorkspace', () => {
     expect(screen.getByRole('button', { name: 'Check for Updates' })).toBeDisabled()
   })
 
-  it('shows DataPad++ about information and GitHub links', () => {
+  it('shows DataPad++ about information and project links', () => {
     const openWindow = vi.spyOn(window, 'open').mockImplementation(() => null)
     renderSettings()
 
@@ -458,6 +458,10 @@ describe('SettingsWorkspace', () => {
     expect(screen.getByText('0.1.14')).toBeInTheDocument()
     expect(screen.getByText(/modular Tauri workstation/i)).toBeInTheDocument()
 
+    expect(screen.getByRole('link', { name: /Official website/i })).toHaveAttribute(
+      'href',
+      'https://datapad-plus-plus.org/',
+    )
     expect(screen.getByRole('link', { name: /GitHub repository/i })).toHaveAttribute(
       'href',
       'https://github.com/FullMontyDevelopment/DataPadPlusPlus',
@@ -471,9 +475,9 @@ describe('SettingsWorkspace', () => {
       'https://github.com/FullMontyDevelopment/DataPadPlusPlus/issues',
     )
 
-    fireEvent.click(screen.getByRole('link', { name: /GitHub repository/i }))
+    fireEvent.click(screen.getByRole('link', { name: /Official website/i }))
     expect(openWindow).toHaveBeenCalledWith(
-      'https://github.com/FullMontyDevelopment/DataPadPlusPlus',
+      'https://datapad-plus-plus.org/',
       '_blank',
       'noopener,noreferrer',
     )

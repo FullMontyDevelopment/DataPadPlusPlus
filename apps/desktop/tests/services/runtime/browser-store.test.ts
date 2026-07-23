@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { QueryTabState } from '@datapadplusplus/shared-types'
 import { createBlankSnapshot } from '../../../src/app/data/workspace-factory'
 import {
   createBrowserWorkspace,
@@ -16,6 +17,47 @@ import {
 } from '../../../src/services/runtime/browser-store'
 
 describe('browser workspace storage', () => {
+  it('keeps active results in memory without writing them to browser storage', () => {
+    const snapshot = createBlankSnapshot()
+    const tab: QueryTabState = {
+      id: 'tab-transient-result',
+      title: 'MongoDB result',
+      connectionId: 'conn-mongodb',
+      environmentId: '',
+      family: 'document',
+      language: 'mongodb',
+      editorLabel: 'MongoDB editor',
+      queryText: '{}',
+      status: 'success' as const,
+      dirty: false,
+      history: [],
+    }
+    snapshot.tabs.push(tab)
+    tab.result = {
+      id: 'result-transient',
+      engine: 'mongodb',
+      summary: '1 document',
+      defaultRenderer: 'document',
+      rendererModes: ['document'],
+      payloads: [{
+        renderer: 'document',
+        documents: [{ _id: 'large-document', value: 'kept in memory' }],
+      }],
+      notices: [],
+      executedAt: '2026-07-23T10:00:00.000Z',
+      durationMs: 5,
+    }
+
+    saveBrowserSnapshot(snapshot)
+
+    const stored = window.localStorage.getItem('datapadplusplus.workspace.v2') ?? ''
+    expect(stored).not.toContain('result-transient')
+    expect(stored).not.toContain('kept in memory')
+    expect(
+      loadBrowserSnapshot().tabs.find((item) => item.id === tab.id)?.result,
+    ).toBe(tab.result)
+  })
+
   it('persists raw connection strings with embedded credentials', () => {
     const snapshot = createBlankSnapshot()
     snapshot.connections = [

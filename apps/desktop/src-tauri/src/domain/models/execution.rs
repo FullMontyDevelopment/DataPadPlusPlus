@@ -16,6 +16,8 @@ pub struct ExecutionResultEnvelope {
     pub summary: String,
     pub default_renderer: String,
     pub renderer_modes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deferred_renderer_modes: Vec<String>,
     pub payloads: Vec<Value>,
     pub notices: Vec<QueryExecutionNotice>,
     pub executed_at: String,
@@ -112,7 +114,7 @@ pub struct QueryTabState {
     pub active_execution: Option<QueryTabActiveExecution>,
     pub dirty: bool,
     pub last_run_at: Option<String>,
-    pub result: Option<ExecutionResultEnvelope>,
+    pub result: Option<std::sync::Arc<ExecutionResultEnvelope>>,
     #[serde(default)]
     pub history: Vec<QueryHistoryEntry>,
     pub error: Option<UserFacingError>,
@@ -345,6 +347,23 @@ pub struct ResultPageResponse {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MaterializeResultRendererRequest {
+    pub tab_id: String,
+    pub result_id: String,
+    pub renderer: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaterializeResultRendererResponse {
+    pub tab_id: String,
+    pub result_id: String,
+    pub renderer: String,
+    pub payload: Value,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentNodeChildrenRequest {
     pub tab_id: String,
     pub connection_id: String,
@@ -440,7 +459,7 @@ pub struct PersistenceWarning {
 pub struct ExecutionResponse {
     pub execution_id: String,
     pub tab: QueryTabState,
-    pub result: Option<ExecutionResultEnvelope>,
+    pub result: Option<std::sync::Arc<ExecutionResultEnvelope>>,
     pub guardrail: GuardrailDecision,
     pub diagnostics: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

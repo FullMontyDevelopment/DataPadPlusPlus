@@ -146,6 +146,7 @@ pub fn save_query_tab_to_local_file(
 #[tauri::command]
 pub fn export_result_file(
     app: AppHandle,
+    state: State<'_, SharedAppState>,
     request: ExportResultFileRequest,
 ) -> Result<ExportResultFileResponse, CommandError> {
     validate_export_result_file_request(&request)?;
@@ -173,15 +174,122 @@ pub fn export_result_file(
         });
     };
     let path = dialog_path_to_string(selected)?;
-    fs::write(&path, request.contents.as_bytes()).map_err(|error| {
-        CommandError::new(
-            "result-export-failed",
-            format!("Unable to write the result export: {error}"),
-        )
-    })?;
+    if let Some(reference) = request.result_reference.as_ref() {
+        write_referenced_result_file(&state, &path, reference)?;
+    } else {
+        let contents = request.contents.as_deref().ok_or_else(|| {
+            CommandError::new("result-export-invalid", "Result export content is missing.")
+        })?;
+        fs::write(&path, contents.as_bytes()).map_err(|error| {
+            CommandError::new(
+                "result-export-failed",
+                format!("Unable to write the result export: {error}"),
+            )
+        })?;
+    }
 
     Ok(ExportResultFileResponse {
         saved: true,
         path: Some(path),
     })
+}
+
+fn write_referenced_result_file(
+    state: &State<'_, SharedAppState>,
+    path: &str,
+    reference: &ResultExportReference,
+) -> Result<(), CommandError> {
+    let result = {
+        let state = lock_state(state)?;
+        let tab = state
+            .snapshot
+            .tabs
+            .iter()
+            .find(|tab| tab.id == reference.tab_id)
+            .ok_or_else(|| {
+                CommandError::new(
+                    "result-export-stale",
+                    "The result tab is no longer available.",
+                )
+            })?;
+        let result = tab.result.clone().ok_or_else(|| {
+            CommandError::new("result-export-stale", "The result is no longer available.")
+        })?;
+        if result.id != reference.result_id {
+            return Err(CommandError::new(
+                "result-export-stale",
+                "The result changed before the export started. Open Export again.",
+            ));
+        }
+        result
+    };
+    let payload = result
+        .payloads
+        .iter()
+        .find(|payload| {
+            payload.get("renderer").and_then(|value| value.as_str())
+                == Some(reference.renderer.as_str())
+        })
+        .ok_or_else(|| {
+            CommandError::new(
+                "result-export-unavailable",
+                "The canonical document result is no longer available.",
+            )
+        })?;
+    let documents = payload
+        .get("documents")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| {
+            CommandError::new(
+                "result-export-unavailable",
+                "The canonical document result is malformed.",
+            )
+        })?;
+    let file = fs::File::create(path).map_err(result_export_write_error)?;
+    let mut writer = std::io::BufWriter::new(file);
+    write_document_result_export(&mut writer, documents, &reference.format)?;
+    std::io::Write::flush(&mut writer).map_err(result_export_write_error)
+}
+
+pub(super) fn write_document_result_export(
+    writer: &mut impl std::io::Write,
+    documents: &[serde_json::Value],
+    format: &str,
+) -> Result<(), CommandError> {
+    match format {
+        "json" => {
+            serde_json::to_writer_pretty(&mut *writer, documents)
+                .map_err(result_export_serialize_error)?;
+        }
+        "ndjson" => {
+            for (index, document) in documents.iter().enumerate() {
+                serde_json::to_writer(&mut *writer, document)
+                    .map_err(result_export_serialize_error)?;
+                if index + 1 < documents.len() {
+                    writer.write_all(b"\n").map_err(result_export_write_error)?;
+                }
+            }
+        }
+        _ => {
+            return Err(CommandError::new(
+                "result-export-invalid",
+                "The referenced result format is unsupported.",
+            ))
+        }
+    }
+    Ok(())
+}
+
+fn result_export_write_error(error: std::io::Error) -> CommandError {
+    CommandError::new(
+        "result-export-failed",
+        format!("Unable to write the result export: {error}"),
+    )
+}
+
+fn result_export_serialize_error(error: serde_json::Error) -> CommandError {
+    CommandError::new(
+        "result-export-failed",
+        format!("Unable to serialize the result export: {error}"),
+    )
 }

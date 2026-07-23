@@ -1,5 +1,6 @@
 import type { ScreenshotId } from './screenshots'
 
+export const websiteUrl = 'https://datapad-plus-plus.org/'
 export const repoUrl = 'https://github.com/FullMontyDevelopment/DataPadPlusPlus'
 export const releasesUrl = `${repoUrl}/releases`
 

@@ -266,7 +266,7 @@ describe('workspace query helpers', () => {
     )
   })
 
-  it('selects the requested renderer payload with a safe fallback', () => {
+  it('selects only the requested renderer so deferred views cannot show stale content', () => {
     const tablePayload: ResultPayload = {
       renderer: 'table',
       columns: ['id'],
@@ -275,7 +275,8 @@ describe('workspace query helpers', () => {
     const jsonPayload: ResultPayload = { renderer: 'json', value: { ok: true } }
 
     expect(selectPayload([tablePayload, jsonPayload], 'json')).toBe(jsonPayload)
-    expect(selectPayload([tablePayload, jsonPayload], 'raw')).toBe(tablePayload)
+    expect(selectPayload([tablePayload, jsonPayload], 'raw')).toBeUndefined()
+    expect(selectPayload([tablePayload, jsonPayload])).toBe(tablePayload)
     expect(selectPayload([], 'json')).toBeUndefined()
   })
 

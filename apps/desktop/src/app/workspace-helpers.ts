@@ -360,9 +360,11 @@ export function selectPayload(payloads: ResultPayload[], selectedRenderer?: stri
     return undefined
   }
 
-  return (
-    payloads.find((payload) => payload.renderer === selectedRenderer) ?? payloads[0]
-  )
+  if (selectedRenderer) {
+    return payloads.find((payload) => payload.renderer === selectedRenderer)
+  }
+
+  return payloads[0]
 }
 
 export function appendFieldToQueryText(queryText: string, fieldPath: string) {

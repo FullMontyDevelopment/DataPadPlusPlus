@@ -1,8 +1,9 @@
-import type { DocumentNodeChildrenRequest, DocumentNodeChildrenResponse, ExecutionRequest, ExecutionResponse, LocalDatabaseCreateRequest, LocalDatabaseCreateResult, LocalDatabasePickRequest, LocalDatabasePickResult, ResultPageRequest, ResultPageResponse } from '@datapadplusplus/shared-types'
+import type { DocumentNodeChildrenRequest, DocumentNodeChildrenResponse, ExecutionRequest, ExecutionResponse, LocalDatabaseCreateRequest, LocalDatabaseCreateResult, LocalDatabasePickRequest, LocalDatabasePickResult, MaterializeResultRendererRequest, MaterializeResultRendererResponse, ResultPageRequest, ResultPageResponse } from '@datapadplusplus/shared-types'
 import { applyExecutionRequestLocally, fetchDocumentNodeChildrenLocally } from './browser-execution'
 import { fetchResultPageLocally } from './browser-structure'
 import { findConnection, findTab, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
+import { projectDeferredResultPayload } from './result-materialization'
 import {
   validateCancelExecutionRequest,
   validateDocumentNodeChildrenRequest,
@@ -32,6 +33,35 @@ export const clientExecution = {
     }
 
     return fetchResultPageLocally(loadBrowserSnapshot(), request)
+  },
+
+  async materializeResultRenderer(
+    request: MaterializeResultRendererRequest,
+  ): Promise<MaterializeResultRendererResponse> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<MaterializeResultRendererResponse>(
+        'materialize_result_renderer',
+        { request },
+      )
+    }
+
+    await yieldToBrowser()
+    const tab = findTab(loadBrowserSnapshot(), request.tabId)
+    const result = tab?.result
+    if (!result || result.id !== request.resultId) {
+      throw new Error('The result changed before this view could be prepared.')
+    }
+    const payload = projectDeferredResultPayload(result, request.renderer)
+    if (!payload) {
+      throw new Error(`The ${request.renderer} renderer is unavailable for this result.`)
+    }
+
+    return {
+      tabId: request.tabId,
+      resultId: request.resultId,
+      renderer: request.renderer,
+      payload,
+    }
   },
 
   async fetchDocumentNodeChildren(
@@ -113,6 +143,10 @@ export const clientExecution = {
         : [],
     }
   },
+}
+
+function yieldToBrowser() {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, 0))
 }
 
 function localDatabaseExtension(engine: LocalDatabasePickRequest['engine']) {

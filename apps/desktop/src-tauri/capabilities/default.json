@@ -8,6 +8,8 @@
     {
       "identifier": "opener:allow-open-url",
       "allow": [
+        { "url": "https://datapad-plus-plus.org" },
+        { "url": "https://datapad-plus-plus.org/*" },
         { "url": "https://github.com/FullMontyDevelopment/DataPadPlusPlus" },
         { "url": "https://github.com/FullMontyDevelopment/DataPadPlusPlus/*" }
       ]

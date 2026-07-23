@@ -1,5 +1,8 @@
 # Support DataPad++
 
+Product information, documentation, datastore coverage, and downloads are
+available from the [official DataPad++ website](https://datapad-plus-plus.org/).
+
 DataPad++ is free to use, including for internal company and commercial work.
 If the app helps you, sponsorships and donations help keep development moving.
 

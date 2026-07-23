@@ -9,6 +9,14 @@
 </p>
 
 <p align="center">
+  <a href="https://datapad-plus-plus.org/">Official Website</a>
+  ·
+  <a href="https://datapad-plus-plus.org/docs">Documentation</a>
+  ·
+  <a href="https://datapad-plus-plus.org/download">Downloads</a>
+</p>
+
+<p align="center">
   <a href="https://github.com/FullMontyDevelopment/DataPadPlusPlus/actions/workflows/ci.yml">
     <img alt="CI" src="https://github.com/FullMontyDevelopment/DataPadPlusPlus/actions/workflows/ci.yml/badge.svg" />
   </a>
@@ -42,6 +50,7 @@ DataPad++ is built to make that easier:
 - a Library for saved queries, scripts, tests, notes, and connection folders
 - Workspace Search for connections, Library work, open tabs, closed tabs, scripts, and test suites
 - opt-in local API and MCP server workspaces for deliberate desktop integrations
+- standalone Rust and .NET API project exports with real PostgreSQL, SQLite, MongoDB, and DynamoDB clients
 - file-based encrypted workspace exports, optional secret-inclusive bundles, and opt-in auto-backups
 
 The goal is not to flatten every datastore into a generic table viewer. The goal is to make each datastore feel like it has its own purpose-built IDE inside the same app.
@@ -312,7 +321,9 @@ See [Docker Fixtures](tests/fixtures/README.md) for connection details and comma
 
 ## Documentation
 
+- [Official Website And User Documentation](https://datapad-plus-plus.org/docs)
 - [Feature Guide](docs/features.md)
+- [API Server Project Exports](docs/api-server-project-exports.md)
 - [Development Guide](docs/contributing/development.md)
 - [Testing Strategy](docs/testing/strategy.md)
 - [Settings, Workspace Bundles, And Backups](docs/settings-and-workspace.md)

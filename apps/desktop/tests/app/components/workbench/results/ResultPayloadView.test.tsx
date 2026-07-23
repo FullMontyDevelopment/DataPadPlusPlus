@@ -106,6 +106,30 @@ describe('ResultPayloadView', () => {
     expect(screen.getByText('Team')).toBeInTheDocument()
   })
 
+  it('keeps mounted document rows bounded for large full-mode results', () => {
+    const documents = Array.from({ length: 10_000 }, (_, index) => ({
+      _id: `account-${index}`,
+      profile: {
+        name: `Account ${index}`,
+        status: index % 2 === 0 ? 'active' : 'inactive',
+      },
+    }))
+    const { container } = render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'document',
+          documents,
+        }}
+      />,
+    )
+
+    expect(screen.getByText('10000 document(s) loaded')).toBeInTheDocument()
+    expect(
+      container.querySelectorAll('.document-data-grid-virtual-row').length,
+    ).toBeLessThanOrEqual(44)
+    expect(screen.queryByText('account-9999')).not.toBeInTheDocument()
+  })
+
   it('treats malformed null document payload arrays as empty results', () => {
     render(
       <ResultPayloadView
@@ -321,7 +345,7 @@ describe('ResultPayloadView', () => {
 
     expect(screen.getByText('Searching...')).toBeInTheDocument()
     await waitFor(() => {
-      expect(screen.getByText('2 match(es)')).toBeInTheDocument()
+      expect(screen.getByText('1 match(es)')).toBeInTheDocument()
     })
     expect(screen.getByText('account-1')).toBeInTheDocument()
     expect(screen.getByText('profile')).toBeInTheDocument()
@@ -364,13 +388,15 @@ describe('ResultPayloadView', () => {
     })
     expect(inspector).toBeInTheDocument()
     expect(within(inspector).getByText('status')).toBeInTheDocument()
-    expect(within(inspector).getByLabelText('Selected field raw JSON')).toHaveTextContent('"active"')
 
     fireEvent.change(screen.getByLabelText('Search raw JSON'), {
       target: { value: 'active' },
     })
 
-    expect(within(inspector).getByText('1/1')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(within(inspector).getByText('1/1')).toBeInTheDocument()
+      expect(within(inspector).getByLabelText('Selected field raw JSON')).toHaveTextContent('"active"')
+    })
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy Raw JSON' }))
     await waitFor(() => {
@@ -382,8 +408,12 @@ describe('ResultPayloadView', () => {
     fireEvent.change(screen.getByLabelText('Change inspected field type count'), {
       target: { value: 'string' },
     })
+    fireEvent.change(screen.getByLabelText('Search raw JSON'), {
+      target: { value: '7' },
+    })
 
     await waitFor(() => {
+      expect(within(inspector).getByText('1/1')).toBeInTheDocument()
       expect(screen.getByLabelText('Selected field raw JSON')).toHaveTextContent('"7"')
     })
   })

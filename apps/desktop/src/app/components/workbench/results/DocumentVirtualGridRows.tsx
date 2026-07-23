@@ -5,14 +5,18 @@ import type { DocumentGridRow } from './document-grid-model'
 
 const DOCUMENT_GRID_ROW_HEIGHT = 30
 const DOCUMENT_GRID_OVERSCAN = 24
+const DOCUMENT_GRID_INITIAL_HEIGHT = 600
+const DOCUMENT_GRID_INITIAL_WIDTH = 1_000
 
 interface DocumentVirtualGridRowsProps {
-  rows: DocumentGridRow[]
+  rowCount: number
+  rowAt(index: number): DocumentGridRow | undefined
   renderRow(row: DocumentGridRow): ReactNode
 }
 
 export function DocumentVirtualGridRows({
-  rows,
+  rowCount,
+  rowAt,
   renderRow,
 }: DocumentVirtualGridRowsProps) {
   const parentRef = useRef<HTMLDivElement>(null)
@@ -21,24 +25,36 @@ export function DocumentVirtualGridRows({
   // trees from mounting thousands of rows while preserving the current treegrid UI.
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
-    count: rows.length,
+    count: rowCount,
     getScrollElement: () => parentRef.current,
     estimateSize: () => DOCUMENT_GRID_ROW_HEIGHT,
+    initialRect: {
+      height: DOCUMENT_GRID_INITIAL_HEIGHT,
+      width: DOCUMENT_GRID_INITIAL_WIDTH,
+    },
     overscan: DOCUMENT_GRID_OVERSCAN,
   })
   const virtualItems = virtualizer.getVirtualItems()
-  const renderedRows =
-    virtualItems.length > 0
-      ? virtualItems.map((item) => ({
-          key: item.key,
-          index: item.index,
-          start: item.start,
-        }))
-      : rows.map((_row, index) => ({
-          key: index,
+  const renderedRows = virtualItems.length > 0
+    ? virtualItems.map((item) => ({
+        key: item.key,
+        index: item.index,
+        start: item.start,
+      }))
+    : Array.from(
+        {
+          length: Math.min(
+            rowCount,
+            Math.ceil(DOCUMENT_GRID_INITIAL_HEIGHT / DOCUMENT_GRID_ROW_HEIGHT) +
+              DOCUMENT_GRID_OVERSCAN,
+          ),
+        },
+        (_unused, index) => ({
+          key: `initial-${index}`,
           index,
           start: index * DOCUMENT_GRID_ROW_HEIGHT,
-        }))
+        }),
+      )
 
   return (
     <div ref={parentRef} className="document-data-grid" role="treegrid" aria-label="Document result table">
@@ -58,7 +74,7 @@ export function DocumentVirtualGridRows({
         style={{ height: virtualizer.getTotalSize() }}
       >
         {renderedRows.map((virtualRow) => {
-          const row = rows[virtualRow.index]
+          const row = rowAt(virtualRow.index)
 
           return row ? (
             <div

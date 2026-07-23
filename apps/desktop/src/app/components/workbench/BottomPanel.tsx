@@ -19,6 +19,7 @@ import type {
   OperationPlanResponse,
   QueryTabState,
   ResultPayload,
+  ResultRenderer,
 } from '@datapadplusplus/shared-types'
 import type { WorkbenchMessage } from '../../state/app-state'
 import { DetailsView } from './bottom-panel/DetailsView'
@@ -44,7 +45,9 @@ interface BottomPanelProps {
   height: number
   sideWidth?: number
   activePayload?: ResultPayload
-  activeRenderer?: string
+  activeRenderer?: ResultRenderer
+  rendererPreparing?: boolean
+  rendererError?: string
   diagnostics?: DiagnosticsReport
   explorerInspection?: ExplorerInspectResponse
   lastExecution?: ExecutionResponse
@@ -52,7 +55,7 @@ interface BottomPanelProps {
   capabilities: ExecutionCapabilities
   workbenchMessages: WorkbenchMessage[]
   onSelectPanelTab(tab: BottomPanelTab): void
-  onSelectRenderer(renderer: string): void
+  onSelectRenderer(renderer: ResultRenderer): void
   onLoadNextPage(): void
   onResultRendered?(tabId: string, executionId: string): void
   onExportResultFile?(
@@ -89,6 +92,8 @@ export function BottomPanel({
   sideWidth = 420,
   activePayload,
   activeRenderer,
+  rendererPreparing = false,
+  rendererError,
   diagnostics,
   explorerInspection,
   lastExecution,
@@ -334,6 +339,8 @@ export function BottomPanel({
             activeEnvironment={activeEnvironment}
             payload={activePayload}
             renderer={activeRenderer}
+            rendererPreparing={rendererPreparing}
+            rendererError={rendererError}
             result={activeTab?.result}
             onSelectRenderer={onSelectRenderer}
             onLoadNextPage={onLoadNextPage}

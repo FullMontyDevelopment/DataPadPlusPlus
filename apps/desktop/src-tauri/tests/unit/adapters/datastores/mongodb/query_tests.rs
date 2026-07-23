@@ -111,7 +111,7 @@ fn effective_mongodb_row_limit_prefers_explicit_query_limit_without_exceeding_re
 }
 
 #[test]
-fn document_result_caps_overfetched_documents_for_all_renderers() {
+fn document_result_keeps_one_canonical_copy_and_defers_other_renderers() {
     let connection = resolved_connection();
     let documents = (0..101)
         .map(|index| doc! { "_id": index, "name": format!("product-{index}") })
@@ -139,11 +139,13 @@ fn document_result_caps_overfetched_documents_for_all_renderers() {
         result.payloads[0]["documents"].as_array().unwrap().len(),
         100
     );
-    assert_eq!(result.payloads[1]["value"].as_array().unwrap().len(), 100);
-    assert_eq!(result.payloads[2]["rows"].as_array().unwrap().len(), 100);
+    assert_eq!(result.payloads.len(), 1);
+    assert_eq!(result.deferred_renderer_modes, vec!["json", "table", "raw"]);
 
-    let raw_documents =
-        serde_json::from_str::<Value>(result.payloads[3]["text"].as_str().unwrap()).unwrap();
+    let table = materialize_result_renderer(&result, "table").unwrap();
+    assert_eq!(table["rows"].as_array().unwrap().len(), 100);
+    let raw = materialize_result_renderer(&result, "raw").unwrap();
+    let raw_documents = serde_json::from_str::<Value>(raw["text"].as_str().unwrap()).unwrap();
     assert_eq!(raw_documents.as_array().unwrap().len(), 100);
 }
 

@@ -10,8 +10,14 @@ import {
 } from './SettingsWorkspace.parts'
 
 const GITHUB_REPO_URL = 'https://github.com/FullMontyDevelopment/DataPadPlusPlus'
+const OFFICIAL_WEBSITE_URL = 'https://datapad-plus-plus.org/'
 
-const GITHUB_LINKS = [
+const PROJECT_LINKS = [
+  {
+    href: OFFICIAL_WEBSITE_URL,
+    label: 'Official website',
+    description: 'Product information, documentation, datastore coverage, and downloads.',
+  },
   {
     href: GITHUB_REPO_URL,
     label: 'GitHub repository',
@@ -76,8 +82,8 @@ export function SettingsAboutPanel({
         <MetricCard label="Platform" value={diagnostics?.platform ?? health.platform} />
       </div>
 
-      <div className="settings-link-grid" aria-label="DataPad++ GitHub links">
-        {GITHUB_LINKS.map((link) => (
+      <div className="settings-link-grid" aria-label="DataPad++ project links">
+        {PROJECT_LINKS.map((link) => (
           <a
             key={link.href}
             className="settings-link-card"

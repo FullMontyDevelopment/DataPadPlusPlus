@@ -5,15 +5,18 @@ import type {
   ResultPayload,
 } from '@datapadplusplus/shared-types'
 import {
-  createResultExportFile,
+  createResultExportFileReference,
   defaultExportOptionForPayload,
   exportOptionsForPayload,
   type ResultExportFormat,
 } from './payload-export'
+import { createResultExportFileInBackground } from './payload-export-background'
+import { isTauriRuntime } from '../../../../services/runtime/desktop-bridge'
 
 interface ResultExportDialogProps {
   payload: ResultPayload
   result?: ExecutionResultEnvelope
+  tabId?: string
   onCancel(): void
   onExport(request: ExportResultFileRequest): Promise<void>
 }
@@ -21,6 +24,7 @@ interface ResultExportDialogProps {
 export function ResultExportDialog({
   payload,
   result,
+  tabId,
   onCancel,
   onExport,
 }: ResultExportDialogProps) {
@@ -42,7 +46,21 @@ export function ResultExportDialog({
     setError('')
 
     try {
-      await onExport(createResultExportFile(payload, result, selectedOption))
+      const canStreamCanonicalResult =
+        isTauriRuntime() &&
+        payload.renderer === 'document' &&
+        result &&
+        tabId &&
+        (selectedOption.format === 'json' || selectedOption.format === 'ndjson')
+      const request = canStreamCanonicalResult
+        ? createResultExportFileReference(
+            payload,
+            result,
+            tabId,
+            selectedOption as typeof selectedOption & { format: 'json' | 'ndjson' },
+          )
+        : await createResultExportFileInBackground(payload, result, selectedOption)
+      await onExport(request)
     } catch (exportError) {
       setError(
         exportError instanceof Error

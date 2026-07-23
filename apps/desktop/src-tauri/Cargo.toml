@@ -2,6 +2,8 @@
 name = "datapadplusplus-desktop"
 version = "0.1.45"
 description = "DataPad++ desktop shell"
+homepage = "https://datapad-plus-plus.org/"
+repository = "https://github.com/FullMontyDevelopment/DataPadPlusPlus"
 license-file = "../../../LICENSE"
 edition = "2021"
 
@@ -41,7 +43,7 @@ rustls = "=0.23.42"
 rustls-pemfile = "=2.2.0"
 scylla = { version = "=1.7.0", features = ["bigdecimal-04", "chrono-04", "rustls-023"] }
 semver = "1.0.28"
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "mysql", "sqlite", "json", "chrono", "uuid", "bigdecimal"] }

@@ -168,9 +168,8 @@ impl ManagedAppState {
             )
             .await
             {
-                Ok(result) => Some(redact_execution_result_for_environment(
-                    result,
-                    &resolved_environment,
+                Ok(result) => Some(std::sync::Arc::new(
+                    redact_execution_result_for_environment(result, &resolved_environment),
                 )),
                 Err(error) => {
                     return Err(enrich_sql_execution_error(

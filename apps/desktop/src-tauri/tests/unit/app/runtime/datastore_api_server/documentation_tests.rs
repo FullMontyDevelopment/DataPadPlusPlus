@@ -270,6 +270,7 @@ fn result_with_payloads(payloads: Vec<Value>) -> ExecutionResultEnvelope {
             .unwrap_or("json")
             .into(),
         renderer_modes: Vec::new(),
+        deferred_renderer_modes: Vec::new(),
         payloads,
         notices: Vec::new(),
         executed_at: "2026-06-28T00:00:00.000Z".into(),

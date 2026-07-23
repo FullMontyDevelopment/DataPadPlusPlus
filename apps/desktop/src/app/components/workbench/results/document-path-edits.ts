@@ -3,7 +3,7 @@ export function setValueAtPath(
   path: Array<string | number>,
   nextValue: unknown,
 ) {
-  const clone = structuredClone(document) as Record<string, unknown>
+  const clone = clonePath(document, path.slice(0, -1))
   const parent = valueAtPath(clone, path.slice(0, -1))
   const key = path.at(-1)
 
@@ -20,7 +20,7 @@ export function renameFieldAtPath(
   oldKey: string | number | undefined,
   nextName: string,
 ) {
-  const clone = structuredClone(document) as Record<string, unknown>
+  const clone = clonePath(document, parentPath)
   const parent = valueAtPath(clone, parentPath)
 
   if (!parent || oldKey === undefined || Array.isArray(parent)) {
@@ -34,7 +34,7 @@ export function renameFieldAtPath(
 }
 
 export function deleteValueAtPath(document: Record<string, unknown>, path: Array<string | number>) {
-  const clone = structuredClone(document) as Record<string, unknown>
+  const clone = clonePath(document, path.slice(0, -1))
   const parent = valueAtPath(clone, path.slice(0, -1))
   const key = path.at(-1)
 
@@ -49,6 +49,47 @@ export function deleteValueAtPath(document: Record<string, unknown>, path: Array
   }
 
   return clone
+}
+
+function clonePath(
+  document: Record<string, unknown>,
+  path: Array<string | number>,
+): Record<string, unknown> {
+  const root = { ...document }
+  let source: unknown = document
+  let target: unknown = root
+
+  for (const segment of path) {
+    const sourceChild = childValue(source, segment)
+    if (!isContainer(sourceChild) || !isContainer(target)) {
+      break
+    }
+
+    const targetChild = Array.isArray(sourceChild)
+      ? [...sourceChild]
+      : { ...sourceChild }
+    setChildValue(target, segment, targetChild)
+    source = sourceChild
+    target = targetChild
+  }
+
+  return root
+}
+
+function childValue(parent: unknown, key: string | number) {
+  if (Array.isArray(parent) && typeof key === 'number') {
+    return parent[key]
+  }
+
+  if (parent && typeof parent === 'object') {
+    return (parent as Record<string, unknown>)[String(key)]
+  }
+
+  return undefined
+}
+
+function isContainer(value: unknown): value is Array<unknown> | Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }
 
 function valueAtPath(value: unknown, path: Array<string | number>) {

@@ -50,6 +50,7 @@ fn result_with_secrets() -> ExecutionResultEnvelope {
         summary: "Ran with token super-secret-token".into(),
         default_renderer: "raw".into(),
         renderer_modes: vec!["raw".into(), "plan".into()],
+        deferred_renderer_modes: Vec::new(),
         payloads: vec![
             json!({
                 "renderer": "raw",

@@ -10,14 +10,28 @@ export function preserveActiveExecutionsOnPayload(
   current: BootstrapPayload | undefined,
   executionsByTab: Record<string, QueryTabActiveExecution>,
 ): BootstrapPayload {
-  const next = clonePayload(incoming)
+  const next: BootstrapPayload = {
+    ...incoming,
+    snapshot: {
+      ...incoming.snapshot,
+      tabs: incoming.snapshot.tabs.map((tab) => ({ ...tab })),
+    },
+  }
   const currentTabsById = new Map(
     (current?.snapshot.tabs ?? []).map((tab) => [tab.id, tab]),
   )
 
   next.snapshot.tabs = next.snapshot.tabs.map((tab) => {
     const currentTab = currentTabsById.get(tab.id)
-    const tabWithNewestResult = preserveNewerExecutionState(tab, currentTab)
+    const transientResultId = incoming.transientResultIds?.[tab.id]
+    const tabWithResultReference =
+      transientResultId && currentTab?.result?.id === transientResultId
+        ? { ...tab, result: currentTab.result }
+        : tab
+    const tabWithNewestResult = preserveNewerExecutionState(
+      tabWithResultReference,
+      currentTab,
+    )
     const activeExecution = executionsByTab[tab.id] ?? currentTab?.activeExecution
 
     if (!activeExecution) {
@@ -117,10 +131,6 @@ function preserveResultDisplayTiming(
       durationMs: tab.result.displayDurationMs ?? displayDurationMs ?? tab.result.durationMs,
     },
   }
-}
-
-function clonePayload(payload: BootstrapPayload): BootstrapPayload {
-  return JSON.parse(JSON.stringify(payload)) as BootstrapPayload
 }
 
 function durationSince(startedAt: string | undefined) {

@@ -2,6 +2,16 @@
   "name": "@datapadplusplus/site",
   "private": true,
   "version": "0.1.32",
+  "description": "The official DataPad++ product website and documentation.",
+  "homepage": "https://datapad-plus-plus.org/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FullMontyDevelopment/DataPadPlusPlus.git",
+    "directory": "apps/site"
+  },
+  "bugs": {
+    "url": "https://github.com/FullMontyDevelopment/DataPadPlusPlus/issues"
+  },
   "license": "SEE LICENSE IN ../../LICENSE",
   "type": "module",
   "scripts": {

@@ -6,7 +6,17 @@ pub struct ExportResultFileRequest {
     pub suggested_file_name: String,
     pub extension: String,
     pub mime_type: String,
-    pub contents: String,
+    pub contents: Option<String>,
+    pub result_reference: Option<ResultExportReference>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResultExportReference {
+    pub tab_id: String,
+    pub result_id: String,
+    pub renderer: String,
+    pub format: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -214,6 +224,8 @@ pub struct BootstrapPayload {
     pub snapshot: WorkspaceSnapshot,
     pub resolved_environment: ResolvedEnvironment,
     pub diagnostics: DiagnosticsReport,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub transient_result_ids: std::collections::BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persistence_warning: Option<PersistenceWarning>,
 }

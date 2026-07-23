@@ -11,6 +11,34 @@ import { resultEditQueryText } from '../../../../../src/app/result-edit-context'
 import { ResultsView } from '../../../../../src/app/components/workbench/results/ResultsView'
 
 describe('ResultsView', () => {
+  it('keeps renderer controls responsive while a deferred view is prepared', () => {
+    const result = resultEnvelope([{ _id: 'document-1' }], false)
+    result.deferredRendererModes = ['table', 'raw']
+
+    render(
+      <ResultsView
+        capabilities={{
+          canCancel: false,
+          canExplain: false,
+          defaultRowLimit: 200,
+          editorLanguage: 'mongodb',
+          supportsLiveMetadata: true,
+        }}
+        connection={connectionProfile({ family: 'document', engine: 'mongodb' })}
+        renderer="table"
+        rendererPreparing
+        result={result}
+        onLoadNextPage={vi.fn()}
+        onResultRendered={vi.fn()}
+        onSelectRenderer={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('status')).toHaveTextContent('Preparing table view')
+    expect(screen.getByRole('button', { name: 'document' })).toBeEnabled()
+    expect(screen.queryByRole('treegrid')).not.toBeInTheDocument()
+  })
+
   it('shows loaded document results without local page controls', () => {
     const documents = Array.from({ length: 25 }, (_item, index) => ({
       _id: `document-${index + 1}`,

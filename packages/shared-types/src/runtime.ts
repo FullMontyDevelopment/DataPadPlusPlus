@@ -999,6 +999,19 @@ export interface ResultPageResponse {
   notices: string[]
 }
 
+export interface MaterializeResultRendererRequest {
+  tabId: string
+  resultId: string
+  renderer: ResultRenderer
+}
+
+export interface MaterializeResultRendererResponse {
+  tabId: string
+  resultId: string
+  renderer: ResultRenderer
+  payload: ResultPayload
+}
+
 export interface DocumentNodeChildrenRequest {
   tabId: string
   connectionId: string

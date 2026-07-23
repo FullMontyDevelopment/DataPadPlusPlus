@@ -133,7 +133,7 @@ fn cargo_toml(spec: &ProjectExportSpec) -> String {
         )
     };
     format!(
-        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\nrust-version = \"{}\"\n\n[dependencies]\n{}\n{}",
+        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\nrust-version = \"{}\"\nhomepage = \"https://datapad-plus-plus.org/\"\n\n[dependencies]\n{}\n{}",
         spec.package_name, spec.rust_version, dependencies, build_dependencies
     )
 }

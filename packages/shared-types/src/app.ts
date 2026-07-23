@@ -113,6 +113,7 @@ export interface BootstrapPayload {
   snapshot: WorkspaceSnapshot
   resolvedEnvironment: ResolvedEnvironment
   diagnostics: DiagnosticsReport
+  transientResultIds?: Record<string, string>
   persistenceWarning?: PersistenceWarning
 }
 

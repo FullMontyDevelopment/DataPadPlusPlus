@@ -3,6 +3,7 @@ import type {
   ConnectionProfile,
   EnvironmentProfile,
   ExecutionCapabilities,
+  ExecutionResultEnvelope,
   QueryTabState,
   UpdateUiStateRequest,
   WorkspaceCreateRequest,
@@ -22,6 +23,7 @@ const WORKSPACE_REGISTRY_STORAGE_KEY = 'datapadplusplus.workspaces.registry.v1'
 const WORKSPACE_SNAPSHOT_STORAGE_PREFIX = 'datapadplusplus.workspace.snapshot.v1.'
 const DEFAULT_WORKSPACE_ID = 'default'
 const DEFAULT_WORKSPACE_NAME = 'Default Workspace'
+const browserResults = new Map<string, ExecutionResultEnvelope>()
 
 interface BrowserWorkspaceRegistry {
   enabled: boolean
@@ -43,11 +45,16 @@ export function loadBrowserSnapshot(): WorkspaceSnapshot {
       : null)
 
   if (!stored) {
+    browserResults.clear()
     return createBlankBootstrapPayload().snapshot
   }
 
   try {
-    return sanitizeBrowserSnapshot(migrateWorkspaceSnapshot(JSON.parse(stored) as WorkspaceSnapshot))
+    return restoreBrowserResults(
+      sanitizeBrowserSnapshot(
+        migrateWorkspaceSnapshot(JSON.parse(stored) as WorkspaceSnapshot),
+      ),
+    )
   } catch {
     return createBlankBootstrapPayload().snapshot
   }
@@ -59,7 +66,10 @@ export function saveBrowserSnapshot(snapshot: WorkspaceSnapshot) {
   if (typeof window !== 'undefined') {
     const registry = ensureBrowserWorkspaceRegistry(snapshot)
     const activeWorkspaceId = registry.activeWorkspaceId || DEFAULT_WORKSPACE_ID
-    const sanitized = sanitizeBrowserSnapshot(migrateWorkspaceSnapshot(snapshot))
+    syncBrowserResults(snapshot)
+    const sanitized = sanitizeBrowserSnapshot(
+      migrateWorkspaceSnapshot(stripTransientResults(snapshot)),
+    )
     window.localStorage.setItem(
       workspaceSnapshotStorageKey(activeWorkspaceId),
       JSON.stringify(sanitized),
@@ -171,13 +181,30 @@ export function switchBrowserWorkspace(request: WorkspaceSwitchRequest): Workspa
 }
 
 function sanitizeBrowserSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
-  const sanitized = cloneSnapshot(snapshot)
-  sanitized.environments = sanitized.environments.map(sanitizeEnvironmentProfile)
-  return sanitized
+  const sanitized = stripTransientResults(snapshot)
+  return {
+    ...sanitized,
+    environments: sanitized.environments.map(sanitizeEnvironmentProfile),
+  }
 }
 
 export function cloneSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
-  return JSON.parse(JSON.stringify(snapshot)) as WorkspaceSnapshot
+  const resultsByTab = new Map(
+    snapshot.tabs
+      .filter((tab) => tab.result)
+      .map((tab) => [tab.id, tab.result] as const),
+  )
+  const cloned = JSON.parse(
+    JSON.stringify(stripTransientResults(snapshot)),
+  ) as WorkspaceSnapshot
+
+  return {
+    ...cloned,
+    tabs: cloned.tabs.map((tab) => {
+      const result = resultsByTab.get(tab.id)
+      return result ? { ...tab, result } : tab
+    }),
+  }
 }
 
 function ensureBrowserWorkspaceRegistry(seedSnapshot?: WorkspaceSnapshot): BrowserWorkspaceRegistry {
@@ -210,7 +237,11 @@ function ensureBrowserWorkspaceRegistry(seedSnapshot?: WorkspaceSnapshot): Brows
   const registry = defaultBrowserWorkspaceRegistry(snapshot)
   window.localStorage.setItem(
     workspaceSnapshotStorageKey(DEFAULT_WORKSPACE_ID),
-    JSON.stringify(sanitizeBrowserSnapshot(migrateWorkspaceSnapshot(snapshot))),
+    JSON.stringify(
+      sanitizeBrowserSnapshot(
+        migrateWorkspaceSnapshot(stripTransientResults(snapshot)),
+      ),
+    ),
   )
   saveBrowserWorkspaceRegistry(registry)
   return registry
@@ -347,8 +378,13 @@ function browserWorkspaceId() {
 
 
 export function buildBrowserPayload(snapshot: WorkspaceSnapshot): BootstrapPayload {
-  const migrated = migrateWorkspaceSnapshot(snapshot)
+  const migrated = migrateWorkspaceSnapshot(stripTransientResults(snapshot))
   const health = createBrowserPreviewHealth()
+  const transientResultIds = Object.fromEntries(
+    snapshot.tabs.flatMap((tab) =>
+      tab.result ? [[tab.id, tab.result.id] as const] : [],
+    ),
+  )
 
   return {
     health,
@@ -358,6 +394,42 @@ export function buildBrowserPayload(snapshot: WorkspaceSnapshot): BootstrapPaylo
       migrated.ui.activeEnvironmentId,
     ),
     diagnostics: createDiagnosticsReport(migrated, health),
+    transientResultIds,
+  }
+}
+
+function stripTransientResults(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  return {
+    ...snapshot,
+    tabs: snapshot.tabs.map((tab) =>
+      tab.result ? { ...tab, result: undefined } : tab,
+    ),
+    closedTabs: snapshot.closedTabs.map((tab) =>
+      tab.result ? { ...tab, result: undefined } : tab,
+    ),
+  }
+}
+
+function syncBrowserResults(snapshot: WorkspaceSnapshot) {
+  browserResults.clear()
+  for (const tab of snapshot.tabs) {
+    if (tab.result) {
+      browserResults.set(tab.id, tab.result)
+    }
+  }
+}
+
+function restoreBrowserResults(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  if (!browserResults.size) {
+    return snapshot
+  }
+
+  return {
+    ...snapshot,
+    tabs: snapshot.tabs.map((tab) => {
+      const result = browserResults.get(tab.id)
+      return result ? { ...tab, result } : tab
+    }),
   }
 }
 

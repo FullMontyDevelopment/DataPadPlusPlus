@@ -121,11 +121,26 @@ impl ManagedAppState {
     }
 
     pub fn bootstrap_payload(&self) -> BootstrapPayload {
+        let mut snapshot = self.snapshot.clone();
+        let transient_result_ids = snapshot
+            .tabs
+            .iter_mut()
+            .filter_map(|tab| {
+                let result_id = tab.result.as_ref().map(|result| result.id.clone());
+                tab.result = None;
+                result_id.map(|result_id| (tab.id.clone(), result_id))
+            })
+            .collect();
+        for closed_tab in &mut snapshot.closed_tabs {
+            closed_tab.tab.result = None;
+        }
+
         BootstrapPayload {
             health: self.health(),
-            snapshot: self.snapshot.clone(),
+            snapshot,
             resolved_environment: self.resolve_environment(&self.snapshot.ui.active_environment_id),
             diagnostics: self.diagnostics(),
+            transient_result_ids,
             persistence_warning: None,
         }
     }

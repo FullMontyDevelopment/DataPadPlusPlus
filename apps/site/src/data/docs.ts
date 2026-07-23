@@ -393,12 +393,21 @@ export const docArticles: DocArticle[] = [
       },
       {
         title: 'Watch metrics, logs, and exports',
-        body: 'Use the Metrics and Logs tabs to review local traffic, then export a starter Rust or .NET project when you want code outside the desktop app.',
+        body: 'Use the Metrics and Logs tabs to review local traffic. For PostgreSQL, SQLite, MongoDB, or DynamoDB, export a working Rust or .NET project backed by a real datastore client when you want code outside the desktop app.',
+      },
+      {
+        title: 'Review export capabilities',
+        body: 'The export dialog shows whether the framework and datastore pair is supported, labels resources as CRUD or read-only, and explains blocked custom endpoints. REST/OpenAPI, GraphQL, and gRPC are supported for every enabled pair.',
+      },
+      {
+        title: 'Configure the generated service',
+        body: 'Use DATABASE_URL or ConnectionStrings__Datastore for relational exports, MONGODB_URI for MongoDB, and the standard AWS region and credential chain with optional DYNAMODB_ENDPOINT_URL for DynamoDB. The archive contains examples, never resolved DataPad++ secrets.',
       },
     ],
     notes: [
       'API Server is designed for local development and integration experiments, not public hosting.',
       'Secrets are referenced through environment variables; exported projects do not include DataPad++ secret values.',
+      'Custom query endpoints are currently exportable only for safe, read-only PostgreSQL and SQLite REST endpoints.',
     ],
   },
   {

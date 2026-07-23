@@ -687,16 +687,6 @@ fn document_result(input: DocumentResultInput<'_>) -> ExecutionResultEnvelope {
         collection_name,
         lazy_documents,
     );
-    let display_documents_json = document_payload
-        .get("documents")
-        .cloned()
-        .unwrap_or_else(|| Value::Array(Vec::new()));
-    let display_documents = display_documents_json
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    let raw_documents =
-        serde_json::to_string_pretty(&display_documents_json).unwrap_or_else(|_| "[]".into());
 
     build_result(ResultEnvelopeInput {
         engine: &connection.engine,
@@ -707,18 +697,7 @@ fn document_result(input: DocumentResultInput<'_>) -> ExecutionResultEnvelope {
         ),
         default_renderer: "document",
         renderer_modes: vec!["document", "json", "table", "raw"],
-        payloads: vec![
-            document_payload,
-            payload_json(display_documents_json.clone()),
-            payload_table(
-                vec!["document".into()],
-                display_documents
-                    .iter()
-                    .map(|item| vec![serde_json::to_string(item).unwrap_or_else(|_| "{}".into())])
-                    .collect(),
-            ),
-            payload_raw(raw_documents),
-        ],
+        payloads: vec![document_payload],
         notices,
         duration_ms: duration_ms(started),
         row_limit: Some(row_limit),

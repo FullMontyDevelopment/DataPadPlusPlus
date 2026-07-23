@@ -178,48 +178,48 @@ fn build_script_result(
         .last()
         .and_then(|record| record.documents.clone())
         .or_else(|| documents_from_final_value(&final_value));
+    let operations = run
+        .records
+        .iter()
+        .map(operation_metadata)
+        .collect::<Vec<_>>();
     let batch = (run.records.len() > 1).then(|| {
-        payload_batch(
+        let mut payload = payload_batch(
             run.records.iter().map(batch_record).collect(),
             format!(
                 "{} MongoDB script operation(s) completed.",
                 run.records.len()
             ),
-        )
+        );
+        if let Some(object) = payload.as_object_mut() {
+            object.insert("console".into(), Value::String(run.console.clone()));
+            object.insert(
+                "metadata".into(),
+                json!({ "operations": operations.clone() }),
+            );
+        }
+        payload
     });
     let mut payloads = Vec::new();
-    if let Some(batch) = batch.clone() {
-        payloads.push(batch);
-    }
-    if let Some(documents) = documents.as_ref() {
-        payloads.push(payload_document(Value::Array(documents.clone())));
-    }
-    payloads.push(payload_json(json!({
-        "result": final_value,
-        "operations": run.records.iter().map(operation_metadata).collect::<Vec<_>>(),
-        "console": run.console,
-    })));
-    if let Some(documents) = documents.as_ref() {
-        payloads.push(payload_table(
-            vec!["document".into()],
-            documents
-                .iter()
-                .map(|document| {
-                    vec![serde_json::to_string(document).unwrap_or_else(|_| "{}".into())]
-                })
-                .collect(),
-        ));
-    }
-    let raw_json = serde_json::to_string_pretty(&final_value).unwrap_or_else(|_| "null".into());
-    let raw = if run.console.is_empty() {
-        raw_json
+    if let Some(batch) = batch.as_ref() {
+        payloads.push(batch.clone());
+    } else if let Some(documents) = documents.as_ref() {
+        let mut payload = payload_document(Value::Array(documents.clone()));
+        if let Some(object) = payload.as_object_mut() {
+            object.insert("console".into(), Value::String(run.console.clone()));
+            object.insert(
+                "metadata".into(),
+                json!({ "operations": operations.clone() }),
+            );
+        }
+        payloads.push(payload);
     } else {
-        format!(
-            "Console\n-------\n{}\n\nResult\n------\n{raw_json}",
-            run.console
-        )
-    };
-    payloads.push(payload_raw(raw));
+        payloads.push(payload_json(json!({
+            "result": final_value.clone(),
+            "operations": operations.clone(),
+            "console": run.console.clone(),
+        })));
+    }
 
     let has_documents = documents.is_some();
     let has_console = !run.console.is_empty();
@@ -260,13 +260,11 @@ fn build_script_result(
 }
 
 fn batch_record(record: &ScriptOperationRecord) -> Value {
-    let mut payloads = vec![payload_json(record.value.clone())];
-    if let Some(documents) = record.documents.as_ref() {
-        payloads.insert(0, payload_document(Value::Array(documents.clone())));
-    }
-    payloads.push(payload_raw(
-        serde_json::to_string_pretty(&record.value).unwrap_or_else(|_| "null".into()),
-    ));
+    let payloads = if let Some(documents) = record.documents.as_ref() {
+        vec![payload_document(Value::Array(documents.clone()))]
+    } else {
+        vec![payload_json(record.value.clone())]
+    };
     batch_section(BatchSectionPayload {
         id: format!("mongodb-script-{}", record.sequence),
         label: format!("{} {}", record.sequence, record.method),
@@ -280,9 +278,9 @@ fn batch_record(record: &ScriptOperationRecord) -> Value {
             "json".into()
         },
         renderer_modes: if record.documents.is_some() {
-            vec!["document".into(), "json".into(), "raw".into()]
+            vec!["document".into()]
         } else {
-            vec!["json".into(), "raw".into()]
+            vec!["json".into()]
         },
         payloads,
         notices: Vec::new(),

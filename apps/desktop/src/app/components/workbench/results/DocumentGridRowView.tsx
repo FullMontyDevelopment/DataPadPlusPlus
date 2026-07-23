@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { memo, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import {
   isBsonDateValue,
@@ -33,7 +33,7 @@ interface DocumentGridRowViewProps {
   onUpdateValue(row: DocumentGridRow, nextValue: unknown, editKind?: 'set-field' | 'change-field-type'): void
 }
 
-export function DocumentGridRowView({
+export const DocumentGridRowView = memo(function DocumentGridRowView({
   editingCell,
   error,
   expanded,
@@ -191,7 +191,7 @@ export function DocumentGridRowView({
       </div>
     </div>
   )
-}
+})
 
 const POINTER_DRAG_THRESHOLD_PX = 4
 

@@ -2,6 +2,16 @@
   "name": "@datapadplusplus/shared-types",
   "private": true,
   "version": "0.1.45",
+  "description": "Shared DataPad++ TypeScript contracts.",
+  "homepage": "https://datapad-plus-plus.org/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FullMontyDevelopment/DataPadPlusPlus.git",
+    "directory": "packages/shared-types"
+  },
+  "bugs": {
+    "url": "https://github.com/FullMontyDevelopment/DataPadPlusPlus/issues"
+  },
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./src/index.ts",

@@ -4,6 +4,8 @@ import { formatDurationClock } from './result-runtime'
 
 interface DocumentResultsToolbarProps {
   efficiencyModeEnabled: boolean
+  expandAllPending: boolean
+  hasExpandedRows: boolean
   hasSearch: boolean
   matchCount: number
   searchInput: string
@@ -23,6 +25,8 @@ interface DocumentResultsFooterProps {
 
 export function DocumentResultsToolbar({
   efficiencyModeEnabled,
+  expandAllPending,
+  hasExpandedRows,
   hasSearch,
   matchCount,
   searchInput,
@@ -49,11 +53,21 @@ export function DocumentResultsToolbar({
         </span>
       ) : null}
       {!efficiencyModeEnabled ? (
-        <button type="button" className="drawer-button" onClick={onExpandAll}>
-          Expand All
+        <button
+          type="button"
+          className="drawer-button"
+          disabled={expandAllPending}
+          onClick={onExpandAll}
+        >
+          {expandAllPending ? 'Expanding...' : 'Expand All'}
         </button>
       ) : null}
-      <button type="button" className="drawer-button" onClick={onCollapseAll}>
+      <button
+        type="button"
+        className="drawer-button"
+        disabled={!expandAllPending && !hasExpandedRows}
+        onClick={onCollapseAll}
+      >
         Collapse All
       </button>
     </div>

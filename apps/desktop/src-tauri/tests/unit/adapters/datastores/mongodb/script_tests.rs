@@ -21,10 +21,12 @@ fn renders_document_payloads_for_script_results() {
     };
     let result = build_script_result("mongodb", Instant::now(), Vec::new(), 25, run);
     assert_eq!(result.default_renderer, "document");
-    assert!(result
-        .payloads
-        .iter()
-        .any(|payload| payload["renderer"] == "document"));
+    assert_eq!(result.payloads.len(), 1);
+    assert_eq!(result.payloads[0]["renderer"], "document");
+    assert_eq!(
+        result.deferred_renderer_modes,
+        vec!["json".to_string(), "table".to_string(), "raw".to_string()]
+    );
 }
 
 #[test]
@@ -48,10 +50,10 @@ fn opens_print_only_scripts_on_their_text_output() {
     let result = build_script_result("mongodb", Instant::now(), Vec::new(), 25, run);
 
     assert_eq!(result.default_renderer, "raw");
-    let raw = result
-        .payloads
-        .iter()
-        .find(|payload| payload["renderer"] == "raw")
-        .unwrap();
+    assert_eq!(result.payloads.len(), 1);
+    assert_eq!(result.payloads[0]["renderer"], "json");
+    assert_eq!(result.deferred_renderer_modes, vec!["raw".to_string()]);
+    let raw = crate::adapters::materialize_result_renderer(&result, "raw")
+        .expect("raw console output should materialize");
     assert!(raw["text"].as_str().unwrap().contains("starting\nfinished"));
 }

@@ -14,6 +14,7 @@ import type {
   OperationPlanResponse,
   QueryTabState,
   ResultPayload,
+  ResultRenderer,
 } from '@datapadplusplus/shared-types'
 import { ClockIcon, CopyIcon, DownloadIcon } from '../icons'
 import { resultEditQueryText } from '../../../result-edit-context'
@@ -21,6 +22,7 @@ import { ResultPayloadView } from './ResultPayloadView'
 import { ResultExportDialog } from './ResultExportDialog'
 import { TestRunResultsView } from './TestRunResultsView'
 import { copyText, payloadToText } from './payload-export'
+import { payloadToTextInBackground } from './payload-export-background'
 import { formatDurationClock } from './result-runtime'
 
 interface ResultsViewProps {
@@ -29,7 +31,9 @@ interface ResultsViewProps {
   activeTab?: QueryTabState
   activeEnvironment?: EnvironmentProfile
   payload?: ResultPayload
-  renderer?: string
+  renderer?: ResultRenderer
+  rendererPreparing?: boolean
+  rendererError?: string
   result?: ExecutionResultEnvelope
   onSelectRenderer(renderer: string): void
   onLoadNextPage(): void
@@ -56,6 +60,8 @@ export function ResultsView({
   activeEnvironment,
   payload,
   renderer,
+  rendererPreparing = false,
+  rendererError,
   result,
   onSelectRenderer,
   onLoadNextPage,
@@ -186,7 +192,14 @@ export function ResultsView({
     }
 
     try {
-      await copyText(payloadToText(payload))
+      const format = payload.renderer === 'raw' || payload.renderer === 'resp'
+        ? 'txt'
+        : 'json'
+      await copyText(
+        payload.renderer === 'document'
+          ? await payloadToTextInBackground(payload, format)
+          : payloadToText(payload),
+      )
       setOperationMessage('Result copied to clipboard.')
     } catch {
       setOperationMessage('Unable to copy result to clipboard.')
@@ -255,34 +268,54 @@ export function ResultsView({
         </div>
       </div>
 
-      <ResultPayloadView
-        connection={connection}
-        editContext={
-          activeTab && activeEnvironment
-            ? {
-                connectionId: activeTab.connectionId,
-                environmentId: activeTab.environmentId,
-                queryText: resultEditQueryText(activeTab, result),
-                ...(payload?.renderer === 'document' && payload.database
-                  ? { database: payload.database }
-                  : {}),
-                ...(payload?.renderer === 'document' && payload.collection
-                  ? { collection: payload.collection }
-                  : {}),
-              }
-            : undefined
-        }
-        payload={payload}
-        resultId={result?.id}
-        tabId={activeTab?.id}
-        documentFooterControls={documentFooterControls}
-        resultDurationMs={result?.displayDurationMs ?? result?.durationMs}
-        resultRuntimeTitle={runtimeTitle}
-        resultSummary={result?.summary}
-        onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
-        onExecuteDataEdit={onExecuteDataEdit}
-        onPlanOperation={onPlanOperation}
-      />
+      {rendererPreparing ? (
+        <div className="result-preparing-state" role="status" aria-live="polite">
+          <span className="loading-spinner" aria-hidden="true" />
+          <strong>Preparing {renderer} view</strong>
+          <span>The document result remains available while this view is built.</span>
+        </div>
+      ) : rendererError ? (
+        <div className="result-error-state" role="alert">
+          <strong>Unable to prepare {renderer} view</strong>
+          <span>{rendererError}</span>
+          <button
+            type="button"
+            className="drawer-button"
+            onClick={() => renderer && onSelectRenderer(renderer)}
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+        <ResultPayloadView
+          connection={connection}
+          editContext={
+            activeTab && activeEnvironment
+              ? {
+                  connectionId: activeTab.connectionId,
+                  environmentId: activeTab.environmentId,
+                  queryText: resultEditQueryText(activeTab, result),
+                  ...(payload?.renderer === 'document' && payload.database
+                    ? { database: payload.database }
+                    : {}),
+                  ...(payload?.renderer === 'document' && payload.collection
+                    ? { collection: payload.collection }
+                    : {}),
+                }
+              : undefined
+          }
+          payload={payload}
+          resultId={result?.id}
+          tabId={activeTab?.id}
+          documentFooterControls={documentFooterControls}
+          resultDurationMs={result?.displayDurationMs ?? result?.durationMs}
+          resultRuntimeTitle={runtimeTitle}
+          resultSummary={result?.summary}
+          onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
+          onExecuteDataEdit={onExecuteDataEdit}
+          onPlanOperation={onPlanOperation}
+        />
+      )}
 
       {payload && usesPageablePayload && !usesDocumentPayload && result?.pageInfo?.hasMore ? (
         <div className="panel-page-row">
@@ -316,6 +349,7 @@ export function ResultsView({
         <ResultExportDialog
           payload={payload}
           result={result}
+          tabId={activeTabId}
           onCancel={() => setExportDialogOpen(false)}
           onExport={saveExportFile}
         />

@@ -27,15 +27,21 @@ import { documentResultBehaviorForConnection } from './datastore-result-behavior
 import { dataEditErrorMessage, dataEditStatusMessage, executeDataEditWithConfirmation } from './data-edit-confirmation'
 import { editablePermissions } from './document-edit-permissions'
 import {
-  buildRows,
-  collectExpandableRowIds,
+  collectExpandableRowIdsCooperative,
+  createDocumentTreeIndex,
+  createDocumentTreeIndexCooperative,
   isDocumentLazyNode,
+  rowAtDocumentRowId,
   type DocumentGridRow,
+  type DocumentTreeIndex,
   type DocumentValueType,
 } from './document-grid-model'
 import { deleteValueAtPath, renameFieldAtPath, setValueAtPath } from './document-path-edits'
 import { coerceValue } from './document-value-editing'
-import { searchDocumentRows } from './document-grid-search'
+import {
+  emptyDocumentSearchResult,
+  searchDocumentRowsCooperative,
+} from './document-grid-search'
 import { documentCountText } from './document-results-summary'
 import { copyText } from './payload-export'
 import { useDataEditConfirmation } from './use-data-edit-confirmation'
@@ -69,6 +75,7 @@ interface ContextMenuState {
 type DocumentEditCell = 'field' | 'type' | 'value'
 
 const DOCUMENT_SEARCH_DEBOUNCE_MS = 180
+const EMPTY_DOCUMENT_SEARCH_RESULT = emptyDocumentSearchResult()
 
 interface ActiveEditorState {
   rowId: string
@@ -111,6 +118,20 @@ export function DocumentResultsView({
   const [activeEditor, setActiveEditor] = useState<ActiveEditorState>()
   const [searchInput, setSearchInput] = useState('')
   const [searchText, setSearchText] = useState('')
+  const [completedSearch, setCompletedSearch] = useState<{
+    documents: Array<Record<string, unknown>>
+    query: string
+    result: ReturnType<typeof emptyDocumentSearchResult>
+  }>()
+  const [expandAllState, setExpandAllState] = useState<{
+    documents: Array<Record<string, unknown>>
+    pending: boolean
+  }>()
+  const [preparedTreeIndex, setPreparedTreeIndex] = useState<{
+    documents: Array<Record<string, unknown>>
+    expandedRows: Set<string>
+    index: DocumentTreeIndex
+  }>()
   const [inspectorRowId, setInspectorRowId] = useState<string>()
   const [pendingFieldDelete, setPendingFieldDelete] = useState<PendingFieldDeleteState>()
   const [pendingDocumentDelete, setPendingDocumentDelete] = useState<PendingDocumentDeleteState>()
@@ -130,12 +151,24 @@ export function DocumentResultsView({
     ? pendingDocumentDelete.row
     : undefined
   const copyTimer = useRef<number | undefined>(undefined)
-  const searchPending = searchInput.trim() !== searchText.trim()
-  const searchResult = useMemo(
-    () => searchDocumentRows(draftDocuments, searchText),
-    [draftDocuments, searchText],
-  )
-  const hasSearch = searchText.trim().length > 0
+  const expandAllAbortRef = useRef<AbortController | undefined>(undefined)
+  const normalizedSearchText = searchText.trim()
+  const searchResult =
+    completedSearch?.documents === draftDocuments &&
+    completedSearch.query === normalizedSearchText
+      ? completedSearch.result
+      : EMPTY_DOCUMENT_SEARCH_RESULT
+  const searchRunning =
+    normalizedSearchText.length > 0 &&
+    (
+      completedSearch?.documents !== draftDocuments ||
+      completedSearch.query !== normalizedSearchText
+    )
+  const expandAllPending =
+    expandAllState?.documents === draftDocuments && expandAllState.pending
+  const searchPending =
+    searchInput.trim() !== searchText.trim() || searchRunning
+  const hasSearch = normalizedSearchText.length > 0
   const effectiveExpandedRows = useMemo(() => {
     if (!hasSearch) {
       return expandedRows
@@ -143,29 +176,28 @@ export function DocumentResultsView({
 
     return new Set([...expandedRows, ...searchResult.expandedRowIds])
   }, [expandedRows, hasSearch, searchResult.expandedRowIds])
-  const rows = useMemo(
-    () => buildRows(draftDocuments, effectiveExpandedRows),
-    [draftDocuments, effectiveExpandedRows],
-  )
-  const visibleRows = useMemo(
-    () => (hasSearch ? rows.filter((row) => searchResult.visibleRowIds.has(row.id)) : rows),
-    [hasSearch, rows, searchResult.visibleRowIds],
-  )
-  const inspectorVisibleRow = inspectorRowId
-    ? rows.find((row) => row.id === inspectorRowId)
-    : undefined
-  const inspectorFallbackRows = useMemo(
+  const treeIndex = useMemo(
     () =>
-      inspectorRowId && !inspectorVisibleRow
-        ? buildRows(draftDocuments, new Set(collectExpandableRowIds(draftDocuments)))
-        : [],
-    [draftDocuments, inspectorRowId, inspectorVisibleRow],
+      !hasSearch &&
+      preparedTreeIndex?.documents === draftDocuments &&
+      preparedTreeIndex.expandedRows === effectiveExpandedRows
+        ? preparedTreeIndex.index
+        : createDocumentTreeIndex(
+            draftDocuments,
+            effectiveExpandedRows,
+            hasSearch ? searchResult.visibleRowIds : undefined,
+          ),
+    [
+      draftDocuments,
+      effectiveExpandedRows,
+      hasSearch,
+      preparedTreeIndex,
+      searchResult.visibleRowIds,
+    ],
   )
-  const inspectorRow =
-    inspectorVisibleRow ??
-    (inspectorRowId
-      ? inspectorFallbackRows.find((row) => row.id === inspectorRowId)
-      : undefined)
+  const inspectorRow = inspectorRowId
+    ? rowAtDocumentRowId(draftDocuments, inspectorRowId)
+    : undefined
   const inspectorDocument =
     inspectorRow && draftDocuments[inspectorRow.documentIndex]
       ? draftDocuments[inspectorRow.documentIndex]
@@ -192,6 +224,7 @@ export function DocumentResultsView({
       if (copyTimer.current !== undefined) {
         window.clearTimeout(copyTimer.current)
       }
+      expandAllAbortRef.current?.abort()
     }
   }, [])
 
@@ -204,12 +237,48 @@ export function DocumentResultsView({
   }, [searchInput])
 
   useEffect(() => {
+    const controller = new AbortController()
+    const query = normalizedSearchText
+    if (!query) {
+      return () => controller.abort()
+    }
+
+    void searchDocumentRowsCooperative(
+      draftDocuments,
+      query,
+      controller.signal,
+    )
+      .then((result) => {
+        if (!controller.signal.aborted) {
+          setCompletedSearch({
+            documents: draftDocuments,
+            query,
+            result,
+          })
+        }
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          setCopyMessage('Document search could not be completed.')
+        }
+      })
+
+    return () => controller.abort()
+  }, [draftDocuments, normalizedSearchText])
+
+  useEffect(() => {
     if (copyTimer.current !== undefined) {
       window.clearTimeout(copyTimer.current)
       copyTimer.current = undefined
     }
 
     cancelDataEditConfirmation()
+    expandAllAbortRef.current?.abort()
+    expandAllAbortRef.current = undefined
+    const releasePreparedIndex = window.setTimeout(() => {
+      setPreparedTreeIndex(undefined)
+    }, 0)
+    return () => window.clearTimeout(releasePreparedIndex)
   }, [cancelDataEditConfirmation, documents])
 
   useEffect(() => {
@@ -362,10 +431,51 @@ export function DocumentResultsView({
   }
 
   const expandAll = () => {
-    setExpandedRows(new Set(collectExpandableRowIds(draftDocuments)))
+    expandAllAbortRef.current?.abort()
+    const controller = new AbortController()
+    expandAllAbortRef.current = controller
+    setExpandAllState({ documents: draftDocuments, pending: true })
+    void collectExpandableRowIdsCooperative(
+      draftDocuments,
+      controller.signal,
+    )
+      .then(async (rowIds) => {
+        if (controller.signal.aborted) {
+          return
+        }
+        const nextExpandedRows = new Set(rowIds)
+        const index = await createDocumentTreeIndexCooperative(
+          draftDocuments,
+          nextExpandedRows,
+          controller.signal,
+        )
+        if (!controller.signal.aborted) {
+          setPreparedTreeIndex({
+            documents: draftDocuments,
+            expandedRows: nextExpandedRows,
+            index,
+          })
+          setExpandedRows(nextExpandedRows)
+        }
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          setCopyMessage('Expand All could not be completed.')
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          expandAllAbortRef.current = undefined
+          setExpandAllState({ documents: draftDocuments, pending: false })
+        }
+      })
   }
 
   const collapseAll = () => {
+    expandAllAbortRef.current?.abort()
+    expandAllAbortRef.current = undefined
+    setPreparedTreeIndex(undefined)
+    setExpandAllState({ documents: draftDocuments, pending: false })
     setExpandedRows(new Set())
   }
 
@@ -551,7 +661,9 @@ export function DocumentResultsView({
       <DocumentResultsToolbar
         efficiencyModeEnabled={efficiencyModeEnabled}
         hasSearch={hasSearch}
+        hasExpandedRows={expandedRows.size > 0}
         matchCount={searchResult.matchCount}
+        expandAllPending={expandAllPending}
         searchInput={searchInput}
         searchPending={searchPending}
         onCollapseAll={collapseAll}
@@ -560,8 +672,12 @@ export function DocumentResultsView({
       />
       <div className={`document-results-content${inspectorRow && inspectorDocument ? ' has-inspector' : ''}`}>
         <div className="document-data-grid-frame">
-          <DocumentVirtualGridRows rows={visibleRows} renderRow={renderDocumentRow} />
-          {hasSearch && visibleRows.length === 0 ? (
+          <DocumentVirtualGridRows
+            rowCount={treeIndex.rowCount}
+            rowAt={treeIndex.rowAt}
+            renderRow={renderDocumentRow}
+          />
+          {hasSearch && treeIndex.rowCount === 0 ? (
             <p className="document-results-empty-search">No loaded documents match this search.</p>
           ) : null}
         </div>

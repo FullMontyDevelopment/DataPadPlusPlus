@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildRows,
+  collectExpandableRowIdsCooperative,
   compactValue,
+  createDocumentTreeIndex,
+  createDocumentTreeIndexCooperative,
   documentRowId,
   documentValueTypeLabel,
   isDocumentLazyNode,
   isExpandableValue,
+  rowAtDocumentRowId,
 } from '../../../../../src/app/components/workbench/results/document-grid-model'
 
 describe('document-grid-model lazy nodes', () => {
@@ -145,5 +149,84 @@ describe('document-grid-model lazy nodes', () => {
     expect(bracketKey?.fieldPath).toBe('["a.b"]["[0]"]')
     expect(arrayItem?.path.at(-1)).toBe(0)
     expect(arrayItem?.fieldPath).toBe('a.b[0]')
+  })
+
+  it('bounds inline scalar previews without changing the complete value', () => {
+    const value = 'x'.repeat(3_000)
+    const rows = buildRows(
+      [{ _id: 'doc-1', description: value }],
+      new Set([documentRowId(0, [])]),
+    )
+    const row = rows.find((item) => item.fieldPath === 'description')
+
+    expect(row?.value).toBe(value)
+    expect(row?.valueLabel.length).toBeLessThan(value.length)
+    expect(row?.valueLabel).toMatch(/3.000 characters/)
+  })
+
+  it('resolves an inspector row directly without expanding the full tree', () => {
+    const documents = [{
+      _id: 'doc-1',
+      profile: { contact: { email: 'ada@example.test' } },
+    }]
+    const row = rowAtDocumentRowId(
+      documents,
+      documentRowId(0, ['profile', 'contact', 'email']),
+    )
+
+    expect(row).toMatchObject({
+      fieldPath: 'profile.contact.email',
+      value: 'ada@example.test',
+      depth: 3,
+    })
+  })
+
+  it('collects deeply expandable paths cooperatively', async () => {
+    const documents = [{
+      _id: 'doc-1',
+      nested: { list: [{ child: { enabled: true } }] },
+    }]
+
+    await expect(collectExpandableRowIdsCooperative(documents)).resolves.toEqual([
+      documentRowId(0, []),
+      documentRowId(0, ['nested']),
+      documentRowId(0, ['nested', 'list']),
+      documentRowId(0, ['nested', 'list', 0]),
+      documentRowId(0, ['nested', 'list', 0, 'child']),
+    ])
+  })
+
+  it('indexes expanded and search-visible rows without flattening the tree', () => {
+    const documents = [
+      { _id: 'doc-1', profile: { name: 'Ada' } },
+      { _id: 'doc-2', profile: { name: 'Grace' } },
+    ]
+    const expanded = new Set([
+      documentRowId(0, []),
+      documentRowId(0, ['profile']),
+    ])
+    const visible = new Set([
+      documentRowId(0, []),
+      documentRowId(0, ['profile']),
+      documentRowId(0, ['profile', 'name']),
+    ])
+    const index = createDocumentTreeIndex(documents, expanded, visible)
+
+    expect(index.rowCount).toBe(3)
+    expect(Array.from({ length: index.rowCount }, (_, row) => index.rowAt(row)?.fieldPath))
+      .toEqual(['_id', 'profile', 'profile.name'])
+  })
+
+  it('builds the complete expanded index cooperatively', async () => {
+    const documents = [{ _id: 'doc-1', nested: { enabled: true } }]
+    const expanded = new Set([
+      documentRowId(0, []),
+      documentRowId(0, ['nested']),
+    ])
+    const index = await createDocumentTreeIndexCooperative(documents, expanded)
+
+    expect(index.rowCount).toBe(4)
+    expect(Array.from({ length: index.rowCount }, (_, row) => index.rowAt(row)?.fieldPath))
+      .toEqual(['_id', '_id', 'nested', 'nested.enabled'])
   })
 })

@@ -58,13 +58,15 @@ use crate::{
             LibraryDeleteNodeRequest, LibraryDuplicateNodeRequest, LibraryMoveNodeRequest,
             LibraryRenameNodeRequest, LibrarySetEnvironmentRequest, LocalDatabaseCreateRequest,
             LocalDatabaseCreateResult, LocalDatabasePickRequest, LocalDatabasePickResult,
+            MaterializeResultRendererRequest, MaterializeResultRendererResponse,
             OpenTestSuiteTemplateRequest, OperationExecutionRequest, OperationExecutionResponse,
             OperationManifestRequest, OperationManifestResponse, OperationPlanRequest,
             OperationPlanResponse, PermissionInspectionRequest, PermissionInspectionResponse,
             QueryHistoryEntry, QueryTabActiveExecution, QueryTabReorderRequest,
-            RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse, ResultPageRequest,
-            ResultPageResponse, SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest,
-            SavedWorkItem, StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
+            RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse,
+            ResultExportReference, ResultPageRequest, ResultPageResponse,
+            SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest, SavedWorkItem,
+            StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
             UpdateQueryTabTargetRequest, UpdateTestSuiteTabRequest, UpdateUiStateRequest,
             UserFacingError, WorkspaceBackupDeleteRequest, WorkspaceBackupRestoreRequest,
             WorkspaceBackupRunRequest, WorkspaceBackupRunResponse, WorkspaceBackupSettingsRequest,
@@ -287,6 +289,7 @@ fn merge_execution_response(
         .iter()
         .position(|tab| tab.id == response.tab.id)
     else {
+        response.tab.result = None;
         return Ok(response);
     };
 
@@ -296,6 +299,7 @@ fn merge_execution_response(
         .as_ref()
         .is_some_and(|active| active.execution_id != response.execution_id)
     {
+        response.tab.result = None;
         return Ok(response);
     }
 
@@ -347,6 +351,7 @@ fn merge_execution_response(
             message: "The query completed, but DataPad++ could not save this execution to workspace history because the workspace file is temporarily in use. The result remains available, and saving will be retried on the next change.".into(),
         });
     }
+    response.tab.result = None;
     Ok(response)
 }
 
@@ -448,6 +453,27 @@ fn validate_export_result_file_request(
             "result-export-invalid",
             "Result export format is missing its content type.",
         ));
+    }
+
+    if request.contents.is_none() && request.result_reference.is_none() {
+        return Err(CommandError::new(
+            "result-export-invalid",
+            "Result export content or result reference is missing.",
+        ));
+    }
+
+    if let Some(reference) = request.result_reference.as_ref() {
+        if reference.tab_id.trim().is_empty()
+            || reference.result_id.trim().is_empty()
+            || reference.renderer != "document"
+            || !matches!(reference.format.as_str(), "json" | "ndjson")
+            || reference.format != request.extension
+        {
+            return Err(CommandError::new(
+                "result-export-invalid",
+                "The result export reference is not valid for this format.",
+            ));
+        }
     }
 
     Ok(())

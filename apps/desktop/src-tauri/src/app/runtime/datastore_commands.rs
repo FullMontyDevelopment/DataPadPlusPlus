@@ -128,10 +128,10 @@ impl ManagedAppState {
         let profile = self.connection_by_id(&request.connection_id)?;
         let (resolved, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
-        let result = redact_execution_result_for_environment(
+        let result = std::sync::Arc::new(redact_execution_result_for_environment(
             adapters::inspect_redis_key(&resolved, &request).await?,
             &resolved_environment,
-        );
+        ));
         let executed_at = timestamp_now();
         let tab_response = {
             let tab = &mut self.snapshot.tabs[tab_index];

@@ -3,6 +3,14 @@
   "private": true,
   "version": "0.1.45",
   "description": "DataPad++ is a modular Tauri workstation for exploring multiple datastore families from one desktop app.",
+  "homepage": "https://datapad-plus-plus.org/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FullMontyDevelopment/DataPadPlusPlus.git"
+  },
+  "bugs": {
+    "url": "https://github.com/FullMontyDevelopment/DataPadPlusPlus/issues"
+  },
   "license": "SEE LICENSE IN LICENSE",
   "workspaces": [
     "apps/*",

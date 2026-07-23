@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject, ReactNode } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   documentValueTypeLabel,
   type DocumentGridRow,
@@ -8,6 +9,7 @@ import {
 import { copyText } from './payload-export'
 
 const TYPE_OPTIONS: DocumentValueType[] = ['string', 'number', 'boolean', 'null', 'object', 'array']
+const INSPECTOR_HIGHLIGHT_LIMIT = 500
 
 interface DocumentFieldInspectorProps {
   canChangeType: boolean
@@ -27,9 +29,13 @@ export function DocumentFieldInspector({
   const [searchText, setSearchText] = useState('')
   const [activeMatchIndex, setActiveMatchIndex] = useState(0)
   const [copyStatus, setCopyStatus] = useState('')
-  const rawJson = useMemo(() => formatRawJson(row.value, true), [row.value])
-  const compactJson = useMemo(() => formatRawJson(row.value, false), [row.value])
-  const documentJson = useMemo(() => formatRawJson(document, true), [document])
+  const [serialization, setSerialization] = useState<{
+    rawJson: string
+    source: unknown
+  }>()
+  const rawJson =
+    serialization && serialization.source === row.value ? serialization.rawJson : ''
+  const serializationPending = !serialization || serialization.source !== row.value
   const matches = useMemo(() => findMatches(rawJson, searchText), [rawJson, searchText])
   const activeMatchRef = useRef<HTMLElement | null>(null)
   const fieldPath = row.fieldPath || '$'
@@ -39,6 +45,18 @@ export function DocumentFieldInspector({
   useEffect(() => {
     activeMatchRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [safeActiveMatchIndex])
+
+  useEffect(() => {
+    const source = row.value
+    const timeout = globalThis.setTimeout(() => {
+      setSerialization({
+        rawJson: formatRawJson(source, true),
+        source,
+      })
+    }, 0)
+
+    return () => globalThis.clearTimeout(timeout)
+  }, [row.value])
 
   const copy = async (label: string, text: string) => {
     await copyText(text)
@@ -119,9 +137,18 @@ export function DocumentFieldInspector({
         </button>
       </div>
 
-      <pre className="document-field-inspector-code" aria-label="Selected field raw JSON">
-        {renderHighlightedJson(rawJson, matches, safeActiveMatchIndex, activeMatchRef)}
-      </pre>
+      {serializationPending ? (
+        <div className="document-field-inspector-preparing" role="status">
+          Preparing JSON...
+        </div>
+      ) : (
+        <VirtualizedInspectorJson
+          activeMatchIndex={safeActiveMatchIndex}
+          activeMatchRef={activeMatchRef}
+          matches={matches}
+          text={rawJson}
+        />
+      )}
 
       <div className="document-field-inspector-actions">
         <button type="button" className="drawer-button" onClick={() => void copy('Path', fieldPath)}>
@@ -130,10 +157,18 @@ export function DocumentFieldInspector({
         <button type="button" className="drawer-button" onClick={() => void copy('Raw JSON', rawJson)}>
           Copy Raw JSON
         </button>
-        <button type="button" className="drawer-button" onClick={() => void copy('Compact JSON', compactJson)}>
+        <button
+          type="button"
+          className="drawer-button"
+          onClick={() => void copy('Compact JSON', formatRawJson(row.value, false))}
+        >
           Copy Compact
         </button>
-        <button type="button" className="drawer-button" onClick={() => void copy('Document JSON', documentJson)}>
+        <button
+          type="button"
+          className="drawer-button"
+          onClick={() => void copy('Document JSON', formatRawJson(document, true))}
+        >
           Copy Document JSON
         </button>
         {copyStatus ? <span>{copyStatus}</span> : null}
@@ -181,12 +216,67 @@ function findMatches(text: string, query: string) {
   const lowerNeedle = needle.toLowerCase()
   let index = lowerText.indexOf(lowerNeedle)
 
-  while (index >= 0) {
+  while (index >= 0 && matches.length < INSPECTOR_HIGHLIGHT_LIMIT) {
     matches.push({ start: index, end: index + needle.length })
     index = lowerText.indexOf(lowerNeedle, index + needle.length)
   }
 
   return matches
+}
+
+function VirtualizedInspectorJson({
+  activeMatchIndex,
+  activeMatchRef,
+  matches,
+  text,
+}: {
+  activeMatchIndex: number
+  activeMatchRef: MutableRefObject<HTMLElement | null>
+  matches: Array<{ end: number; start: number }>
+  text: string
+}) {
+  const parentRef = useRef<HTMLDivElement>(null)
+  const lines = useMemo(() => text.split('\n'), [text])
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const virtualizer = useVirtualizer({
+    count: lines.length,
+    estimateSize: () => 18,
+    getScrollElement: () => parentRef.current,
+    initialRect: { height: 480, width: 420 },
+    overscan: 12,
+  })
+
+  if (matches.length > 0) {
+    return (
+      <pre className="document-field-inspector-code" aria-label="Selected field raw JSON">
+        {renderHighlightedJson(text, matches, activeMatchIndex, activeMatchRef)}
+      </pre>
+    )
+  }
+
+  return (
+    <div
+      ref={parentRef}
+      className="document-field-inspector-code document-field-inspector-code--virtual"
+      aria-label="Selected field raw JSON"
+      role="region"
+    >
+      <div
+        className="document-field-inspector-virtual-space"
+        style={{ height: virtualizer.getTotalSize() }}
+      >
+        {virtualizer.getVirtualItems().map((item) => (
+          <pre
+            key={item.key}
+            className="document-field-inspector-line"
+            style={{ transform: `translateY(${item.start}px)` }}
+          >
+            {lines[item.index] || ' '}
+          </pre>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function renderHighlightedJson(

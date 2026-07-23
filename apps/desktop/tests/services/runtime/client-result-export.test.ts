@@ -36,6 +36,28 @@ describe('client result export', () => {
     })
   })
 
+  it('passes canonical result references without formatting contents for desktop export', async () => {
+    window.__TAURI_INTERNALS__ = {}
+    invoke.mockResolvedValue({ saved: true, path: 'C:/tmp/result.json' })
+    const request = {
+      suggestedFileName: 'mongodb-document-result',
+      extension: 'json',
+      mimeType: 'application/json;charset=utf-8',
+      resultReference: {
+        tabId: 'tab-mongodb',
+        resultId: 'result-mongodb',
+        renderer: 'document' as const,
+        format: 'json' as const,
+      },
+    }
+
+    await expect(clientResultExport.exportResultFile(request)).resolves.toEqual({
+      saved: true,
+      path: 'C:/tmp/result.json',
+    })
+    expect(invoke).toHaveBeenCalledWith('export_result_file', { request })
+  })
+
   it('rejects unsupported result export formats', async () => {
     await expect(
       clientResultExport.exportResultFile({

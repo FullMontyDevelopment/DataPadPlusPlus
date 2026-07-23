@@ -230,6 +230,7 @@ pub fn run() {
             commands::workspace::export_workspace_bundle_file,
             commands::workspace::fetch_document_node_children,
             commands::workspace::fetch_result_page,
+            commands::workspace::materialize_result_renderer,
             commands::workspace::get_datastore_api_server_logs,
             commands::workspace::get_datastore_api_server_metrics,
             commands::workspace::get_datastore_api_server_project_export_capabilities,

@@ -2,6 +2,16 @@
   "name": "@datapadplusplus/desktop",
   "private": true,
   "version": "0.1.45",
+  "description": "The DataPad++ desktop datastore workbench.",
+  "homepage": "https://datapad-plus-plus.org/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FullMontyDevelopment/DataPadPlusPlus.git",
+    "directory": "apps/desktop"
+  },
+  "bugs": {
+    "url": "https://github.com/FullMontyDevelopment/DataPadPlusPlus/issues"
+  },
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "scripts": {

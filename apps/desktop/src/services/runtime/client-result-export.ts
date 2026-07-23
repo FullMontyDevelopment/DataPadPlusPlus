@@ -34,12 +34,23 @@ function validateResultExportRequest(request: ExportResultFileRequest) {
     throw new Error('Result export format is missing its content type.')
   }
 
-  if (typeof request.contents !== 'string') {
-    throw new Error('Result export content is invalid.')
+  if (
+    typeof request.contents !== 'string' &&
+    (
+      !request.resultReference ||
+      !request.resultReference.tabId ||
+      !request.resultReference.resultId ||
+      !['json', 'ndjson'].includes(request.resultReference.format)
+    )
+  ) {
+    throw new Error('Result export content or result reference is invalid.')
   }
 }
 
 function downloadBrowserResultFile(request: ExportResultFileRequest) {
+  if (typeof request.contents !== 'string') {
+    throw new Error('Browser result exports require formatted content.')
+  }
   const blob = new Blob([request.contents], { type: request.mimeType })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')

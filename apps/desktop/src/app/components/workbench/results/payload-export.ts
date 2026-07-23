@@ -7,6 +7,7 @@ import { sanitizeExportText } from './payload-export-sanitizers'
 
 export {
   createResultExportFile,
+  createResultExportFileReference,
   defaultExportOptionForPayload,
   exportOptionsForPayload,
   payloadToText,

@@ -731,6 +731,8 @@ export interface DocumentPayload {
   hydrationMode?: 'full' | 'lazy'
   database?: string
   collection?: string
+  console?: string
+  metadata?: Record<string, unknown>
   efficiencyModeIgnored?: boolean
   efficiencyModeReason?: string
 }
@@ -914,6 +916,7 @@ export interface BatchResultSection {
   notices?: QueryExecutionNotice[]
   defaultRenderer: ResultRenderer
   rendererModes: ResultRenderer[]
+  deferredRendererModes?: ResultRenderer[]
   payloads: SingleResultPayload[]
 }
 
@@ -921,6 +924,8 @@ export interface BatchPayload {
   renderer: 'batch'
   sections: BatchResultSection[]
   summary?: string
+  console?: string
+  metadata?: Record<string, unknown>
 }
 
 export type ResultPayload = SingleResultPayload | BatchPayload
@@ -940,6 +945,7 @@ export interface ExecutionResultEnvelope {
   summary: string
   defaultRenderer: ResultRenderer
   rendererModes: ResultRenderer[]
+  deferredRendererModes?: ResultRenderer[]
   payloads: ResultPayload[]
   notices: QueryExecutionNotice[]
   executedAt: string
@@ -1081,7 +1087,13 @@ export interface ExportResultFileRequest {
   suggestedFileName: string
   extension: string
   mimeType: string
-  contents: string
+  contents?: string
+  resultReference?: {
+    tabId: string
+    resultId: string
+    renderer: ResultRenderer
+    format: 'json' | 'ndjson'
+  }
 }
 
 export interface ExportResultFileResponse {

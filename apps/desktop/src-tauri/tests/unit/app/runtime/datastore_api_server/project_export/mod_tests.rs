@@ -618,6 +618,23 @@ fn composite_primary_keys_generate_bound_identity_components() {
 }
 
 #[test]
+fn generated_projects_link_to_the_official_datapad_website() {
+    let rust_files = rendered_files("rust", "postgresql", "rest");
+    let readme = file_contents(&rust_files, "UsersApi/README.md");
+    let manifest = file_contents(&rust_files, "UsersApi/datapad-api-export.json");
+    let cargo = file_contents(&rust_files, "UsersApi/Cargo.toml");
+    let dotnet_files = rendered_files("dotnet", "postgresql", "rest");
+    let project = file_contents(&dotnet_files, "UsersApi/UsersApi.csproj");
+
+    assert!(readme.contains("[https://datapad-plus-plus.org/](https://datapad-plus-plus.org/)"));
+    assert!(manifest.contains("\"generatedByUrl\": \"https://datapad-plus-plus.org/\""));
+    assert!(cargo.contains("homepage = \"https://datapad-plus-plus.org/\""));
+    assert!(
+        project.contains("<PackageProjectUrl>https://datapad-plus-plus.org/</PackageProjectUrl>")
+    );
+}
+
+#[test]
 #[ignore = "invoked by the generated project matrix validator"]
 fn emit_generated_project_matrix() {
     let destination = std::env::var_os("DATAPAD_PROJECT_EXPORT_MATRIX_DIR")

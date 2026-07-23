@@ -22,7 +22,6 @@ import {
   Sparkles,
   TerminalSquare,
 } from 'lucide-react'
-import brandLogo from '../../desktop/public/favicon.svg'
 import heroMark from '../../desktop/src/assets/hero.png'
 import {
   datastoreDocs,
@@ -33,7 +32,14 @@ import {
   type DatastoreScreenshot,
 } from './data/datastores'
 import { docArticles, docCategories, getDocBySlug, getNextDoc } from './data/docs'
-import { coreFeatures, datastoreGroups, launchWorkflow, releasesUrl, repoUrl } from './data/product'
+import {
+  coreFeatures,
+  datastoreGroups,
+  launchWorkflow,
+  releasesUrl,
+  repoUrl,
+  websiteUrl,
+} from './data/product'
 import { getScreenshotSlot, type ScreenshotId } from './data/screenshots'
 import {
   classifyReleaseDownloads,
@@ -126,7 +132,7 @@ function Header() {
   return (
     <header className="site-header">
       <a className="brand-lockup" href="/" aria-label="DataPad++ home">
-        <img src={brandLogo} alt="" />
+        <img src="/favicon.png" alt="" />
         <span>DataPad++</span>
       </a>
       <nav className="desktop-nav" aria-label="Primary">
@@ -907,6 +913,12 @@ export function App() {
   const [platform, setPlatform] = useState<Platform>('unknown')
   const [releases, setReleases] = useState<GitHubRelease[]>([])
   const [releasesStatus, setReleasesStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+
+  useEffect(() => {
+    const pageUrl = new URL(window.location.pathname, websiteUrl).toString()
+    document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute('href', pageUrl)
+    document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute('content', pageUrl)
+  }, [route])
 
   useEffect(() => {
     setPlatform(detectPlatform())

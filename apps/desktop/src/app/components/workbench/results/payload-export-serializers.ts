@@ -68,14 +68,41 @@ export function createResultExportFile(
   payload: ResultPayload,
   result: ExecutionResultEnvelope | undefined,
   option: ResultExportOption,
-): ExportResultFileRequest {
+): ExportResultFileRequest & { contents: string } {
+  return {
+    ...createResultExportFileMetadata(payload, result, option),
+    contents: serializePayloadForExport(payload, option.format),
+  }
+}
+
+export function createResultExportFileMetadata(
+  payload: ResultPayload,
+  result: ExecutionResultEnvelope | undefined,
+  option: ResultExportOption,
+): Omit<ExportResultFileRequest, 'contents'> {
   return {
     suggestedFileName: sanitizeFilename(
       `${result?.engine ?? 'datapadplusplus'}-${payload.renderer}-${result?.executedAt ?? 'result'}`,
     ),
     extension: option.extension,
     mimeType: option.mimeType,
-    contents: serializePayloadForExport(payload, option.format),
+  }
+}
+
+export function createResultExportFileReference(
+  payload: ResultPayload,
+  result: ExecutionResultEnvelope,
+  tabId: string,
+  option: ResultExportOption & { format: 'json' | 'ndjson' },
+): ExportResultFileRequest {
+  return {
+    ...createResultExportFileMetadata(payload, result, option),
+    resultReference: {
+      tabId,
+      resultId: result.id,
+      renderer: payload.renderer,
+      format: option.format,
+    },
   }
 }
 

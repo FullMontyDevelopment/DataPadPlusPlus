@@ -1,5 +1,7 @@
 use super::*;
 
+const OFFICIAL_WEBSITE_URL: &str = "https://datapad-plus-plus.org/";
+
 pub(super) fn env_example(spec: &ProjectExportSpec) -> String {
     let additional = spec
         .additional_configuration
@@ -83,8 +85,10 @@ pub(super) fn project_readme(spec: &ProjectExportSpec) -> String {
         format!("## Resource identities\n\n{identity_lines}\n")
     };
     format!(
-        "# {}\n\nGenerated from a DataPad++ API Server configuration.\n\n- Framework: {}\n- Protocol: {}\n- Datastore: {} / {}\n- Data client: {}\n- Adapter: `{}`\n- Base path: `{}`\n- Configuration: set `{}` in your environment. Example format: `{}`.\n\n## Run\n\n1. Copy `.env.example` values into your environment or secret store.\n2. Restore/build the project. The first restore creates the application lockfile; commit it with your project.\n3. Start the API and call `/health` to verify the live datastore connection.\n\n## Resources\n\n{}{}## Export Warnings\n\n{}## Safety\n\nDataPad++ does not export secrets. {}\n",
+        "# {}\n\nGenerated from a DataPad++ API Server configuration.\n\n- DataPad++: [{}]({})\n- Framework: {}\n- Protocol: {}\n- Datastore: {} / {}\n- Data client: {}\n- Adapter: `{}`\n- Base path: `{}`\n- Configuration: set `{}` in your environment. Example format: `{}`.\n\n## Run\n\n1. Copy `.env.example` values into your environment or secret store.\n2. Restore/build the project. The first restore creates the application lockfile; commit it with your project.\n3. Start the API and call `/health` to verify the live datastore connection.\n\n## Resources\n\n{}{}## Export Warnings\n\n{}## Safety\n\nDataPad++ does not export secrets. {}\n",
         spec.project_name,
+        OFFICIAL_WEBSITE_URL,
+        OFFICIAL_WEBSITE_URL,
         spec.framework,
         spec.protocol,
         spec.connection_engine,
@@ -166,6 +170,7 @@ pub(super) fn project_manifest(spec: &ProjectExportSpec) -> String {
     let mut manifest = json!({
         "schemaVersion": 2,
         "generatedBy": "DataPad++",
+        "generatedByUrl": OFFICIAL_WEBSITE_URL,
         "framework": spec.framework,
         "protocol": spec.protocol,
         "projectName": spec.project_name,

@@ -15,6 +15,28 @@ fn test_local_path(name: &str, extension: &str) -> PathBuf {
 }
 
 #[test]
+fn canonical_document_exports_stream_json_and_ndjson_without_an_ipc_content_copy() {
+    let documents = vec![
+        serde_json::json!({ "_id": 1, "name": "Alpha" }),
+        serde_json::json!({ "_id": 2, "name": "Beta" }),
+    ];
+    let mut json = Vec::new();
+    let mut ndjson = Vec::new();
+
+    super::library::write_document_result_export(&mut json, &documents, "json").unwrap();
+    super::library::write_document_result_export(&mut ndjson, &documents, "ndjson").unwrap();
+
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&json).unwrap(),
+        serde_json::Value::Array(documents.clone())
+    );
+    assert_eq!(
+        String::from_utf8(ndjson).unwrap(),
+        "{\"_id\":1,\"name\":\"Alpha\"}\n{\"_id\":2,\"name\":\"Beta\"}"
+    );
+}
+
+#[test]
 fn empty_sqlite_database_creation_is_connectable() {
     tauri::async_runtime::block_on(async {
         let path = test_sqlite_path("empty");

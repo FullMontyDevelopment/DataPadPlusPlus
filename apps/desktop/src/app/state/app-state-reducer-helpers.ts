@@ -158,15 +158,16 @@ export function applyExecutionToPayload(
   const next = clonePayload(payload)
   const index = next.snapshot.tabs.findIndex((item) => item.id === execution.tab.id)
 
+  const incomingResult = execution.result ?? execution.tab.result
   const executionTab = {
     ...execution.tab,
-    result: execution.tab.result
+    result: incomingResult
       ? withServerTiming({
-          ...execution.tab.result,
-          payloads: execution.tab.result.payloads.map((item) =>
-            normalizeResultPayload(item, execution.tab.result?.defaultRenderer)),
+          ...incomingResult,
+          payloads: incomingResult.payloads.map((item) =>
+            normalizeResultPayload(item, incomingResult.defaultRenderer)),
         })
-      : execution.tab.result,
+      : incomingResult,
   }
   const isActiveTab = next.snapshot.ui.activeTabId === executionTab.id
   const shouldWaitForDisplay = Boolean(
@@ -243,7 +244,7 @@ export function markTabExecutionLoading(
   }
 
   const next = clonePayload(payload)
-  const tab = next.snapshot.tabs.find((item) => item.id === tabId)
+  const tab = cloneTabForUpdate(next, tabId)
 
   if (!tab) {
     return payload
@@ -268,7 +269,7 @@ export function markTabExecutionPhase(
   }
 
   const next = clonePayload(payload)
-  const tab = next.snapshot.tabs.find((item) => item.id === tabId)
+  const tab = cloneTabForUpdate(next, tabId)
 
   if (!tab?.activeExecution || tab.activeExecution.executionId !== executionId) {
     return payload
@@ -294,7 +295,7 @@ export function markTabExecutionDisplayed(
   }
 
   const next = clonePayload(payload)
-  const tab = next.snapshot.tabs.find((item) => item.id === tabId)
+  const tab = cloneTabForUpdate(next, tabId)
 
   if (!tab?.activeExecution || tab.activeExecution.executionId !== executionId) {
     return payload
@@ -323,7 +324,7 @@ export function markTabExecutionFailed(
   }
 
   const next = clonePayload(payload)
-  const tab = next.snapshot.tabs.find((item) => item.id === tabId)
+  const tab = cloneTabForUpdate(next, tabId)
 
   if (!tab) {
     return payload
@@ -352,7 +353,7 @@ export function applyResultPageToPayload(
   }
 
   const next = clonePayload(payload)
-  const tab = next.snapshot.tabs.find((item) => item.id === page.tabId)
+  const tab = cloneTabForUpdate(next, page.tabId)
 
   if (!tab?.result) {
     return next
@@ -365,6 +366,12 @@ export function applyResultPageToPayload(
     return payload
   }
 
+  tab.result = {
+    ...tab.result,
+    payloads: [...tab.result.payloads],
+    notices: [...tab.result.notices],
+    pageInfo: tab.result.pageInfo ? { ...tab.result.pageInfo } : undefined,
+  }
   const incomingPayload = normalizeResultPayload(
     page.payload,
     tab.result.defaultRenderer,
@@ -428,7 +435,27 @@ export function applyResultPageToPayload(
 }
 
 function clonePayload(payload: BootstrapPayload): BootstrapPayload {
-  return JSON.parse(JSON.stringify(payload)) as BootstrapPayload
+  return {
+    ...payload,
+    snapshot: {
+      ...payload.snapshot,
+      guardrails: [...payload.snapshot.guardrails],
+      tabs: [...payload.snapshot.tabs],
+      ui: { ...payload.snapshot.ui },
+    },
+  }
+}
+
+function cloneTabForUpdate(payload: BootstrapPayload, tabId: string) {
+  const index = payload.snapshot.tabs.findIndex((tab) => tab.id === tabId)
+  const tab = payload.snapshot.tabs[index]
+  if (!tab) {
+    return undefined
+  }
+
+  const cloned = { ...tab }
+  payload.snapshot.tabs[index] = cloned
+  return cloned
 }
 
 function mergeResultPayload(current: ResultPayload, incoming: ResultPayload): ResultPayload {

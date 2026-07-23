@@ -1,6 +1,8 @@
 # Cloudflare Pages Website Deployment
 
-The DataPad++ product website lives in `apps/site` and deploys to the Cloudflare Pages project `datapadplusplus`.
+The DataPad++ product website lives in `apps/site`, is published at
+[https://datapad-plus-plus.org/](https://datapad-plus-plus.org/), and deploys
+to the Cloudflare Pages project `datapadplusplus`.
 
 ## One-Time Cloudflare Setup
 

@@ -193,6 +193,42 @@ describe('applyExecutionToPayload', () => {
     expect(next?.snapshot.ui.activeBottomPanelTab).toBe('results')
   })
 
+  it('keeps untouched tabs and their results referentially stable', () => {
+    const payload = createSeedBootstrapPayload()
+    const firstTab = payload.snapshot.tabs[0]
+    if (!firstTab) {
+      throw new Error('Seed fixture must include at least one tab')
+    }
+    const untouchedResult = {
+      id: 'result-untouched',
+      engine: 'mongodb',
+      summary: 'Large result',
+      defaultRenderer: 'document' as const,
+      rendererModes: ['document' as const],
+      payloads: [{ renderer: 'document' as const, documents: [{ _id: 'stable' }] }],
+      notices: [],
+      executedAt: '2026-07-23T10:00:00.000Z',
+      durationMs: 5,
+    }
+    const untouchedTab = {
+      ...firstTab,
+      id: 'tab-untouched',
+      result: untouchedResult,
+    }
+    payload.snapshot.tabs.push(untouchedTab)
+
+    const next = applyExecutionToPayload(payload, executionFor(payload, false))
+    const nextUntouchedTab = next?.snapshot.tabs.find(
+      (tab) => tab.id === untouchedTab.id,
+    )
+
+    expect(nextUntouchedTab).toBe(untouchedTab)
+    expect(nextUntouchedTab?.result).toBe(untouchedResult)
+    expect(nextUntouchedTab?.result?.payloads[0]).toBe(
+      untouchedResult.payloads[0],
+    )
+  })
+
   it('does not clear an existing dirty tab when execution completes', () => {
     const payload = createSeedBootstrapPayload()
     const tab = payload.snapshot.tabs[0]

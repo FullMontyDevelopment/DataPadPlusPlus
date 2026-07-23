@@ -16,6 +16,8 @@ import type {
   QueryBuilderState,
   QueryTabState,
   QueryViewMode,
+  ResultPayload,
+  ResultRenderer,
   ScopedQueryTarget,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
@@ -73,7 +75,9 @@ import {
   connectionHealthToConnectionTest,
 } from './state/connection-health'
 import { ConnectionHealthChip } from './components/workbench/ConnectionHealthBadge'
+import { desktopClient } from '../services/runtime/client'
 import { connectionLibraryNodeId } from '../services/runtime/library-connection-helpers'
+import { projectDeferredResultPayload } from '../services/runtime/result-materialization'
 import { runtimeSliceForEngine } from '../services/runtime/datastores/registry'
 import { workbenchSliceForEngine } from './components/workbench/datastores/registry'
 import { createConnectionProfile, createEnvironmentProfile } from './state/app-state-factories'
@@ -253,9 +257,17 @@ function DesktopWorkspace() {
   const [exportPassphrase, setExportPassphrase] = useState('')
   const [importPayload, setImportPayload] = useState('')
   const [rendererPreference, setRendererPreference] = useState<{
-    renderer?: string
+    renderer?: ResultRenderer
     tabId?: string
   }>({})
+  const [materializedRenderer, setMaterializedRenderer] = useState<{
+    error?: string
+    payload?: ResultPayload
+    renderer: ResultRenderer
+    resultId: string
+    tabId: string
+  }>()
+  const [materializeRequestRevision, setMaterializeRequestRevision] = useState(0)
   const [queryWindowMode, setQueryWindowMode] = useState<QueryViewMode>('raw')
   const [testWindowMode, setTestWindowMode] = useState<'both' | 'builder' | 'raw'>('both')
   const [settingsInitialSectionRequest, setSettingsInitialSectionRequest] = useState<{
@@ -373,6 +385,108 @@ function DesktopWorkspace() {
     (activeConnection
       ? snapshot?.tabs.find((item) => item.connectionId === activeConnection.id)
       : undefined)
+  const activeTabId = activeTab?.id
+  const activeResult = activeTab?.result
+  const activeRenderer =
+    activeTab &&
+    rendererPreference.tabId === activeTab.id &&
+    activeTab.result?.rendererModes.some((mode) => mode === rendererPreference.renderer)
+      ? rendererPreference.renderer
+      : activeTab?.result?.defaultRenderer
+  const eagerPayload = selectPayload(activeResult?.payloads ?? [], activeRenderer)
+  const projectedPayload =
+    !eagerPayload && activeResult && activeRenderer === 'json'
+      ? projectDeferredResultPayload(activeResult, activeRenderer)
+      : undefined
+  const activePayload =
+    eagerPayload ??
+    projectedPayload ??
+    (
+      activeResult &&
+      materializedRenderer?.tabId === activeTabId &&
+      materializedRenderer?.resultId === activeResult.id &&
+      materializedRenderer?.renderer === activeRenderer
+        ? materializedRenderer?.payload
+        : undefined
+    )
+  const activeRendererPreparing = Boolean(
+    activeResult &&
+      activeRenderer &&
+      !activePayload &&
+      activeResult.deferredRendererModes?.includes(activeRenderer) &&
+      !(
+        materializedRenderer?.tabId === activeTabId &&
+        materializedRenderer?.resultId === activeResult.id &&
+        materializedRenderer?.renderer === activeRenderer &&
+        materializedRenderer?.error
+      ),
+  )
+  const activeRendererError =
+    activeResult &&
+    activeRenderer &&
+    materializedRenderer?.tabId === activeTabId &&
+    materializedRenderer?.resultId === activeResult.id &&
+    materializedRenderer?.renderer === activeRenderer
+      ? materializedRenderer?.error
+      : undefined
+  useEffect(() => {
+    if (
+      !activeTabId ||
+      !activeResult ||
+      !activeRenderer ||
+      eagerPayload ||
+      projectedPayload ||
+      !activeResult.deferredRendererModes?.includes(activeRenderer)
+    ) {
+      return
+    }
+
+    let stale = false
+    const request = {
+      tabId: activeTabId,
+      resultId: activeResult.id,
+      renderer: activeRenderer,
+    }
+    void desktopClient.materializeResultRenderer(request)
+      .then((response) => {
+        if (
+          stale ||
+          response.tabId !== request.tabId ||
+          response.resultId !== request.resultId ||
+          response.renderer !== request.renderer
+        ) {
+          return
+        }
+
+        setMaterializedRenderer({
+          ...request,
+          payload: response.payload,
+        })
+      })
+      .catch((error: unknown) => {
+        if (stale) {
+          return
+        }
+
+        setMaterializedRenderer({
+          ...request,
+          error: error instanceof Error
+            ? error.message
+            : `The ${request.renderer} view could not be prepared.`,
+        })
+      })
+
+    return () => {
+      stale = true
+    }
+  }, [
+    activeRenderer,
+    activeResult,
+    activeTabId,
+    eagerPayload,
+    materializeRequestRevision,
+    projectedPayload,
+  ])
   const activeLibraryNodeId = useMemo(
     () =>
       resolveActiveLibraryNodeId(
@@ -382,7 +496,6 @@ function DesktopWorkspace() {
       ),
     [activeConnection?.id, activeTab, snapshot?.libraryNodes],
   )
-  const activeTabId = activeTab?.id
   const activeTabExecution =
     activeTabId ? activeTab?.activeExecution ?? executionsByTab[activeTabId] : undefined
   const activeExecutionStatus = activeTabExecution ? 'loading' : 'idle'
@@ -1993,13 +2106,6 @@ function DesktopWorkspace() {
       ) ??
       connectionTests[drawerConnection.id]
     : undefined
-  const activeRenderer =
-    activeTab &&
-    rendererPreference.tabId === activeTab.id &&
-    activeTab.result?.rendererModes.some((mode) => mode === rendererPreference.renderer)
-      ? rendererPreference.renderer
-      : activeTab?.result?.defaultRenderer
-  const activePayload = selectPayload(activeTab?.result?.payloads ?? [], activeRenderer)
   const savedEnvironmentForActiveTab =
     activeTabIsEnvironment && activeTab
       ? snapshot.environments.find((item) => item.id === activeTab.environmentId)
@@ -3474,6 +3580,8 @@ function DesktopWorkspace() {
                 sideWidth={snapshot.ui.resultsSideWidth ?? 420}
                 activePayload={activePayload}
                 activeRenderer={activeRenderer}
+                rendererPreparing={activeRendererPreparing}
+                rendererError={activeRendererError}
                 diagnostics={diagnostics}
                 explorerInspection={explorerInspection}
                 lastExecution={lastExecution}
@@ -3486,11 +3594,16 @@ function DesktopWorkspace() {
                     bottomPanelVisible: true,
                   })
                 }
-                onSelectRenderer={(renderer) =>
-                  activeTab
-                    ? setRendererPreference({ renderer, tabId: activeTab.id })
-                    : undefined
-                }
+                onSelectRenderer={(renderer) => {
+                  if (!activeTab) {
+                    return
+                  }
+
+                  setRendererPreference({ renderer, tabId: activeTab.id })
+                  if (renderer === activeRenderer && activeRendererError) {
+                    setMaterializeRequestRevision((revision) => revision + 1)
+                  }
+                }}
                 onLoadNextPage={() =>
                   activeTab
                     ? void actions.fetchResultPage(activeTab.id, activeRenderer)

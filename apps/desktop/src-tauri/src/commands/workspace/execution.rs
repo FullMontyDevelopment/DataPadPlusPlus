@@ -197,6 +197,52 @@ pub async fn fetch_result_page(
 }
 
 #[tauri::command]
+pub async fn materialize_result_renderer(
+    state: State<'_, SharedAppState>,
+    request: MaterializeResultRendererRequest,
+) -> Result<MaterializeResultRendererResponse, CommandError> {
+    let result = {
+        let state = lock_state(&state)?;
+        let tab = state
+            .snapshot
+            .tabs
+            .iter()
+            .find(|tab| tab.id == request.tab_id)
+            .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
+        let result = tab
+            .result
+            .as_ref()
+            .filter(|result| result.id == request.result_id)
+            .cloned()
+            .ok_or_else(|| {
+                CommandError::new(
+                    "result-stale",
+                    "The result changed before this view could be prepared.",
+                )
+            })?;
+        result
+    };
+    let renderer = request.renderer.clone();
+    let payload = tauri::async_runtime::spawn_blocking(move || {
+        adapters::materialize_result_renderer(&result, &renderer)
+    })
+    .await
+    .map_err(|error| {
+        CommandError::new(
+            "result-materialization-failed",
+            format!("The result view could not be prepared: {error}"),
+        )
+    })??;
+
+    Ok(MaterializeResultRendererResponse {
+        tab_id: request.tab_id,
+        result_id: request.result_id,
+        renderer: request.renderer,
+        payload,
+    })
+}
+
+#[tauri::command]
 pub async fn fetch_document_node_children(
     state: State<'_, SharedAppState>,
     request: DocumentNodeChildrenRequest,

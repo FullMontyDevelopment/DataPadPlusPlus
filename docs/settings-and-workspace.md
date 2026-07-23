@@ -54,7 +54,7 @@ Each server profile includes:
 - parameter definitions discovered from `{{api.name}}` tokens
 - metrics and logs for the running server
 
-Servers cannot start until a connection, environment, and at least one enabled resource or custom endpoint are configured. Project export is available for supported local project templates and writes environment-variable references instead of DataPad++ secret values.
+Servers cannot start until a connection, environment, and at least one enabled resource or custom endpoint are configured. Project export creates working Rust or .NET services for PostgreSQL, SQLite, MongoDB, and DynamoDB across REST/OpenAPI, GraphQL, and gRPC. The export dialog reports per-resource CRUD/read-only modes and blocking reasons before creating an archive. Generated projects use real datastore clients, validate their connection at startup, and write environment-variable references instead of DataPad++ secret values. See [API Server Project Exports](api-server-project-exports.md) for the support matrix and runtime configuration.
 
 ## MCP Client Setup
 

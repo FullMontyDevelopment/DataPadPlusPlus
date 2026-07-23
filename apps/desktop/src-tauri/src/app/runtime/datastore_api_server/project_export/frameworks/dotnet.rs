@@ -100,7 +100,7 @@ fn project_file_source(spec: &ProjectExportSpec) -> String {
         ""
     };
     format!(
-        "<Project Sdk=\"Microsoft.NET.Sdk.Web\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <Nullable>enable</Nullable>\n    <ImplicitUsings>enable</ImplicitUsings>\n    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>\n  </PropertyGroup>\n\n  <ItemGroup>\n{packages}\n  </ItemGroup>\n{proto}</Project>\n"
+        "<Project Sdk=\"Microsoft.NET.Sdk.Web\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <Nullable>enable</Nullable>\n    <ImplicitUsings>enable</ImplicitUsings>\n    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>\n    <PackageProjectUrl>https://datapad-plus-plus.org/</PackageProjectUrl>\n  </PropertyGroup>\n\n  <ItemGroup>\n{packages}\n  </ItemGroup>\n{proto}</Project>\n"
     )
 }
 

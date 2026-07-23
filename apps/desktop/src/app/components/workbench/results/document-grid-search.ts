@@ -47,6 +47,77 @@ export function searchDocumentRows(
   return result
 }
 
+export async function searchDocumentRowsCooperative(
+  documents: Array<Record<string, unknown>>,
+  query: string,
+  signal?: AbortSignal,
+): Promise<DocumentGridSearchResult> {
+  const needle = query.trim().toLowerCase()
+  const result = emptyDocumentSearchResult()
+  if (!needle) {
+    return result
+  }
+
+  const stack = documents
+    .map((document, documentIndex) => ({
+      ancestors: [] as string[],
+      documentIndex,
+      id: documentRowId(documentIndex, []),
+      label: documentRootLabel(document, documentIndex),
+      path: [] as Array<string | number>,
+      value: document as unknown,
+    }))
+    .reverse()
+  let visited = 0
+
+  while (stack.length > 0) {
+    if (signal?.aborted) {
+      throw new DOMException('Document search was cancelled.', 'AbortError')
+    }
+
+    const current = stack.pop()
+    if (!current) {
+      break
+    }
+    visitCurrentValue(current, needle, result)
+
+    if (isExpandableValue(current.value)) {
+      const entries = valueEntries(current.value)
+      for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const entry = entries[index]
+        if (!entry) {
+          continue
+        }
+        const childPath = [...current.path, entry.pathSegment]
+        stack.push({
+          ancestors: [...current.ancestors, current.id],
+          documentIndex: current.documentIndex,
+          id: documentRowId(current.documentIndex, childPath),
+          label: entry.label,
+          path: childPath,
+          value: entry.value,
+        })
+      }
+    }
+
+    visited += 1
+    if (visited % 400 === 0) {
+      await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0))
+    }
+  }
+
+  return result
+}
+
+export function emptyDocumentSearchResult(): DocumentGridSearchResult {
+  return {
+    expandedRowIds: new Set(),
+    matchedRowIds: new Set(),
+    matchCount: 0,
+    visibleRowIds: new Set(),
+  }
+}
+
 function visitValue({
   ancestors,
   documentIndex,
@@ -66,18 +137,11 @@ function visitValue({
   searchText: string
   value: unknown
 }) {
-  const fieldPath = path.length === 0 ? '_id' : pathToFieldPath(path)
-
-  if (rowMatchesSearch(label, fieldPath, value, searchText, path.length === 0)) {
-    result.matchedRowIds.add(id)
-    result.visibleRowIds.add(id)
-    result.matchCount += 1
-
-    for (const ancestor of ancestors) {
-      result.visibleRowIds.add(ancestor)
-      result.expandedRowIds.add(ancestor)
-    }
-  }
+  visitCurrentValue(
+    { ancestors, documentIndex, id, label, path, value },
+    searchText,
+    result,
+  )
 
   if (!isExpandableValue(value)) {
     return
@@ -98,26 +162,46 @@ function visitValue({
   }
 }
 
+function visitCurrentValue(
+  {
+    ancestors,
+    id,
+    label,
+    path,
+    value,
+  }: {
+    ancestors: string[]
+    documentIndex: number
+    id: string
+    label: string
+    path: Array<string | number>
+    value: unknown
+  },
+  searchText: string,
+  result: DocumentGridSearchResult,
+) {
+  const fieldPath = path.length === 0 ? '_id' : pathToFieldPath(path)
+
+  if (rowMatchesSearch(label, fieldPath, value, searchText)) {
+    result.matchedRowIds.add(id)
+    result.visibleRowIds.add(id)
+    result.matchCount += 1
+
+    for (const ancestor of ancestors) {
+      result.visibleRowIds.add(ancestor)
+      result.expandedRowIds.add(ancestor)
+    }
+  }
+
+}
+
 function rowMatchesSearch(
   label: string,
   fieldPath: string,
   value: unknown,
   searchText: string,
-  isRoot: boolean,
 ) {
   const candidates = [label, fieldPath, compactValue(value)]
 
-  if (!isRoot && isExpandableValue(value)) {
-    candidates.push(safeStringify(value))
-  }
-
   return candidates.some((candidate) => candidate.toLowerCase().includes(searchText))
-}
-
-function safeStringify(value: unknown) {
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return String(value)
-  }
 }
