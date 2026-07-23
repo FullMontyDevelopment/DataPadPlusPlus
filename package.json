@@ -1,7 +1,7 @@
 {
   "name": "datapadplusplus",
   "private": true,
-  "version": "0.1.46",
+  "version": "0.1.47",
   "description": "DataPad++ is a modular Tauri workstation for exploring multiple datastore families from one desktop app.",
   "homepage": "https://datapad-plus-plus.org/",
   "repository": {
