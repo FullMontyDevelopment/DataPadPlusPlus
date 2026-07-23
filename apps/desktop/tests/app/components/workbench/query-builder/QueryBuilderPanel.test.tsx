@@ -70,6 +70,7 @@ describe('QueryBuilderPanel', () => {
       />,
     )
     expect(screen.getByRole('button', { name: 'Count' })).toBeDisabled()
+    expect(screen.getByLabelText('Collection')).toBeDisabled()
   })
 
   it('edits Cosmos SQL fields, filters, paging, and partition routing', () => {

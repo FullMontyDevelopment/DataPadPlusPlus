@@ -3,10 +3,15 @@ import { HistoryIcon } from '../icons'
 
 interface HistoryViewProps {
   activeTab: QueryTabState
+  executionLocked?: boolean
   onRestoreHistory(queryText: string): void
 }
 
-export function HistoryView({ activeTab, onRestoreHistory }: HistoryViewProps) {
+export function HistoryView({
+  activeTab,
+  executionLocked = false,
+  onRestoreHistory,
+}: HistoryViewProps) {
   return (
     <div className="panel-body-frame">
       <div className="panel-title-row">
@@ -26,6 +31,12 @@ export function HistoryView({ activeTab, onRestoreHistory }: HistoryViewProps) {
                 type="button"
                 className="history-row"
                 aria-label={`Restore history query ${entry.status}`}
+                disabled={executionLocked}
+                title={
+                  executionLocked
+                    ? 'Wait for the running query to finish before restoring history.'
+                    : undefined
+                }
                 onClick={() => onRestoreHistory(entry.queryText)}
               >
                 <HistoryIcon className="panel-inline-icon" />

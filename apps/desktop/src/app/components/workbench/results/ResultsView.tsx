@@ -35,6 +35,8 @@ interface ResultsViewProps {
   rendererPreparing?: boolean
   rendererError?: string
   result?: ExecutionResultEnvelope
+  documentResetToken?: string
+  executionLocked?: boolean
   onSelectRenderer(renderer: string): void
   onLoadNextPage(): void
   onResultRendered(tabId: string, executionId: string): void
@@ -63,6 +65,8 @@ export function ResultsView({
   rendererPreparing = false,
   rendererError,
   result,
+  documentResetToken,
+  executionLocked = false,
   onSelectRenderer,
   onLoadNextPage,
   onResultRendered,
@@ -178,8 +182,13 @@ export function ResultsView({
       <button
         type="button"
         className="drawer-button"
+        disabled={executionLocked}
         title="Fetch the next chunk of documents and append it to the loaded results."
-        onClick={onLoadNextPage}
+        onClick={() => {
+          if (!executionLocked) {
+            onLoadNextPage()
+          }
+        }}
       >
         Load More
       </button>
@@ -311,9 +320,11 @@ export function ResultsView({
           resultDurationMs={result?.displayDurationMs ?? result?.durationMs}
           resultRuntimeTitle={runtimeTitle}
           resultSummary={result?.summary}
+          documentResetToken={documentResetToken}
+          executionLocked={executionLocked}
           onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
-          onExecuteDataEdit={onExecuteDataEdit}
-          onPlanOperation={onPlanOperation}
+          onExecuteDataEdit={executionLocked ? undefined : onExecuteDataEdit}
+          onPlanOperation={executionLocked ? undefined : onPlanOperation}
         />
       )}
 
@@ -325,8 +336,13 @@ export function ResultsView({
           <button
             type="button"
             className="drawer-button"
+            disabled={executionLocked}
             title="Fetch the next bounded page of results and append it to the buffered view."
-            onClick={onLoadNextPage}
+            onClick={() => {
+              if (!executionLocked) {
+                onLoadNextPage()
+              }
+            }}
           >
             Load More
           </button>

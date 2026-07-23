@@ -18,10 +18,12 @@ vi.mock('@monaco-editor/react', async () => {
     value,
     onChange,
     onMount,
+    options,
   }: {
     value: string
     onChange(value: string | undefined): void
     onMount?(editor: unknown, monaco: unknown): void
+    options?: { readOnly?: boolean }
   }) {
     React.useEffect(() => {
       onMount?.(
@@ -63,6 +65,7 @@ vi.mock('@monaco-editor/react', async () => {
     return (
       <textarea
         aria-label="Query editor"
+        readOnly={options?.readOnly}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -171,6 +174,41 @@ describe('DesktopCodeEditor', () => {
     })
 
     expect(onChange).toHaveBeenCalledWith('select 2;')
+  })
+
+  it('becomes read-only without replacing its current text', async () => {
+    const onChange = vi.fn()
+    const { rerender } = render(
+      <DesktopCodeEditor
+        value="select 1;"
+        language="sql"
+        theme="dark"
+        onChange={onChange}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(document.querySelector('.editor-monaco-frame')).toBeInTheDocument()
+    })
+    const editor = screen.getByLabelText('Query editor')
+    fireEvent.change(editor, { target: { value: 'select 2;' } })
+    expect(editor).toHaveValue('select 2;')
+
+    rerender(
+      <DesktopCodeEditor
+        value="select 1;"
+        language="sql"
+        theme="dark"
+        readOnly
+        onChange={onChange}
+      />,
+    )
+
+    const lockedEditor = await screen.findByLabelText('Query editor')
+    expect(lockedEditor).toHaveValue('select 2;')
+    expect(lockedEditor).toHaveAttribute('readonly')
+    fireEvent.change(lockedEditor, { target: { value: 'select 3;' } })
+    expect(onChange).not.toHaveBeenCalledWith('select 3;')
   })
 
   it('keeps Monaco keystrokes local when the parent rerenders with a stale value', async () => {

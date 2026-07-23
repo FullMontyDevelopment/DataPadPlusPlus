@@ -32,6 +32,7 @@ describe('EditorTabItem', () => {
       'title',
       expect.stringContaining('Unsaved changes'),
     )
+    expect(screen.getByRole('button', { name: 'Close tab Query 1.sql' })).toBeEnabled()
   })
 
   it('prioritizes running state over the visible dirty marker', () => {
@@ -57,6 +58,7 @@ describe('EditorTabItem', () => {
       'title',
       expect.stringContaining('Unsaved changes'),
     )
+    expect(screen.getByRole('button', { name: 'Close tab Query 1.sql' })).toBeDisabled()
 
     unmount()
 

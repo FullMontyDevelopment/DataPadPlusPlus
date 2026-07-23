@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useMemo } from 'react'
+import { startTransition, useCallback, useMemo, useRef } from 'react'
 import type { ExecutionRequest } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
 import type { ConnectionHealthSource } from './connection-health'
@@ -6,6 +6,7 @@ import { ensureWorkspaceUnlocked } from './app-state-factories'
 import { toUserError } from './app-state-selectors'
 import { createId } from './helpers'
 import type { Actions, AppActionContext } from './app-state-types'
+import { isQueryTabExecutionLocked } from './query-execution-lock'
 import {
   nextFrame,
   scheduleResultRenderAckFallback,
@@ -40,6 +41,7 @@ export function useQueryExecutionActions({
   recordConnected,
   recordIssue,
 }: QueryExecutionActionContext): QueryExecutionActions {
+  const dispatchingTabsRef = useRef(new Set<string>())
   const executeQuery = useCallback<Actions['executeQuery']>(
     async (
       tabId,
@@ -52,6 +54,10 @@ export function useQueryExecutionActions({
       selectedText,
       builderState,
     ) => {
+      if (dispatchingTabsRef.current.has(tabId)) {
+        return
+      }
+
       const executionId = createId('execution')
       const activityStartedAt = Date.now()
       let activityStarted = false
@@ -66,6 +72,10 @@ export function useQueryExecutionActions({
         if (!tab) {
           throw new Error('Query tab was not found.')
         }
+        if (isQueryTabExecutionLocked(tab, latest.executionsByTab[tabId])) {
+          return
+        }
+        dispatchingTabsRef.current.add(tabId)
 
         const executionRequest: ExecutionRequest = {
           executionId,
@@ -168,6 +178,8 @@ export function useQueryExecutionActions({
           )
         }
         handleError(error, { suppressWorkbenchMessage: true })
+      } finally {
+        dispatchingTabsRef.current.delete(tabId)
       }
     },
     [dispatch, handleError, recordConnected, recordIssue, stateRef],

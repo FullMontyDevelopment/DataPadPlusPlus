@@ -13,6 +13,7 @@ interface DetailsViewProps {
   activeTab: QueryTabState
   diagnostics?: DiagnosticsReport
   explorerInspection?: ExplorerInspectResponse
+  executionLocked?: boolean
   onApplyInspectionTemplate(queryTemplate?: string): void
 }
 
@@ -22,10 +23,13 @@ export function DetailsView({
   activeTab,
   diagnostics,
   explorerInspection,
+  executionLocked = false,
   onApplyInspectionTemplate,
 }: DetailsViewProps) {
   const canApplyInspectionTemplate = Boolean(
-    explorerInspection?.queryTemplate && activeTab.tabKind !== 'explorer',
+    explorerInspection?.queryTemplate &&
+      activeTab.tabKind !== 'explorer' &&
+      !executionLocked,
   )
 
   return (
@@ -65,7 +69,9 @@ export function DetailsView({
               className="drawer-link-button"
               disabled={!canApplyInspectionTemplate}
               title={
-                canApplyInspectionTemplate
+                executionLocked
+                  ? 'Wait for the running query to finish before replacing its text.'
+                  : canApplyInspectionTemplate
                   ? 'Apply this starter query to the active query tab.'
                   : 'Open a query tab before applying this starter query.'
               }

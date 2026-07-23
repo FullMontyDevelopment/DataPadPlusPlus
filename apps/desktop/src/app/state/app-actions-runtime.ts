@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useMemo } from 'react'
+import { startTransition, useCallback, useMemo, useRef } from 'react'
 import type { ResultPageRequest } from '@datapadplusplus/shared-types'
 import type { ConnectionHealthSource } from './connection-health'
 import { desktopClient } from '../../services/runtime/client'
@@ -19,6 +19,7 @@ import {
 } from './app-actions-execution-utils'
 import { useRuntimeCommandActions } from './app-actions-runtime-commands'
 import { useQueryExecutionActions } from './app-actions-query-execution'
+import { isQueryTabExecutionLocked } from './query-execution-lock'
 
 export {
   EXECUTION_ACTIVITY_MINIMUM_MS,
@@ -59,6 +60,7 @@ export function useRuntimeActions({
   applyPayload,
   handleError,
 }: AppActionContext): RuntimeActions {
+  const pagingTabsRef = useRef(new Set<string>())
   const commandActions = useRuntimeCommandActions({
     state,
     stateRef,
@@ -352,6 +354,10 @@ export function useRuntimeActions({
 
   const fetchResultPage = useCallback<Actions['fetchResultPage']>(
     async (tabId, renderer) => {
+      if (pagingTabsRef.current.has(tabId)) {
+        return
+      }
+
       const executionId = createId('execution')
       const activityStartedAt = Date.now()
       let activityStarted = false
@@ -366,6 +372,10 @@ export function useRuntimeActions({
         if (!tab?.result) {
           throw new Error('Run a query before loading another result page.')
         }
+        if (isQueryTabExecutionLocked(tab, latest.executionsByTab[tabId])) {
+          return
+        }
+        pagingTabsRef.current.add(tabId)
 
         const pageInfo = tab.result.pageInfo
 
@@ -440,6 +450,8 @@ export function useRuntimeActions({
           recordIssue(latestTab.connectionId, latestTab.environmentId, 'query', message)
         }
         handleError(error, { suppressWorkbenchMessage: true })
+      } finally {
+        pagingTabsRef.current.delete(tabId)
       }
     },
     [dispatch, handleError, recordConnected, recordIssue, stateRef],
@@ -448,7 +460,12 @@ export function useRuntimeActions({
   const fetchDocumentNodeChildren = useCallback<Actions['fetchDocumentNodeChildren']>(
     async (request) => {
       try {
-        ensureWorkspaceUnlocked(state.payload)
+        const latest = stateRef.current
+        ensureWorkspaceUnlocked(latest.payload)
+        const tab = latest.payload?.snapshot.tabs.find((item) => item.id === request.tabId)
+        if (isQueryTabExecutionLocked(tab, latest.executionsByTab[request.tabId])) {
+          return undefined
+        }
         const response = await desktopClient.fetchDocumentNodeChildren(request)
         recordConnected(
           request.connectionId,
@@ -464,7 +481,7 @@ export function useRuntimeActions({
         throw error
       }
     },
-    [handleError, recordConnected, recordIssue, state.payload],
+    [handleError, recordConnected, recordIssue, stateRef],
   )
 
   const markExecutionDisplayed = useCallback<Actions['markExecutionDisplayed']>(

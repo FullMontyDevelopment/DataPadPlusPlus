@@ -23,6 +23,8 @@ interface DocumentLazyHydrationOptions {
   draftDocuments: Array<Record<string, unknown>>
   editContext?: DocumentEditContext
   tabId?: string
+  resetKey?: string
+  suspended?: boolean
   onFetchDocumentNodeChildren?(
     request: DocumentNodeChildrenRequest,
   ): Promise<DocumentNodeChildrenResponse | undefined>
@@ -37,6 +39,8 @@ export function useDocumentLazyHydration({
   draftDocuments,
   editContext,
   tabId,
+  resetKey,
+  suspended = false,
   onFetchDocumentNodeChildren,
   onHydrated,
   onMessage,
@@ -50,13 +54,29 @@ export function useDocumentLazyHydration({
     value: new Map(),
   }))
   const documentsRef = useRef(documents)
+  const generationRef = useRef(0)
+  const suspendedRef = useRef(suspended)
   const requestsRef = useRef(new Map<Array<Record<string, unknown>>, Set<string>>())
 
   useEffect(() => {
     documentsRef.current = documents
   }, [documents])
 
+  useEffect(() => {
+    suspendedRef.current = suspended
+    generationRef.current += 1
+    requestsRef.current.clear()
+    queueMicrotask(() => {
+      setHydratingRows({ source: documents, value: new Set() })
+      setHydrationErrors({ source: documents, value: new Map() })
+    })
+  }, [documents, resetKey, suspended])
+
   const hydrateLazyRow = async (row: DocumentGridRow) => {
+    if (suspendedRef.current) {
+      onMessage('Wait for the running query to finish before loading this field.')
+      return
+    }
     if (!onFetchDocumentNodeChildren || !editContext || !tabId || !collection) {
       onMessage('Run a full query or select a collection before expanding this field.')
       return
@@ -69,6 +89,7 @@ export function useDocumentLazyHydration({
     }
 
     const sourceDocuments = documents
+    const sourceGeneration = generationRef.current
     const sourceRequests = requestsRef.current.get(sourceDocuments) ?? new Set<string>()
     if (sourceRequests.has(row.id)) {
       return
@@ -90,12 +111,20 @@ export function useDocumentLazyHydration({
         queryText: editContext.queryText,
       })
       validateResponse(response, tabId, documentId, row.path)
-      if (documentsRef.current === sourceDocuments) {
+      if (
+        generationRef.current === sourceGeneration &&
+        !suspendedRef.current &&
+        documentsRef.current === sourceDocuments
+      ) {
         onHydrated(row, response)
       }
     } catch (error) {
       const message = dataEditErrorMessage(error, 'Unable to expand this field.')
-      if (documentsRef.current === sourceDocuments) {
+      if (
+        generationRef.current === sourceGeneration &&
+        !suspendedRef.current &&
+        documentsRef.current === sourceDocuments
+      ) {
         setRowError(setHydrationErrors, sourceDocuments, row.id, message)
         onMessage(message)
       }

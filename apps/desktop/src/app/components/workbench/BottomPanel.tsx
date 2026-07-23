@@ -48,6 +48,8 @@ interface BottomPanelProps {
   activeRenderer?: ResultRenderer
   rendererPreparing?: boolean
   rendererError?: string
+  documentResetToken?: string
+  executionLocked?: boolean
   diagnostics?: DiagnosticsReport
   explorerInspection?: ExplorerInspectResponse
   lastExecution?: ExecutionResponse
@@ -94,6 +96,8 @@ export function BottomPanel({
   activeRenderer,
   rendererPreparing = false,
   rendererError,
+  documentResetToken,
+  executionLocked = false,
   diagnostics,
   explorerInspection,
   lastExecution,
@@ -341,6 +345,8 @@ export function BottomPanel({
             renderer={activeRenderer}
             rendererPreparing={rendererPreparing}
             rendererError={rendererError}
+            documentResetToken={documentResetToken}
+            executionLocked={executionLocked}
             result={activeTab?.result}
             onSelectRenderer={onSelectRenderer}
             onLoadNextPage={onLoadNextPage}
@@ -369,6 +375,7 @@ export function BottomPanel({
         {safePanelTab === 'history' && activeTab ? (
           <HistoryView
             activeTab={activeTab}
+            executionLocked={executionLocked}
             onRestoreHistory={onRestoreHistory}
           />
         ) : null}
@@ -380,6 +387,7 @@ export function BottomPanel({
             activeTab={activeTab}
             diagnostics={diagnostics}
             explorerInspection={explorerInspection}
+            executionLocked={executionLocked}
             onApplyInspectionTemplate={onApplyInspectionTemplate}
           />
         ) : null}

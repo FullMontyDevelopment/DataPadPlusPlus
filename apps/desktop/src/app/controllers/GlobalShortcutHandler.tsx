@@ -25,6 +25,7 @@ export interface GlobalShortcutHandlerProps {
   activeTabIsWorkspaceSearch: boolean
   bottomPanelVisibleRef: MutableRefObject<boolean>
   keyboardShortcuts: Record<AppShortcutId, string>
+  executionLocked?: boolean
   openQueryTab(connectionId: string | undefined): void
   requestCloseTab(tabId: string): void
   requestSaveQuery(tabId: string): void
@@ -48,6 +49,7 @@ export function GlobalShortcutHandler({
   activeTabIsWorkspaceSearch,
   bottomPanelVisibleRef,
   keyboardShortcuts,
+  executionLocked = false,
   openQueryTab,
   requestCloseTab,
   requestSaveQuery,
@@ -58,7 +60,7 @@ export function GlobalShortcutHandler({
     function onKeyDown(event: KeyboardEvent) {
       if (shortcutMatchesEvent(event, keyboardShortcuts.refresh)) {
         event.preventDefault()
-        if (activeTab && !activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch && !activeTabIsSecurityChecks) {
+        if (!executionLocked && activeTab && !activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch && !activeTabIsSecurityChecks) {
           runCurrentTabQuery()
         }
         return
@@ -76,7 +78,7 @@ export function GlobalShortcutHandler({
 
       if (shortcutMatchesEvent(event, keyboardShortcuts.runQuery)) {
         event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch && !activeTabIsSecurityChecks) {
+        if (!executionLocked && !activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch && !activeTabIsSecurityChecks) {
           runCurrentTabQuery()
         }
         return
@@ -104,7 +106,9 @@ export function GlobalShortcutHandler({
 
       if (shortcutMatchesEvent(event, keyboardShortcuts.closeTab)) {
         event.preventDefault()
-        requestCloseTab(activeTab.id)
+        if (!executionLocked) {
+          requestCloseTab(activeTab.id)
+        }
         return
       }
 
@@ -117,7 +121,7 @@ export function GlobalShortcutHandler({
 
       if (shortcutMatchesEvent(event, keyboardShortcuts.explainQuery)) {
         event.preventDefault()
-        if (!activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView && !activeTabIsTestSuite && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch && !activeTabIsSecurityChecks) {
+        if (!executionLocked && !activeTabIsExplorer && !activeTabIsMetrics && !activeTabIsObjectView && !activeTabIsTestSuite && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch && !activeTabIsSecurityChecks) {
           runCurrentTabQuery('explain')
         }
       }
@@ -125,7 +129,7 @@ export function GlobalShortcutHandler({
 
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [actions, activeConnectionId, activeTab, activeTabIsApiServer, activeTabIsMcpServer, activeTabIsSecurityChecks, activeTabIsEnvironment, activeTabIsExplorer, activeTabIsMetrics, activeTabIsObjectView, activeTabIsSettings, activeTabIsTestSuite, activeTabIsWorkspaceSearch, bottomPanelVisibleRef, keyboardShortcuts, openQueryTab, requestCloseTab, requestSaveQuery, runCurrentTabQuery, snapshot])
+  }, [actions, activeConnectionId, activeTab, activeTabIsApiServer, activeTabIsMcpServer, activeTabIsSecurityChecks, activeTabIsEnvironment, activeTabIsExplorer, activeTabIsMetrics, activeTabIsObjectView, activeTabIsSettings, activeTabIsTestSuite, activeTabIsWorkspaceSearch, bottomPanelVisibleRef, executionLocked, keyboardShortcuts, openQueryTab, requestCloseTab, requestSaveQuery, runCurrentTabQuery, snapshot])
 
   return null
 }

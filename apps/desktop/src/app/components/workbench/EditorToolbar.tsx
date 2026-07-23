@@ -38,6 +38,7 @@ interface EditorToolbarProps {
   executeAriaLabel?: string
   executeTitle?: string
   executeDisabled?: boolean
+  executionLocked?: boolean
   showScriptingGuideToggle?: boolean
   scriptingGuideVisible?: boolean
   onToggleScriptingGuide?(): void
@@ -64,6 +65,7 @@ export function EditorToolbar({
   executeAriaLabel = 'Run query',
   executeTitle = 'Run the current query against the selected connection and environment. Shortcut: Ctrl+Enter.',
   executeDisabled = false,
+  executionLocked = false,
   showScriptingGuideToggle = false,
   scriptingGuideVisible = false,
   onToggleScriptingGuide = noop,
@@ -97,7 +99,7 @@ export function EditorToolbar({
           className="toolbar-action toolbar-action--run"
           aria-label={executeAriaLabel}
           title={executeTitle}
-          disabled={executionStatus === 'loading' || executeDisabled}
+          disabled={executionLocked || executionStatus === 'loading' || executeDisabled}
           onClick={onExecute}
         >
           <PlayIcon className="toolbar-icon" />
@@ -124,11 +126,13 @@ export function EditorToolbar({
           className="toolbar-icon-action"
           aria-label="Explain query"
           title={
-            capabilities.canExplain
+            executionLocked
+              ? 'Wait for the running query to finish before requesting an explain plan.'
+              : capabilities.canExplain
               ? 'Run an explain/plan request for the current query. Shortcut: Ctrl+Shift+E.'
               : 'Explain is not available for this datastore yet.'
           }
-          disabled={!capabilities.canExplain}
+          disabled={executionLocked || !capabilities.canExplain}
           onClick={onExplain}
         >
           <ExplainIcon className="toolbar-icon" />
@@ -149,8 +153,9 @@ export function EditorToolbar({
                   mode === queryWindowMode ? ' is-active' : ''
                 }`}
                 aria-label={label}
-                title={label}
                 aria-pressed={mode === queryWindowMode}
+                disabled={executionLocked}
+                title={executionLocked ? 'Wait for the running query to finish before changing the query mode.' : label}
                 onClick={() => onToggleQueryWindowMode(mode)}
               >
                 <Icon className="toolbar-icon" />
@@ -166,7 +171,12 @@ export function EditorToolbar({
             type="button"
             className="toolbar-icon-action"
             aria-label="Add document"
-            title="Add a document to the scoped MongoDB collection."
+            title={
+              executionLocked
+                ? 'Wait for the running query to finish before adding a document.'
+                : 'Add a document to the scoped MongoDB collection.'
+            }
+            disabled={executionLocked}
             onClick={onAddDocument}
           >
             <ObjectDocumentIcon className="toolbar-icon" />
@@ -183,11 +193,14 @@ export function EditorToolbar({
             }`}
             aria-label={documentEfficiencyMode ? 'Efficiency mode on' : 'Efficiency mode off'}
             title={
-              documentEfficiencyMode
+              executionLocked
+                ? 'Wait for the running query to finish before changing document loading mode.'
+                : documentEfficiencyMode
                 ? 'Efficiency mode is on. Click to fetch full documents instead of hydrating fields on expand.'
                 : 'Efficiency mode is off. Click to fetch only top-level document fields until expanded.'
             }
             aria-pressed={documentEfficiencyMode}
+            disabled={executionLocked}
             onClick={onToggleDocumentEfficiency}
           >
             <EfficiencyIcon className="toolbar-icon" />
@@ -220,7 +233,12 @@ export function EditorToolbar({
           type="button"
           className="toolbar-icon-action"
           aria-label="Change connection"
-          title="Open the connection drawer to edit this profile, test it, or switch context."
+          title={
+            executionLocked
+              ? 'Wait for the running query to finish before changing its connection.'
+              : 'Open the connection drawer to edit this profile, test it, or switch context.'
+          }
+          disabled={executionLocked}
           onClick={onOpenConnectionDrawer}
         >
           <SettingsIcon className="toolbar-icon" />

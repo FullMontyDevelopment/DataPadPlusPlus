@@ -22,6 +22,7 @@ interface RedisConsoleEditorProps {
   onSelectionChange?(selectedText: string): void
   onPipelineModeChange?(enabled: boolean): void
   onRun(): void
+  readOnly?: boolean
 }
 
 export function RedisConsoleEditor({
@@ -38,12 +39,16 @@ export function RedisConsoleEditor({
   onSelectionChange,
   onPipelineModeChange,
   onRun,
+  readOnly = false,
 }: RedisConsoleEditorProps) {
   const [historyIndex, setHistoryIndex] = useState<number | undefined>()
   const recentHistory = history.slice(0, 6)
   const pipelineCommandCount = redisConsoleLineCount(value)
   const commandDoc = redisCommandDocForText(value)
   const handleKeyDownCapture = (event: KeyboardEvent<HTMLElement>) => {
+    if (readOnly) {
+      return
+    }
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
       event.preventDefault()
       event.stopPropagation()
@@ -83,6 +88,7 @@ export function RedisConsoleEditor({
               type="button"
               className={pipelineMode ? 'is-active' : ''}
               aria-pressed={pipelineMode}
+              disabled={readOnly}
               title="Pipeline mode"
               onClick={() => onPipelineModeChange(!pipelineMode)}
             >
@@ -107,6 +113,7 @@ export function RedisConsoleEditor({
           theme={theme}
           completionContext={completionContext}
           completionProviders={completionProviders}
+          readOnly={readOnly}
           onRequestCompletionRefresh={onRequestCompletionRefresh}
           onChange={onChange}
           onSelectionChange={onSelectionChange}
@@ -121,34 +128,34 @@ export function RedisConsoleEditor({
         </div>
       ) : null}
       <div className="redis-console-examples" aria-label={`${engineLabel} command examples`}>
-        <button type="button" onClick={() => onChange('PING')}>
+        <button type="button" disabled={readOnly} onClick={() => onChange('PING')}>
           PING
         </button>
         {pipelineMode ? (
-          <button type="button" onClick={() => onChange('PING\nDBSIZE\nINFO stats')}>
+          <button type="button" disabled={readOnly} onClick={() => onChange('PING\nDBSIZE\nINFO stats')}>
             PIPELINE
           </button>
         ) : null}
-        <button type="button" onClick={() => onChange('SCAN 0 MATCH * COUNT 100')}>
+        <button type="button" disabled={readOnly} onClick={() => onChange('SCAN 0 MATCH * COUNT 100')}>
           SCAN
         </button>
-        <button type="button" onClick={() => onChange('TYPE key:name')}>
+        <button type="button" disabled={readOnly} onClick={() => onChange('TYPE key:name')}>
           TYPE
         </button>
-        <button type="button" onClick={() => onChange('GET key:name')}>
+        <button type="button" disabled={readOnly} onClick={() => onChange('GET key:name')}>
           GET
         </button>
-        <button type="button" onClick={() => onChange('HGETALL hash:name')}>
+        <button type="button" disabled={readOnly} onClick={() => onChange('HGETALL hash:name')}>
           HGETALL
         </button>
-        <button type="button" onClick={() => onChange('TTL key:name')}>
+        <button type="button" disabled={readOnly} onClick={() => onChange('TTL key:name')}>
           TTL
         </button>
       </div>
       {recentHistory.length ? (
         <div className="redis-console-history" aria-label={`${engineLabel} command history`}>
           {recentHistory.map((command) => (
-            <button type="button" key={command} onClick={() => onChange(command)}>
+            <button type="button" key={command} disabled={readOnly} onClick={() => onChange(command)}>
               {command}
             </button>
           ))}

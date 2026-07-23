@@ -27,6 +27,7 @@ interface DatastoreQueryEditorProps {
   mongoCollection?: string
   mongoGuideVisible: boolean
   mongoGuideWidth: number
+  readOnly?: boolean
   onRequestCompletionRefresh: EditorProps['onRequestCompletionRefresh']
   onSelectionChange: EditorProps['onSelectionChange']
   onRun(): void
@@ -53,6 +54,7 @@ export function DatastoreQueryEditor({
   mongoCollection,
   mongoGuideVisible,
   mongoGuideWidth,
+  readOnly = false,
   onRequestCompletionRefresh,
   onSelectionChange,
   onRun,
@@ -79,6 +81,7 @@ export function DatastoreQueryEditor({
         resetKey={resetKey}
         completionContext={completionContext}
         completionProviders={completionProviders}
+        readOnly={readOnly}
         onRequestCompletionRefresh={onRequestCompletionRefresh}
         onRun={onRun}
         onSelectionChange={onSelectionChange}
@@ -100,6 +103,7 @@ export function DatastoreQueryEditor({
         guideWidth={mongoGuideWidth}
         completionContext={completionContext}
         completionProviders={completionProviders}
+        readOnly={readOnly}
         onRequestCompletionRefresh={onRequestCompletionRefresh}
         onSelectionChange={onSelectionChange}
         onGuideWidthChange={onMongoGuideWidthChange}
@@ -116,6 +120,7 @@ export function DatastoreQueryEditor({
       resetKey={resetKey}
       completionContext={completionContext}
       completionProviders={completionProviders}
+      readOnly={readOnly}
       onRequestCompletionRefresh={onRequestCompletionRefresh}
       onSelectionChange={onSelectionChange}
       onChange={(nextValue) => onRawChange(nextValue ?? '')}

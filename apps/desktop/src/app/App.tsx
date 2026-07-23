@@ -70,6 +70,7 @@ import {
   isExplorerRequestLoading,
 } from './state/app-state-reducer-helpers'
 import { useTaskbarQueryActivity } from './state/use-taskbar-query-activity'
+import { isQueryTabExecutionLocked } from './state/query-execution-lock'
 import {
   connectionHealthKey,
   connectionHealthToConnectionTest,
@@ -500,6 +501,24 @@ function DesktopWorkspace() {
     activeTabId ? activeTab?.activeExecution ?? executionsByTab[activeTabId] : undefined
   const activeExecutionStatus = activeTabExecution ? 'loading' : 'idle'
   const activeExecutionId = activeTabExecution?.executionId
+  const activeExecutionLocked = isQueryTabExecutionLocked(activeTab, activeTabExecution)
+  const documentResetToken =
+    activeTabExecution?.phase === 'server'
+      ? activeTabExecution.executionId
+      : undefined
+  const executionLockedTabIds = useMemo(
+    () =>
+      new Set(
+        (snapshot?.tabs ?? [])
+          .filter((tab) => isQueryTabExecutionLocked(tab, executionsByTab[tab.id]))
+          .map((tab) => tab.id),
+      ),
+    [executionsByTab, snapshot?.tabs],
+  )
+  const executionLockedTabIdsRef = useRef(executionLockedTabIds)
+  useEffect(() => {
+    executionLockedTabIdsRef.current = executionLockedTabIds
+  }, [executionLockedTabIds])
   const activeDocumentEfficiencyMode = activeTab?.documentEfficiencyMode ?? false
   const activeTabIsExplorer = activeTab?.tabKind === 'explorer'
   const activeTabIsMetrics = activeTab?.tabKind === 'metrics'
@@ -1172,6 +1191,7 @@ function DesktopWorkspace() {
 
   const replaceActiveRawQueryText = useCallback((queryText: string) => {
     if (
+      activeExecutionLocked ||
       !activeTab ||
       activeTabIsExplorer ||
       activeTabIsMetrics ||
@@ -1190,6 +1210,7 @@ function DesktopWorkspace() {
     commitQueryTextDraft(activeTab.id, queryText)
   }, [
     activeTab,
+    activeExecutionLocked,
     activeTabIsEnvironment,
     activeTabIsExplorer,
     activeTabIsMetrics,
@@ -1292,6 +1313,7 @@ function DesktopWorkspace() {
 
   const changeActiveQueryTarget = useCallback(async (target: ScopedQueryTarget) => {
     if (
+      activeExecutionLocked ||
       !snapshot ||
       !activeConnection ||
       !activeTab ||
@@ -1333,6 +1355,9 @@ function DesktopWorkspace() {
       if (!confirmed) {
         return
       }
+      if (executionLockedTabIdsRef.current.has(activeTab.id)) {
+        return
+      }
     }
 
     const queryTimer = queryTextDraftSyncTimersRef.current[activeTab.id]
@@ -1370,6 +1395,7 @@ function DesktopWorkspace() {
     actions,
     activeBuilderState,
     activeConnection,
+    activeExecutionLocked,
     activeQueryWindowMode,
     activeTab,
     bumpEditorResetRevision,
@@ -1446,7 +1472,7 @@ function DesktopWorkspace() {
   }, [])
 
   const runCurrentTabQuery = useCallback((mode?: ExecutionRequest['mode'], guardrailId?: string) => {
-    if (!activeTab || activeTab.tabKind === 'explorer') {
+    if (activeExecutionLocked || !activeTab || activeTab.tabKind === 'explorer') {
       return
     }
 
@@ -1552,6 +1578,7 @@ function DesktopWorkspace() {
     actions,
     activeConnection,
     activeDocumentEfficiencyMode,
+    activeExecutionLocked,
     activeQueryWindowMode,
     activeWorkbenchSlice?.query?.supportsDocumentEfficiency,
     activeTab,
@@ -1658,7 +1685,7 @@ function DesktopWorkspace() {
 
     const targetTab = snapshot.tabs.find((item) => item.id === tabId)
 
-    if (!targetTab) {
+    if (!targetTab || isQueryTabExecutionLocked(targetTab, executionsByTab[tabId])) {
       return
     }
 
@@ -1978,7 +2005,12 @@ function DesktopWorkspace() {
     tabId: string,
     builderState: QueryBuilderState,
   ) => {
-    if (!activeConnection || !activeTab || activeTab.id !== tabId) {
+    if (
+      activeExecutionLocked ||
+      !activeConnection ||
+      !activeTab ||
+      activeTab.id !== tabId
+    ) {
       return
     }
 
@@ -2004,7 +2036,7 @@ function DesktopWorkspace() {
       queryText,
       countQueryText,
     })
-  }, [actions, activeConnection, activeTab, resolveQueryText])
+  }, [actions, activeConnection, activeExecutionLocked, activeTab, resolveQueryText])
 
   useEffect(() => {
     if (
@@ -2228,9 +2260,15 @@ function DesktopWorkspace() {
     }
 
     const tab = snapshot.tabs.find((item) => item.id === tabId)
+    const displayTab = displayTabs.find((item) => item.id === tabId)
+
+    if (isQueryTabExecutionLocked(displayTab ?? tab, executionsByTab[tabId])) {
+      requestCloseTabQueue(remainingTabIds)
+      return
+    }
 
     if (!tab) {
-      if (displayTabs.some((item) => item.id === tabId)) {
+      if (displayTab) {
         void actions.closeTab(tabId).then(() => requestCloseTabQueue(remainingTabIds))
       } else {
         requestCloseTabQueue(remainingTabIds)
@@ -2247,7 +2285,7 @@ function DesktopWorkspace() {
         : Boolean((tab.saveTarget || tab.savedQueryId) && (tab.dirty || tabHasLiveTextDraftChanges(tab))))
     ) {
       setPendingTabClose({
-        tab: displayTabs.find((item) => item.id === tab.id) ?? tab,
+        tab: displayTab ?? tab,
         remainingTabIds,
       })
       return
@@ -2643,7 +2681,11 @@ function DesktopWorkspace() {
   }
 
   const openActiveMongoAddDocumentView = () => {
-    if (!activeConnection || !activeWorkbenchSlice?.query?.supportsAddDocument) {
+    if (
+      activeExecutionLocked ||
+      !activeConnection ||
+      !activeWorkbenchSlice?.query?.supportsAddDocument
+    ) {
       return
     }
 
@@ -2794,6 +2836,7 @@ function DesktopWorkspace() {
         activeTabIsTestSuite={activeTabIsTestSuite}
         activeTabIsWorkspaceSearch={activeTabIsWorkspaceSearch}
         bottomPanelVisibleRef={bottomPanelVisibleRef}
+        executionLocked={activeExecutionLocked}
         keyboardShortcuts={keyboardShortcuts}
         openQueryTab={openQueryTab}
         requestCloseTab={requestCloseTab}
@@ -3361,6 +3404,7 @@ function DesktopWorkspace() {
                   <>
                     <EditorToolbar
                       executionStatus={activeExecutionStatus}
+                      executionLocked={activeExecutionLocked}
                       capabilities={runtimeCapabilities}
                       canCancelExecution={canCancelExecution}
                       onExecute={() => runCurrentTabQuery()}
@@ -3385,6 +3429,9 @@ function DesktopWorkspace() {
                       )}
                       documentEfficiencyMode={activeDocumentEfficiencyMode}
                       onToggleDocumentEfficiency={() => {
+                        if (activeExecutionLocked) {
+                          return
+                        }
                         void actions.updateQuery(
                           activeTab.id,
                           resolveQueryText(activeTab),
@@ -3396,6 +3443,9 @@ function DesktopWorkspace() {
                       builderKind={activeBuilderKind}
                       queryWindowMode={activeQueryWindowMode}
                       onToggleQueryWindowMode={(mode) => {
+                        if (activeExecutionLocked) {
+                          return
+                        }
                         setQueryWindowMode(mode)
                         if (activeTab) {
                           queryWindowModeByTabRef.current[activeTab.id] = mode
@@ -3461,9 +3511,12 @@ function DesktopWorkspace() {
                           : undefined
                       }
                       executeDisabled={
-                        activeTabUsesRedisConsole &&
-                        !activeRedisConsoleVisible &&
-                        !activeRedisKeyBrowserVisible
+                        activeExecutionLocked ||
+                        (
+                          activeTabUsesRedisConsole &&
+                          !activeRedisConsoleVisible &&
+                          !activeRedisKeyBrowserVisible
+                        )
                       }
                       showScriptingGuideToggle={
                         activeTabSupportsScripting && activeQueryWindowMode === 'script'
@@ -3488,7 +3541,7 @@ function DesktopWorkspace() {
                         <QueryTargetPicker
                           builderState={activeBuilderState}
                           connection={activeConnection}
-                          disabled={Boolean(executionsByTab[activeTab.id] || activeTab.activeExecution)}
+                          disabled={activeExecutionLocked}
                           error={explorerError}
                           isScopeLoaded={isActiveQueryTargetScopeLoaded}
                           isScopeLoading={isActiveQueryTargetScopeLoading}
@@ -3516,6 +3569,7 @@ function DesktopWorkspace() {
                             onInspectRedisKey={actions.inspectRedisKey}
                             onCount={countQueryBuilderResults}
                             redisRefreshSignal={redisBrowserRefreshSignals[activeTab.id] ?? 0}
+                            executionLocked={activeExecutionLocked}
                           />
                         ) : null}
                         <DatastoreQueryEditor
@@ -3534,18 +3588,33 @@ function DesktopWorkspace() {
                           mongoCollection={activeMongoQueryScope?.collection}
                           mongoGuideVisible={snapshot.ui.mongoScriptGuideVisible}
                           mongoGuideWidth={snapshot.ui.mongoScriptGuideWidth}
+                          readOnly={activeExecutionLocked}
                           onRequestCompletionRefresh={requestIntellisenseRefresh}
                           onSelectionChange={rememberActiveEditorSelection}
                           onRun={() => runCurrentTabQuery()}
                           onRedisPipelineModeChange={(enabled) => {
+                            if (activeExecutionLocked) {
+                              return
+                            }
                             setRedisConsolePipelineMode(activeTab.id, activeBuilderState, enabled)
                           }}
-                          onRawChange={(value) => scheduleQueryTextDraftSync(activeTab.id, value)}
-                          onScriptChange={(value) => scheduleScriptTextDraftSync(activeTab.id, value)}
+                          onRawChange={(value) => {
+                            if (!activeExecutionLocked) {
+                              scheduleQueryTextDraftSync(activeTab.id, value)
+                            }
+                          }}
+                          onScriptChange={(value) => {
+                            if (!activeExecutionLocked) {
+                              scheduleScriptTextDraftSync(activeTab.id, value)
+                            }
+                          }}
                           onMongoGuideWidthChange={(mongoScriptGuideWidth) => {
                             void actions.updateUiState({ mongoScriptGuideWidth })
                           }}
                           onDropField={(fieldPath) => {
+                            if (activeExecutionLocked) {
+                              return
+                            }
                             const nextQueryText = appendFieldToQueryText(
                               activeTabQueryText ?? activeTab.queryText,
                               fieldPath,
@@ -3582,6 +3651,8 @@ function DesktopWorkspace() {
                 activeRenderer={activeRenderer}
                 rendererPreparing={activeRendererPreparing}
                 rendererError={activeRendererError}
+                documentResetToken={documentResetToken}
+                executionLocked={activeExecutionLocked}
                 diagnostics={diagnostics}
                 explorerInspection={explorerInspection}
                 lastExecution={lastExecution}
@@ -3605,7 +3676,7 @@ function DesktopWorkspace() {
                   }
                 }}
                 onLoadNextPage={() =>
-                  activeTab
+                  activeTab && !activeExecutionLocked
                     ? void actions.fetchResultPage(activeTab.id, activeRenderer)
                     : undefined
                 }

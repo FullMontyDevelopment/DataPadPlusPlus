@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
@@ -18,13 +18,16 @@ vi.mock('@monaco-editor/react', () => ({
   default: ({
     value,
     onChange,
+    options,
   }: {
     value: string
     onChange(value: string | undefined): void
+    options?: { readOnly?: boolean }
   }) => (
     <textarea
       aria-label="Query editor"
       className="editor-textarea"
+      readOnly={options?.readOnly}
       value={value}
       onChange={(event) => onChange(event.target.value)}
     />
@@ -1926,6 +1929,7 @@ describe('App', () => {
     })
     await waitFor(() => {
       expect(screen.getByText('3 rows returned from SQL adapter preview.')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Run query' })).toBeEnabled()
     })
 
     executeSpy.mockClear()
@@ -2540,6 +2544,7 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(screen.getByText('2 document(s) loaded')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Run query' })).toBeEnabled()
     })
 
     const builder = screen.getByLabelText('MongoDB query builder')
@@ -2561,6 +2566,7 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(screen.getByText('2 document(s) loaded')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Run query' })).toBeEnabled()
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand itm-2048' }))
@@ -2696,6 +2702,49 @@ describe('App', () => {
       expect(screen.getByLabelText('Bottom panel')).toBeInTheDocument()
     })
   })
+
+  it('locks only the running query tab and suppresses duplicate execution dispatch', async () => {
+    const executeQuery = desktopClient.executeQuery.bind(desktopClient)
+    let releaseExecution: () => void = () => undefined
+    const executionGate = new Promise<void>((resolve) => {
+      releaseExecution = resolve
+    })
+    const executeSpy = vi.spyOn(desktopClient, 'executeQuery').mockImplementation(
+      async (request) => {
+        await executionGate
+        return executeQuery(request)
+      },
+    )
+
+    render(<App />)
+    await createCatalogMongoWithBuilderTab()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+    await screen.findByLabelText('Query editor')
+    const runButton = screen.getByRole('button', { name: 'Run query' })
+    fireEvent.click(runButton)
+    fireEvent.click(runButton)
+
+    await waitFor(() => {
+      expect(executeSpy).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('button', { name: 'Run query' })).toBeDisabled()
+    })
+    expect(screen.getByLabelText('Query editor')).toHaveAttribute('readonly')
+    expect(screen.getByRole('button', { name: 'Query Builder' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Raw' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Scripting' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Close tab .*products\.find/i })).toBeDisabled()
+
+    await act(async () => {
+      releaseExecution()
+      await executionGate
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Run query' })).toBeEnabled()
+      expect(screen.getByLabelText('Query editor')).not.toHaveAttribute('readonly')
+    })
+  }, 15000)
 
   it('docks the results panel beside the editor and back below it', async () => {
     render(<App />)

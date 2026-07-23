@@ -56,6 +56,7 @@ interface KeyValueResultsViewProps {
   editContext?: DocumentEditContext
   entries: Record<string, string>
   payload?: KeyValuePayload
+  executionLocked?: boolean
   onExecuteDataEdit?(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
@@ -69,6 +70,7 @@ export function KeyValueResultsView({
   editContext,
   entries,
   payload,
+  executionLocked = false,
   onExecuteDataEdit,
   onPlanOperation,
 }: KeyValueResultsViewProps) {
@@ -92,7 +94,11 @@ export function KeyValueResultsView({
   const [pendingRename, setPendingRename] = useState<PendingRenameState>()
   const [statusMessage, setStatusMessage] = useState('')
   const [deletedSelectedKey, setDeletedSelectedKey] = useState<{ deletedKey: string; payloadKey: string }>()
-  const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
+  const {
+    cancelDataEditConfirmation,
+    confirmDataEdit,
+    confirmationDialog,
+  } = useDataEditConfirmation()
   const canEdit = keyValueCanEdit(connection, editContext) && Boolean(onExecuteDataEdit)
   const redisType = payload?.redisType
   const runDataEdit = createKeyValueDataEditRunner(onExecuteDataEdit, setStatusMessage)
@@ -165,6 +171,21 @@ export function KeyValueResultsView({
       window.removeEventListener('keydown', close)
     }
   }, [contextMenu])
+
+  useEffect(() => {
+    if (!executionLocked) {
+      return
+    }
+
+    queueMicrotask(() => {
+      cancelDataEditConfirmation()
+      setEditingKey(undefined)
+      setContextMenu(undefined)
+      setPendingTtl(undefined)
+      setPendingAdd(undefined)
+      setPendingRename(undefined)
+    })
+  }, [cancelDataEditConfirmation, executionLocked])
 
   const beginValueEdit = (keyName: string, rawValue: string) => {
     if (!canEdit) {

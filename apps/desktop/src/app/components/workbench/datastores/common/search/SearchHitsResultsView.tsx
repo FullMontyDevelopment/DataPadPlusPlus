@@ -40,6 +40,7 @@ interface SearchHitsResultsViewProps {
   connection?: ConnectionProfile
   editContext?: DocumentEditContext
   payload: SearchHitsPayload
+  executionLocked?: boolean
   onExecuteDataEdit?(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
@@ -69,6 +70,7 @@ export function SearchHitsResultsView({
   connection,
   editContext,
   payload,
+  executionLocked = false,
   onExecuteDataEdit,
 }: SearchHitsResultsViewProps) {
   const { hits, updateHits } = usePayloadBackedSearchHits(payload.hits)
@@ -78,7 +80,11 @@ export function SearchHitsResultsView({
   const [pendingIndex, setPendingIndex] = useState<PendingIndexState>()
   const [pendingUpdate, setPendingUpdate] = useState<PendingUpdateState>()
   const [statusMessage, setStatusMessage] = useState('')
-  const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
+  const {
+    cancelDataEditConfirmation,
+    confirmDataEdit,
+    confirmationDialog,
+  } = useDataEditConfirmation()
   const canEdit = searchCanEdit(connection, editContext) && Boolean(onExecuteDataEdit)
   const defaultIndex =
     searchHitIndex(hits[0], editContext) ??
@@ -100,6 +106,20 @@ export function SearchHitsResultsView({
       window.removeEventListener('keydown', close)
     }
   }, [contextMenu])
+
+  useEffect(() => {
+    if (!executionLocked) {
+      return
+    }
+
+    queueMicrotask(() => {
+      cancelDataEditConfirmation()
+      setContextMenu(undefined)
+      setPendingDelete(undefined)
+      setPendingIndex(undefined)
+      setPendingUpdate(undefined)
+    })
+  }, [cancelDataEditConfirmation, executionLocked])
 
   const updateDocument = async () => {
     if (!pendingUpdate || !onExecuteDataEdit) {

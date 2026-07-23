@@ -214,8 +214,11 @@ export function EditorTabItem({
         type="button"
         className="editor-tab-close-button"
         aria-label={`Close tab ${tab.title}`}
+        disabled={tabRunning}
         title={
-          tabCanBeSaved && tab.savedQueryId && tab.dirty
+          tabRunning
+            ? 'Cancel the running query or wait for it to finish before closing this tab.'
+            : tabCanBeSaved && tab.savedQueryId && tab.dirty
             ? 'Close this saved query tab. You will be asked whether to save changes first.'
             : 'Close this tab and keep a recovery copy in closed tab history.'
         }

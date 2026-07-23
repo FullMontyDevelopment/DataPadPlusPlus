@@ -70,6 +70,7 @@ interface QueryBuilderPanelProps {
   onScanRedisKeys?(request: RedisKeyScanRequest): Promise<RedisKeyScanResponse | undefined>
   onCount?(tabId: string, builderState: QueryBuilderState): Promise<void>
   redisRefreshSignal?: number
+  executionLocked?: boolean
 }
 
 export function QueryBuilderPanel({
@@ -84,8 +85,11 @@ export function QueryBuilderPanel({
   onScanRedisKeys,
   onCount,
   redisRefreshSignal = 0,
+  executionLocked = false,
 }: QueryBuilderPanelProps) {
   const resolvedBuilderState = builderState ?? tab.builderState
+  const locked = executionLocked || Boolean(tab.activeExecution) || tab.status === 'queued'
+  const safeBuilderStateChange = locked ? undefined : onBuilderStateChange
   let panel: ReactNode = null
 
   if (isMongoFindBuilderState(resolvedBuilderState)) {
@@ -96,7 +100,7 @@ export function QueryBuilderPanel({
         tab={tab}
         builderState={resolvedBuilderState}
         collectionOptions={collectionOptions}
-        onBuilderStateChange={onBuilderStateChange}
+        onBuilderStateChange={safeBuilderStateChange}
       />
     )
   }
@@ -109,7 +113,7 @@ export function QueryBuilderPanel({
         tab={tab}
         builderState={resolvedBuilderState}
         collectionOptions={collectionOptions}
-        onBuilderStateChange={onBuilderStateChange}
+        onBuilderStateChange={safeBuilderStateChange}
       />
     )
   }
@@ -122,7 +126,7 @@ export function QueryBuilderPanel({
         tab={tab}
         builderState={resolvedBuilderState}
         tableOptions={tableOptions}
-        onBuilderStateChange={onBuilderStateChange}
+        onBuilderStateChange={safeBuilderStateChange}
       />
     )
   }
@@ -134,7 +138,7 @@ export function QueryBuilderPanel({
         tab={tab}
         builderState={resolvedBuilderState}
         containerOptions={collectionOptions}
-        onBuilderStateChange={onBuilderStateChange}
+        onBuilderStateChange={safeBuilderStateChange}
       />
     )
   }
@@ -146,7 +150,7 @@ export function QueryBuilderPanel({
         tab={tab}
         builderState={resolvedBuilderState}
         tableOptions={tableOptions}
-        onBuilderStateChange={onBuilderStateChange}
+        onBuilderStateChange={safeBuilderStateChange}
       />
     )
   }
@@ -158,7 +162,7 @@ export function QueryBuilderPanel({
         tab={tab}
         builderState={resolvedBuilderState}
         tableOptions={tableOptions}
-        onBuilderStateChange={onBuilderStateChange}
+        onBuilderStateChange={safeBuilderStateChange}
       />
     )
   }
@@ -170,7 +174,7 @@ export function QueryBuilderPanel({
         tab={tab}
         builderState={resolvedBuilderState}
         indexOptions={tableOptions}
-        onBuilderStateChange={onBuilderStateChange}
+        onBuilderStateChange={safeBuilderStateChange}
       />
     )
   }
@@ -181,10 +185,10 @@ export function QueryBuilderPanel({
         key={tab.id}
         tab={tab}
         builderState={resolvedBuilderState}
-        onBuilderStateChange={onBuilderStateChange}
-        onExecuteDataEdit={onExecuteDataEdit}
-        onInspectRedisKey={onInspectRedisKey}
-        onScanRedisKeys={onScanRedisKeys}
+        onBuilderStateChange={safeBuilderStateChange}
+        onExecuteDataEdit={locked ? undefined : onExecuteDataEdit}
+        onInspectRedisKey={locked ? undefined : onInspectRedisKey}
+        onScanRedisKeys={locked ? undefined : onScanRedisKeys}
         refreshSignal={redisRefreshSignal}
       />
     )
@@ -195,14 +199,19 @@ export function QueryBuilderPanel({
   }
 
   return (
-    <div className="query-builder-workspace">
-      {panel}
-      <QueryBuilderCountFooter
-        activeExecution={Boolean(tab.activeExecution)}
-        builderState={resolvedBuilderState}
-        onCount={onCount}
-        tabId={tab.id}
-      />
+    <div
+      className={`query-builder-workspace${locked ? ' is-execution-locked' : ''}`}
+      aria-disabled={locked}
+    >
+      <fieldset className="query-builder-execution-fieldset" disabled={locked}>
+        {panel}
+        <QueryBuilderCountFooter
+          activeExecution={locked}
+          builderState={resolvedBuilderState}
+          onCount={locked ? undefined : onCount}
+          tabId={tab.id}
+        />
+      </fieldset>
     </div>
   )
 }

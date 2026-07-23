@@ -100,6 +100,40 @@ describe('EditorToolbar', () => {
     expect(onCancel).toHaveBeenCalledOnce()
   })
 
+  it('locks query-changing controls while keeping cancellation and guide access available', () => {
+    render(
+      <EditorToolbar
+        executionStatus="loading"
+        executionLocked
+        capabilities={{ ...baseCapabilities, canCancel: true, canExplain: true }}
+        canCancelExecution
+        canToggleBuilderView
+        canAddDocument
+        canToggleDocumentEfficiency
+        builderKind="mongo-find"
+        queryWindowMode="script"
+        showScriptingGuideToggle
+        scriptingGuideVisible
+        onExecute={vi.fn()}
+        onExplain={vi.fn()}
+        onCancel={vi.fn()}
+        onOpenConnectionDrawer={vi.fn()}
+        onToggleQueryWindowMode={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Run query' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Explain query' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Query Builder' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Raw' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Scripting' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Add document' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Efficiency mode off' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Change connection' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Cancel query' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Hide scripting guide' })).toBeEnabled()
+  })
+
   it('makes active document efficiency mode visually and semantically obvious', () => {
     const onToggleDocumentEfficiency = vi.fn()
     const { container } = render(

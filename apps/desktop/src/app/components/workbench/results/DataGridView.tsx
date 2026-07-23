@@ -44,6 +44,7 @@ interface DataGridViewProps {
   editContext?: DocumentEditContext
   columns: string[]
   rows: string[][]
+  executionLocked?: boolean
   onExecuteDataEdit?(request: DataEditExecutionRequest): Promise<DataEditExecutionResponse | undefined>
 }
 
@@ -56,6 +57,7 @@ export function DataGridView({
   editContext,
   columns,
   rows,
+  executionLocked = false,
   onExecuteDataEdit,
 }: DataGridViewProps) {
   const rowsVersion = useMemo(() => dataGridRowsVersion(rows, columns), [columns, rows])
@@ -75,7 +77,11 @@ export function DataGridView({
   const parentRef = useRef<HTMLDivElement>(null)
   const dragStartRef = useRef<{ row: number; column: number } | null>(null)
   const resizeStartRef = useRef<{ column: number; x: number; width: number } | null>(null)
-  const { confirmDataEdit, confirmationDialog } = useDataEditConfirmation()
+  const {
+    cancelDataEditConfirmation,
+    confirmDataEdit,
+    confirmationDialog,
+  } = useDataEditConfirmation()
   const activeRowPatches = rowPatchState.version === rowsVersion
     ? rowPatchState.patches
     : EMPTY_DATA_GRID_ROW_PATCHES
@@ -125,6 +131,17 @@ export function DataGridView({
     confirmDataEdit,
     onExecuteDataEdit,
   })
+
+  useEffect(() => {
+    if (!executionLocked) {
+      return
+    }
+
+    cancelEdit()
+    cancelDataEditConfirmation()
+    setContextMenu(undefined)
+    setPendingDelete(undefined)
+  }, [cancelDataEditConfirmation, cancelEdit, executionLocked])
   const activeEditingCell = editingCell?.version === rowsVersion ? editingCell : undefined
   const activeDeleteRequest = activeContextMenu
     ? buildDataGridRowDeleteRequest({

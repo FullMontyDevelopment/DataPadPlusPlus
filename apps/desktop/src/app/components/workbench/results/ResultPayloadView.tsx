@@ -35,6 +35,8 @@ export function ResultPayloadView({
   resultDurationMs,
   resultRuntimeTitle,
   resultSummary,
+  documentResetToken,
+  executionLocked = false,
   editContext,
   documentFooterControls,
   onFetchDocumentNodeChildren,
@@ -52,6 +54,8 @@ export function ResultPayloadView({
   resultDurationMs?: number
   resultRuntimeTitle?: string
   resultSummary?: string
+  documentResetToken?: string
+  executionLocked?: boolean
   onFetchDocumentNodeChildren?(
     request: DocumentNodeChildrenRequest,
   ): Promise<DocumentNodeChildrenResponse | undefined>
@@ -83,9 +87,11 @@ export function ResultPayloadView({
             resultDurationMs={resultDurationMs}
             resultRuntimeTitle={resultRuntimeTitle}
             resultSummary={resultSummary}
+            documentResetToken={documentResetToken}
+            executionLocked={executionLocked}
             onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
-            onExecuteDataEdit={onExecuteDataEdit}
-            onPlanOperation={onPlanOperation}
+            onExecuteDataEdit={executionLocked ? undefined : onExecuteDataEdit}
+            onPlanOperation={executionLocked ? undefined : onPlanOperation}
           />
         )}
       />
@@ -107,7 +113,8 @@ export function ResultPayloadView({
         editContext={editContext}
         columns={columns}
         rows={sliceItems(rows, pageIndex, pageSize)}
-        onExecuteDataEdit={onExecuteDataEdit}
+        executionLocked={executionLocked}
+        onExecuteDataEdit={executionLocked ? undefined : onExecuteDataEdit}
       />
     )
   }
@@ -128,8 +135,10 @@ export function ResultPayloadView({
         resultDurationMs={resultDurationMs}
         resultRuntimeTitle={resultRuntimeTitle}
         resultSummary={resultSummary}
+        documentResetToken={documentResetToken}
+        executionLocked={executionLocked}
         onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
-        onExecuteDataEdit={onExecuteDataEdit}
+        onExecuteDataEdit={executionLocked ? undefined : onExecuteDataEdit}
       />
     )
   }
@@ -148,8 +157,9 @@ export function ResultPayloadView({
         editContext={editContext}
         entries={sliceRecord(entries, pageIndex, pageSize)}
         payload={safePayload}
-        onExecuteDataEdit={onExecuteDataEdit}
-        onPlanOperation={onPlanOperation}
+        executionLocked={executionLocked}
+        onExecuteDataEdit={executionLocked ? undefined : onExecuteDataEdit}
+        onPlanOperation={executionLocked ? undefined : onPlanOperation}
       />
     )
   }
@@ -175,7 +185,8 @@ export function ResultPayloadView({
           ...payload,
           hits: sliceItems(hits, pageIndex, pageSize),
         }}
-        onExecuteDataEdit={onExecuteDataEdit}
+        executionLocked={executionLocked}
+        onExecuteDataEdit={executionLocked ? undefined : onExecuteDataEdit}
       />
     )
   }

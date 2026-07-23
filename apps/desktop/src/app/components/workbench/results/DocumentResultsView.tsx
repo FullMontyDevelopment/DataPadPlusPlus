@@ -59,6 +59,8 @@ interface DocumentResultsViewProps {
   resultDurationMs?: number
   resultRuntimeTitle?: string
   resultSummary?: string
+  documentResetToken?: string
+  executionLocked?: boolean
   onFetchDocumentNodeChildren?: Parameters<typeof useDocumentLazyHydration>[0]['onFetchDocumentNodeChildren']
   onExecuteDataEdit?(
     request: DataEditExecutionRequest,
@@ -104,10 +106,29 @@ export function DocumentResultsView({
   resultDurationMs,
   resultRuntimeTitle,
   resultSummary,
+  documentResetToken,
+  executionLocked = false,
   onFetchDocumentNodeChildren,
   onExecuteDataEdit,
 }: DocumentResultsViewProps) {
-  const behavior = documentResultBehaviorForConnection(connection)
+  const connectionBehavior = documentResultBehaviorForConnection(connection)
+  const behavior = executionLocked
+    ? {
+        ...connectionBehavior,
+        canEditDocuments: false,
+        canRenameFields: false,
+        canChangeTypes: false,
+        contextActions: {
+          ...connectionBehavior.contextActions,
+          renameField: false,
+          editValue: false,
+          changeType: false,
+          deleteField: false,
+          deleteDocument: false,
+        },
+        editModeLabel: 'Result editing is unavailable while the query is running',
+      }
+    : connectionBehavior
   const [draftState, setDraftState] = useState(() => ({
     source: documents,
     documents,
@@ -152,6 +173,7 @@ export function DocumentResultsView({
     : undefined
   const copyTimer = useRef<number | undefined>(undefined)
   const expandAllAbortRef = useRef<AbortController | undefined>(undefined)
+  const handledResetTokenRef = useRef<string | undefined>(undefined)
   const normalizedSearchText = searchText.trim()
   const searchResult =
     completedSearch?.documents === draftDocuments &&
@@ -227,6 +249,41 @@ export function DocumentResultsView({
       expandAllAbortRef.current?.abort()
     }
   }, [])
+
+  useEffect(() => {
+    if (!documentResetToken || handledResetTokenRef.current === documentResetToken) {
+      return
+    }
+
+    handledResetTokenRef.current = documentResetToken
+    expandAllAbortRef.current?.abort()
+    expandAllAbortRef.current = undefined
+    queueMicrotask(() => {
+      cancelDataEditConfirmation()
+      setExpandedRows(new Set())
+      setPreparedTreeIndex(undefined)
+      setExpandAllState({ documents: draftDocuments, pending: false })
+      setActiveEditor(undefined)
+      setContextMenu(undefined)
+      setInspectorRowId(undefined)
+      setPendingFieldDelete(undefined)
+      setPendingDocumentDelete(undefined)
+    })
+  }, [cancelDataEditConfirmation, documentResetToken, draftDocuments])
+
+  useEffect(() => {
+    if (!executionLocked) {
+      return
+    }
+
+    queueMicrotask(() => {
+      cancelDataEditConfirmation()
+      setActiveEditor(undefined)
+      setContextMenu(undefined)
+      setPendingFieldDelete(undefined)
+      setPendingDocumentDelete(undefined)
+    })
+  }, [cancelDataEditConfirmation, executionLocked])
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -321,6 +378,8 @@ export function DocumentResultsView({
     draftDocuments,
     editContext,
     tabId,
+    resetKey: documentResetToken,
+    suspended: executionLocked,
     onFetchDocumentNodeChildren,
     onHydrated: (row, response) => {
       updateDraftDocuments((current) =>
@@ -343,6 +402,10 @@ export function DocumentResultsView({
     updater: (current: Array<Record<string, unknown>>) => Array<Record<string, unknown>>,
     successMessage: string,
   ) => {
+    if (executionLocked) {
+      setCopyMessage('Wait for the running query to finish before editing this result.')
+      return
+    }
     void (async () => {
       try {
         if (onExecuteDataEdit && editContext && connection) {
@@ -390,6 +453,9 @@ export function DocumentResultsView({
   }
 
   const beginEditing = (row: DocumentGridRow, cell: DocumentEditCell) => {
+    if (executionLocked) {
+      return
+    }
     const permissions = editablePermissions(row, behavior)
 
     if (
@@ -584,6 +650,10 @@ export function DocumentResultsView({
   }
 
   const deleteDocument = (row: DocumentGridRow) => {
+    if (executionLocked) {
+      setCopyMessage('Wait for the running query to finish before deleting this document.')
+      return
+    }
     void (async () => {
       if (!onExecuteDataEdit || !editContext || !connection) {
         setCopyMessage('Delete unavailable; data edit execution is unavailable.')

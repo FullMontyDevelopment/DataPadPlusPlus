@@ -82,6 +82,57 @@ describe('ResultsView', () => {
     expect(onLoadNextPage).toHaveBeenCalledOnce()
   })
 
+  it('collapses documents for a fresh execution but preserves expansion during paging', async () => {
+    const result = resultEnvelope([
+      {
+        _id: 'document-1',
+        profile: {
+          name: 'Ada',
+        },
+      },
+    ], true)
+    const baseProps = {
+      capabilities: {
+        canCancel: false,
+        canExplain: false,
+        defaultRowLimit: 200,
+        editorLanguage: 'mongodb' as const,
+        supportsLiveMetadata: true,
+      },
+      connection: connectionProfile({ family: 'document' as const, engine: 'mongodb' as const }),
+      payload: result.payloads[0],
+      renderer: 'document' as const,
+      result,
+      onLoadNextPage: vi.fn(),
+      onResultRendered: vi.fn(),
+      onSelectRenderer: vi.fn(),
+    }
+    const { rerender } = render(<ResultsView {...baseProps} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand document-1' }))
+    expect(screen.getByRole('button', { name: 'Collapse document-1' })).toBeInTheDocument()
+
+    rerender(
+      <ResultsView
+        {...baseProps}
+        documentResetToken="execution-rerun"
+        executionLocked
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Expand document-1' })).toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: 'Load More' })).toBeDisabled()
+
+    rerender(<ResultsView {...baseProps} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand document-1' }))
+    expect(screen.getByRole('button', { name: 'Collapse document-1' })).toBeInTheDocument()
+
+    rerender(<ResultsView {...baseProps} executionLocked />)
+    expect(screen.getByRole('button', { name: 'Collapse document-1' })).toBeInTheDocument()
+  })
+
   it('does not locally paginate non-document table results', () => {
     const rows = Array.from({ length: 25 }, (_item, index) => [
       `account-${index + 1}`,
@@ -482,6 +533,86 @@ describe('ResultsView', () => {
     })
     expect(await screen.findByText('reserved')).toBeInTheDocument()
     expect(screen.getByText('available')).toBeInTheDocument()
+  })
+
+  it('ignores lazy hydration that completes after a fresh execution starts', async () => {
+    const result = resultEnvelope([
+      {
+        _id: 'doc-1',
+        inventory: {
+          __datapadLazyNode: true,
+          type: 'object',
+          childCount: 1,
+          path: ['inventory'],
+          loaded: false,
+        },
+      },
+    ], false)
+    result.payloads[0] = {
+      renderer: 'document',
+      documents: result.payloads[0]?.renderer === 'document' ? result.payloads[0].documents : [],
+      hydrationMode: 'lazy',
+      database: 'catalog',
+      collection: 'products',
+    }
+    let resolveHydration: (value: {
+      tabId: string
+      documentId: string
+      path: string[]
+      value: Record<string, unknown>
+      notices: string[]
+    }) => void = () => undefined
+    const onFetchDocumentNodeChildren = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        resolveHydration = resolve
+      }),
+    )
+    const props = {
+      activeEnvironment: { ...environmentProfile(), id: 'env-selected' },
+      activeTab: queryTab(result),
+      capabilities: {
+        canCancel: false,
+        canExplain: false,
+        defaultRowLimit: 200,
+        editorLanguage: 'mongodb' as const,
+        supportsLiveMetadata: true,
+      },
+      connection: connectionProfile({ family: 'document' as const, engine: 'mongodb' as const }),
+      payload: result.payloads[0],
+      renderer: 'document' as const,
+      result,
+      onFetchDocumentNodeChildren,
+      onLoadNextPage: vi.fn(),
+      onResultRendered: vi.fn(),
+      onSelectRenderer: vi.fn(),
+    }
+    const { rerender } = render(<ResultsView {...props} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand doc-1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand inventory' }))
+    await waitFor(() => expect(onFetchDocumentNodeChildren).toHaveBeenCalledOnce())
+
+    rerender(
+      <ResultsView
+        {...props}
+        documentResetToken="execution-new"
+        executionLocked
+      />,
+    )
+
+    await act(async () => {
+      resolveHydration({
+        tabId: 'tab-mongodb',
+        documentId: 'doc-1',
+        path: ['inventory'],
+        value: { available: 18 },
+        notices: [],
+      })
+      await Promise.resolve()
+    })
+
+    expect(screen.getByRole('button', { name: 'Expand doc-1' })).toBeInTheDocument()
+    expect(screen.queryByText('available')).not.toBeInTheDocument()
   })
 
   it('keeps failed lazy nodes visible and retries deep nested paths', async () => {

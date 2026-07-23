@@ -47,6 +47,7 @@ export function DesktopCodeEditor({
   insertionRequest,
   ambientDeclarations,
   buildDiagnostics,
+  readOnly = false,
 }: {
   value: string
   resetKey?: string | number
@@ -62,6 +63,7 @@ export function DesktopCodeEditor({
   insertionRequest?: EditorInsertionRequest
   ambientDeclarations?: string
   buildDiagnostics?(value: string): EditorDiagnostic[]
+  readOnly?: boolean
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const [localValue, setLocalValue] = useState(value)
@@ -126,12 +128,15 @@ export function DesktopCodeEditor({
 
   const handleValueChange = useCallback(
     (nextValue: string | undefined) => {
+      if (readOnly) {
+        return
+      }
       const resolvedValue = nextValue ?? ''
       localValueRef.current = resolvedValue
       setLocalValue(resolvedValue)
       onChange(resolvedValue)
     },
-    [onChange],
+    [onChange, readOnly],
   )
   const handleMonacoMount = useCallback(
     (editor: MonacoEditorLike, monaco: MonacoApiLike) => {
@@ -196,7 +201,7 @@ export function DesktopCodeEditor({
   }, [monacoRuntime, onSelectionChange])
 
   useEffect(() => {
-    if (!insertionRequest || appliedInsertionRef.current === insertionRequest.id) {
+    if (readOnly || !insertionRequest || appliedInsertionRef.current === insertionRequest.id) {
       return
     }
 
@@ -231,7 +236,7 @@ export function DesktopCodeEditor({
       textareaRef.current?.setSelectionRange(nextPosition, nextPosition)
       textareaRef.current?.focus()
     })
-  }, [handleValueChange, insertionRequest, monacoRuntime])
+  }, [handleValueChange, insertionRequest, monacoRuntime, readOnly])
 
   useEffect(() => {
     if (!monacoRuntime || !hasCompletionContext || completionProviderCount === 0) {
@@ -321,7 +326,7 @@ export function DesktopCodeEditor({
   }, [monacoRuntime])
 
   const handleDragOver = (event: DragEvent<HTMLElement>) => {
-    if (!onDropField) {
+    if (readOnly || !onDropField) {
       return
     }
 
@@ -329,7 +334,7 @@ export function DesktopCodeEditor({
   }
 
   const handleDrop = (event: DragEvent<HTMLElement>) => {
-    if (!onDropField) {
+    if (readOnly || !onDropField) {
       return
     }
 
@@ -357,7 +362,9 @@ export function DesktopCodeEditor({
       <textarea
         ref={textareaRef}
         aria-label={ariaLabel}
+        aria-readonly={readOnly}
         className="editor-textarea"
+        readOnly={readOnly}
         value={localValue}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
@@ -387,6 +394,8 @@ export function DesktopCodeEditor({
           padding: { top: 12 },
           quickSuggestions: true,
           suggestOnTriggerCharacters: true,
+          readOnly,
+          domReadOnly: readOnly,
         }}
         onMount={handleMonacoMount}
         onChange={handleValueChange}

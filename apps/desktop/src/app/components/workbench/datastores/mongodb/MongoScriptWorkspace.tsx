@@ -23,6 +23,7 @@ export function MongoScriptWorkspace({
   guideWidth,
   completionContext,
   completionProviders,
+  readOnly = false,
   onRequestCompletionRefresh,
   onSelectionChange,
   onChange,
@@ -37,6 +38,7 @@ export function MongoScriptWorkspace({
   guideWidth: number
   completionContext?: EditorCompletionContext
   completionProviders?: DatastoreCompletionProvider[]
+  readOnly?: boolean
   onRequestCompletionRefresh?(): void
   onSelectionChange?(selectedText: string): void
   onChange(value: string): void
@@ -90,6 +92,7 @@ export function MongoScriptWorkspace({
           ariaLabel="MongoDB script editor"
           completionContext={completionContext}
           completionProviders={completionProviders}
+          readOnly={readOnly}
           onRequestCompletionRefresh={onRequestCompletionRefresh}
           onSelectionChange={onSelectionChange}
           onChange={onChange}
@@ -147,7 +150,14 @@ export function MongoScriptWorkspace({
                         <span className={`mongo-script-risk mongo-script-risk--${entry.risk}`}>{entry.risk}</span>
                       </div>
                       <p>{entry.summary}</p>
-                      <button type="button" onClick={() => insertExample(entry)}>Insert example</button>
+                      <button
+                        type="button"
+                        disabled={readOnly}
+                        title={readOnly ? 'Wait for the running query to finish before changing the script.' : undefined}
+                        onClick={() => insertExample(entry)}
+                      >
+                        Insert example
+                      </button>
                     </article>
                   ))}
                 </section>

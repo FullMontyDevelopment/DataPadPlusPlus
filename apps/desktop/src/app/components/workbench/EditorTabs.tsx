@@ -120,6 +120,9 @@ export function EditorTabs({
   }
 
   const orderedTabIds = tabs.map((tab) => tab.id)
+  const lockedTabIds = tabs
+    .filter((tab) => Boolean(tab.activeExecution) || tab.status === 'queued')
+    .map((tab) => tab.id)
 
   const moveTab = (tabId: string, targetIndex: number) => {
     const sourceIndex = orderedTabIds.indexOf(tabId)
@@ -324,6 +327,7 @@ export function EditorTabs({
           contextTab={contextTab}
           contextTabIndex={contextTabIndex}
           orderedTabIds={orderedTabIds}
+          lockedTabIds={lockedTabIds}
           tabsLength={tabs.length}
           x={contextMenu.x}
           y={contextMenu.y}

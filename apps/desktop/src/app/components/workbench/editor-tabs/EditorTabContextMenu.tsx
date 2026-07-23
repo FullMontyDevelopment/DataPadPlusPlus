@@ -13,6 +13,7 @@ interface EditorTabContextMenuProps {
   contextTab: QueryTabState
   contextTabIndex: number
   orderedTabIds: string[]
+  lockedTabIds?: string[]
   tabsLength: number
   x: number
   y: number
@@ -29,6 +30,7 @@ export function EditorTabContextMenu({
   contextTab,
   contextTabIndex,
   orderedTabIds,
+  lockedTabIds = [],
   tabsLength,
   x,
   y,
@@ -48,6 +50,15 @@ export function EditorTabContextMenu({
     contextTab.tabKind !== 'explorer' &&
     contextTab.tabKind !== 'metrics' &&
     contextTab.tabKind !== 'object-view'
+  const lockedTabs = new Set(lockedTabIds)
+  const contextTabLocked = lockedTabs.has(contextTab.id)
+  const closeOtherTabIds = orderedTabIds.filter(
+    (tabId) => tabId !== contextTab.id && !lockedTabs.has(tabId),
+  )
+  const closeRightTabIds = orderedTabIds
+    .slice(contextTabIndex + 1)
+    .filter((tabId) => !lockedTabs.has(tabId))
+  const closeAllTabIds = orderedTabIds.filter((tabId) => !lockedTabs.has(tabId))
 
   return (
     <div
@@ -63,6 +74,12 @@ export function EditorTabContextMenu({
         role="menuitem"
         className="editor-tab-context-menu-item"
         aria-label={`Close tab ${contextTab.title}`}
+        disabled={contextTabLocked}
+        title={
+          contextTabLocked
+            ? 'Cancel the running query or wait for it to finish before closing this tab.'
+            : undefined
+        }
         onClick={() => run(() => onCloseTab(contextTab.id))}
       >
         <CloseIcon className="editor-tab-context-menu-icon" />
@@ -73,9 +90,9 @@ export function EditorTabContextMenu({
         role="menuitem"
         className="editor-tab-context-menu-item"
         aria-label={`Close other tabs except ${contextTab.title}`}
-        disabled={tabsLength <= 1}
+        disabled={closeOtherTabIds.length === 0}
         onClick={() =>
-          run(() => onCloseTabs(orderedTabIds.filter((tabId) => tabId !== contextTab.id)))
+          run(() => onCloseTabs(closeOtherTabIds))
         }
       >
         <CloseIcon className="editor-tab-context-menu-icon" />
@@ -86,8 +103,8 @@ export function EditorTabContextMenu({
         role="menuitem"
         className="editor-tab-context-menu-item"
         aria-label={`Close tabs to the right of ${contextTab.title}`}
-        disabled={contextTabIndex < 0 || contextTabIndex >= tabsLength - 1}
-        onClick={() => run(() => onCloseTabs(orderedTabIds.slice(contextTabIndex + 1)))}
+        disabled={closeRightTabIds.length === 0}
+        onClick={() => run(() => onCloseTabs(closeRightTabIds))}
       >
         <ArrowRightIcon className="editor-tab-context-menu-icon" />
         <span>Close Tabs to the Right</span>
@@ -97,8 +114,8 @@ export function EditorTabContextMenu({
         role="menuitem"
         className="editor-tab-context-menu-item"
         aria-label="Close all tabs"
-        disabled={tabsLength === 0}
-        onClick={() => run(() => onCloseTabs(orderedTabIds))}
+        disabled={closeAllTabIds.length === 0}
+        onClick={() => run(() => onCloseTabs(closeAllTabIds))}
       >
         <CloseIcon className="editor-tab-context-menu-icon" />
         <span>Close All</span>
