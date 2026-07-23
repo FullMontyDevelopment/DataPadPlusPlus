@@ -1,6 +1,6 @@
 [package]
 name = "datapadplusplus-desktop"
-version = "0.1.47"
+version = "0.1.48"
 description = "DataPad++ desktop shell"
 homepage = "https://datapad-plus-plus.org/"
 repository = "https://github.com/FullMontyDevelopment/DataPadPlusPlus"
