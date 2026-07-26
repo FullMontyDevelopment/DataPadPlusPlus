@@ -51,6 +51,7 @@ pub(super) async fn list_search_explorer_nodes(
         ),
         capabilities: search_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

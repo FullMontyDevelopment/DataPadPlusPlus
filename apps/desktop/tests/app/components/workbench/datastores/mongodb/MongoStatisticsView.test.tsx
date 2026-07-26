@@ -4,7 +4,7 @@ import { getMongoObjectViewDescriptor } from '../../../../../../src/app/componen
 import { MongoStatisticsView } from '../../../../../../src/app/components/workbench/datastores/mongodb/MongoStatisticsView'
 
 describe('MongoStatisticsView', () => {
-  it('renders compact statistic cards and a readable metric table', () => {
+  it('normalizes nested statistics into a compact summary and one readable table', () => {
     render(
       <MongoStatisticsView
         descriptor={getMongoObjectViewDescriptor('database-statistics')}
@@ -20,12 +20,30 @@ describe('MongoStatisticsView', () => {
       />,
     )
 
-    expect(screen.getByText('Database Statistics')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Statistics' })).toBeInTheDocument()
     expect(screen.getAllByText('Count').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('100000').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('100,000').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Storage Size').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('2048').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('2.0 KB').length).toBeGreaterThan(0)
     expect(screen.queryByText('Ignored Nested')).not.toBeInTheDocument()
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
+  })
+
+  it('accepts browser-preview statistics at the top level', () => {
+    render(
+      <MongoStatisticsView
+        descriptor={getMongoObjectViewDescriptor('collection-statistics')}
+        payload={{
+          database: 'catalog',
+          collection: 'products',
+          count: 42,
+          storageSize: 1024,
+        }}
+      />,
+    )
+
+    expect(screen.getByText('catalog / products')).toBeInTheDocument()
+    expect(screen.getAllByText('42').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('1.0 KB').length).toBeGreaterThan(0)
   })
 })

@@ -29,6 +29,12 @@ pub struct WorkspaceSearchSettingsRequest {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DatastoreTestsSettingsRequest {
+    pub enabled: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppPreferences {
     pub theme: String,
     pub telemetry: String,
@@ -46,6 +52,8 @@ pub struct AppPreferences {
     pub datastore_security_checks: DatastoreSecurityChecksPreferences,
     #[serde(default)]
     pub workspace_search: WorkspaceSearchPreferences,
+    #[serde(default)]
+    pub datastore_tests: DatastoreTestsPreferences,
     #[serde(default)]
     pub first_install_guide: FirstInstallGuidePreferences,
     #[serde(default)]

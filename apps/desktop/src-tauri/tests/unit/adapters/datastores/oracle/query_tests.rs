@@ -120,6 +120,7 @@ fn oracle_managed_explain_returns_one_first_class_plan_payload() {
         confirmed_guardrail_id: None,
         builder_state: None,
         scoped_target: None,
+        datastore_execution_input: None,
     };
     let response = json!({
         "sections": [{

@@ -16,6 +16,7 @@ async fn litedb_collections_scope_does_not_invent_placeholder_collection() {
             environment_id: "env-local".into(),
             scope: Some("litedb:collections".into()),
             limit: None,
+            cursor: None,
         },
     )
     .await

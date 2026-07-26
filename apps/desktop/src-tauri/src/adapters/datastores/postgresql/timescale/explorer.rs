@@ -29,6 +29,7 @@ pub(super) async fn list_timescale_explorer_nodes(
             summary: format!("Loaded {} TimescaleDB node(s).", nodes.len()),
             capabilities: adapter.execution_capabilities(),
             nodes,
+            page_info: None,
         });
     }
 

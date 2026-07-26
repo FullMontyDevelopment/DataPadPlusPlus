@@ -15,6 +15,7 @@ export function hasAvailableObjectMenuItems(
     canRefreshNode: boolean
     canCreateApiServer?: boolean
     canAddToApiServer?: boolean
+    canCreateTestSuite?: boolean
   },
 ) {
   const objectViewable = isObjectViewNode(connection, node)
@@ -25,6 +26,7 @@ export function hasAvailableObjectMenuItems(
       (options.canInspectNode && isInspectableTreeNode(node)) ||
       (options.canRefreshNode && canRefreshTreeNode(node)) ||
       ((options.canCreateApiServer || options.canAddToApiServer) && isApiServerCandidateNode(node)) ||
+      options.canCreateTestSuite ||
       availableManagementActions(node.actions).length,
   )
 }

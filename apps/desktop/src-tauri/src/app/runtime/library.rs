@@ -1,3 +1,4 @@
+use serde_json::Value;
 use std::{
     collections::HashSet,
     fs,
@@ -7,7 +8,7 @@ use std::{
 use super::{
     generate_id,
     library_validation::{
-        environment_or_error, library_name_or_error, normalize_library_kind,
+        environment_or_error, is_library_item_kind, library_name_or_error, normalize_library_kind,
         normalize_library_tags, normalize_optional_library_id, validate_library_id,
     },
     timestamp_now, ManagedAppState,
@@ -18,7 +19,7 @@ use crate::domain::{
         BootstrapPayload, LibraryCreateFolderRequest, LibraryDeleteNodeRequest,
         LibraryDuplicateNodeRequest, LibraryMoveNodeRequest, LibraryNode, LibraryRenameNodeRequest,
         LibrarySetEnvironmentRequest, QuerySaveTarget, QueryTabState, SaveQueryTabToLibraryRequest,
-        SaveQueryTabToLocalFileRequest, SavedWorkItem, WorkspaceSnapshot,
+        SaveQueryTabToLocalFileRequest, SavedWorkItem, ScopedQueryTarget, WorkspaceSnapshot,
     },
 };
 
@@ -550,23 +551,25 @@ impl ManagedAppState {
             .ok_or_else(|| {
                 CommandError::new("library-node-missing", "Library item was not found.")
             })?;
-        if !matches!(source.kind.as_str(), "query" | "script") {
+        if !is_library_item_kind(&source.kind) {
             return Err(CommandError::new(
                 "library-duplicate-unsupported",
-                "Only Library queries and scripts can be duplicated.",
+                "Connections and folders cannot be duplicated.",
             ));
         }
         let name = next_library_copy_name(&self.snapshot.library_nodes, &source);
         let timestamp = timestamp_now();
-        self.snapshot.library_nodes.push(LibraryNode {
+        let mut duplicate = LibraryNode {
             id: generate_id("library-item"),
-            name,
+            name: name.clone(),
             created_at: timestamp.clone(),
             updated_at: timestamp.clone(),
             last_opened_at: None,
             snapshot_result_id: None,
             ..source
-        });
+        };
+        refresh_duplicated_test_suite_identity(&mut duplicate);
+        self.snapshot.library_nodes.push(duplicate);
         self.snapshot.updated_at = timestamp;
         self.persist()?;
         Ok(self.bootstrap_payload())
@@ -719,19 +722,31 @@ impl ManagedAppState {
             .script_text
             .clone()
             .or_else(|| (kind == "script").then(|| tab.query_text.clone()));
+        let summary = if kind == "test-suite" {
+            tab.scoped_target
+                .as_ref()
+                .map(|target| format!("{} / {}", connection.name, target.label))
+                .or_else(|| Some(connection.name.clone()))
+        } else {
+            Some(connection.name.clone())
+        };
         let node = LibraryNode {
             id: item_id.clone(),
-            kind,
+            kind: kind.clone(),
             parent_id: folder_id,
             name: name.into(),
-            summary: Some(connection.name.clone()),
+            summary,
             tags,
             favorite: None,
             created_at: now.clone(),
             updated_at: now,
             last_opened_at: None,
             connection_id: Some(tab.connection_id.clone()),
-            environment_id,
+            environment_id: if kind == "test-suite" {
+                Some(tab.environment_id.clone())
+            } else {
+                environment_id
+            },
             language: Some(tab.language.clone()),
             query_text,
             query_view_mode: tab.query_view_mode.clone().or_else(|| Some("raw".into())),
@@ -831,6 +846,9 @@ impl ManagedAppState {
                 CommandError::new("library-node-missing", "Library item was not found.")
             })?;
         let item = self.snapshot.library_nodes[item_index].clone();
+        if item.kind == "test-suite" {
+            self.ensure_datastore_tests_enabled()?;
+        }
         if item.kind == "folder" {
             return Err(CommandError::new(
                 "library-folder-not-openable",
@@ -874,10 +892,30 @@ impl ManagedAppState {
             .clone()
             .unwrap_or_else(|| self.snapshot.ui.active_connection_id.clone());
         let connection = self.connection_by_id(&connection_id)?;
-        let environment_id = self
-            .effective_library_environment_id(&item.id)
+        let test_suite_binding = if item.kind == "test-suite" {
+            Some(required_test_suite_library_binding(&item, &connection.id)?)
+        } else {
+            None
+        };
+        let environment_id = test_suite_binding
+            .as_ref()
+            .map(|(environment_id, _)| environment_id.clone())
+            .or_else(|| self.effective_library_environment_id(&item.id))
             .or_else(|| connection.environment_ids.first().cloned())
             .unwrap_or_else(|| self.snapshot.ui.active_environment_id.clone());
+        if test_suite_binding.is_some() {
+            self.environment_by_id(&environment_id)?;
+            if !connection
+                .environment_ids
+                .iter()
+                .any(|candidate| candidate == &environment_id)
+            {
+                return Err(CommandError::new(
+                    "datastore-test-binding-invalid",
+                    "The bound test-suite environment does not belong to its datastore connection.",
+                ));
+            }
+        }
 
         let tab = QueryTabState {
             id: generate_id("tab"),
@@ -890,10 +928,13 @@ impl ManagedAppState {
             connection_id: connection.id.clone(),
             environment_id,
             family: connection.family.clone(),
-            language: item
-                .language
-                .clone()
-                .unwrap_or_else(|| super::query_tabs::language_for_connection(&connection)),
+            language: if item.kind == "test-suite" {
+                super::query_tabs::language_for_connection(&connection)
+            } else {
+                item.language
+                    .clone()
+                    .unwrap_or_else(|| super::query_tabs::language_for_connection(&connection))
+            },
             pinned: None,
             save_target: Some(QuerySaveTarget {
                 kind: "library".into(),
@@ -901,7 +942,10 @@ impl ManagedAppState {
                 path: None,
             }),
             saved_query_id: Some(item.id.clone()),
-            editor_label: super::query_tabs::editor_label_for_connection(&connection),
+            editor_label: test_suite_binding
+                .as_ref()
+                .map(|(_, target)| format!("{} · {} tests", connection.name, target.label))
+                .unwrap_or_else(|| super::query_tabs::editor_label_for_connection(&connection)),
             query_text,
             query_view_mode: item.query_view_mode.clone().or_else(|| {
                 if item.kind == "script" {
@@ -912,12 +956,16 @@ impl ManagedAppState {
             }),
             script_text: item.script_text.clone(),
             document_efficiency_mode: item.document_efficiency_mode,
-            scoped_target: item.scoped_target.clone(),
+            scoped_target: test_suite_binding
+                .as_ref()
+                .map(|(_, target)| target.clone())
+                .or_else(|| item.scoped_target.clone()),
             builder_state: item.builder_state.clone(),
             metrics_state: None,
             object_view_state: None,
             test_suite: item.test_suite.clone(),
             test_run: None,
+            active_test_case_id: None,
             status: "idle".into(),
             active_execution: None,
             dirty: false,
@@ -941,6 +989,67 @@ impl ManagedAppState {
     }
 }
 
+fn required_test_suite_library_binding(
+    item: &LibraryNode,
+    connection_id: &str,
+) -> Result<(String, ScopedQueryTarget), CommandError> {
+    let suite = item.test_suite.as_ref().ok_or_else(|| {
+        CommandError::new(
+            "datastore-test-target-required",
+            "Imported test suites require a connection, environment, and datastore target.",
+        )
+    })?;
+    let suite_connection_id = suite
+        .get("connectionId")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            CommandError::new(
+                "datastore-test-target-required",
+                "Imported test suites require a connection, environment, and datastore target.",
+            )
+        })?;
+    let environment_id = suite
+        .get("environmentId")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            CommandError::new(
+                "datastore-test-target-required",
+                "Imported test suites require a connection, environment, and datastore target.",
+            )
+        })?
+        .to_string();
+    let scoped_target = suite
+        .get("scopedTarget")
+        .cloned()
+        .and_then(|target| serde_json::from_value::<ScopedQueryTarget>(target).ok())
+        .ok_or_else(|| {
+            CommandError::new(
+                "datastore-test-target-required",
+                "Imported test suites require a connection, environment, and datastore target.",
+            )
+        })?;
+
+    if suite_connection_id != connection_id
+        || item
+            .environment_id
+            .as_ref()
+            .is_some_and(|candidate| candidate != &environment_id)
+        || item
+            .scoped_target
+            .as_ref()
+            .is_some_and(|candidate| candidate != &scoped_target)
+    {
+        return Err(CommandError::new(
+            "datastore-test-binding-immutable",
+            "Test suite connection, environment, and target cannot be changed.",
+        ));
+    }
+
+    Ok((environment_id, scoped_target))
+}
+
 fn next_library_copy_name(nodes: &[LibraryNode], source: &LibraryNode) -> String {
     let base = format!("Copy of {}", source.name);
     let sibling_names = nodes
@@ -958,6 +1067,17 @@ fn next_library_copy_name(nodes: &[LibraryNode], source: &LibraryNode) -> String
         }
     }
     unreachable!()
+}
+
+fn refresh_duplicated_test_suite_identity(node: &mut LibraryNode) {
+    if node.kind != "test-suite" {
+        return;
+    }
+
+    if let Some(Value::Object(suite)) = node.test_suite.as_mut() {
+        suite.insert("id".into(), Value::String(generate_id("test-suite")));
+        suite.insert("name".into(), Value::String(node.name.clone()));
+    }
 }
 
 fn validate_local_save_path(path: &Path) -> Result<(), CommandError> {

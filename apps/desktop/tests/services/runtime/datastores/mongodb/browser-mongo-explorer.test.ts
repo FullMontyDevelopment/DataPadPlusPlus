@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import { createMongoExplorerNodes } from '../../../../../src/services/runtime/datastores/mongodb/browser-mongo-explorer'
+import { pageMongoExplorerNodes } from '../../../../../src/services/runtime/datastores/mongodb/browser-mongo-explorer-paging'
 import { mongoInspectPayload } from '../../../../../src/services/runtime/datastores/mongodb/browser-mongo-payloads'
 import { mongoInspectQueryTemplate } from '../../../../../src/services/runtime/datastores/mongodb/browser-mongo-query-templates'
 
@@ -29,7 +30,11 @@ describe('browser Mongo explorer slice', () => {
     expect(createMongoExplorerNodes(mongoConnection('catalog'), 'database:catalog').map((node) => node.label)).toEqual([
       'Collections',
       'Views',
+      'Time Series Collections',
+      'Capped Collections',
       'GridFS',
+      'Search Indexes',
+      'Vector Indexes',
       'Users',
       'Roles',
       'Database Statistics',
@@ -52,6 +57,39 @@ describe('browser Mongo explorer slice', () => {
     expect(children.find((node) => node.label === 'Documents')).toEqual(expect.objectContaining({
       queryTemplate: expect.stringContaining('"collection": "products"'),
     }))
+  })
+
+  it('uses scope-bound cursors and stable continuation pages', () => {
+    const request = {
+      connectionId: 'conn-mongo',
+      environmentId: 'env-local',
+      scope: 'collections:catalog',
+      limit: 1,
+    }
+    const nodes = createMongoExplorerNodes(mongoConnection('catalog'), request.scope)
+    const first = pageMongoExplorerNodes(nodes, request)
+
+    expect(first.nodes.map((node) => node.label)).toEqual(['products'])
+    expect(first.pageInfo).toMatchObject({
+      returnedCount: 1,
+      knownTotal: 2,
+      hasMore: true,
+    })
+
+    const second = pageMongoExplorerNodes(nodes, {
+      ...request,
+      cursor: first.pageInfo.nextCursor,
+    })
+    expect(second.nodes.map((node) => node.label)).toEqual(['orders'])
+    expect(second.pageInfo.hasMore).toBe(false)
+
+    expect(() =>
+      pageMongoExplorerNodes(nodes, {
+        ...request,
+        scope: 'collections:other',
+        cursor: first.pageInfo.nextCursor,
+      }),
+    ).toThrow('invalid-explorer-cursor')
   })
 
   it('does not create fake Mongo object children for incomplete scopes', () => {
@@ -100,6 +138,11 @@ describe('browser Mongo explorer slice', () => {
     expect(mongoInspectPayload(connection, 'indexes:catalog:products')).toMatchObject({
       indexes: expect.arrayContaining([expect.objectContaining({ name: 'sku_1' })]),
     })
+    expect(mongoInspectPayload(connection, 'index:catalog:products:sku_1')).toMatchObject({
+      database: 'catalog',
+      collection: 'products',
+      indexes: [expect.objectContaining({ name: 'sku_1', key: { sku: 1 } })],
+    })
 
     expect(mongoInspectPayload(connection, 'insert-document:catalog:products')).toMatchObject({
       validator: expect.objectContaining({
@@ -110,10 +153,29 @@ describe('browser Mongo explorer slice', () => {
     expect(mongoInspectPayload(connection, 'users:catalog')).toMatchObject({
       users: expect.arrayContaining([expect.objectContaining({ user: 'fixture_reader' })]),
     })
+    expect(mongoInspectPayload(connection, 'user:catalog:fixture_reader')).toMatchObject({
+      users: [expect.objectContaining({
+        user: 'fixture_reader',
+        roles: [expect.objectContaining({ role: 'read' })],
+      })],
+    })
+    expect(mongoInspectPayload(connection, 'role:catalog:readWrite')).toMatchObject({
+      roles: [expect.objectContaining({ role: 'readWrite' })],
+    })
 
     expect(mongoInspectPayload(connection, 'database-statistics:catalog')).toMatchObject({
       collections: 4,
       indexes: 11,
+    })
+
+    expect(mongoInspectPayload(connection, 'gridfs-bucket:catalog:archive')).toMatchObject({
+      database: 'catalog',
+      bucket: 'archive',
+      filesCollection: 'archive.files',
+      chunksCollection: 'archive.chunks',
+      files: expect.arrayContaining([expect.objectContaining({ filename: 'fixture-report.pdf' })]),
+      chunks: expect.arrayContaining([expect.objectContaining({ size: 4096 })]),
+      sampleLimit: 25,
     })
   })
 
@@ -130,6 +192,17 @@ describe('browser Mongo explorer slice', () => {
     })
     expect(JSON.stringify(payload)).not.toContain('products')
     expect(mongoInspectQueryTemplate(mongoConnection(undefined), 'indexes:')).not.toContain('products')
+  })
+
+  it('does not fabricate raw metadata for unknown nodes', () => {
+    const payload = mongoInspectPayload(mongoConnection('catalog'), 'future:catalog:object')
+
+    expect(payload).toEqual({
+      database: 'catalog',
+      objectView: 'unsupported',
+      warning: 'This MongoDB metadata type is not available in Explorer preview.',
+    })
+    expect(payload).not.toHaveProperty('object')
   })
 })
 

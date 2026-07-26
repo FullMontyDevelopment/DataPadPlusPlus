@@ -3,6 +3,7 @@ import type {
   DatastoreApiServerSettingsRequest,
   DatastoreMcpServerSettingsRequest,
   DatastoreSecurityChecksSettingsRequest,
+  DatastoreTestsSettingsRequest,
   WorkspaceSearchSettingsRequest,
   WorkspaceSnapshot,
   WorkspaceSwitcherSettingsRequest,
@@ -13,6 +14,7 @@ import {
   ObjectServerIcon,
   SavedWorkIcon,
   SearchIcon,
+  TestSuiteIcon,
 } from './icons'
 import {
   SettingsNotice,
@@ -34,6 +36,7 @@ export function SettingsExperimentalPanel({
   onUpdateMcpServerSettings,
   onUpdateWorkspaceSwitcherSettings,
   onUpdateWorkspaceSearchSettings,
+  onUpdateDatastoreTestsSettings,
   onUpdateSecurityCheckSettings,
 }: {
   preferences: WorkspaceSnapshot['preferences']
@@ -54,6 +57,9 @@ export function SettingsExperimentalPanel({
   onUpdateWorkspaceSearchSettings(
     request: WorkspaceSearchSettingsRequest,
   ): Promise<boolean>
+  onUpdateDatastoreTestsSettings(
+    request: DatastoreTestsSettingsRequest,
+  ): Promise<boolean>
   onUpdateSecurityCheckSettings(
     request: DatastoreSecurityChecksSettingsRequest,
   ): Promise<boolean>
@@ -71,6 +77,7 @@ export function SettingsExperimentalPanel({
     autoStart: false,
   }
   const workspaceSearch = preferences.workspaceSearch ?? { enabled: false }
+  const datastoreTests = preferences.datastoreTests ?? { enabled: false }
   const securityChecks = preferences.datastoreSecurityChecks ?? {
     enabled: false,
     refreshIntervalDays: 7,
@@ -80,11 +87,13 @@ export function SettingsExperimentalPanel({
   const [workspaceNotice, setWorkspaceNotice] =
     useState<SettingsNoticeMessage>()
   const [searchNotice, setSearchNotice] = useState<SettingsNoticeMessage>()
+  const [testsNotice, setTestsNotice] = useState<SettingsNoticeMessage>()
   const [securityNotice, setSecurityNotice] = useState<SettingsNoticeMessage>()
   const [saving, setSaving] = useState(false)
   const [mcpSaving, setMcpSaving] = useState(false)
   const [workspaceSaving, setWorkspaceSaving] = useState(false)
   const [searchSaving, setSearchSaving] = useState(false)
+  const [testsSaving, setTestsSaving] = useState(false)
   const [securitySaving, setSecuritySaving] = useState(false)
 
   const saveSettings = async (enabled: boolean) => {
@@ -181,6 +190,26 @@ export function SettingsExperimentalPanel({
     )
   }
 
+  const saveDatastoreTestsSettings = async (enabled: boolean) => {
+    setTestsSaving(true)
+    setTestsNotice(undefined)
+    const ok = await onUpdateDatastoreTestsSettings({ enabled })
+    setTestsSaving(false)
+    setTestsNotice(
+      ok
+        ? {
+            text: enabled
+              ? 'Datastore Tests plugin enabled.'
+              : 'Datastore Tests plugin disabled. Saved suites remain available.',
+            tone: 'success',
+          }
+        : {
+            text: 'Unable to save Datastore Tests settings. Cancel any active test run first.',
+            tone: 'error',
+          },
+    )
+  }
+
   return (
     <SettingsPanel
       title="Plugins"
@@ -263,6 +292,43 @@ export function SettingsExperimentalPanel({
           </header>
 
           <div className="settings-plugin-grid">
+            <section
+              className="settings-plugin-card"
+              aria-labelledby="settings-datastore-tests-title"
+            >
+              <header className="settings-plugin-card-header">
+                <span className="settings-plugin-icon">
+                  <TestSuiteIcon className="panel-inline-icon" />
+                </span>
+                <div className="settings-plugin-title-block">
+                  <h4 id="settings-datastore-tests-title">Datastore Tests</h4>
+                  <p>Build visual test suites with owned test cases and run supported steps through datastore adapters.</p>
+                </div>
+                <span className="settings-plugin-badge settings-plugin-badge--experimental">Experimental</span>
+              </header>
+
+              <ul className="settings-plugin-capabilities">
+                <li>Visual suite and case editor</li>
+                <li>Capability-driven preflight</li>
+                <li>No simulated successful runs</li>
+              </ul>
+
+              <div className="settings-form-grid settings-form-grid--compact">
+                <label className="settings-check-row settings-check-row--card">
+                  <input
+                    type="checkbox"
+                    checked={datastoreTests.enabled}
+                    disabled={testsSaving}
+                    onChange={(event) =>
+                      void saveDatastoreTestsSettings(event.target.checked)
+                    }
+                  />
+                  <span>Datastore Tests</span>
+                </label>
+                <SettingsNotice notice={testsNotice} />
+              </div>
+            </section>
+
             <section
               className="settings-plugin-card"
               aria-labelledby="settings-api-server-title"

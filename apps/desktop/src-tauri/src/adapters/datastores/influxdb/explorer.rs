@@ -41,6 +41,7 @@ pub(super) async fn list_influxdb_explorer_nodes(
         ),
         capabilities: influxdb_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

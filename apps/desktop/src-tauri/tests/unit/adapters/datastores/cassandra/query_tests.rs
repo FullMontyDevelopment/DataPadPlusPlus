@@ -158,6 +158,7 @@ async fn cassandra_live_fixture_returns_real_rows() {
             confirmed_guardrail_id: None,
             builder_state: None,
             scoped_target: None,
+            datastore_execution_input: None,
         },
         Vec::new(),
     )

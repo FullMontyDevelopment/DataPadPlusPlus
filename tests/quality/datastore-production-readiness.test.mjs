@@ -342,8 +342,11 @@ test('every declared datastore has production-readiness wiring', async () => {
     if (!rustRegistryHasEngine(rustRegistrySource, engine)) {
       failures.push(`${engine}: missing Rust adapter registry branch`)
     }
-    if (!/objectViewWorkspace\s*:/.test(workbenchSliceSources.get(engine) ?? '')) {
+    if (!/objectView\s*:/.test(workbenchSliceSources.get(engine) ?? '')) {
       failures.push(`${engine}: missing object-view workspace route`)
+    }
+    if (!/explorer\s*:/.test(workbenchSliceSources.get(engine) ?? '')) {
+      failures.push(`${engine}: missing Explorer provider route`)
     }
 
     const descriptorFile = descriptorOwners.get(engine)

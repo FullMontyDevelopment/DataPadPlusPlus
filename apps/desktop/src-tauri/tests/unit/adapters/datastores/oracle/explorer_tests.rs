@@ -69,6 +69,7 @@ async fn oracle_root_tree_includes_native_major_sections_without_optional_clutte
             environment_id: "env".into(),
             limit: None,
             scope: None,
+            cursor: None,
         },
     )
     .await
@@ -107,6 +108,7 @@ async fn oracle_database_scope_uses_authenticated_schema_under_selected_database
             environment_id: "env".into(),
             limit: None,
             scope: Some("oracle:container:FREEPDB1".into()),
+            cursor: None,
         },
     )
     .await
@@ -148,6 +150,7 @@ async fn oracle_contract_scope_preserves_configured_schema_case() {
             environment_id: "env".into(),
             limit: None,
             scope: Some("oracle:container:FREEPDB1".into()),
+            cursor: None,
         },
     )
     .await
@@ -238,6 +241,7 @@ async fn oracle_object_categories_expand_to_meaningful_read_only_leaf_nodes() {
             environment_id: "env".into(),
             limit: Some(100),
             scope: Some("oracle:container:FREEPDB1".into()),
+            cursor: None,
         },
     )
     .await
@@ -254,6 +258,7 @@ async fn oracle_object_categories_expand_to_meaningful_read_only_leaf_nodes() {
                 environment_id: "env".into(),
                 limit: Some(100),
                 scope: Some(scope),
+                cursor: None,
             },
         )
         .await
@@ -284,6 +289,7 @@ async fn oracle_object_categories_expand_to_meaningful_read_only_leaf_nodes() {
             environment_id: "env".into(),
             limit: Some(100),
             scope: Some("oracle:category:database:FREEPDB1:APP:tables".into()),
+            cursor: None,
         },
     )
     .await
@@ -298,6 +304,7 @@ async fn oracle_object_categories_expand_to_meaningful_read_only_leaf_nodes() {
             environment_id: "env".into(),
             limit: Some(100),
             scope: Some("oracle:category:database:FREEPDB1:APP:packages".into()),
+            cursor: None,
         },
     )
     .await
@@ -315,6 +322,7 @@ async fn oracle_schema_scope_contains_object_folders_without_fake_tables() {
             environment_id: "env".into(),
             limit: None,
             scope: Some("oracle:schema:APP".into()),
+            cursor: None,
         },
     )
     .await

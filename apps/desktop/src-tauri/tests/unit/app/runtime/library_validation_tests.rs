@@ -22,3 +22,23 @@ fn library_request_helpers_normalize_empty_ids_tags_and_supported_kinds() {
     );
     assert!(normalize_library_kind(Some("folder".into())).is_err());
 }
+
+#[test]
+fn every_saved_library_item_can_be_duplicated_but_connections_and_folders_cannot() {
+    for kind in [
+        "query",
+        "script",
+        "test-suite",
+        "template",
+        "snippet",
+        "snapshot",
+        "investigation-pack",
+        "bookmark",
+        "note",
+    ] {
+        assert!(is_library_item_kind(kind), "{kind} should be duplicable");
+    }
+
+    assert!(!is_library_item_kind("connection"));
+    assert!(!is_library_item_kind("folder"));
+}

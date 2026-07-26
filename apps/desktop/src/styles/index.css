@@ -130,17 +130,253 @@
   background: var(--panel-bg-alt);
 }
 
-.test-suite-visual {
+.test-suite-workspace {
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--editor-bg);
+}
+
+.test-toolbar-end {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.test-suite-layout {
+  position: relative;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+}
+
+.test-suite-layout.is-details-open {
+  grid-template-columns:
+    minmax(250px, 300px)
+    minmax(0, 1fr)
+    minmax(280px, 340px);
+}
+
+.test-suite-navigator,
+.test-case-editor,
+.test-suite-details {
   min-height: 0;
   overflow: auto;
-  padding: 12px;
+}
+
+.test-suite-navigator {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 14px;
   border-right: 1px solid var(--border);
   background: var(--panel-bg);
 }
 
-.query-layout--builder .test-suite-visual,
-.query-layout--raw .test-suite-visual {
-  border-right: 0;
+.test-suite-heading,
+.test-case-editor-header,
+.test-case-list-header,
+.test-step-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.test-suite-heading {
+  justify-content: flex-start;
+}
+
+.test-suite-heading > svg {
+  width: 24px;
+  height: 24px;
+  color: var(--accent);
+}
+
+.test-suite-heading > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.test-suite-heading span,
+.test-toolbar-context,
+.test-phase-header small,
+.test-case-list-item small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.test-suite-heading strong,
+.test-case-list-item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.test-suite-details {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  padding: 14px;
+  border-left: 1px solid var(--border);
+  background: var(--panel-bg);
+}
+
+.test-suite-details-header {
+  position: sticky;
+  top: -14px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -14px -14px 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-bg) 95%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.test-suite-details-header > div,
+.test-suite-binding-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.test-suite-details-header svg,
+.test-suite-binding-heading > svg {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+}
+
+.test-suite-details-section,
+.test-suite-binding-details,
+.test-suite-binding-details dl {
+  display: grid;
+  gap: 10px;
+}
+
+.test-suite-details-section > strong,
+.test-variables .test-case-list-header > strong {
+  font-size: 12px;
+}
+
+.test-suite-binding-heading > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.test-suite-binding-heading span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.test-suite-binding-details dl {
+  margin: 0;
+}
+
+.test-suite-binding-details dl > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.test-suite-binding-details dt {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.test-suite-binding-details dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.test-case-list {
+  display: grid;
+  gap: 6px;
+}
+
+.test-case-list-item {
+  display: grid;
+  border: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.test-case-list-item.is-active {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.test-case-select {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.test-case-select > svg {
+  flex: 0 0 auto;
+  width: 17px;
+  color: var(--accent);
+}
+
+.test-case-select > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.test-case-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 0 5px 5px;
+}
+
+.test-case-actions button,
+.test-variable-row button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.test-case-actions button:hover:not(:disabled),
+.test-variable-row button:hover {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+
+.test-case-actions svg,
+.test-variable-row svg,
+.test-remove-button svg,
+.drawer-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .test-field,
@@ -156,8 +392,11 @@
 }
 
 .test-field input,
+.test-field textarea,
+.test-field select,
 .test-step-row input,
 .test-step-row textarea,
+.test-step-row select,
 .test-assertion-row input,
 .test-assertion-row select {
   min-width: 0;
@@ -165,6 +404,11 @@
   background: var(--input-bg);
   color: var(--text);
   padding: 6px 8px;
+}
+
+.test-field textarea {
+  min-height: 56px;
+  resize: vertical;
 }
 
 .test-step-row textarea {
@@ -175,7 +419,45 @@
 
 .test-case-editor {
   display: grid;
+  align-content: start;
   gap: 10px;
+  padding: 16px;
+}
+
+.test-case-editor-header {
+  position: sticky;
+  top: -16px;
+  z-index: 3;
+  margin: -16px -16px 2px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--editor-bg) 94%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.test-case-editor-header h2 {
+  margin: 2px 0 0;
+  font-size: 17px;
+}
+
+.test-case-settings,
+.test-step-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.test-check-field {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 7px;
+  color: var(--text) !important;
+  font-size: 12px !important;
+}
+
+.test-check-field input {
+  min-width: auto;
+  padding: 0;
 }
 
 .test-phase-panel {
@@ -193,6 +475,11 @@
   gap: 8px;
 }
 
+.test-phase-header > div {
+  display: grid;
+  gap: 3px;
+}
+
 .test-step-row,
 .test-assertion-row {
   display: grid;
@@ -203,7 +490,308 @@
 }
 
 .test-assertion-row {
-  grid-template-columns: minmax(140px, 0.8fr) minmax(0, 1fr);
+  grid-template-columns: 1fr;
+}
+
+.test-remove-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.test-remove-button:hover {
+  color: var(--danger, #f48771);
+}
+
+.test-code-input {
+  min-height: 82px !important;
+  font-family: var(--font-mono);
+}
+
+.test-inferred-language {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  font-size: 12px;
+}
+
+.test-inferred-language span,
+.test-inferred-language small {
+  color: var(--muted);
+}
+
+.test-inferred-language small {
+  margin-left: auto;
+}
+
+.test-kind-editor,
+.test-builder-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.test-builder-editor {
+  min-height: 240px;
+}
+
+.test-builder-editor > :first-child {
+  min-height: 190px;
+  border: 1px solid var(--border);
+}
+
+.test-step-blocker,
+.test-plan-preview {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.test-plan-preview {
+  display: grid;
+  gap: 3px;
+}
+
+.test-plan-preview strong {
+  color: var(--text);
+}
+
+.test-variables {
+  display: grid;
+  gap: 6px;
+}
+
+.test-variable-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) auto;
+  gap: 5px;
+}
+
+.test-variable-row input {
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+  padding: 5px 7px;
+}
+
+.test-plugin-disabled {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 32px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.test-plugin-disabled h2,
+.test-plugin-disabled p {
+  margin: 0;
+}
+
+.test-plugin-disabled p {
+  max-width: 520px;
+}
+
+.test-plugin-disabled-icon {
+  width: 42px;
+  height: 42px;
+  color: var(--accent);
+}
+
+.library-test-case-group {
+  display: grid;
+}
+
+.library-test-case-row {
+  min-width: 0;
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: 22px 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.library-test-case-row:hover,
+.library-test-case-row:focus-visible {
+  background: var(--hover-bg);
+}
+
+.library-test-case-row > span:not(.library-tree-spacer) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-test-case-row small {
+  padding-right: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.workbench-dialog.create-test-suite-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(780px, calc(100vh - 32px));
+  overflow: auto;
+}
+
+.create-test-suite-fields {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px);
+  justify-content: end;
+  gap: 10px;
+}
+
+.create-test-suite-target {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.create-test-suite-target .query-target-picker {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+  margin-left: 0;
+  overflow: visible;
+}
+
+.create-test-suite-target .query-target-trigger {
+  width: 100%;
+  min-height: 32px;
+  height: auto;
+  padding: 4px 7px;
+}
+
+.create-test-suite-target .query-target-trigger strong {
+  max-width: none;
+}
+
+.create-test-suite-target .query-target-menu {
+  width: min(320px, calc(100vw - 56px));
+  min-width: 100%;
+}
+
+.create-test-suite-target-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.create-test-suite-target-heading > svg {
+  width: 26px;
+  height: 26px;
+}
+
+.create-test-suite-target-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.create-test-suite-target-heading span,
+.create-test-suite-state,
+.create-test-suite-selection span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.create-test-suite-state,
+.create-test-suite-blocker,
+.create-test-suite-selection {
+  margin: 0;
+}
+
+.create-test-suite-database-target {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+  text-align: left;
+}
+
+.create-test-suite-database-target:hover,
+.create-test-suite-database-target.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--input-bg));
+}
+
+.create-test-suite-database-target span {
+  color: var(--muted);
+}
+
+.create-test-suite-blocker {
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--danger, #f48771) 45%, var(--border));
+  color: var(--danger, #f48771);
+}
+
+.create-test-suite-selection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 1100px) {
+  .test-suite-layout.is-details-open {
+    grid-template-columns: minmax(230px, 280px) minmax(0, 1fr);
+  }
+
+  .test-suite-layout.is-details-open .test-suite-details {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 8;
+    width: min(360px, calc(100% - 230px));
+    box-shadow: -12px 0 28px rgb(0 0 0 / 28%);
+  }
+}
+
+@media (max-width: 900px) {
+  .test-suite-layout {
+    grid-template-columns: 230px minmax(0, 1fr);
+  }
+
+  .test-toolbar-context {
+    display: none;
+  }
+
+  .create-test-suite-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .test-suite-layout,
+  .test-suite-layout.is-details-open {
+    grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  }
+
+  .test-suite-layout.is-details-open .test-suite-details {
+    width: 100%;
+  }
 }
 
 .test-run-empty {
@@ -219,10 +807,41 @@
   min-height: 0;
   height: 100%;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 8px;
   padding: 10px;
   overflow: hidden;
+}
+
+.test-run-context {
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+  font-size: 11px;
+}
+
+.test-run-warning-list {
+  grid-row: 3;
+}
+
+.test-run-case-list {
+  grid-row: 4;
+}
+
+.test-run-context strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.test-run-context span {
+  color: var(--muted);
 }
 
 .test-run-summary,
@@ -2484,6 +3103,24 @@ button:disabled:hover {
   white-space: nowrap;
 }
 
+.library-test-suite-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.library-test-suite-copy > span,
+.library-test-suite-copy > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-test-suite-copy > small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .library-node-icon {
   width: 10px;
   height: 10px;
@@ -2828,6 +3465,19 @@ button:disabled:hover {
   min-width: 0;
   max-width: none;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-tab-target {
+  flex: 0 1 auto;
+  max-width: 88px;
+  overflow: hidden;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -6521,6 +7171,25 @@ button:disabled:hover {
   gap: 4px;
 }
 
+.object-view-workflow-section .object-view-action-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--border);
+}
+
+.object-view-workflow-section .object-view-action-chip {
+  width: 100%;
+  max-width: none;
+  min-height: 34px;
+  justify-content: flex-start;
+  padding: 7px 9px;
+  border: 0;
+  background: var(--panel-bg);
+}
+
 .object-view-action-chips--controls {
   gap: 8px;
 }
@@ -6577,6 +7246,9 @@ button:disabled:hover {
 }
 
 .object-view-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   min-height: 0;
   flex: 1 1 auto;
   overflow: auto;
@@ -6588,6 +7260,9 @@ button:disabled:hover {
   min-width: 0;
   flex-direction: column;
   gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
   outline: none;
   scroll-margin-block-start: 8px;
 }
@@ -6609,17 +7284,22 @@ button:disabled:hover {
 
 .object-view-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--border);
 }
 
 .object-view-card {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 5px;
-  padding: 10px;
-  border: 1px solid var(--border);
+  gap: 3px;
+  min-height: 52px;
+  justify-content: center;
+  padding: 7px 10px;
+  border: 0;
   background: var(--panel-bg-alt);
 }
 
@@ -6631,8 +7311,507 @@ button:disabled:hover {
 
 .object-view-card strong {
   color: var(--heading);
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 600;
+}
+
+.mongo-operational-summary,
+.mongo-resource-section {
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+}
+
+.mongo-operational-summary-heading,
+.mongo-resource-section-header,
+.mongo-guarded-section,
+.mongo-tool-context {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.mongo-operational-summary-heading {
+  min-height: 52px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.mongo-operational-summary-heading > div,
+.mongo-resource-section-header > div,
+.mongo-guarded-section header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.mongo-operational-summary-heading span,
+.mongo-resource-section-header span,
+.mongo-guarded-section header span,
+.mongo-tool-context span {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mongo-operational-summary-heading strong,
+.mongo-resource-section-header h2,
+.mongo-guarded-section h2,
+.mongo-tool-context strong {
+  margin: 0;
+  color: var(--heading);
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.mongo-operational-summary-heading p,
+.mongo-resource-section-header p,
+.mongo-guarded-section p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mongo-operational-summary-heading p {
+  max-width: 520px;
+  text-align: right;
+}
+
+.mongo-operational-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  margin: 0;
+}
+
+.mongo-operational-metrics > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 9px 12px;
+  border-right: 1px solid var(--border);
+}
+
+.mongo-operational-metrics > div:last-child {
+  border-right: 0;
+}
+
+.mongo-operational-metrics dt {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.mongo-operational-metrics dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--heading);
+  font-size: 16px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mongo-resource-section-header {
+  min-height: 58px;
+  padding: 9px 11px;
+}
+
+.mongo-resource-section-actions,
+.mongo-guarded-section-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.mongo-resource-section-body {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.mongo-resource-section-body > .object-view-table-wrap {
+  border: 0;
+}
+
+.mongo-resource-section-body > .object-view-empty-panel {
+  border: 0;
+}
+
+.mongo-inline-editor {
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+  background: var(--panel-bg-alt);
+}
+
+.mongo-validation-summary,
+.mongo-capability-note,
+.mongo-inline-warning {
+  margin: 0;
+  padding: 10px 11px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mongo-validation-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mongo-validation-summary strong {
+  color: var(--heading);
+}
+
+.mongo-capability-note {
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.mongo-inline-warning {
+  border: 1px solid color-mix(in srgb, var(--warning) 38%, var(--border));
+  color: var(--warning);
+  background: color-mix(in srgb, var(--panel-bg-alt) 94%, var(--warning) 6%);
+}
+
+.mongo-guarded-section {
+  align-items: flex-start;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, #f48771 32%, var(--border));
+  background: color-mix(in srgb, var(--panel-bg-alt) 96%, #f48771 4%);
+}
+
+.mongo-guarded-section header {
+  min-width: min(520px, 100%);
+}
+
+.mongo-advanced-disclosure {
+  background: var(--panel-bg);
+}
+
+.mongo-advanced-disclosure > summary {
+  min-height: 38px;
+  padding: 8px 10px;
+  color: var(--text);
+  cursor: pointer;
+  list-style: none;
+}
+
+.mongo-advanced-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.mongo-advanced-disclosure > summary span {
+  display: grid;
+  gap: 2px;
+}
+
+.mongo-advanced-disclosure > summary small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.mongo-advanced-disclosure[open] > summary {
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.mongo-advanced-disclosure-body {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.mongo-tool-context {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.mongo-database-summary {
+  border: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.mongo-database-summary-heading,
+.mongo-database-section-header,
+.mongo-create-collection-heading,
+.mongo-database-administration {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.mongo-database-summary-heading {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mongo-database-summary-heading > div,
+.mongo-database-section-header > div,
+.mongo-create-collection-heading > div,
+.mongo-database-administration-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.mongo-database-summary-heading > div > span,
+.mongo-database-section-header > div > span,
+.mongo-database-administration-copy > span {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mongo-database-summary-heading strong,
+.mongo-database-section-header h2,
+.mongo-create-collection-heading h3,
+.mongo-database-administration-copy h2 {
+  margin: 0;
+  color: var(--heading);
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.mongo-database-summary-heading > span,
+.mongo-database-section-header p,
+.mongo-create-collection-heading span,
+.mongo-database-administration-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mongo-database-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(100px, 1fr));
+  margin: 0;
+}
+
+.mongo-database-metrics > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 10px 12px;
+  border-right: 1px solid var(--border);
+}
+
+.mongo-database-metrics > div:last-child {
+  border-right: 0;
+}
+
+.mongo-database-metrics dt {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.mongo-database-metrics dd {
+  margin: 0;
+  color: var(--heading);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.mongo-database-collections {
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+}
+
+.mongo-database-section-header {
+  min-height: 58px;
+  padding: 9px 11px;
+}
+
+.mongo-database-section-header .drawer-button {
+  flex: 0 0 auto;
+}
+
+.mongo-database-collections > .object-view-table-wrap {
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.mongo-database-collections > .object-view-empty {
+  margin: 0;
+  padding: 14px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.mongo-create-collection {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.mongo-create-collection-heading {
+  align-items: flex-start;
+}
+
+.mongo-database-scope {
+  max-width: 220px;
+  padding: 2px 7px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  color: var(--text);
+  background: var(--panel-bg);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mongo-create-collection-primary-fields,
+.mongo-create-collection-option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.mongo-create-collection-advanced {
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+}
+
+.mongo-create-collection-advanced > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 7px 9px;
+  color: var(--text);
+  cursor: pointer;
+  list-style: none;
+}
+
+.mongo-create-collection-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.mongo-create-collection-advanced > summary:hover,
+.mongo-create-collection-advanced > summary:focus-visible {
+  color: var(--heading);
+  background: rgba(255, 255, 255, 0.025);
+  outline: none;
+}
+
+.mongo-create-collection-advanced > summary > span {
+  display: grid;
+  gap: 1px;
+}
+
+.mongo-create-collection-advanced > summary small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mongo-create-collection-advanced-body {
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+  border-top: 1px solid var(--border);
+}
+
+.mongo-create-collection-json-field .object-view-textarea {
+  min-height: 72px;
+}
+
+.mongo-create-collection-actions {
+  justify-content: flex-end;
+}
+
+.mongo-database-administration {
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, #f48771 36%, var(--border));
+  background: color-mix(in srgb, var(--panel-bg-alt) 94%, #f48771 6%);
+}
+
+.mongo-database-administration-copy p {
+  max-width: 680px;
+}
+
+.mongo-database-administration .drawer-button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 760px) {
+  .mongo-operational-summary-heading,
+  .mongo-resource-section-header,
+  .mongo-guarded-section,
+  .mongo-tool-context {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mongo-operational-summary-heading p {
+    text-align: left;
+  }
+
+  .mongo-resource-section-actions,
+  .mongo-guarded-section-actions {
+    justify-content: flex-start;
+  }
+
+  .mongo-operational-metrics {
+    grid-template-columns: repeat(2, minmax(100px, 1fr));
+  }
+
+  .mongo-operational-metrics > div {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .mongo-operational-metrics > div:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .mongo-database-metrics {
+    grid-template-columns: repeat(2, minmax(100px, 1fr));
+  }
+
+  .mongo-database-metrics > div {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .mongo-database-metrics > div:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .mongo-database-metrics > div:last-child {
+    border-bottom: 0;
+  }
+
+  .mongo-database-section-header,
+  .mongo-create-collection-heading,
+  .mongo-database-administration {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mongo-database-section-header .drawer-button,
+  .mongo-database-administration .drawer-button {
+    align-self: flex-start;
+  }
+
+  .mongo-create-collection-primary-fields,
+  .mongo-create-collection-option-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .object-view-empty-panel {
@@ -9219,6 +10398,17 @@ button:disabled:hover {
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
 }
 
+.query-target-menu--floating {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.query-target-menu--floating .query-target-options {
+  min-height: 0;
+  max-height: none;
+}
+
 .query-target-search {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) 22px;
@@ -9438,32 +10628,16 @@ button:disabled:hover {
   font-size: 11px;
 }
 
-.mongo-query-scope {
+.mongo-query-builder-controls {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: flex-end;
+  gap: 8px;
   flex-wrap: wrap;
-  color: var(--muted);
-  font-size: 11px;
+  justify-content: flex-end;
 }
 
-.mongo-query-scope span {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  gap: 5px;
-  padding: 2px 7px;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.025);
-}
-
-.mongo-query-scope strong {
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--heading);
-  font-weight: 600;
+.mongo-query-builder-controls .query-builder-field--number {
+  flex: 0 0 120px;
 }
 
 .query-builder-grid {
@@ -9504,6 +10678,168 @@ button:disabled:hover {
   white-space: nowrap;
 }
 
+.cosmos-generated-query {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.cosmos-generated-query__header,
+.cosmos-sql-options__header,
+.cosmos-sql-options__section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cosmos-generated-query h3,
+.cosmos-sql-options h3,
+.cosmos-sql-options h4 {
+  margin: 0;
+  color: var(--heading);
+}
+
+.cosmos-generated-query__header p,
+.cosmos-sql-options__header p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.cosmos-generated-query__sql {
+  display: block;
+  overflow-x: auto;
+  padding: 9px 10px;
+  border-left: 2px solid var(--accent);
+  background: var(--editor-bg);
+  color: var(--heading);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+}
+
+.cosmos-generated-query__parameters {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.cosmos-generated-query__parameters th,
+.cosmos-generated-query__parameters td {
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.cosmos-sql-editor-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--editor-bg);
+}
+
+.cosmos-sql-editor-workspace.has-options {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+}
+
+.cosmos-sql-editor-workspace__editor,
+.cosmos-sql-editor-workspace__editor .editor-monaco-frame {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.cosmos-sql-options {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border-left: 1px solid var(--border);
+  background: var(--panel-bg);
+}
+
+.cosmos-sql-options__header,
+.cosmos-sql-options__section {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cosmos-sql-options__section {
+  display: grid;
+  gap: 8px;
+}
+
+.cosmos-sql-options__section h4 {
+  font-size: 12px;
+}
+
+.cosmos-sql-parameter {
+  display: grid;
+  grid-template-columns: minmax(84px, 0.8fr) 88px minmax(96px, 1fr) 28px;
+  gap: 5px;
+}
+
+.cosmos-sql-parameter input,
+.cosmos-sql-parameter select,
+.cosmos-sql-routing-value input,
+.cosmos-sql-routing-value select {
+  min-width: 0;
+  height: 28px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--heading);
+  padding: 0 6px;
+  font: inherit;
+}
+
+.cosmos-sql-routing-value {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 6px;
+}
+
+.cosmos-sql-options__warning,
+.cosmos-sql-options__messages p {
+  margin: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(220, 170, 70, 0.4);
+  background: rgba(220, 170, 70, 0.07);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.cosmos-sql-options__messages {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+}
+
+.cosmos-sql-options__messages .is-error {
+  border-color: rgba(244, 135, 113, 0.45);
+  color: var(--danger);
+}
+
+.cosmos-sql-options-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 34px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--muted);
+  writing-mode: vertical-rl;
+}
+
+.cosmos-sql-options-toggle:hover {
+  color: var(--heading);
+  background: var(--panel-bg-alt);
+}
+
 @media (max-width: 900px) {
   .query-builder-grid--cosmos-target {
     grid-template-columns: minmax(140px, 1fr) minmax(160px, 1fr);
@@ -9515,6 +10851,19 @@ button:disabled:hover {
 
   .cosmos-builder-routing__toggle:last-child {
     grid-column: 1 / -1;
+  }
+
+  .cosmos-sql-editor-workspace.has-options {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cosmos-sql-editor-workspace.has-options .cosmos-sql-options {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 4;
+    width: min(88vw, 360px);
+    box-shadow: -12px 0 30px rgba(0, 0, 0, 0.28);
   }
 }
 
@@ -13995,5 +15344,1678 @@ td {
   .drawer-button-row,
   .status-bar-group {
     flex-wrap: wrap;
+  }
+}
+.mongo-explorer-workspace {
+  grid-row: 2 / -1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--editor-bg);
+  color: var(--text);
+}
+
+.mongo-explorer-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 68px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg);
+}
+
+.mongo-explorer-toolbar h2,
+.mongo-explorer-selection-heading h2,
+.mongo-explorer-welcome h2 {
+  margin: 2px 0 0;
+}
+
+.mongo-explorer-toolbar p,
+.mongo-explorer-selection-heading p,
+.mongo-explorer-welcome p {
+  margin: 3px 0 0;
+  color: var(--muted);
+}
+
+.mongo-explorer-refresh-button {
+  min-height: 32px;
+  padding: 0 11px;
+  border-color: var(--border-strong);
+  background: var(--panel-bg-elevated);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.mongo-explorer-refresh-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.mongo-explorer-refresh-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 44%, var(--border-strong));
+  background: var(--input-bg);
+  color: var(--heading);
+}
+
+.mongo-explorer-refresh-button:focus-visible {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.mongo-explorer-refresh-button.is-refreshing svg {
+  animation: mongo-explorer-refresh-spin 700ms linear infinite;
+}
+
+@keyframes mongo-explorer-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mongo-explorer-refresh-button.is-refreshing svg {
+    animation: none;
+  }
+}
+
+.mongo-explorer-layout {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.mongo-explorer-tree-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--border-strong);
+  background: var(--panel-bg);
+}
+
+.mongo-explorer-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+}
+
+.mongo-explorer-search svg {
+  width: 15px;
+  color: var(--muted);
+}
+
+.mongo-explorer-search input,
+.mongo-explorer-manual-database input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.mongo-explorer-search input {
+  height: 34px;
+}
+
+.mongo-explorer-tree-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 6px 14px;
+  scrollbar-gutter: stable;
+}
+
+.mongo-explorer-navigator {
+  min-width: 0;
+}
+
+.mongo-explorer-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 30px;
+  margin-left: calc(var(--mongo-tree-depth, 0) * 12px);
+  border-left: 2px solid transparent;
+  border-radius: 2px;
+  transition:
+    background-color 100ms ease,
+    border-color 100ms ease;
+}
+
+.mongo-explorer-row:hover,
+.mongo-explorer-row.is-selected {
+  background: var(--input-bg);
+}
+
+.mongo-explorer-row.is-selected {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--input-bg));
+}
+
+.mongo-explorer-row[data-node-kind='system-databases'] {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+}
+
+.mongo-explorer-chevron,
+.mongo-explorer-node {
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.mongo-explorer-chevron {
+  display: grid;
+  width: 22px;
+  height: 28px;
+  flex: 0 0 22px;
+  place-items: center;
+  color: var(--muted);
+}
+
+.mongo-explorer-chevron svg {
+  width: 14px;
+}
+
+.mongo-explorer-node {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  min-height: 28px;
+  gap: 7px;
+  padding: 3px 7px 3px 1px;
+  text-align: left;
+}
+
+.mongo-explorer-node > svg {
+  width: 16px;
+  flex: 0 0 16px;
+  color: var(--muted);
+}
+
+.mongo-explorer-node-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.mongo-explorer-node-copy strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.mongo-explorer-node-badge,
+.mongo-explorer-node-status {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mongo-explorer-node-status.is-error {
+  color: var(--danger);
+}
+
+.mongo-explorer-count {
+  flex: 0 0 auto;
+  min-width: 28px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+.mongo-explorer-state,
+.mongo-explorer-error,
+.mongo-explorer-filter-notice {
+  margin-left: calc((var(--mongo-tree-depth, 0) * 12px) + 22px);
+  padding: 8px 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mongo-explorer-error {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--danger);
+}
+
+.mongo-explorer-error button,
+.mongo-explorer-load-more,
+.mongo-explorer-manual-database button {
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.mongo-explorer-error button,
+.mongo-explorer-load-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+}
+
+.mongo-explorer-error svg {
+  width: 13px;
+}
+
+.mongo-explorer-load-more {
+  margin: 5px 8px 8px 38px;
+}
+
+.mongo-explorer-manual-database {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 7px 10px 22px;
+  padding: 5px 7px;
+  border: 1px dashed var(--border);
+}
+
+.mongo-explorer-manual-database svg {
+  width: 14px;
+  color: var(--muted);
+}
+
+.mongo-explorer-manual-database button {
+  padding: 4px 7px;
+}
+
+.mongo-explorer-detail-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 22px clamp(20px, 3vw, 44px) 40px;
+  background: var(--editor-bg);
+  scrollbar-gutter: stable;
+}
+
+.mongo-explorer-context-card,
+.mongo-explorer-detail-content {
+  width: min(100%, 1240px);
+  margin-inline: auto;
+}
+
+.mongo-explorer-context-card {
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  background: var(--panel-bg);
+}
+
+.mongo-explorer-selection-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mongo-explorer-selection-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--border);
+  color: var(--accent);
+}
+
+.mongo-explorer-selection-icon svg {
+  width: 17px;
+}
+
+.mongo-explorer-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 42px;
+  align-items: center;
+  padding: 7px 12px;
+  background: color-mix(in srgb, var(--panel-bg-elevated) 44%, var(--panel-bg));
+}
+
+.mongo-explorer-detail-back {
+  display: none;
+}
+
+.mongo-explorer-detail-content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.mongo-explorer-detail-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  margin: 16px 0 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  background: var(--panel-bg);
+}
+
+.mongo-explorer-detail-metrics > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 12px;
+  border-right: 1px solid var(--border);
+}
+
+.mongo-explorer-detail-metrics > div:last-child {
+  border-right: 0;
+}
+
+.mongo-explorer-detail-metrics dt {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.mongo-explorer-detail-metrics dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--heading);
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mongo-explorer-detail-section {
+  margin-top: 16px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--panel-bg) 72%, var(--editor-bg));
+}
+
+.mongo-explorer-detail-section > header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg);
+}
+
+.mongo-explorer-detail-section > header h3,
+.mongo-explorer-purpose-state h3 {
+  margin: 0;
+  color: var(--heading);
+  font-size: 14px;
+}
+
+.mongo-explorer-detail-section > header p,
+.mongo-explorer-purpose-state p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mongo-explorer-detail-section-body {
+  min-width: 0;
+  padding: 10px 12px 12px;
+}
+
+.mongo-explorer-inventory {
+  border: 1px solid var(--border);
+}
+
+.mongo-explorer-inventory-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto 16px;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.mongo-explorer-inventory > [role='listitem']:last-child .mongo-explorer-inventory-row {
+  border-bottom: 0;
+}
+
+.mongo-explorer-inventory-row:hover {
+  background: var(--input-bg);
+}
+
+.mongo-explorer-inventory-row > svg {
+  width: 15px;
+  color: var(--muted);
+}
+
+.mongo-explorer-inventory-row > span:nth-child(2) {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.mongo-explorer-inventory-row strong,
+.mongo-explorer-inventory-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mongo-explorer-inventory-row small,
+.mongo-explorer-kind-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mongo-explorer-kind-label {
+  padding: 2px 5px;
+  border: 1px solid var(--border);
+}
+
+.mongo-explorer-detail-load-more {
+  margin-top: 10px;
+}
+
+.mongo-explorer-grouped-inventory {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.mongo-explorer-grouped-inventory > section {
+  min-width: 0;
+  min-height: 82px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: var(--editor-bg);
+}
+
+.mongo-explorer-grouped-inventory header,
+.mongo-explorer-grouped-inventory li {
+  display: flex;
+  align-items: center;
+}
+
+.mongo-explorer-grouped-inventory header {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mongo-explorer-grouped-inventory h3 {
+  margin: 0;
+  font-size: 12px;
+}
+
+.mongo-explorer-grouped-inventory header span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mongo-explorer-grouped-inventory ul {
+  margin: 7px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mongo-explorer-grouped-inventory li {
+  min-width: 0;
+  gap: 7px;
+  padding: 4px 0;
+}
+
+.mongo-explorer-grouped-inventory li svg {
+  width: 14px;
+  color: var(--muted);
+}
+
+.mongo-explorer-grouped-inventory li span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mongo-explorer-grouped-inventory li small,
+.mongo-explorer-grouped-inventory p,
+.mongo-explorer-empty-copy {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mongo-explorer-table-wrap {
+  max-width: 100%;
+  overflow: auto;
+}
+
+.mongo-explorer-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.mongo-explorer-table th,
+.mongo-explorer-table td {
+  padding: 8px 9px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.mongo-explorer-table th {
+  background: var(--input-bg);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.mongo-explorer-index-list > div,
+.mongo-explorer-principal-list article {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mongo-explorer-index-list > div > div:first-child,
+.mongo-explorer-principal-list article > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mongo-explorer-index-list span,
+.mongo-explorer-principal-list dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mongo-explorer-key-pattern {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.mongo-explorer-key-pattern > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+}
+
+.mongo-explorer-key-pattern small {
+  color: var(--muted);
+}
+
+.mongo-explorer-validation-summary > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+  gap: 14px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mongo-explorer-validation-summary > div > span {
+  color: var(--muted);
+}
+
+.mongo-explorer-document-list > details,
+.mongo-explorer-nested-value {
+  border-bottom: 1px solid var(--border);
+}
+
+.mongo-explorer-document-list > details > summary,
+.mongo-explorer-nested-value > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.mongo-explorer-document-list summary small,
+.mongo-explorer-nested-value summary,
+.mongo-explorer-nested-value > small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mongo-explorer-value-fields {
+  margin: 0;
+  padding: 2px 8px 8px;
+}
+
+.mongo-explorer-value-fields > div {
+  display: grid;
+  grid-template-columns: minmax(100px, 180px) minmax(0, 1fr);
+  gap: 12px;
+  padding: 5px 0;
+}
+
+.mongo-explorer-value-fields dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mongo-explorer-value-fields dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.mongo-explorer-nested-value {
+  border-bottom: 0;
+}
+
+.mongo-explorer-nested-value ol {
+  margin: 0 0 5px 24px;
+  padding: 0;
+}
+
+.mongo-value-tagged {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.mongo-value-tagged small,
+.mongo-value-type {
+  color: var(--accent);
+  font-size: 10px;
+}
+
+.mongo-value-type.is-null {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.mongo-explorer-pipeline,
+.mongo-explorer-script-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mongo-explorer-pipeline > li,
+.mongo-explorer-script-list > li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  padding: 9px 7px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mongo-explorer-pipeline > li > span,
+.mongo-explorer-script-list > li > span {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.mongo-explorer-script-list code {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.mongo-explorer-principal-list article > header {
+  justify-content: flex-start;
+}
+
+.mongo-explorer-principal-list article > header svg {
+  width: 15px;
+}
+
+.mongo-explorer-principal-list dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 8px 0 0 22px;
+}
+
+.mongo-explorer-principal-list dl > div {
+  min-width: 0;
+}
+
+.mongo-explorer-principal-list dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.mongo-explorer-inline-warning,
+.mongo-explorer-purpose-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.mongo-explorer-inline-warning {
+  margin-top: 16px;
+  padding: 9px 10px;
+  border-left: 2px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  color: var(--muted);
+}
+
+.mongo-explorer-inline-warning svg,
+.mongo-explorer-purpose-state > svg {
+  width: 16px;
+  flex: 0 0 16px;
+}
+
+.mongo-explorer-purpose-state {
+  max-width: 620px;
+  margin: auto;
+  padding: 32px 0;
+}
+
+.mongo-explorer-purpose-state > svg {
+  color: var(--accent);
+}
+
+.mongo-explorer-purpose-state.is-warning > svg,
+.mongo-explorer-purpose-state.is-error > svg {
+  color: var(--warning);
+}
+
+.mongo-explorer-purpose-state.is-error > svg {
+  color: var(--danger);
+}
+
+.mongo-explorer-purpose-state > div > div {
+  margin-top: 12px;
+}
+
+.mongo-explorer-detail-state,
+.mongo-explorer-workspace-error {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.mongo-explorer-workspace-error {
+  margin: 0 12px 12px;
+  color: var(--danger);
+}
+
+.mongo-explorer-welcome {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  place-content: center;
+  justify-items: center;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.mongo-explorer-welcome > svg {
+  width: 34px;
+  height: 34px;
+  margin-bottom: 10px;
+  color: var(--accent);
+}
+
+.mongo-explorer-navigator.is-compact .mongo-explorer-node-copy small {
+  display: none;
+}
+
+.mongo-explorer-navigator.is-compact .mongo-explorer-row {
+  margin-left: calc(var(--mongo-tree-depth, 0) * 10px);
+}
+
+@media (max-width: 900px) {
+  .mongo-explorer-layout {
+    grid-template-columns: minmax(250px, 310px) minmax(0, 1fr);
+  }
+
+  .mongo-explorer-toolbar p {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .mongo-explorer-toolbar {
+    min-height: 56px;
+    padding: 9px 12px;
+  }
+
+  .mongo-explorer-layout {
+    display: block;
+  }
+
+  .mongo-explorer-tree-panel {
+    width: 100%;
+    height: 100%;
+    border-right: 0;
+  }
+
+  .mongo-explorer-detail-panel {
+    position: absolute;
+    z-index: 18;
+    inset: 0;
+    padding: 14px 16px 32px;
+    transform: translateX(100%);
+    pointer-events: none;
+    transition: transform 160ms ease;
+  }
+
+  .mongo-explorer-layout.has-selection .mongo-explorer-detail-panel {
+    transform: translateX(0);
+    pointer-events: auto;
+  }
+
+  .mongo-explorer-detail-back {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: 6px;
+    margin: 0 0 12px;
+    padding: 5px 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+  }
+
+  .mongo-explorer-detail-back svg {
+    width: 14px;
+  }
+
+  .mongo-explorer-detail-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mongo-explorer-detail-metrics > div:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .mongo-explorer-detail-metrics > div:nth-child(n + 3) {
+    border-top: 1px solid var(--border);
+  }
+
+  .mongo-explorer-kind-label {
+    display: none;
+  }
+
+  .mongo-explorer-inventory-row {
+    grid-template-columns: 18px minmax(0, 1fr) 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mongo-explorer-row,
+  .mongo-explorer-detail-panel {
+    transition: none;
+  }
+}
+
+/* Datastore-native Explorer */
+.datastore-explorer-workspace {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.datastore-explorer-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 84px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.datastore-explorer-toolbar h1,
+.datastore-explorer-context-card h2,
+.datastore-explorer-welcome h2 {
+  margin: 2px 0;
+}
+
+.datastore-explorer-toolbar p,
+.datastore-explorer-context-card p,
+.datastore-explorer-welcome p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.datastore-explorer-toolbar-actions,
+.datastore-explorer-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.datastore-explorer-toolbar-actions svg,
+.datastore-explorer-detail-actions svg,
+.datastore-explorer-mode-toolbar svg {
+  width: 15px;
+  height: 15px;
+}
+
+.datastore-explorer-layout {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.datastore-explorer-tree-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 78%, var(--surface));
+}
+
+.datastore-explorer-search {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin: 12px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  background: var(--input);
+}
+
+.datastore-explorer-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 36%, transparent);
+}
+
+.datastore-explorer-search svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.datastore-explorer-search input {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.datastore-explorer-tree-scroll,
+.datastore-explorer-detail-panel {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.datastore-explorer-navigator {
+  padding: 2px 8px 16px;
+}
+
+.datastore-explorer-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: stretch;
+  min-height: 34px;
+  margin-left: calc(var(--explorer-depth, 0) * 15px);
+  border-left: 2px solid transparent;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.datastore-explorer-row:hover {
+  background: var(--hover);
+}
+
+.datastore-explorer-row.is-selected {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--hover));
+}
+
+.datastore-explorer-row.has-environment-accent,
+.mongo-explorer-row.has-environment-accent {
+  border-left-color: color-mix(in srgb, var(--connection-env-color) 78%, transparent);
+}
+
+.datastore-explorer-row.has-environment-accent:hover,
+.datastore-explorer-row.has-environment-accent.is-selected,
+.mongo-explorer-row.has-environment-accent:hover,
+.mongo-explorer-row.has-environment-accent.is-selected {
+  background: color-mix(in srgb, var(--connection-env-color) 10%, var(--hover));
+}
+
+.datastore-explorer-row.is-system {
+  color: var(--muted);
+}
+
+.datastore-explorer-chevron,
+.datastore-explorer-node {
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.datastore-explorer-chevron {
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.datastore-explorer-chevron:disabled {
+  opacity: 0;
+}
+
+.datastore-explorer-chevron svg {
+  width: 12px;
+  height: 12px;
+}
+
+.datastore-explorer-node {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 5px 7px 5px 1px;
+  text-align: left;
+}
+
+.datastore-explorer-node > svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.datastore-explorer-node-copy {
+  min-width: 0;
+}
+
+.datastore-explorer-node-copy strong,
+.datastore-explorer-node-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.datastore-explorer-node-copy small {
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.datastore-explorer-count {
+  min-width: 20px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+}
+
+.datastore-explorer-node .is-error {
+  color: var(--danger);
+}
+
+.datastore-explorer-node .is-spinning,
+.datastore-explorer-toolbar .is-spinning {
+  animation: datastore-explorer-spin 700ms linear infinite;
+}
+
+@keyframes datastore-explorer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.datastore-explorer-inline-error,
+.datastore-explorer-navigation-state,
+.datastore-explorer-workspace-error {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.datastore-explorer-inline-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 8px 6px calc(29px + var(--explorer-depth, 0) * 15px);
+  padding: 6px 8px;
+  border-left: 2px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+}
+
+.datastore-explorer-inline-error button,
+.datastore-explorer-navigation-state button,
+.datastore-explorer-load-more,
+.datastore-explorer-section-action {
+  border: 1px solid var(--border);
+  background: var(--button);
+  color: var(--text);
+}
+
+.datastore-explorer-load-more {
+  margin: 4px 8px 4px calc(29px + var(--explorer-depth, 0) * 15px);
+  padding: 5px 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.datastore-explorer-navigation-state {
+  display: grid;
+  gap: 5px;
+  margin: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.datastore-explorer-navigation-state button {
+  justify-self: start;
+  padding: 4px 8px;
+}
+
+.datastore-explorer-workspace-error {
+  margin: 0 12px 10px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+}
+
+.datastore-explorer-detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 22px 40px;
+  background: var(--surface);
+}
+
+.datastore-explorer-detail-back {
+  display: none;
+}
+
+.datastore-explorer-context-card {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.datastore-explorer-selection-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--accent);
+}
+
+.datastore-explorer-selection-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.datastore-explorer-detail-content {
+  display: grid;
+  gap: 12px;
+}
+
+.datastore-explorer-section {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.datastore-explorer-section > header {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 78%, var(--hover));
+}
+
+.datastore-explorer-section > header > svg {
+  width: 17px;
+  height: 17px;
+  margin-top: 1px;
+  color: var(--accent);
+}
+
+.datastore-explorer-section > header h3,
+.datastore-explorer-purpose-state h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.datastore-explorer-section > header p,
+.datastore-explorer-purpose-state p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.datastore-explorer-section.is-warning > header > svg {
+  color: var(--warning);
+}
+
+.datastore-explorer-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.datastore-explorer-metrics > div {
+  min-width: 0;
+  padding: 10px 12px;
+  border-right: 1px solid var(--border);
+}
+
+.datastore-explorer-metrics dt,
+.datastore-explorer-facts dt {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.datastore-explorer-metrics dd,
+.datastore-explorer-facts dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.datastore-explorer-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  margin: 0;
+  padding: 8px 12px 12px;
+  gap: 8px 18px;
+}
+
+.datastore-explorer-inventory {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.datastore-explorer-inventory li {
+  min-width: 0;
+}
+
+.datastore-explorer-inventory li > button {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.datastore-explorer-inventory li > button:hover {
+  background: var(--hover);
+}
+
+.datastore-explorer-inventory li > button > svg {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+
+.datastore-explorer-inventory strong,
+.datastore-explorer-inventory small {
+  display: block;
+}
+
+.datastore-explorer-inventory small,
+.datastore-explorer-inventory li > button > span:last-child {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.datastore-explorer-section-action {
+  margin: 10px 12px;
+  padding: 5px 9px;
+}
+
+.datastore-explorer-table-wrap {
+  min-width: 0;
+  overflow: auto;
+}
+
+.datastore-explorer-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.datastore-explorer-table th,
+.datastore-explorer-table td {
+  min-width: 110px;
+  max-width: 320px;
+  padding: 8px 10px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  text-align: left;
+}
+
+.datastore-explorer-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--hover);
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.datastore-explorer-empty,
+.datastore-explorer-message-list {
+  margin: 0;
+  padding: 12px;
+  color: var(--muted);
+}
+
+.datastore-explorer-message-list {
+  padding-left: 28px;
+}
+
+.datastore-explorer-message-list li + li {
+  margin-top: 5px;
+}
+
+.datastore-explorer-value {
+  overflow-wrap: anywhere;
+}
+
+.datastore-explorer-value.is-null,
+.datastore-explorer-value.is-muted {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.datastore-explorer-value.is-number,
+.datastore-explorer-value.is-boolean {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.datastore-explorer-value-fields {
+  display: grid;
+  margin: 0;
+  padding: 8px 12px;
+}
+
+.datastore-explorer-value-fields > div {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.35fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.datastore-explorer-value-fields dt {
+  color: var(--muted);
+}
+
+.datastore-explorer-value-fields dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.datastore-explorer-nested-value {
+  min-width: 0;
+}
+
+.datastore-explorer-nested-value > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.datastore-explorer-nested-value ol {
+  display: grid;
+  gap: 5px;
+  margin: 6px 0;
+  padding-left: 22px;
+}
+
+.datastore-explorer-nested-value li {
+  padding-left: 4px;
+}
+
+.datastore-explorer-nested-value li > span:first-child {
+  display: none;
+}
+
+.datastore-explorer-purpose-state {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.datastore-explorer-purpose-state > svg {
+  width: 22px;
+  height: 22px;
+  color: var(--accent);
+}
+
+.datastore-explorer-purpose-state.is-warning > svg {
+  color: var(--warning);
+}
+
+.datastore-explorer-purpose-state.is-error {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.datastore-explorer-purpose-state.is-error > svg {
+  color: var(--danger);
+}
+
+.datastore-explorer-purpose-state .drawer-button {
+  margin-top: 10px;
+}
+
+.datastore-explorer-welcome {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  flex: 1 1 auto;
+  min-height: 280px;
+  padding: 40px;
+  text-align: center;
+}
+
+.datastore-explorer-welcome > svg {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 10px;
+  color: var(--accent);
+}
+
+.datastore-explorer-navigator.is-compact {
+  padding: 0;
+}
+
+.datastore-explorer-navigator.is-compact .datastore-explorer-node-copy small {
+  display: none;
+}
+
+.datastore-explorer-navigator.is-compact .datastore-explorer-row {
+  margin-left: calc(var(--explorer-depth, 0) * 12px);
+}
+
+.datastore-explorer-relationship-view {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.datastore-explorer-mode-toolbar {
+  display: flex;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+@media (max-width: 960px) {
+  .datastore-explorer-layout {
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  }
+
+  .datastore-explorer-toolbar p {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .datastore-explorer-toolbar {
+    min-height: 58px;
+    padding: 9px 12px;
+  }
+
+  .datastore-explorer-toolbar-actions .drawer-button span {
+    display: none;
+  }
+
+  .datastore-explorer-layout {
+    display: block;
+  }
+
+  .datastore-explorer-tree-panel {
+    width: 100%;
+    height: 100%;
+    border-right: 0;
+  }
+
+  .datastore-explorer-detail-panel {
+    position: absolute;
+    z-index: 18;
+    inset: 0;
+    padding: 14px 16px 32px;
+    transform: translateX(100%);
+    pointer-events: none;
+    transition: transform 160ms ease;
+  }
+
+  .datastore-explorer-layout.has-selection .datastore-explorer-detail-panel {
+    transform: translateX(0);
+    pointer-events: auto;
+  }
+
+  .datastore-explorer-detail-back {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: 6px;
+    margin: 0 0 4px;
+    padding: 5px 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+  }
+
+  .datastore-explorer-detail-back svg {
+    width: 14px;
+  }
+
+  .datastore-explorer-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .datastore-explorer-facts {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .datastore-explorer-row,
+  .datastore-explorer-detail-panel {
+    transition: none;
+  }
+
+  .datastore-explorer-node .is-spinning,
+  .datastore-explorer-toolbar .is-spinning {
+    animation: none;
   }
 }

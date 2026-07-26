@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DATASTORE_ENGINES } from '@datapadplusplus/shared-types'
+import type { DatastoreTreeNodeManifest } from '@datapadplusplus/shared-types'
 import {
   workbenchSliceForEngine,
   workbenchSlices,
@@ -13,7 +14,7 @@ describe('datastore workbench slice registry', () => {
     expect([...registeredEngines].sort()).toEqual([...DATASTORE_ENGINES].sort())
 
     for (const engine of DATASTORE_ENGINES) {
-      expect(workbenchSliceForEngine(engine)?.engine).toBe(engine)
+      expect(workbenchSliceForEngine(engine).engine).toBe(engine)
     }
   })
 
@@ -27,9 +28,18 @@ describe('datastore workbench slice registry', () => {
 
   it('keeps registered workbench hooks callable through their public slice contracts', () => {
     for (const slice of workbenchSlices) {
-      if (slice.objectViewWorkspace) {
-        expect(typeof slice.objectViewWorkspace, `${slice.engine} object view workspace`).toBe('function')
-      }
+      expect(slice.explorer.engine).toBe(slice.engine)
+      expect(slice.objectView.engine).toBe(slice.engine)
+      expect(typeof slice.explorer.Navigator, `${slice.engine} Explorer navigator`).toBe('function')
+      expect(typeof slice.explorer.Workspace, `${slice.engine} Explorer workspace`).toBe('function')
+      expect(typeof slice.objectView.Workspace, `${slice.engine} object view workspace`).toBe('function')
+      expect(slice.explorer.detailProviders.length, `${slice.engine} Explorer details`).toBeGreaterThan(0)
+      const providerKinds = slice.explorer.detailProviders.map((provider) => provider.kind)
+      expect(new Set(providerKinds).size, `${slice.engine} unique Explorer detail providers`).toBe(providerKinds.length)
+      expect(
+        [...treeKinds(slice.explorer.tree.roots)].every((kind) => providerKinds.includes(kind)),
+        `${slice.engine} declared Explorer node kinds`,
+      ).toBe(true)
 
       if (slice.relationalDescriptor) {
         expect(() => slice.relationalDescriptor?.('table')).not.toThrow()
@@ -51,16 +61,63 @@ describe('datastore workbench slice registry', () => {
     }
   })
 
+  it('registers live leaf inspection policies instead of relying on an unknown-node fallback', () => {
+    expect(
+      workbenchSliceForEngine('postgresql').explorer.detailProviderForNode({
+        id: 'table:public.accounts',
+        family: 'sql',
+        label: 'accounts',
+        kind: 'table',
+        scope: 'table:public.accounts',
+        expandable: true,
+      }).mode,
+    ).toBe('inspection')
+    expect(
+      workbenchSliceForEngine('redis').explorer.detailProviderForNode({
+        id: 'string:session:42',
+        family: 'keyvalue',
+        label: 'session:42',
+        kind: 'string',
+      }).mode,
+    ).toBe('inspection')
+    expect(
+      workbenchSliceForEngine('neo4j').explorer.detailProviderForNode({
+        id: 'node-label:Customer',
+        family: 'graph',
+        label: 'Customer',
+        kind: 'node-label',
+      }).mode,
+    ).toBe('inspection')
+    expect(
+      workbenchSliceForEngine('postgresql').explorer.detailProviderForNode({
+        id: 'future-node',
+        family: 'sql',
+        label: 'Future node',
+        kind: 'future-node-kind',
+      }).mode,
+    ).toBe('state')
+  })
+
   it('owns query-mode policy in datastore workbench slices', () => {
     const mongodb = workbenchSliceForEngine('mongodb')
     const oracle = workbenchSliceForEngine('oracle')
 
-    expect(mongodb?.query).toMatchObject({
+    expect(mongodb.query).toMatchObject({
       supportsScripting: true,
       supportsDocumentEfficiency: true,
       supportsAddDocument: true,
     })
-    expect(mongodb?.query?.requiresStructureRefresh?.({} as never)).toBe(true)
-    expect(typeof oracle?.query?.requiresStructureRefresh).toBe('function')
+    expect(mongodb.query?.requiresStructureRefresh?.({} as never)).toBe(true)
+    expect(typeof oracle.query?.requiresStructureRefresh).toBe('function')
   })
 })
+
+function treeKinds(nodes: readonly DatastoreTreeNodeManifest[]) {
+  const kinds = new Set<string>()
+  const visit = (node: DatastoreTreeNodeManifest) => {
+    kinds.add(node.kind)
+    node.children?.forEach(visit)
+  }
+  nodes.forEach(visit)
+  return kinds
+}

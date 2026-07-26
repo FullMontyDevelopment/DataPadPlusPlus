@@ -1,6 +1,6 @@
-import type { BootstrapPayload, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryViewMode, UpdateQueryBuilderStateRequest, UpdateQueryTabTargetRequest } from '@datapadplusplus/shared-types'
+import type { BootstrapPayload, CloseQueryTabsRequest, CloseQueryTabsResponse, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryViewMode, UpdateDatastoreQueryEditorStateRequest, UpdateQueryBuilderStateRequest, UpdateQueryTabTargetRequest } from '@datapadplusplus/shared-types'
 import { resolveEnvironment } from '../../app/state/helpers'
-import { closeQueryTab, createEnvironmentTabInSnapshot, createExplorerTabInSnapshot, createMetricsTabInSnapshot, createObjectViewTabInSnapshot, createQueryTabForConnection, createScopedQueryTabInSnapshot, renameQueryTab, reopenClosedQueryTab, reorderQueryTabsInSnapshot, updateQueryTabTargetInSnapshot, upsertTab } from './browser-tabs'
+import { closeQueryTab, closeQueryTabs, createEnvironmentTabInSnapshot, createExplorerTabInSnapshot, createMetricsTabInSnapshot, createObjectViewTabInSnapshot, createQueryTabForConnection, createScopedQueryTabInSnapshot, renameQueryTab, reopenClosedQueryTab, reorderQueryTabsInSnapshot, updateQueryTabTargetInSnapshot, upsertTab } from './browser-tabs'
 import { collectDiagnosticsLocally } from './browser-operation-inspection'
 import { redactForEnvironment } from './browser-response-redaction'
 import { buildBrowserPayload, cloneSnapshot, findConnection, findTab, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
@@ -9,9 +9,11 @@ import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
 import {
   validateCreateObjectViewTabRequest,
   validateCreateScopedQueryTabRequest,
+  validateCloseQueryTabsRequest,
   validateQueryTabReorderRequest,
   validateRequiredTabId,
   validateUpdateQueryBuilderStateRequest,
+  validateUpdateDatastoreQueryEditorStateRequest,
   validateUpdateQueryTabTargetRequest,
   validateUpdateQueryTabRequest,
 } from './request-validation'
@@ -290,6 +292,24 @@ export const clientTabs = {
     return buildBrowserPayload(snapshot)
   },
 
+  async closeQueryTabs(request: CloseQueryTabsRequest): Promise<CloseQueryTabsResponse> {
+    request = validateCloseQueryTabsRequest(request)
+    if (isTauriRuntime()) {
+      return invokeDesktop<CloseQueryTabsResponse>('close_query_tabs', { request })
+    }
+
+    const result = closeQueryTabs(loadBrowserSnapshot(), request)
+    if (result.closedTabIds.length > 0) {
+      saveBrowserSnapshot(result.snapshot)
+    }
+    return {
+      payload: buildBrowserPayload(result.snapshot),
+      closedTabIds: result.closedTabIds,
+      lockedTabIds: result.lockedTabIds,
+      missingTabIds: result.missingTabIds,
+    }
+  },
+
   async reorderQueryTabs(orderedTabIds: string[]): Promise<BootstrapPayload> {
     const request: QueryTabReorderRequest = validateQueryTabReorderRequest({ orderedTabIds })
 
@@ -382,6 +402,39 @@ export const clientTabs = {
       }
       if (request.queryViewMode) {
         tab.queryViewMode = request.queryViewMode
+      }
+      tab.dirty = true
+      tab.error = undefined
+      if (!tab.result) {
+        tab.status = 'idle'
+        tab.lastRunAt = undefined
+      }
+      next.updatedAt = new Date().toISOString()
+    }
+
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
+  },
+
+  async updateDatastoreQueryEditorState(
+    request: UpdateDatastoreQueryEditorStateRequest,
+  ): Promise<BootstrapPayload> {
+    request = validateUpdateDatastoreQueryEditorStateRequest(request)
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('update_datastore_query_editor_state', { request })
+    }
+
+    const next = cloneSnapshot(loadBrowserSnapshot())
+    const tab = findTab(next, request.tabId)
+
+    if (tab) {
+      tab.queryEditorState = request.editorState
+      tab.queryText = request.queryText
+      if (request.queryViewMode) {
+        tab.queryViewMode = request.queryViewMode
+      }
+      if (tab.builderState?.kind === 'cosmos-sql' && request.editorState.kind === 'cosmos-sql') {
+        tab.builderState = { ...tab.builderState, editorState: request.editorState }
       }
       tab.dirty = true
       tab.error = undefined

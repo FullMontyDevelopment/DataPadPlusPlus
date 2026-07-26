@@ -41,6 +41,15 @@ export function mongoInspectQueryTemplate(connection: ConnectionProfile, nodeId:
     return scope ? mongoCommandTemplate(scope.databaseName, { listIndexes: scope.objectName }) : inspectFallback()
   }
 
+  if (nodeId.startsWith('index:')) {
+    const parts = nodeId.split(':')
+    const scopedDatabase = parts[1]?.trim() || database
+    const collection = parts[2]?.trim()
+    return scopedDatabase && collection
+      ? mongoCommandTemplate(scopedDatabase, { listIndexes: collection })
+      : inspectFallback()
+  }
+
   if (nodeId.startsWith('create-index:')) {
     const scope = parseMongoObjectScopeStrict(nodeId, 'create-index:', database)
     return scope ? mongoCommandTemplate(scope.databaseName, { listIndexes: scope.objectName }) : inspectFallback()
@@ -70,9 +79,35 @@ export function mongoInspectQueryTemplate(connection: ConnectionProfile, nodeId:
     return scopedDatabase ? mongoCommandTemplate(scopedDatabase, { usersInfo: 1 }) : inspectFallback()
   }
 
+  if (nodeId.startsWith('user:')) {
+    const parts = nodeId.split(':')
+    const scopedDatabase = parts[1]?.trim() || database
+    const user = parts.slice(2).join(':').trim()
+    return scopedDatabase && user
+      ? mongoCommandTemplate(scopedDatabase, {
+          usersInfo: { user, db: scopedDatabase },
+          showPrivileges: true,
+          showCredentials: false,
+        })
+      : inspectFallback()
+  }
+
   if (nodeId.startsWith('roles:')) {
     const scopedDatabase = parseMongoDatabaseScope(nodeId, 'roles:', database)
     return scopedDatabase ? mongoCommandTemplate(scopedDatabase, { rolesInfo: 1 }) : inspectFallback()
+  }
+
+  if (nodeId.startsWith('role:')) {
+    const parts = nodeId.split(':')
+    const scopedDatabase = parts[1]?.trim() || database
+    const role = parts.slice(2).join(':').trim()
+    return scopedDatabase && role
+      ? mongoCommandTemplate(scopedDatabase, {
+          rolesInfo: { role, db: scopedDatabase },
+          showPrivileges: true,
+          showCredentials: false,
+        })
+      : inspectFallback()
   }
 
   if (nodeId.startsWith('collection-admin:')) {

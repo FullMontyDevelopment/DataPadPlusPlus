@@ -2,8 +2,11 @@ import type {
   BootstrapPayload,
   CancelTestRunRequest,
   CreateTestSuiteTabRequest,
+  DatastoreTestRunPlanRequest,
+  DatastoreTestRunPlanResponse,
   ExecuteTestSuiteRequest,
   ExecuteTestSuiteResponse,
+  OpenTestSuiteCaseRequest,
   OpenTestSuiteTemplateRequest,
   UpdateTestSuiteTabRequest,
 } from '@datapadplusplus/shared-types'
@@ -11,6 +14,8 @@ import {
   cancelTestRunLocally,
   createTestSuiteTabInSnapshot,
   executeTestSuiteLocally,
+  openTestSuiteCaseInSnapshot,
+  planTestSuiteRunLocally,
   openTestSuiteTemplateInSnapshot,
   updateTestSuiteTabInSnapshot,
 } from './browser-tests'
@@ -24,11 +29,35 @@ import {
   validateCancelTestRunRequest,
   validateCreateTestSuiteTabRequest,
   validateExecuteTestSuiteRequest,
+  validateDatastoreTestRunPlanRequest,
   validateOpenTestSuiteTemplateRequest,
   validateUpdateTestSuiteTabRequest,
 } from './request-validation'
 
 export const clientTests = {
+  async planTestSuiteRun(
+    request: DatastoreTestRunPlanRequest,
+  ): Promise<DatastoreTestRunPlanResponse> {
+    request = validateDatastoreTestRunPlanRequest(request)
+    if (isTauriRuntime()) {
+      return invokeDesktop<DatastoreTestRunPlanResponse>('plan_test_suite_run', { request })
+    }
+    return planTestSuiteRunLocally(loadBrowserSnapshot(), request)
+  },
+
+  async openTestSuiteCase(request: OpenTestSuiteCaseRequest): Promise<BootstrapPayload> {
+    if (!request.libraryItemId.trim() || !request.caseId.trim()) {
+      throw new Error('Test suite and case ids are required.')
+    }
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('open_test_suite_case', { request })
+    }
+
+    const snapshot = openTestSuiteCaseInSnapshot(loadBrowserSnapshot(), request)
+    saveBrowserSnapshot(snapshot)
+    return buildBrowserPayload(snapshot)
+  },
+
   async createTestSuiteTab(request: CreateTestSuiteTabRequest): Promise<BootstrapPayload> {
     request = validateCreateTestSuiteTabRequest(request)
     if (isTauriRuntime()) {

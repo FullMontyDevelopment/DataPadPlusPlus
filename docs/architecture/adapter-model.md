@@ -31,9 +31,31 @@ Subsystem registries are intentionally separate from the adapter registry:
 - API Server providers own resource kinds, identities, datastore read/mutation requests, and schema hints.
 - MCP read-policy providers own datastore read-only classification while common authentication and loopback policy run before dispatch.
 - Security-check providers own version mapping, profile posture, and bounded deep probes; common code owns cache/source orchestration and finding sanitization.
-- Runtime and workbench slices own browser-preview execution, tree placement, object actions, query targets/templates, and builder serialization.
+- Runtime and workbench slices own browser-preview execution, tree placement, object actions, query targets/templates, builder serialization, and datastore-native Explorer presentation.
 
-Compatibility facades remain stable while ownership moves behind them. Provider registries must have exactly one applicable provider for every declared engine.
+Every declared engine registers exactly one `DatastoreExplorerProvider` and one
+`DatastoreObjectViewProvider`. An Explorer provider declares the native hierarchy,
+detail providers for every node kind, cache-versus-inspection ownership, paging,
+launch surfaces, system namespaces, and optional secondary relationship maps. The
+sidebar and Explorer tab consume the same provider and scope cache so their loaded
+nodes, continuation state, errors, and retries cannot diverge.
+
+Shared Explorer code owns only the two-pane shell, keyboard and responsive drawer
+behavior, bounded structured-value rendering, paging state, and safe error
+presentation. It does not choose an engine or display provider payloads directly.
+Known node kinds must have one purpose-built detail provider; unknown nodes show
+safe context without exposing their payload. Explorer is read-only and hands query,
+edit, and administrative work to existing guarded workflows.
+
+Object-view providers own the operational workspace for their engine. The shell
+owns the single title, breadcrumb, refresh, and primary navigation action.
+Inventories, metrics, security, health, diagnostics, and administration are
+separated into restrained bordered sections. Native SQL, scripts, DDL, pipelines,
+or request previews are shown only when the text is itself the useful artifact.
+
+Provider registries contain composition only and reject missing or duplicate engine
+registrations. There is no generic Explorer, generic object-view, or fabricated
+browser-inspection fallback.
 
 Mature adapters can also add safe live edit support for natural data edits. These edits are separate from destructive/admin operations and must be identity-safe.
 
@@ -104,6 +126,16 @@ Adapters should normalize outputs into renderer-friendly envelopes:
 - `costEstimate`
 
 Payloads should contain returned data, not submitted query text. Execution metadata belongs in messages, details, diagnostics, or profile payloads.
+
+## Datastore Test Execution Providers
+
+The experimental Datastore Tests plugin uses a bounded `DatastoreTestExecutionProvider` registry. The registry is composition-only: PostgreSQL, SQLite, MongoDB, Redis, Valkey, and DynamoDB register explicit providers, and an unregistered datastore is unsupported rather than routed through a family fallback.
+
+Providers declare supported step kinds, accepted target kinds, target validation, inferred query language, target-aware starter generation, and whether a case has a persistent datastore session. Shared orchestration owns suite/case ordering, immutable-binding enforcement, target propagation, preflight expiry and one-time confirmation, variable precedence, safety policy, redaction, timeouts, assertion evaluation, status aggregation, and result persistence. It does not choose syntax or language by engine name. Providers reach datastore work only through adapter-owned execution hooks. The default path cannot synthesize success or perform hidden network work.
+
+Each suite owns one connection/environment/target binding, mirrored into its query tab. Structured query-builder, data-edit, and operation plans must remain contained by that target. Raw requests receive explicit warnings when target locality cannot be proven. The target and provider-inferred language participate in the revision fingerprint, preventing a stale or corrupted plan from crossing bindings.
+
+Query and builder steps currently use validated adapter execution. Data-edit and operation steps remain editable but are blocked until their provider has real planning, execution, cancellation, target-containment, and fixture evidence. This keeps capability claims aligned with executable behavior.
 
 ## Safe Edits And Guarded Operations
 

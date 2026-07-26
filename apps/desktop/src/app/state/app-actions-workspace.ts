@@ -1,10 +1,12 @@
 import { useCallback, useMemo } from 'react'
 import { desktopClient } from '../../services/runtime/client'
 import { ensureWorkspaceUnlocked } from './app-state-factories'
+import { createId } from './helpers'
 import type { Actions, AppActionContext } from './app-state-types'
 
 type WorkspaceActions = Pick<
   Actions,
+  | 'addWorkbenchMessage'
   | 'openWorkbenchMessages'
   | 'dismissWorkbenchMessage'
   | 'clearWorkbenchMessages'
@@ -31,6 +33,7 @@ type WorkspaceActions = Pick<
   | 'switchWorkspace'
   | 'updateWorkspaceBackupSettings'
   | 'updateWorkspaceSearchSettings'
+  | 'updateDatastoreTestsSettings'
   | 'getDatastoreSecurityCheckStatus'
   | 'updateDatastoreSecurityCheckSettings'
   | 'refreshDatastoreSecurityChecks'
@@ -77,6 +80,20 @@ export function useWorkspaceActions({
   applyPayload,
   handleError,
 }: AppActionContext): WorkspaceActions {
+  const addWorkbenchMessage = useCallback<Actions['addWorkbenchMessage']>(
+    (message) => {
+      dispatch({
+        type: 'WORKBENCH_MESSAGE_ADDED',
+        message: {
+          ...message,
+          id: createId('message'),
+          createdAt: new Date().toISOString(),
+        },
+      })
+    },
+    [dispatch],
+  )
+
   const dismissWorkbenchMessage = useCallback<Actions['dismissWorkbenchMessage']>(
     (id) => {
       dispatch({ type: 'WORKBENCH_MESSAGE_DISMISSED', id })
@@ -392,6 +409,20 @@ export function useWorkspaceActions({
       try {
         ensureWorkspaceUnlocked(state.payload)
         applyPayload(await desktopClient.updateWorkspaceSearchSettings(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
+  )
+
+  const updateDatastoreTestsSettings = useCallback<Actions['updateDatastoreTestsSettings']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.updateDatastoreTestsSettings(request))
         return true
       } catch (error) {
         handleError(error)
@@ -906,6 +937,7 @@ export function useWorkspaceActions({
 
   return useMemo(
     () => ({
+      addWorkbenchMessage,
       openWorkbenchMessages,
       dismissWorkbenchMessage,
       clearWorkbenchMessages,
@@ -932,6 +964,7 @@ export function useWorkspaceActions({
       switchWorkspace,
       updateWorkspaceBackupSettings,
       updateWorkspaceSearchSettings,
+      updateDatastoreTestsSettings,
       getDatastoreSecurityCheckStatus,
       updateDatastoreSecurityCheckSettings,
       refreshDatastoreSecurityChecks,
@@ -972,6 +1005,7 @@ export function useWorkspaceActions({
       deleteWorkspaceBackup,
     }),
     [
+      addWorkbenchMessage,
       clearWorkbenchMessages,
       dismissWorkbenchMessage,
       createWorkspace,
@@ -983,6 +1017,7 @@ export function useWorkspaceActions({
       importWorkspaceFile,
       updateWorkspaceBackupSettings,
       updateWorkspaceSearchSettings,
+      updateDatastoreTestsSettings,
       getDatastoreSecurityCheckStatus,
       updateDatastoreSecurityCheckSettings,
       refreshDatastoreSecurityChecks,

@@ -1,6 +1,7 @@
 import type { DatastoreRuntimeSlice } from '../types'
 import { mongoDataEditRequest } from './browser-mongo-data-edit-request'
 import { createMongoExplorerNodes } from './browser-mongo-explorer'
+import { pageMongoExplorerNodes } from './browser-mongo-explorer-paging'
 import {
   mongoManagementRefreshScopes,
   mongoOperationRequest,
@@ -12,6 +13,7 @@ export const mongodbRuntimeSlice = {
   engine: 'mongodb',
   explorer: {
     createNodes: createMongoExplorerNodes,
+    pageNodes: pageMongoExplorerNodes,
     inspectQueryTemplate: mongoInspectQueryTemplate,
     inspectPayload: mongoInspectPayload,
   },

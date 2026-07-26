@@ -34,6 +34,7 @@ pub(super) async fn list_neptune_explorer_nodes(
         ),
         capabilities: neptune_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

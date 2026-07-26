@@ -61,8 +61,20 @@ const workbenchSlices: DatastoreWorkbenchSlice[] = [
   bigqueryWorkbenchSlice,
 ]
 
+const workbenchSlicesByEngine = new Map(
+  workbenchSlices.map((slice) => [slice.engine, slice] as const),
+)
+
+if (workbenchSlicesByEngine.size !== workbenchSlices.length) {
+  throw new Error('Datastore workbench registry contains duplicate engine providers.')
+}
+
 export function workbenchSliceForEngine(engine: DatastoreWorkbenchSlice['engine']) {
-  return workbenchSlices.find((slice) => slice.engine === engine)
+  const slice = workbenchSlicesByEngine.get(engine)
+  if (!slice) {
+    throw new Error(`Datastore workbench provider is missing for ${engine}.`)
+  }
+  return slice
 }
 
 export { workbenchSlices }

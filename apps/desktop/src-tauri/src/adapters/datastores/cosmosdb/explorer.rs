@@ -21,6 +21,7 @@ pub(super) async fn list_cosmosdb_explorer_nodes(
             ),
             capabilities: cosmosdb_execution_capabilities(),
             nodes: cosmosdb_api_nodes(connection, request.scope.as_deref(), &api),
+            page_info: None,
         });
     }
 
@@ -96,6 +97,7 @@ pub(super) async fn list_cosmosdb_explorer_nodes(
         ),
         capabilities: cosmosdb_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

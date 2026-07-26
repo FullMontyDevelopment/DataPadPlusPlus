@@ -1,8 +1,9 @@
 import type { ScopedQueryTarget } from '@datapadplusplus/shared-types'
 import type { MongoObjectViewDescriptor } from './MongoObjectViewDescriptors'
-import { ObjectSearchIcon, PlayIcon } from '../../icons'
-import { PurposeEmptyState, SectionHeading } from '../../ObjectViewPrimitives'
+import { PlayIcon } from '../../icons'
+import { PurposeEmptyState } from '../../ObjectViewPrimitives'
 import { mongoPipelineStageRows } from './MongoPipelineView.helpers'
+import { MongoContextStrip, MongoResourceSection } from './MongoOperationalViewPrimitives'
 
 type JsonRecord = Record<string, unknown>
 
@@ -19,12 +20,31 @@ export function MongoPipelineView({
 }) {
   const pipeline = Array.isArray(payload.pipeline) ? payload.pipeline : []
   const stageRows = mongoPipelineStageRows(pipeline)
+  const database = stringValue(payload.database)
+  const view = stringValue(payload.view)
+  const backingCollection = stringValue(payload.backingCollection)
 
   return (
     <div className="object-view-section">
-      <SectionHeading Icon={ObjectSearchIcon} title={descriptor.title} unit={`${pipeline.length} stage(s)`} />
-      {pipeline.length ? (
-        <div className="mongo-pipeline-stage-list" role="group" aria-label="MongoDB view pipeline stages">
+      <MongoContextStrip
+        eyebrow="Read-only view"
+        title={[database, view].filter(Boolean).join(' / ') || 'MongoDB'}
+        detail={backingCollection ? `Backed by ${backingCollection}` : `${pipeline.length} stage pipeline`}
+        metrics={[{ label: 'Pipeline stages', value: pipeline.length }]}
+      />
+      <MongoResourceSection
+        eyebrow="View definition"
+        title="Pipeline"
+        description="Stages are shown in execution order. Native stage documents remain available on demand."
+        actions={queryTarget ? (
+          <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
+            <PlayIcon className="panel-inline-icon" />
+            {descriptor.primaryQueryLabel ?? 'Open Results Preview'}
+          </button>
+        ) : null}
+      >
+        {pipeline.length ? (
+          <div className="mongo-pipeline-stage-list" role="group" aria-label="MongoDB view pipeline stages">
           {stageRows.map((stage, index) => (
             <article className="mongo-pipeline-stage" key={`${stage.operator}:${index}`}>
               <div className="mongo-pipeline-stage-order">{index + 1}</div>
@@ -45,20 +65,25 @@ export function MongoPipelineView({
               </div>
             </article>
           ))}
-        </div>
-      ) : (
-        <PurposeEmptyState descriptor={descriptor} />
-      )}
-      {queryTarget ? (
-        <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
-          <PlayIcon className="panel-inline-icon" />
-          {descriptor.primaryQueryLabel ?? 'Open Results Preview'}
-        </button>
-      ) : null}
+          </div>
+        ) : (
+          <PurposeEmptyState descriptor={descriptor} />
+        )}
+      </MongoResourceSection>
     </div>
   )
 }
 
 function prettyJson(value: unknown) {
   return JSON.stringify(value, null, 2)
+}
+
+function stringValue(value: unknown) {
+  if (typeof value === 'string') {
+    return value
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  return ''
 }

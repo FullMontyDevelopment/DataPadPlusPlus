@@ -1,18 +1,23 @@
 import type { ComponentProps } from 'react'
 import type {
   ConnectionProfile,
+  DatastoreQueryEditorState,
   QueryBuilderState,
+  QueryTabState,
   QueryViewMode,
 } from '@datapadplusplus/shared-types'
+import type { ComponentType } from 'react'
 import { DesktopCodeEditor } from '../DesktopCodeEditor'
 import { isRedisKeyBrowserState } from '../query-builder/redis-key-browser'
 import { MongoScriptWorkspace } from './mongodb/MongoScriptWorkspace'
 import { RedisConsoleEditor } from './common/keyvalue/RedisConsoleEditor'
+import type { DatastoreQueryEditorWorkspaceProps } from './types'
 
 type EditorProps = ComponentProps<typeof DesktopCodeEditor>
 
 interface DatastoreQueryEditorProps {
   mode: QueryViewMode
+  tab: QueryTabState
   redisConsoleVisible: boolean
   connection: ConnectionProfile
   builderState?: QueryBuilderState
@@ -36,10 +41,14 @@ interface DatastoreQueryEditorProps {
   onScriptChange(value: string): void
   onMongoGuideWidthChange(width: number): void
   onDropField: EditorProps['onDropField']
+  editorState?: DatastoreQueryEditorState
+  Editor?: ComponentType<DatastoreQueryEditorWorkspaceProps>
+  onEditorStateChange?(state: DatastoreQueryEditorState): void
 }
 
 export function DatastoreQueryEditor({
   mode,
+  tab,
   redisConsoleVisible,
   connection,
   builderState,
@@ -49,7 +58,7 @@ export function DatastoreQueryEditor({
   theme,
   resetKey,
   completionContext,
-  completionProviders,
+  completionProviders = [],
   mongoDatabase,
   mongoCollection,
   mongoGuideVisible,
@@ -63,9 +72,31 @@ export function DatastoreQueryEditor({
   onScriptChange,
   onMongoGuideWidthChange,
   onDropField,
+  editorState,
+  Editor,
+  onEditorStateChange,
 }: DatastoreQueryEditorProps) {
   if (mode === 'builder') {
     return null
+  }
+
+  if (mode === 'raw' && Editor && onEditorStateChange) {
+    return (
+      <Editor
+        tab={tab}
+        connection={connection}
+        editorState={editorState}
+        value={value ?? rawValue}
+        theme={theme}
+        resetKey={resetKey}
+        completionContext={completionContext}
+        completionProviders={completionProviders}
+        readOnly={readOnly}
+        onRequestCompletionRefresh={onRequestCompletionRefresh}
+        onSelectionChange={onSelectionChange}
+        onEditorStateChange={onEditorStateChange}
+      />
+    )
   }
 
   if (redisConsoleVisible) {

@@ -153,6 +153,7 @@ async fn cosmosdb_non_nosql_api_does_not_call_sql_api_for_databases() {
             environment_id: "env-local".into(),
             scope: Some("cosmos:databases".into()),
             limit: None,
+            cursor: None,
         },
     )
     .await

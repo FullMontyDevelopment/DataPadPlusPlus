@@ -180,7 +180,7 @@ It is growing into a full datastore workbench with:
 - Oracle 19c+ live schema/package metadata, SQL and PL/SQL execution, DBMS output, DBMS_XPLAN, storage/security/performance inspection, guarded writes, and optional legacy SQLPlus flows
 - metrics dashboards where the datastore exposes useful counters
 - explain plan rendering, including purpose-built MongoDB explain UI and shared SQL plan views for PostgreSQL, SQL Server SHOWPLAN_TEXT/XML Showplan, MySQL/MariaDB performance_schema/status diagnostics, SQLite, and compatible PostgreSQL-wire engines
-- test-suite workspaces for datastore-specific setup, execute, assert, and teardown flows
+- an opt-in experimental Datastore Tests plugin with immutable connection/environment/target bindings, provider-inferred languages, visual suite-owned cases, adapter-backed execution, preflight blockers, and guarded setup/execute/assert/teardown flows
 - interactive result export through Save As dialogs with datastore-appropriate formats such as CSV, JSON, NDJSON, and text
 - Workspace Search across saved connections, Library content, scripts, test suites, open tabs, and recently closed tabs
 - an opt-in API Server workspace for local REST, GraphQL, or gRPC resources backed by selected datastore objects and saved queries
@@ -202,7 +202,7 @@ You can store:
 - snippets
 - notes
 - snapshots
-- test suites
+- test suites and their owned test cases (when the Datastore Tests plugin is enabled)
 - recent work
 - environments
 

@@ -34,6 +34,7 @@ interface EditorToolbarProps {
   builderKind?: QueryBuilderState['kind']
   queryWindowMode: QueryViewMode
   onToggleQueryWindowMode(mode: QueryViewMode): void
+  queryWindowModeLabels?: Partial<Record<QueryViewMode, string>>
   executeLabel?: string
   executeAriaLabel?: string
   executeTitle?: string
@@ -61,6 +62,7 @@ export function EditorToolbar({
   builderKind,
   queryWindowMode,
   onToggleQueryWindowMode,
+  queryWindowModeLabels,
   executeLabel = 'Run',
   executeAriaLabel = 'Run query',
   executeTitle = 'Run the current query against the selected connection and environment. Shortcut: Ctrl+Enter.',
@@ -90,6 +92,15 @@ export function EditorToolbar({
     builderKind === 'redis-key-browser'
       ? redisModeButtonLabels
       : queryWindowModeButtonLabels
+  const resolvedModeLabels = {
+    ...modeLabels,
+    ...Object.fromEntries(
+      Object.entries(queryWindowModeLabels ?? {}).map(([mode, text]) => [
+        mode,
+        { ...modeLabels[mode as QueryViewMode], text },
+      ]),
+    ),
+  } as typeof modeLabels
 
   return (
     <div className="editor-toolbar" aria-label="Editor toolbar" data-tour-id="editor-toolbar">
@@ -142,8 +153,8 @@ export function EditorToolbar({
       {canToggleBuilderView ? (
         <div className="toolbar-group toolbar-group--query-layout" aria-label="Query window mode">
           {queryWindowModesForBuilder(builderKind).map((mode) => {
-            const label = modeLabels[mode].text
-            const Icon = modeLabels[mode].icon
+            const label = resolvedModeLabels[mode].text
+            const Icon = resolvedModeLabels[mode].icon
 
             return (
               <button

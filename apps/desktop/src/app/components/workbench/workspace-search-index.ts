@@ -87,17 +87,25 @@ const SNIPPET_CONTEXT = 72
 const SENSITIVE_KEY_PATTERN = /(auth|credential|password|secret|token|privatekey|clientkey)/i
 
 export function buildWorkspaceSearchIndex(snapshot: WorkspaceSnapshot): WorkspaceSearchIndex {
+  const datastoreTestsEnabled = Boolean(snapshot.preferences.datastoreTests?.enabled)
   return {
     builtAt: Date.now(),
     documents: [
       ...snapshot.connections.map((connection) =>
         buildConnectionDocument(connection, snapshot.environments),
       ),
-      ...snapshot.libraryNodes.map((node) => buildLibraryDocument(node)),
+      ...snapshot.libraryNodes
+        .filter((node) => datastoreTestsEnabled || node.kind !== 'test-suite')
+        .map((node) => buildLibraryDocument(node)),
       ...snapshot.tabs
-        .filter((tab) => tab.tabKind !== 'workspace-search')
+        .filter((tab) =>
+          tab.tabKind !== 'workspace-search' &&
+          (datastoreTestsEnabled || tab.tabKind !== 'test-suite'),
+        )
         .map((tab) => buildTabDocument(tab, 'tab')),
-      ...snapshot.closedTabs.map((tab) => buildTabDocument(tab, 'closed-tab')),
+      ...snapshot.closedTabs
+        .filter((tab) => datastoreTestsEnabled || tab.tabKind !== 'test-suite')
+        .map((tab) => buildTabDocument(tab, 'closed-tab')),
     ].filter((document) => document.lines.length > 0),
   }
 }
@@ -390,6 +398,7 @@ function testSuiteText(testSuite?: DatastoreTestSuiteDefinition): string {
     testSuite.description,
     testSuite.engine,
     testSuite.family,
+    scopedTargetText(testSuite.scopedTarget),
     ...testSuite.cases.flatMap(testCaseText),
   ]
 
@@ -399,7 +408,6 @@ function testSuiteText(testSuite?: DatastoreTestSuiteDefinition): string {
 function testCaseText(testCase: DatastoreTestCaseDefinition): string[] {
   return [
     testCase.name,
-    scopedTargetText(testCase.scopedTarget),
     ...testCase.setup.flatMap(testStepText),
     ...testCase.execute.flatMap(testStepText),
     ...testCase.teardown.flatMap(testStepText),

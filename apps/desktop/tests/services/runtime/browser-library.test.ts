@@ -60,8 +60,64 @@ describe('browser Library runtime', () => {
     })
 
     expect(() => duplicateLibraryNode(snapshot, { nodeId: 'folder-queries' })).toThrow(
-      /queries and scripts/i,
+      /connections and folders/i,
     )
+  })
+
+  it('duplicates target-bound test suites without changing their datastore binding', () => {
+    const snapshot = workspaceSnapshot()
+    snapshot.libraryNodes.push({
+      id: 'library-suite-1',
+      kind: 'test-suite',
+      parentId: 'library-root-tests',
+      name: 'Catalog checks',
+      tags: ['smoke'],
+      createdAt: '2026-05-14T00:00:00.000Z',
+      updatedAt: '2026-05-14T00:00:00.000Z',
+      connectionId: 'connection-1',
+      environmentId: 'environment-1',
+      scopedTarget: {
+        kind: 'table',
+        label: 'products',
+        scope: 'table:public:products',
+      },
+      testSuite: {
+        id: 'suite-1',
+        name: 'Catalog checks',
+        engine: 'postgresql',
+        family: 'sql',
+        connectionId: 'connection-1',
+        environmentId: 'environment-1',
+        scopedTarget: {
+          kind: 'table',
+          label: 'products',
+          scope: 'table:public:products',
+        },
+        inferredLanguage: 'sql',
+        cases: [],
+      },
+    })
+
+    const next = duplicateLibraryNode(snapshot, { nodeId: 'library-suite-1' })
+    const duplicate = next.libraryNodes.at(-1)
+
+    expect(duplicate).toMatchObject({
+      kind: 'test-suite',
+      name: 'Copy of Catalog checks',
+      connectionId: 'connection-1',
+      environmentId: 'environment-1',
+      scopedTarget: {
+        kind: 'table',
+        scope: 'table:public:products',
+      },
+      testSuite: {
+        name: 'Copy of Catalog checks',
+        connectionId: 'connection-1',
+        environmentId: 'environment-1',
+        inferredLanguage: 'sql',
+      },
+    })
+    expect(duplicate?.testSuite?.id).not.toBe('suite-1')
   })
 
   it('selects an already-open library item instead of opening a duplicate tab', () => {

@@ -26,11 +26,11 @@ use crate::{
         models::{
             AppHealth, AppPreferences, BootstrapPayload, ConnectionProfile,
             DatastoreApiServerConfig, DatastoreApiServerPreferences, DatastoreMcpServerPreferences,
-            DatastoreMcpServerTokenConfig, DatastoreSecurityChecksPreferences, DiagnosticsCounts,
-            DiagnosticsReport, ExportBundle, LockState, ResolvedEnvironment, UiState,
-            WorkspaceCreateRequest, WorkspaceRenameRequest, WorkspaceSearchSettingsRequest,
-            WorkspaceSnapshot, WorkspaceSwitchRequest, WorkspaceSwitcherSettingsRequest,
-            WorkspaceSwitcherStatus,
+            DatastoreMcpServerTokenConfig, DatastoreSecurityChecksPreferences,
+            DatastoreTestsSettingsRequest, DiagnosticsCounts, DiagnosticsReport, ExportBundle,
+            LockState, ResolvedEnvironment, UiState, WorkspaceCreateRequest,
+            WorkspaceRenameRequest, WorkspaceSearchSettingsRequest, WorkspaceSnapshot,
+            WorkspaceSwitchRequest, WorkspaceSwitcherSettingsRequest, WorkspaceSwitcherStatus,
         },
     },
     infrastructure, persistence, security,
@@ -217,6 +217,29 @@ impl ManagedAppState {
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
         self.snapshot.preferences.workspace_search.enabled = request.enabled;
+        self.snapshot.updated_at = timestamp_now();
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+
+    pub fn update_datastore_tests_settings(
+        &mut self,
+        request: DatastoreTestsSettingsRequest,
+    ) -> Result<BootstrapPayload, CommandError> {
+        self.ensure_unlocked()?;
+        if !request.enabled
+            && self.snapshot.tabs.iter().any(|tab| {
+                tab.tab_kind.as_deref() == Some("test-suite")
+                    && (tab.active_execution.is_some()
+                        || matches!(tab.status.as_str(), "running" | "queued"))
+            })
+        {
+            return Err(CommandError::new(
+                "datastore-tests-run-active",
+                "Wait for the active datastore test run to finish or cancel it before disabling the plugin.",
+            ));
+        }
+        self.snapshot.preferences.datastore_tests.enabled = request.enabled;
         self.snapshot.updated_at = timestamp_now();
         self.persist()?;
         Ok(self.bootstrap_payload())
@@ -1037,6 +1060,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
                     datastore_mcp_server: Default::default(),
                     datastore_security_checks: Default::default(),
                     workspace_search: Default::default(),
+                    datastore_tests: Default::default(),
                     first_install_guide: Default::default(),
                     explorer_folder_orders: HashMap::new(),
                 },
@@ -1070,6 +1094,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
             datastore_mcp_server: Default::default(),
             datastore_security_checks: Default::default(),
             workspace_search: Default::default(),
+            datastore_tests: Default::default(),
             first_install_guide: Default::default(),
             explorer_folder_orders: HashMap::new(),
         },

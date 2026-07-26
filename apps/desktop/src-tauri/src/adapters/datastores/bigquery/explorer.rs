@@ -84,6 +84,7 @@ pub(super) async fn list_bigquery_explorer_nodes(
         ),
         capabilities: bigquery_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

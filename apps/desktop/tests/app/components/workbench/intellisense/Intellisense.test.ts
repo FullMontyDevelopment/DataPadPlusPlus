@@ -1146,7 +1146,7 @@ describe('query intellisense', () => {
 
   it('has deterministic provider coverage for Wave 4 and Wave 5 secondary engines', () => {
     const providerCases = [
-      ['cosmosdb', 'document', 'sql', 'document-secondary'],
+      ['cosmosdb', 'document', 'sql', 'cosmos-sql'],
       ['litedb', 'document', 'json', 'document-secondary'],
       ['memcached', 'keyvalue', 'plaintext', 'memcached'],
       ['prometheus', 'timeseries', 'plaintext', 'timeseries'],

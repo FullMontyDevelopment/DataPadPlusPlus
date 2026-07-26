@@ -1,4 +1,4 @@
-import type { ConnectionProfile, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryTabState, ScopedQueryTarget, UpdateQueryTabTargetRequest, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
+import type { CloseQueryTabsRequest, ConnectionProfile, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryTabState, ScopedQueryTarget, UpdateQueryTabTargetRequest, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import { createId, defaultQueryTextForConnection, defaultQueryViewModeForConnection, defaultScriptTextForConnection, editorLabelForConnection, languageForConnection } from '../../app/state/helpers'
 import { createDefaultCosmosSqlBuilderState } from '../../app/components/workbench/query-builder/cosmos-sql'
 import {
@@ -811,42 +811,111 @@ export function updateQueryTabTargetInSnapshot(
   return next
 }
 
-export function closeQueryTab(snapshot: WorkspaceSnapshot, tabId: string): WorkspaceSnapshot {
+export interface BrowserCloseQueryTabsResult {
+  snapshot: WorkspaceSnapshot
+  closedTabIds: string[]
+  lockedTabIds: string[]
+  missingTabIds: string[]
+}
+
+export function closeQueryTabs(
+  snapshot: WorkspaceSnapshot,
+  request: CloseQueryTabsRequest,
+): BrowserCloseQueryTabsResult {
   const next = cloneSnapshot(snapshot)
-  const tabIndex = next.tabs.findIndex((item) => item.id === tabId)
+  const requestedTabIds = [...new Set(request.tabIds)]
+  const tabById = new Map(next.tabs.map((tab) => [tab.id, tab]))
+  const closedTabIds: string[] = []
+  const lockedTabIds: string[] = []
+  const missingTabIds: string[] = []
 
-  if (tabIndex < 0) {
-    return next
+  for (const tabId of requestedTabIds) {
+    const tab = tabById.get(tabId)
+    if (!tab) {
+      missingTabIds.push(tabId)
+    } else if (tab.activeExecution || tab.status === 'queued') {
+      lockedTabIds.push(tabId)
+    } else {
+      closedTabIds.push(tabId)
+    }
   }
 
-  const closedTab = next.tabs.splice(tabIndex, 1)[0]
-
-  if (!closedTab) {
-    return next
+  if (closedTabIds.length === 0) {
+    return { snapshot: next, closedTabIds, lockedTabIds, missingTabIds }
   }
 
-  archiveClosedTab(next, closedTab)
+  const originalTabs = next.tabs
+  const previousActiveTabId = next.ui.activeTabId
+  const previousActiveIndex = originalTabs.findIndex((tab) => tab.id === previousActiveTabId)
+  const closedTabIdSet = new Set(closedTabIds)
+  const closedTabsById = new Map(
+    originalTabs
+      .filter((tab) => closedTabIdSet.has(tab.id))
+      .map((tab) => [tab.id, tab]),
+  )
+  next.tabs = originalTabs.filter((tab) => !closedTabIdSet.has(tab.id))
 
-  const nextActiveTab =
-    next.tabs[tabIndex] ?? next.tabs[tabIndex - 1] ?? next.tabs[0]
+  for (const tabId of closedTabIds) {
+    const closedTab = closedTabsById.get(tabId)
+    if (closedTab) {
+      archiveClosedTab(next, closedTab)
+    }
+  }
+
+  const activeTabSurvives = next.tabs.some((tab) => tab.id === previousActiveTabId)
+  const nextActiveTab = activeTabSurvives
+    ? next.tabs.find((tab) => tab.id === previousActiveTabId)
+    : findNearestSurvivingTab(originalTabs, next.tabs, previousActiveIndex)
 
   if (nextActiveTab) {
     next.ui.activeTabId = nextActiveTab.id
     next.ui.activeConnectionId = nextActiveTab.connectionId
     next.ui.activeEnvironmentId = nextActiveTab.environmentId
   } else {
+    const previousActiveTab = originalTabs.find((tab) => tab.id === previousActiveTabId)
+    const fallbackClosedTab =
+      previousActiveTab ??
+      closedTabIds.map((tabId) => closedTabsById.get(tabId)).find(Boolean)
     const fallbackConnection =
-      next.connections.find((connection) => connection.id === closedTab.connectionId) ??
+      next.connections.find((connection) => connection.id === fallbackClosedTab?.connectionId) ??
       next.connections[0]
     next.ui.activeTabId = ''
     next.ui.activeConnectionId = fallbackConnection?.id ?? ''
     next.ui.activeEnvironmentId =
-      closedTab.environmentId || fallbackConnection?.environmentIds[0] || ''
+      fallbackClosedTab?.environmentId || fallbackConnection?.environmentIds[0] || ''
     next.ui.bottomPanelVisible = false
   }
 
   next.updatedAt = new Date().toISOString()
-  return next
+  return { snapshot: next, closedTabIds, lockedTabIds, missingTabIds }
+}
+
+function findNearestSurvivingTab(
+  originalTabs: QueryTabState[],
+  survivingTabs: QueryTabState[],
+  previousActiveIndex: number,
+): QueryTabState | undefined {
+  if (previousActiveIndex < 0) {
+    return survivingTabs[0]
+  }
+  const survivingIds = new Set(survivingTabs.map((tab) => tab.id))
+  return originalTabs
+    .map((tab, index) => ({ tab, index }))
+    .filter(({ tab }) => survivingIds.has(tab.id))
+    .sort((left, right) => {
+      const distance = Math.abs(left.index - previousActiveIndex) -
+        Math.abs(right.index - previousActiveIndex)
+      if (distance !== 0) {
+        return distance
+      }
+      const leftIsBefore = left.index < previousActiveIndex
+      const rightIsBefore = right.index < previousActiveIndex
+      return Number(leftIsBefore) - Number(rightIsBefore)
+    })[0]?.tab
+}
+
+export function closeQueryTab(snapshot: WorkspaceSnapshot, tabId: string): WorkspaceSnapshot {
+  return closeQueryTabs(snapshot, { tabIds: [tabId] }).snapshot
 }
 
 export function reorderQueryTabsInSnapshot(

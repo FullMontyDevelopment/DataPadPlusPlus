@@ -534,28 +534,66 @@ export const docArticles: DocArticle[] = [
     screenshots: ['test-suites', 'library-environments'],
     steps: [
       {
-        title: 'Create or open a test suite',
-        body: 'Test suites live with saved work in the Library and keep the target engine, connection, environment, and variables visible.',
+        title: 'Enable the experimental plugin',
+        body: 'Datastore Tests is disabled by default per workspace. Enable it from Settings → Plugins; disabling it later preserves every saved suite, case, result, and draft.',
       },
       {
-        title: 'Choose the editor mode',
-        body: 'Use the visual editor, raw JSON, or both. The visual mode is easier for common checks, while raw JSON keeps the full test definition inspectable.',
+        title: 'Bind the suite to its datastore target',
+        body: 'Choose one connection, one assigned environment, and a live database, table, view, collection, Redis/Valkey prefix, or DynamoDB table. Explorer actions open the same dialog with their object preselected. The binding is immutable after creation.',
       },
       {
-        title: 'Define setup and execute steps',
-        body: 'Add query or request steps for setup, execution, and teardown. SQL suites default to select 1, while MongoDB suites start with JSON-shaped reads.',
+        title: 'Create and navigate owned cases',
+        body: 'A Test Suite owns one or more Test Cases. Every case inherits the suite binding. Select virtual case children beneath the suite in the Library, then add, duplicate, reorder, disable, or remove cases in the visual editor.',
+      },
+      {
+        title: 'Build visual steps',
+        body: 'Add and remove query, builder, data-edit, or adapter-operation steps in Setup, Execute, and Teardown. The provider infers query language and generates a starter for the selected target; structured steps cannot retarget another datastore object.',
       },
       {
         title: 'Add assertions',
-        body: 'Use assertions such as row count, document count, key existence, key type, search-hit count, JSON path, no-error, or duration-under.',
+        body: 'Choose a source step, comparison, path or field, expected value, and timeout for assertions such as row count, document count, key existence, JSON path, no-error, or duration-under.',
       },
       {
-        title: 'Run and cancel safely',
-        body: 'Run the suite from the toolbar and cancel active runs when needed. The same environment and guardrail model applies to test execution.',
+        title: 'Review preflight and run real checks',
+        body: 'Preflight shows the immutable connection, environment, target, inferred language, adapter support, redacted generated requests, blockers, warnings, and an exact one-time phrase for writes. Ambiguous raw requests are warned; unsupported work is never reported as a simulated pass.',
       },
       {
-        title: 'Save tests near the target',
-        body: 'Keep suites in the same Library folder as the connection or saved query they prove so inherited environment context remains obvious.',
+        title: 'Run a case or the suite',
+        body: 'Run one focused case or every enabled case. Setup and Execute fail fast, Teardown is attempted after failures, and later cases continue after ordinary failures.',
+      },
+    ],
+  },
+  {
+    slug: 'datastore-explorer',
+    title: 'Explore Datastore Metadata',
+    description: 'Browse each datastore through its native hierarchy and purpose-built detail views.',
+    category: 'Core workflows',
+    readingTime: '6 min',
+    screenshots: ['explorer-tree', 'relationship-explorer'],
+    steps: [
+      {
+        title: 'Open Explorer from a connection',
+        body: 'Open Explorer from the connection menu. The full Explorer and sidebar use the same provider, loaded scopes, continuation pages, errors, and retry state.',
+      },
+      {
+        title: 'Browse the native hierarchy',
+        body: 'Expand the datastore-specific databases, schemas, collections, key groups, indices, metrics, graphs, or warehouse objects. System and administrative namespaces remain separate and collapsed by default.',
+      },
+      {
+        title: 'Load large inventories safely',
+        body: 'Explorer loads bounded pages, shows loaded and available counts where the datastore reports them, and marks partial results instead of implying that a truncated inventory is complete.',
+      },
+      {
+        title: 'Use purpose-built details',
+        body: 'Select an object to see structured metrics, inventories, schema, health, security, diagnostics, or bounded type-aware values. Raw provider metadata is never used as a visual fallback.',
+      },
+      {
+        title: 'Respond to exact states',
+        body: 'Empty, permission, authentication, connectivity, timeout, partial, and retryable failure states remain distinct so you know whether to load more, retry, or request access.',
+      },
+      {
+        title: 'Hand work to guarded tools',
+        body: 'Explorer is read-only. Open queries and operational views from contextual actions; edits and administrative changes continue through the existing guarded planning and confirmation workflows.',
       },
     ],
   },
@@ -568,8 +606,8 @@ export const docArticles: DocArticle[] = [
     screenshots: ['relationship-explorer', 'explorer-tree'],
     steps: [
       {
-        title: 'Open Structure from a SQL connection',
-        body: 'Use a SQL-family connection or Explorer action to open the structure workspace for the schemas and tables you want to understand.',
+        title: 'Open the Relationship map',
+        body: 'Use the secondary Relationship map action from a SQL-family Explorer after choosing the schemas and tables you want to understand.',
       },
       {
         title: 'Filter before loading broadly',

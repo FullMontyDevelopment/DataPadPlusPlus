@@ -193,6 +193,13 @@ pub struct WorkspaceSearchPreferences {
     pub enabled: bool,
 }
 
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct DatastoreTestsPreferences {
+    pub enabled: bool,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSnapshot {

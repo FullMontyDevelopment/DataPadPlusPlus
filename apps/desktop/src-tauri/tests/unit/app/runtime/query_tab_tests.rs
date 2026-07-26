@@ -6,7 +6,9 @@ use super::{
         build_environment_tab, build_metrics_tab, build_query_tab, default_query_text,
         default_script_text,
     },
-    tabs::{apply_query_target_update, tab_close_persistence_warning},
+    tabs::{
+        apply_query_target_update, close_query_tabs_in_snapshot, tab_close_persistence_warning,
+    },
     timestamp_now,
     ui::{focus_query_tab, is_bottom_panel_tab},
 };
@@ -17,6 +19,83 @@ use crate::domain::{
         QueryTabActiveExecution, ScopedQueryTarget, UpdateQueryTabTargetRequest, UserFacingError,
     },
 };
+
+#[test]
+fn bulk_tab_close_deduplicates_and_reports_locked_and_missing_tabs() {
+    let connection = test_connection("conn-postgres", "Postgres", "postgresql", "sql");
+    let mut snapshot = blank_workspace_snapshot();
+    snapshot.connections.push(connection.clone());
+    snapshot.tabs = (0..4)
+        .map(|index| {
+            let mut tab = build_query_tab(&connection, false, format!("Tab {index}"));
+            tab.id = format!("tab-{index}");
+            tab
+        })
+        .collect();
+    snapshot.tabs[2].status = "queued".into();
+    snapshot.ui.active_tab_id = "tab-1".into();
+
+    let outcome = close_query_tabs_in_snapshot(
+        &mut snapshot,
+        vec![
+            "tab-0".into(),
+            "tab-2".into(),
+            "tab-missing".into(),
+            "tab-0".into(),
+            "tab-3".into(),
+        ],
+    );
+
+    assert_eq!(outcome.closed_tab_ids, vec!["tab-0", "tab-3"]);
+    assert_eq!(outcome.locked_tab_ids, vec!["tab-2"]);
+    assert_eq!(outcome.missing_tab_ids, vec!["tab-missing"]);
+    assert_eq!(
+        snapshot
+            .tabs
+            .iter()
+            .map(|tab| tab.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["tab-1", "tab-2"]
+    );
+    assert_eq!(snapshot.ui.active_tab_id, "tab-1");
+    assert_eq!(
+        snapshot
+            .closed_tabs
+            .iter()
+            .map(|closed| closed.tab.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["tab-3", "tab-0"]
+    );
+}
+
+#[test]
+fn bulk_tab_close_selects_the_nearest_surviving_tab_and_bounds_history() {
+    let connection = test_connection("conn-postgres", "Postgres", "postgresql", "sql");
+    let mut snapshot = blank_workspace_snapshot();
+    snapshot.connections.push(connection.clone());
+    snapshot.tabs = (0..30)
+        .map(|index| {
+            let mut tab = build_query_tab(&connection, false, format!("Tab {index}"));
+            tab.id = format!("tab-{index}");
+            tab
+        })
+        .collect();
+    snapshot.ui.active_tab_id = "tab-15".into();
+
+    close_query_tabs_in_snapshot(&mut snapshot, vec!["tab-15".into(), "tab-16".into()]);
+    assert_eq!(snapshot.ui.active_tab_id, "tab-14");
+
+    let remaining_ids = snapshot
+        .tabs
+        .iter()
+        .map(|tab| tab.id.clone())
+        .collect::<Vec<_>>();
+    close_query_tabs_in_snapshot(&mut snapshot, remaining_ids);
+
+    assert!(snapshot.tabs.is_empty());
+    assert_eq!(snapshot.closed_tabs.len(), 25);
+    assert_eq!(snapshot.closed_tabs[0].tab.id, "tab-29");
+}
 
 #[test]
 fn target_update_is_atomic_and_clears_stale_execution_state() {

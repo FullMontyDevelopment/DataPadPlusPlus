@@ -53,6 +53,7 @@ export function useQueryExecutionActions({
       documentEfficiencyMode,
       selectedText,
       builderState,
+      datastoreExecutionInput,
     ) => {
       if (dispatchingTabsRef.current.has(tabId)) {
         return
@@ -93,6 +94,7 @@ export function useQueryExecutionActions({
           confirmedGuardrailId,
           builderState,
           scopedTarget: tab.scopedTarget,
+          datastoreExecutionInput,
         }
 
         dispatch({

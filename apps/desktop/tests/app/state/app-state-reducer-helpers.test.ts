@@ -745,6 +745,53 @@ describe('mergeExplorerCacheEntry', () => {
     ])
   })
 
+  it('appends continuation pages while deduplicating node ids', () => {
+    const firstPage = {
+      ...rootResponse,
+      scope: 'collections:catalog',
+      nodes: [
+        {
+          id: 'collection:catalog:products',
+          family: 'document' as const,
+          label: 'products',
+          kind: 'collection',
+          detail: 'collection',
+        },
+      ],
+      pageInfo: {
+        returnedCount: 1,
+        knownTotal: 2,
+        hasMore: true,
+        nextCursor: 'mongodb-explorer-v1:scope:1',
+      },
+    }
+    const entry = mergeExplorerCacheEntry(undefined, firstPage)
+    const nextPage = mergeExplorerCacheEntry(entry, {
+      ...firstPage,
+      nodes: [
+        firstPage.nodes[0],
+        {
+          id: 'collection:catalog:orders',
+          family: 'document',
+          label: 'orders',
+          kind: 'collection',
+          detail: 'collection',
+        },
+      ],
+      pageInfo: {
+        cursor: firstPage.pageInfo.nextCursor,
+        returnedCount: 2,
+        knownTotal: 2,
+        hasMore: false,
+      },
+    })
+
+    expect(nextPage.scopes['collections:catalog'].nodes.map((node) => node.id)).toEqual([
+      'collection:catalog:products',
+      'collection:catalog:orders',
+    ])
+  })
+
   it('keeps SQL Server parent branches when a deep scoped refresh returns empty', () => {
     const sqlRoot: ExplorerResponse = {
       connectionId: 'conn-sql',

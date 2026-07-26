@@ -222,6 +222,26 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
     }
   }
 
+  if (nodeId.startsWith('index:')) {
+    const parts = nodeId.split(':')
+    const databaseName = parts[1]?.trim() || database
+    const collectionName = parts[2]?.trim()
+    const indexName = parts.slice(3).join(':').trim()
+    if (!databaseName || !collectionName || !indexName) {
+      return emptyMongoPayload(database, nodeId, 'index')
+    }
+    return {
+      database: databaseName,
+      collection: collectionName,
+      indexes: [{
+        name: indexName,
+        key: indexName === '_id_' ? { _id: 1 } : { sku: 1 },
+        unique: indexName === '_id_',
+        sparse: false,
+      }],
+    }
+  }
+
   if (nodeId.startsWith('create-index:')) {
     const scope = parseMongoObjectScopeStrict(nodeId, 'create-index:', database)
     if (!scope) {
@@ -287,6 +307,55 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
     }
   }
 
+  if (
+    nodeId.startsWith('gridfs:') ||
+    nodeId.startsWith('gridfs-buckets:') ||
+    nodeId.startsWith('gridfs-bucket:') ||
+    nodeId.startsWith('gridfs-files:') ||
+    nodeId.startsWith('gridfs-chunks:')
+  ) {
+    const parts = nodeId.split(':')
+    const databaseName = parts[1]?.trim() || database || 'sample'
+    const explicitBucket = nodeId.startsWith('gridfs-bucket:')
+      ? parts.slice(2).join(':').trim()
+      : nodeId.startsWith('gridfs:') && parts.length > 2
+        ? parts.slice(2).join(':').replace(/\.(files|chunks)$/, '').trim()
+        : ''
+    const bucket = explicitBucket || 'fs'
+    const includeFiles = !nodeId.startsWith('gridfs-buckets:') && !nodeId.startsWith('gridfs-chunks:')
+    const includeChunks = !nodeId.startsWith('gridfs-buckets:') && !nodeId.startsWith('gridfs-files:')
+
+    return {
+      database: databaseName,
+      bucket,
+      filesCollection: `${bucket}.files`,
+      chunksCollection: `${bucket}.chunks`,
+      buckets: [
+        { name: 'fs', filesCollection: 'fs.files', chunksCollection: 'fs.chunks' },
+        { name: 'archive', filesCollection: 'archive.files', chunksCollection: 'archive.chunks' },
+      ],
+      files: includeFiles ? [
+        {
+          _id: { $oid: '64f1e7a35b6f5e1c2a917101' },
+          filename: 'fixture-report.pdf',
+          length: { $numberLong: '4096' },
+          chunkSize: 261120,
+          uploadDate: '2026-01-01T00:00:00.000Z',
+          metadata: { contentType: 'application/pdf' },
+        },
+      ] : [],
+      chunks: includeChunks ? [
+        {
+          files_id: { $oid: '64f1e7a35b6f5e1c2a917101' },
+          n: 0,
+          size: 4096,
+        },
+      ] : [],
+      sampleLimit: 25,
+      preview: true,
+    }
+  }
+
   if (nodeId.startsWith('users:')) {
     const databaseName = parseMongoDatabaseScope(nodeId, 'users:', database)
     if (!databaseName) {
@@ -295,6 +364,24 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
     return {
       database: databaseName,
       users: [{ user: 'fixture_reader', roles: ['read'] }],
+    }
+  }
+
+  if (nodeId.startsWith('user:')) {
+    const parts = nodeId.split(':')
+    const databaseName = parts[1]?.trim() || database
+    const user = parts.slice(2).join(':').trim()
+    if (!databaseName || !user) {
+      return emptyMongoPayload(database, nodeId, 'user')
+    }
+    return {
+      database: databaseName,
+      users: [{
+        user,
+        db: databaseName,
+        roles: [{ role: 'read', db: databaseName }],
+        privileges: [],
+      }],
     }
   }
 
@@ -309,7 +396,29 @@ export function mongoInspectPayload(connection: ConnectionProfile, nodeId: strin
     }
   }
 
-  return emptyMongoPayload(database, nodeId, 'metadata')
+  if (nodeId.startsWith('role:')) {
+    const parts = nodeId.split(':')
+    const databaseName = parts[1]?.trim() || database
+    const role = parts.slice(2).join(':').trim()
+    if (!databaseName || !role) {
+      return emptyMongoPayload(database, nodeId, 'role')
+    }
+    return {
+      database: databaseName,
+      roles: [{
+        role,
+        db: databaseName,
+        inheritedRoles: [],
+        privileges: [],
+      }],
+    }
+  }
+
+  return {
+    database: database ?? '',
+    objectView: 'unsupported',
+    warning: 'This MongoDB metadata type is not available in Explorer preview.',
+  }
 }
 
 function emptyMongoPayload(database: string | undefined, nodeId: string, objectView: string) {

@@ -173,6 +173,10 @@ export interface WorkspaceSearchPreferences {
   enabled: boolean
 }
 
+export interface DatastoreTestsPreferences {
+  enabled: boolean
+}
+
 export interface DatastoreSecurityChecksPreferences {
   enabled: boolean
   refreshIntervalDays: number
@@ -408,6 +412,7 @@ export interface AppPreferences {
   datastoreMcpServer?: DatastoreMcpServerPreferences
   datastoreSecurityChecks?: DatastoreSecurityChecksPreferences
   workspaceSearch?: WorkspaceSearchPreferences
+  datastoreTests?: DatastoreTestsPreferences
   firstInstallGuide?: FirstInstallGuidePreferences
   explorerFolderOrders?: Record<string, string[]>
 }

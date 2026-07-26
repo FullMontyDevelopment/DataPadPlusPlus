@@ -8,17 +8,25 @@ describe('browser explorer runtime', () => {
 
     expect(createExplorerNodes(connection)).toEqual([
       expect.objectContaining({
-        id: 'database:catalog',
-        label: 'catalog',
-        kind: 'database',
-        scope: 'database:catalog',
+        id: 'databases',
+        label: 'Databases',
+        scope: 'databases',
+      }),
+      expect.objectContaining({
+        id: 'system-databases',
+        label: 'System Databases',
+        scope: 'system-databases',
       }),
     ])
 
     expect(createExplorerNodes(connection, 'database:catalog').map((node) => node.label)).toEqual([
       'Collections',
       'Views',
+      'Time Series Collections',
+      'Capped Collections',
       'GridFS',
+      'Search Indexes',
+      'Vector Indexes',
       'Users',
       'Roles',
       'Database Statistics',
@@ -73,7 +81,7 @@ describe('browser explorer runtime', () => {
     expect(createExplorerNodes(genericPreviewConnection('experimental-keyvalue' as ConnectionProfile['engine'], 'keyvalue'), 'prefix:session:')).toEqual([])
   })
 
-  it('does not invent sample inspection payloads for unimplemented preview families', () => {
+  it('returns a payload-free state for unregistered preview engines', () => {
     const connection = genericPreviewConnection('experimental-document' as ConnectionProfile['engine'], 'document')
     const response = inspectExplorerNodeLocally({
       connections: [connection],
@@ -84,13 +92,8 @@ describe('browser explorer runtime', () => {
     })
 
     expect(response.queryTemplate).toBeUndefined()
-    expect(response.payload).toEqual(expect.objectContaining({
-      objectView: 'unavailable',
-      warnings: ['Preview metadata is not available for this datastore adapter yet.'],
-    }))
-    expect(JSON.stringify(response.payload)).not.toContain('sku')
-    expect(JSON.stringify(response.payload)).not.toContain('userId')
-    expect(JSON.stringify(response.payload)).not.toContain('updated_at')
+    expect(response.payload).toBeUndefined()
+    expect(response.summary).toBe('Explorer metadata is not registered for this datastore engine.')
   })
 
   it('returns focused Mongo inspection payloads for admin nodes', () => {

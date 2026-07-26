@@ -35,6 +35,7 @@ import {
   explorerFolderOrderKey,
 } from './SideBar.connection-object-tree-order'
 import { ExplorerNodeIcon } from './SideBar.node-icons'
+import { validateDatastoreTestTarget } from './query-targets/test-suite-target-registry'
 import type { ConnectionTreeAction, ConnectionTreeNode } from './SideBar.helpers'
 
 export const CONNECTION_OBJECT_CHILD_BATCH_SIZE = 100
@@ -60,6 +61,7 @@ export function ConnectionObjectTree({
   onAddToApiServer,
   onOpenObjectView,
   onOpenScopedQuery,
+  onCreateTestSuite,
   explorerFolderOrders,
   onSetExplorerFolderOrder,
 }: {
@@ -77,6 +79,7 @@ export function ConnectionObjectTree({
   onAddToApiServer?(connectionId: string, node: ExplorerNode): void
   onOpenObjectView?(connectionId: string, node: ExplorerNode): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
+  onCreateTestSuite?(connectionId: string, target: ScopedQueryTarget): void
   explorerFolderOrders?: Record<string, string[]>
   onSetExplorerFolderOrder?(orderKey: string, orderedNodeKeys: string[]): void
 }) {
@@ -85,7 +88,6 @@ export function ConnectionObjectTree({
     () => nodesOverride ?? buildConnectionObjectTree(connection, adapterManifest),
     [adapterManifest, connection, nodesOverride],
   )
-  const hasStructuralManifest = Boolean(nodesOverride || adapterManifest?.tree)
   const liveNodes = useMemo(
     () =>
       explorerNodes
@@ -99,7 +101,7 @@ export function ConnectionObjectTree({
       return structuralNodes
     }
 
-    if (shouldOverlayLiveExplorer(connection, hasStructuralManifest)) {
+    if (shouldOverlayLiveExplorer(connection)) {
       if ((liveNodes ?? []).length === 0) {
         return []
       }
@@ -108,7 +110,7 @@ export function ConnectionObjectTree({
     }
 
     return liveNodes ?? []
-  }, [connection, hasStructuralManifest, liveNodes, structuralNodes, usingLiveExplorer])
+  }, [connection, liveNodes, structuralNodes, usingLiveExplorer])
   const nodes = useMemo(
     () =>
       orderConnectionTreeNodes(
@@ -238,6 +240,7 @@ export function ConnectionObjectTree({
         canRefreshNode: Boolean(onLoadExplorerScope),
         canCreateApiServer: Boolean(onCreateApiServer),
         canAddToApiServer: Boolean(onAddToApiServer),
+        canCreateTestSuite: canCreateTestSuiteForNode(node),
       })
     ) {
       return
@@ -285,6 +288,14 @@ export function ConnectionObjectTree({
   }
   const addToApiServer = (node: ConnectionTreeNode) => {
     onAddToApiServer?.(connection.id, connectionTreeNodeToExplorerNode(connection, node))
+  }
+  const canCreateTestSuiteForNode = (node: ConnectionTreeNode) =>
+    Boolean(
+      onCreateTestSuite &&
+      !validateDatastoreTestTarget(connection, connectionTreeNodeTarget(node)),
+    )
+  const createTestSuite = (node: ConnectionTreeNode) => {
+    onCreateTestSuite?.(connection.id, connectionTreeNodeTarget(node))
   }
 
   useEffect(() => {
@@ -344,6 +355,7 @@ export function ConnectionObjectTree({
               draggedFolder={draggedFolder}
               folderDropTarget={folderDropTarget}
               canAddToApiServer={Boolean(onAddToApiServer)}
+              canCreateTestSuite={canCreateTestSuiteForNode(node)}
               canCreateApiServer={Boolean(onCreateApiServer)}
               explorerStatus={explorerStatus}
               isExplorerScopeLoading={isExplorerScopeLoading}
@@ -378,6 +390,11 @@ export function ConnectionObjectTree({
           onInspectNode={onInspectNode ? inspectNode : undefined}
           onOpenObjectView={onOpenObjectView ? openObjectView : undefined}
           onOpenQuery={openNodeQuery}
+          onCreateTestSuite={
+            canCreateTestSuiteForNode(contextMenu.node)
+              ? createTestSuite
+              : undefined
+          }
           onRefresh={refreshNode}
           onRunAction={runNodeAction}
           onToggleNode={toggleNode}
@@ -387,12 +404,9 @@ export function ConnectionObjectTree({
   )
 }
 
-function shouldOverlayLiveExplorer(
-  connection: ConnectionProfile,
-  hasStructuralManifest: boolean,
-) {
+function shouldOverlayLiveExplorer(connection: ConnectionProfile) {
   if (connection.engine === 'mongodb') {
-    return hasStructuralManifest
+    return false
   }
 
   return (
@@ -655,6 +669,7 @@ function ConnectionObjectTreeNode({
   canInspectNode,
   canCreateApiServer,
   canAddToApiServer,
+  canCreateTestSuite,
   connection,
   depth,
   visualDepth,
@@ -684,6 +699,7 @@ function ConnectionObjectTreeNode({
   canInspectNode: boolean
   canCreateApiServer: boolean
   canAddToApiServer: boolean
+  canCreateTestSuite: boolean
   connection: ConnectionProfile
   depth: number
   visualDepth: number
@@ -746,6 +762,7 @@ function ConnectionObjectTreeNode({
     canRefreshNode: Boolean(onLoadExplorerScope),
     canCreateApiServer,
     canAddToApiServer,
+    canCreateTestSuite,
   })
   const shouldAutoLoadChildren =
     expanded && shouldLoadScopedChildren(connection, node, children, branchLoading)
@@ -955,6 +972,7 @@ function ConnectionObjectTreeNode({
                 canInspectNode={canInspectNode}
                 canCreateApiServer={canCreateApiServer}
                 canAddToApiServer={canAddToApiServer}
+                canCreateTestSuite={canCreateTestSuite}
                 onContextMenu={onContextMenu}
                 onLoadExplorerScope={onLoadExplorerScope}
                 onLoadMoreChildren={onLoadMoreChildren}

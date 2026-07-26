@@ -7,6 +7,7 @@ import type {
   DatastoreApiServerStatus,
   DatastoreMcpServerInstanceStatus,
   DatastoreMcpServerStatus,
+  DatastoreQueryEditorState,
   EnvironmentProfile,
   ExecutionRequest,
   ExplorerNode,
@@ -30,6 +31,10 @@ import {
   SaveQueryDialog,
 } from './components/workbench/AppDialogs'
 import { BootSurface, WelcomeSurface } from './components/workbench/BootSurfaces'
+import {
+  CreateTestSuiteDialog,
+  type CreateTestSuiteDialogRequest,
+} from './components/workbench/CreateTestSuiteDialog'
 import { DatastoreQueryEditor } from './components/workbench/datastores/DatastoreQueryEditor'
 import { EditorTabs } from './components/workbench/EditorTabs'
 import { EditorToolbar } from './components/workbench/EditorToolbar'
@@ -37,6 +42,7 @@ import { FirstInstallGuide } from './components/workbench/FirstInstallGuide'
 import { comparableEnvironment } from './components/workbench/EnvironmentWorkspace.helpers'
 import { useReviewConfirmation } from './components/workbench/use-review-confirmation'
 import { StatusBar } from './components/workbench/StatusBar'
+import { SettingsWorkspace } from './components/workbench/SettingsWorkspace'
 import type { SettingsSection } from './components/workbench/SettingsWorkspace.constants'
 import {
   isRedisKeyBrowserState,
@@ -56,7 +62,7 @@ import {
   completionProvidersForConnection,
 } from './components/workbench/intellisense/providers'
 import { useQueryIntellisenseCatalog } from './components/workbench/intellisense/useQueryIntellisenseCatalog'
-import { SavedWorkIcon } from './components/workbench/icons'
+import { ExplorerIcon, SavedWorkIcon } from './components/workbench/icons'
 import { resolveActiveLibraryNodeId } from './components/workbench/SideBar.library-tree-helpers'
 import { AppStateProvider, useAppState } from './state/app-state'
 import {
@@ -66,6 +72,7 @@ import {
 import type { Actions } from './state/app-state-types'
 import {
   explorerCacheKey,
+  explorerRequestKey,
   hasExplorerScope,
   isExplorerRequestLoading,
 } from './state/app-state-reducer-helpers'
@@ -86,6 +93,7 @@ import {
   resolveKeyboardShortcuts,
 } from './keyboard-shortcuts'
 import { GlobalShortcutHandler } from './controllers/GlobalShortcutHandler'
+import { useTabCloseCoordinator } from './controllers/useTabCloseCoordinator'
 import {
   operationExecutionPlanResponse,
   operationReviewReasons,
@@ -162,16 +170,6 @@ const SideBar = lazy(() =>
     default: module.SideBar,
   })),
 )
-const SettingsWorkspace = lazy(() =>
-  import('./components/workbench/SettingsWorkspace').then((module) => ({
-    default: module.SettingsWorkspace,
-  })),
-)
-const StructureWorkspace = lazy(() =>
-  import('./components/workbench/StructureWorkspace').then((module) => ({
-    default: module.StructureWorkspace,
-  })),
-)
 const TestSuiteWorkspace = lazy(() =>
   import('./components/workbench/TestSuiteWorkspace').then((module) => ({
     default: module.TestSuiteWorkspace,
@@ -194,6 +192,18 @@ const NO_ENVIRONMENT_PROFILE = {
 } satisfies EnvironmentProfile
 
 const EMPTY_STRING_ARRAY: string[] = []
+
+function omitTabState<T>(current: Record<string, T>, closedTabIds: Set<string>) {
+  const next = { ...current }
+  let changed = false
+  for (const tabId of closedTabIds) {
+    if (Object.hasOwn(next, tabId)) {
+      delete next[tabId]
+      changed = true
+    }
+  }
+  return changed ? next : current
+}
 
 export function App() {
   return (
@@ -231,6 +241,7 @@ function DesktopWorkspace() {
     exportBundle,
     explorerCache,
     explorerError,
+    explorerErrors,
     explorerInspection,
     explorerLoadingRequests,
     explorerStatus,
@@ -270,7 +281,6 @@ function DesktopWorkspace() {
   }>()
   const [materializeRequestRevision, setMaterializeRequestRevision] = useState(0)
   const [queryWindowMode, setQueryWindowMode] = useState<QueryViewMode>('raw')
-  const [testWindowMode, setTestWindowMode] = useState<'both' | 'builder' | 'raw'>('both')
   const [settingsInitialSectionRequest, setSettingsInitialSectionRequest] = useState<{
     revision: number
     section: SettingsSection
@@ -298,6 +308,11 @@ function DesktopWorkspace() {
     Record<string, QueryBuilderState>
   >({})
   const queryTextDraftRef = useRef<Record<string, string>>({})
+  const datastoreEditorStateDraftRef = useRef<Record<string, DatastoreQueryEditorState>>({})
+  const datastoreEditorStateSyncTimersRef = useRef<Record<string, number>>({})
+  const [datastoreEditorStateDrafts, setDatastoreEditorStateDrafts] = useState<
+    Record<string, DatastoreQueryEditorState>
+  >({})
   const scriptTextDraftRef = useRef<Record<string, string>>({})
   const queryTextDraftSyncTimersRef = useRef<Record<string, number>>({})
   const scriptTextDraftSyncTimersRef = useRef<Record<string, number>>({})
@@ -309,13 +324,6 @@ function DesktopWorkspace() {
   const [redisBrowserRefreshSignals, setRedisBrowserRefreshSignals] = useState<Record<string, number>>({})
   const [apiServerStatus, setApiServerStatus] = useState<DatastoreApiServerStatus>()
   const [mcpServerStatus, setMcpServerStatus] = useState<DatastoreMcpServerStatus>()
-  const [pendingTabClose, setPendingTabClose] = useState<
-    | {
-        tab: QueryTabState
-        remainingTabIds: string[]
-      }
-    | undefined
-  >()
   const [pendingSaveTabId, setPendingSaveTabId] = useState<string>()
   const [pendingConnectionDelete, setPendingConnectionDelete] = useState<
     ConnectionProfile | undefined
@@ -325,6 +333,9 @@ function DesktopWorkspace() {
   >()
   const [pendingEnvironmentDelete, setPendingEnvironmentDelete] = useState<
     EnvironmentProfile | undefined
+  >()
+  const [pendingCreateTestSuite, setPendingCreateTestSuite] = useState<
+    CreateTestSuiteDialogRequest | undefined
   >()
   const bottomPanelVisibleRef = useRef(false)
   const promptedGuardrailRef = useRef<string | undefined>(undefined)
@@ -858,6 +869,27 @@ function DesktopWorkspace() {
       getConnectionExplorerResponse(connectionId, environmentId)?.nodes,
     [getConnectionExplorerResponse],
   )
+  const getConnectionExplorerScopes = useCallback(
+    (connectionId: string, environmentId?: string) => {
+      const resolvedEnvironmentId = environmentId || activeEnvironmentId
+      if (!resolvedEnvironmentId) {
+        return undefined
+      }
+      return explorerCache?.[explorerCacheKey(connectionId, resolvedEnvironmentId)]?.scopes
+    },
+    [activeEnvironmentId, explorerCache],
+  )
+  const getConnectionExplorerScopeError = useCallback(
+    (connectionId: string, environmentId: string, scope?: string) =>
+      explorerErrors[
+        explorerRequestKey({
+          connectionId,
+          environmentId,
+          scope,
+        })
+      ],
+    [explorerErrors],
+  )
   const getConnectionExplorerStatus = useCallback(
     (connectionId: string, environmentId?: string) => {
       const resolvedEnvironmentId = environmentId || activeEnvironmentId
@@ -881,6 +913,14 @@ function DesktopWorkspace() {
         : ('idle' as const)
     },
     [activeEnvironmentId, explorerLoadingRequests, getConnectionExplorerResponse],
+  )
+  const isConnectionExplorerScopeLoaded = useCallback(
+    (connectionId: string, environmentId: string, scope?: string) =>
+      hasExplorerScope(
+        explorerCache?.[explorerCacheKey(connectionId, environmentId)],
+        scope,
+      ),
+    [explorerCache],
   )
   const getConnectionHealth = useCallback(
     (connectionId: string, environmentId?: string) => {
@@ -928,6 +968,7 @@ function DesktopWorkspace() {
   const activeWorkbenchSlice = activeConnection
     ? workbenchSliceForEngine(activeConnection.engine)
     : undefined
+  const ActiveDatastoreExplorerWorkspace = activeWorkbenchSlice?.explorer.Workspace
   const activeTabSupportsScripting = Boolean(activeWorkbenchSlice?.query?.supportsScripting)
   const activeQueryWindowMode: QueryViewMode = hasBuilderQuery
     ? queryWindowMode === 'script' && !activeTabSupportsScripting
@@ -970,6 +1011,15 @@ function DesktopWorkspace() {
     activeQueryWindowMode === 'builder'
       ? buildQueryTextForBuilderState(activeBuilderState, activeConnection, activeTab)
       : activeTabQueryText)
+  const activeDatastoreQueryEditorState =
+    activeTab && activeWorkbenchSlice?.query?.resolveEditorState
+      ? datastoreEditorStateDrafts[activeTab.id] ??
+        activeWorkbenchSlice.query.resolveEditorState(activeTab, activeBuilderState)
+      : activeTab?.queryEditorState
+  const activeCompletionQueryText =
+    activeDatastoreQueryEditorState && activeWorkbenchSlice?.query?.editorText
+      ? activeWorkbenchSlice.query.editorText(activeDatastoreQueryEditorState)
+      : activeEditorQueryText
   const activeEditorResetKey =
     activeTabId && activeQueryWindowMode !== 'builder'
       ? `${activeTabId}:${activeQueryWindowMode}:${editorResetRevisions[activeTabId] ?? 0}`
@@ -1028,12 +1078,12 @@ function DesktopWorkspace() {
       environment: activeEnvironment,
       tab: activeTab,
       language: activeQueryWindowMode === 'script' ? 'javascript' : runtimeCapabilities.editorLanguage,
-      queryText: activeEditorQueryText ?? activeTab.queryText,
+      queryText: activeCompletionQueryText ?? activeTab.queryText,
       catalog: intellisenseCatalog,
     }
   }, [
     activeConnection,
-    activeEditorQueryText,
+    activeCompletionQueryText,
     activeEnvironment,
     activeTab,
     activeTabIsExplorer,
@@ -1547,6 +1597,52 @@ function DesktopWorkspace() {
       return
     }
 
+    if (
+      builderState &&
+      activeWorkbenchSlice?.query?.prepareExecution &&
+      (activeQueryWindowMode === 'builder' || activeQueryWindowMode === 'raw')
+    ) {
+      const executionPlan = activeWorkbenchSlice.query.prepareExecution({
+        tab: activeTab,
+        builderState,
+        editorState:
+          datastoreEditorStateDraftRef.current[activeTab.id] ??
+          activeDatastoreQueryEditorState,
+        mode: activeQueryWindowMode,
+        selectedText,
+      })
+      if (executionPlan.errors?.length) {
+        actions.addWorkbenchMessage({
+          severity: 'error',
+          message: executionPlan.errors[0] ?? 'The datastore query could not be validated.',
+          source: 'Datastore Query Editor',
+          details: executionPlan.errors.join('\n'),
+        })
+        return
+      }
+      if (executionPlan.warnings?.length) {
+        actions.addWorkbenchMessage({
+          severity: 'warning',
+          message: executionPlan.warnings[0] ?? 'Review the datastore query before running it.',
+          source: 'Datastore Query Editor',
+          details: executionPlan.warnings.join('\n'),
+        })
+      }
+      void actions.executeQuery(
+        activeTab.id,
+        executionMode,
+        guardrailId,
+        executionPlan.queryText,
+        activeQueryWindowMode,
+        undefined,
+        false,
+        selectedText,
+        executionPlan.builderState,
+        executionPlan.datastoreExecutionInput,
+      )
+      return
+    }
+
     const documentEfficiencyMode =
       Boolean(activeWorkbenchSlice?.query?.supportsDocumentEfficiency) && activeDocumentEfficiencyMode
 
@@ -1573,6 +1669,7 @@ function DesktopWorkspace() {
       undefined,
       documentEfficiencyMode,
       undefined,
+      builderState,
     )
   }, [
     actions,
@@ -1580,7 +1677,8 @@ function DesktopWorkspace() {
     activeDocumentEfficiencyMode,
     activeExecutionLocked,
     activeQueryWindowMode,
-    activeWorkbenchSlice?.query?.supportsDocumentEfficiency,
+    activeDatastoreQueryEditorState,
+    activeWorkbenchSlice,
     activeTab,
     commitQueryTextDraft,
     rememberRedisConsoleCommand,
@@ -1752,8 +1850,10 @@ function DesktopWorkspace() {
       const builderState = builderStateDraftRef.current[tabId]
       const draftQueryText = queryTextDraftRef.current[tabId]
       const draftScriptText = scriptTextDraftRef.current[tabId]
+      const datastoreEditorState = datastoreEditorStateDraftRef.current[tabId]
       const queryTimer = queryTextDraftSyncTimersRef.current[tabId]
       const scriptTimer = scriptTextDraftSyncTimersRef.current[tabId]
+      const datastoreEditorTimer = datastoreEditorStateSyncTimersRef.current[tabId]
 
       if (queryTimer) {
         window.clearTimeout(queryTimer)
@@ -1765,8 +1865,26 @@ function DesktopWorkspace() {
         delete scriptTextDraftSyncTimersRef.current[tabId]
       }
 
+      if (datastoreEditorTimer) {
+        window.clearTimeout(datastoreEditorTimer)
+        delete datastoreEditorStateSyncTimersRef.current[tabId]
+      }
+
       if (draftScriptText !== undefined) {
         await actions.updateQuery(tabId, draftScriptText, 'script')
+      }
+
+      const queryHooks = connection
+        ? workbenchSliceForEngine(connection.engine)?.query
+        : undefined
+      if (datastoreEditorState && queryHooks?.editorText) {
+        await actions.updateDatastoreQueryEditorState({
+          tabId,
+          editorState: datastoreEditorState,
+          queryText: queryHooks.editorText(datastoreEditorState),
+          queryViewMode: 'raw',
+        })
+        return
       }
 
       if (builderState) {
@@ -1794,7 +1912,7 @@ function DesktopWorkspace() {
       const tab = snapshotTabs?.find((item) => item.id === tabId)
 
       if (!tab || tab.tabKind !== 'environment') {
-        return
+        return false
       }
 
       const savedEnvironment = snapshotEnvironments?.find(
@@ -1803,14 +1921,14 @@ function DesktopWorkspace() {
       const draft = environmentDraftsRef.current[tabId] ?? savedEnvironment
 
       if (!draft) {
-        return
+        return false
       }
 
       const secretDrafts = environmentSecretDraftsRef.current[tabId] ?? {}
       const saved = await actions.saveEnvironment(draft, secretDrafts)
 
       if (!saved) {
-        return
+        return false
       }
 
       setEnvironmentDrafts((current) => {
@@ -1828,6 +1946,7 @@ function DesktopWorkspace() {
       if (tab.title !== nextTitle) {
         await actions.renameTab(tabId, nextTitle)
       }
+      return true
     },
     [actions, snapshotEnvironments, snapshotTabs],
   )
@@ -1867,16 +1986,115 @@ function DesktopWorkspace() {
     [actions, flushQueryTabDrafts, saveEnvironmentTabDraft, snapshotTabs],
   )
 
-  useEffect(() => {
-    if (activeTabId && activeTabIsTestSuite) {
-      const modeKey = 'test-suite'
-
-      if (initializedQueryModeByTabRef.current[activeTabId] !== modeKey) {
-        initializedQueryModeByTabRef.current[activeTabId] = modeKey
-        setTestWindowMode('both')
+  const disposeClosedTabState = useCallback((tabIds: string[]) => {
+    const closedTabIds = new Set(tabIds)
+    for (const tabId of closedTabIds) {
+      const queryTimer = queryTextDraftSyncTimersRef.current[tabId]
+      const scriptTimer = scriptTextDraftSyncTimersRef.current[tabId]
+      if (queryTimer) {
+        window.clearTimeout(queryTimer)
       }
+      if (scriptTimer) {
+        window.clearTimeout(scriptTimer)
+      }
+      delete queryTextDraftSyncTimersRef.current[tabId]
+      delete scriptTextDraftSyncTimersRef.current[tabId]
+      delete initializedQueryModeByTabRef.current[tabId]
+      delete queryWindowModeByTabRef.current[tabId]
+      delete environmentDraftsRef.current[tabId]
+      delete environmentSecretDraftsRef.current[tabId]
+      delete builderStateDraftRef.current[tabId]
+      delete datastoreEditorStateDraftRef.current[tabId]
+      const datastoreEditorTimer = datastoreEditorStateSyncTimersRef.current[tabId]
+      if (datastoreEditorTimer) {
+        window.clearTimeout(datastoreEditorTimer)
+        delete datastoreEditorStateSyncTimersRef.current[tabId]
+      }
+      delete queryTextDraftRef.current[tabId]
+      delete scriptTextDraftRef.current[tabId]
+      delete editorSelectionDraftRef.current[tabId]
     }
-  }, [activeTabId, activeTabIsTestSuite])
+    lastActiveQueryModeSyncKeyRef.current = undefined
+    setEnvironmentDrafts((current) => omitTabState(current, closedTabIds))
+    setEnvironmentSecretDrafts((current) => omitTabState(current, closedTabIds))
+    setBuilderStateDrafts((current) => omitTabState(current, closedTabIds))
+    setDatastoreEditorStateDrafts((current) => omitTabState(current, closedTabIds))
+    setQueryTextDrafts((current) => omitTabState(current, closedTabIds))
+    setScriptTextDrafts((current) => omitTabState(current, closedTabIds))
+    setEditorResetRevisions((current) => omitTabState(current, closedTabIds))
+    setEditorSelectionDrafts((current) => omitTabState(current, closedTabIds))
+    setRedisBrowserRefreshSignals((current) => omitTabState(current, closedTabIds))
+    setPendingSaveTabId((current) =>
+      current && closedTabIds.has(current) ? undefined : current
+    )
+    setRendererPreference((current) =>
+      current.tabId && closedTabIds.has(current.tabId) ? {} : current
+    )
+    setMaterializedRenderer((current) =>
+      current && closedTabIds.has(current.tabId) ? undefined : current
+    )
+  }, [])
+
+  const tabHasUnsavedCloseChanges = useCallback((tab: QueryTabState) => {
+    if (tab.tabKind === 'explorer' || tab.tabKind === 'metrics' || tab.tabKind === 'object-view') {
+      return false
+    }
+    if (tab.tabKind === 'environment') {
+      const savedEnvironment = snapshotEnvironments?.find(
+        (item) => item.id === tab.environmentId,
+      )
+      const draft = environmentDraftsRef.current[tab.id] ?? savedEnvironment
+      const hasSecretDrafts = Object.values(
+        environmentSecretDraftsRef.current[tab.id] ?? {},
+      ).some((value) => value.trim().length > 0)
+      return (
+        comparableEnvironment(draft) !== comparableEnvironment(savedEnvironment) ||
+        hasSecretDrafts
+      )
+    }
+    const queryDraft = queryTextDraftRef.current[tab.id]
+    const scriptDraft = scriptTextDraftRef.current[tab.id]
+    const hasLiveTextDraftChanges =
+      (queryDraft !== undefined && queryDraft !== tab.queryText) ||
+      (scriptDraft !== undefined && scriptDraft !== (tab.scriptText ?? ''))
+    return Boolean(
+      (tab.saveTarget || tab.savedQueryId) &&
+      (tab.dirty || hasLiveTextDraftChanges),
+    )
+  }, [snapshotEnvironments])
+
+  const reportLockedTabClosures = useCallback((tabIds: string[]) => {
+    const titles = tabIds.map(
+      (tabId) => snapshotTabs?.find((tab) => tab.id === tabId)?.title ?? tabId,
+    )
+    const message = titles.length === 1
+      ? `"${titles[0]}" is still open because its query is running or queued.`
+      : `${titles.length} tabs are still open because their queries are running or queued: ${titles.join(', ')}.`
+    actions.addWorkbenchMessage({
+      severity: 'info',
+      message,
+      source: 'Tab closure',
+      details: tabIds.join(','),
+    })
+  }, [actions, snapshotTabs])
+
+  const closeCoordinator = useTabCloseCoordinator({
+    tabs: snapshotTabs ?? [],
+    executionsByTab,
+    hasUnsavedChanges: tabHasUnsavedCloseChanges,
+    closeTabs: actions.closeTabs,
+    saveAndCloseTab: async (tab) => {
+      if (tab.tabKind === 'environment') {
+        const saved = await saveEnvironmentTabDraft(tab.id)
+        return saved ? actions.closeTabs([tab.id]) : undefined
+      }
+      await flushQueryTabDrafts(tab.id)
+      return actions.saveAndCloseTab(tab.id)
+    },
+    discardTab: () => undefined,
+    disposeClosedTabs: disposeClosedTabState,
+    reportLockedTabs: reportLockedTabClosures,
+  })
 
   useEffect(() => {
     if (
@@ -2072,7 +2290,8 @@ function DesktopWorkspace() {
       !activeConnectionId ||
       !activeEnvironmentId ||
       !activeTabIsExplorer ||
-      !activeConnection
+      !activeConnection ||
+      ActiveDatastoreExplorerWorkspace
     ) {
       return
     }
@@ -2088,6 +2307,7 @@ function DesktopWorkspace() {
     activeConnectionId,
     activeEnvironmentId,
     activeTabIsExplorer,
+    ActiveDatastoreExplorerWorkspace,
   ])
 
   if (status === 'booting' || !payload || !snapshot) {
@@ -2146,34 +2366,9 @@ function DesktopWorkspace() {
     activeTabIsEnvironment && activeTab
       ? (environmentDrafts[activeTab.id] ?? savedEnvironmentForActiveTab)
       : undefined
-  const environmentTabHasChanges = (tab: QueryTabState) => {
-    if (tab.tabKind !== 'environment') {
-      return Boolean(tab.dirty)
-    }
-
-    const savedEnvironment = snapshot.environments.find(
-      (item) => item.id === tab.environmentId,
-    )
-    const draft = environmentDraftsRef.current[tab.id] ?? savedEnvironment
-    const hasSecretDrafts = Object.values(environmentSecretDraftsRef.current[tab.id] ?? {})
-      .some((value) => value.trim().length > 0)
-    return (
-      comparableEnvironment(draft) !== comparableEnvironment(savedEnvironment) ||
-      hasSecretDrafts
-    )
-  }
   const tabHasMirroredTextDraftChanges = (tab: QueryTabState) => {
     const queryDraft = queryTextDrafts[tab.id]
     const scriptDraft = scriptTextDrafts[tab.id]
-
-    return (
-      (queryDraft !== undefined && queryDraft !== tab.queryText) ||
-      (scriptDraft !== undefined && scriptDraft !== (tab.scriptText ?? ''))
-    )
-  }
-  const tabHasLiveTextDraftChanges = (tab: QueryTabState) => {
-    const queryDraft = queryTextDraftRef.current[tab.id]
-    const scriptDraft = scriptTextDraftRef.current[tab.id]
 
     return (
       (queryDraft !== undefined && queryDraft !== tab.queryText) ||
@@ -2252,60 +2447,12 @@ function DesktopWorkspace() {
   const resultsDock = snapshot.ui.resultsDock ?? 'bottom'
   const resultsDockRight = resultsDock === 'right'
 
-  const requestCloseTabQueue = (tabIds: string[]) => {
-    const [tabId, ...remainingTabIds] = tabIds
-
-    if (!tabId) {
-      return
-    }
-
-    const tab = snapshot.tabs.find((item) => item.id === tabId)
-    const displayTab = displayTabs.find((item) => item.id === tabId)
-
-    if (isQueryTabExecutionLocked(displayTab ?? tab, executionsByTab[tabId])) {
-      requestCloseTabQueue(remainingTabIds)
-      return
-    }
-
-    if (!tab) {
-      if (displayTab) {
-        void actions.closeTab(tabId).then(() => requestCloseTabQueue(remainingTabIds))
-      } else {
-        requestCloseTabQueue(remainingTabIds)
-      }
-      return
-    }
-
-    if (
-      tab.tabKind !== 'explorer' &&
-      tab.tabKind !== 'metrics' &&
-      tab.tabKind !== 'object-view' &&
-      (tab.tabKind === 'environment'
-        ? environmentTabHasChanges(tab)
-        : Boolean((tab.saveTarget || tab.savedQueryId) && (tab.dirty || tabHasLiveTextDraftChanges(tab))))
-    ) {
-      setPendingTabClose({
-        tab: displayTab ?? tab,
-        remainingTabIds,
-      })
-      return
-    }
-
-    void actions.closeTab(tab.id).then(() => requestCloseTabQueue(remainingTabIds))
-  }
-
   const requestCloseTab = (tabId: string) => {
-    requestCloseTabQueue([tabId])
+    closeCoordinator.requestCloseTab(tabId)
   }
 
   const requestCloseTabs = (tabIds: string[]) => {
-    requestCloseTabQueue(tabIds)
-  }
-
-  const continuePendingTabClose = (remainingTabIds: string[]) => {
-    if (remainingTabIds.length > 0) {
-      requestCloseTabQueue(remainingTabIds)
-    }
+    void closeCoordinator.requestCloseTabs(tabIds)
   }
 
   const createLibraryFolder = (parentId: string | undefined, name: string) => {
@@ -2390,6 +2537,97 @@ function DesktopWorkspace() {
       activeSidebarPane: 'library',
       sidebarCollapsed: false,
     })
+  }
+
+  const persistDatastoreQueryEditorState = (
+    tabId: string,
+    editorState: DatastoreQueryEditorState,
+    queryViewMode: QueryViewMode = 'raw',
+  ) => {
+    if (!snapshot) return
+    const targetTab = snapshot.tabs.find((item) => item.id === tabId)
+    const targetConnection = snapshot.connections.find(
+      (item) => item.id === targetTab?.connectionId,
+    )
+    const queryHooks = targetConnection
+      ? workbenchSliceForEngine(targetConnection.engine)?.query
+      : undefined
+    if (
+      !targetTab ||
+      !queryHooks?.editorText ||
+      isQueryTabExecutionLocked(targetTab, executionsByTab[tabId])
+    ) {
+      return
+    }
+
+    const queryText = queryHooks.editorText(editorState)
+    datastoreEditorStateDraftRef.current[tabId] = editorState
+    setDatastoreEditorStateDrafts((current) => ({
+      ...current,
+      [tabId]: editorState,
+    }))
+    rememberQueryTextDraft(tabId, queryText)
+    mirrorQueryTextDraft(tabId, queryText)
+
+    const currentBuilderState =
+      builderStateDraftRef.current[tabId] ?? targetTab.builderState
+    const nextBuilderState = queryHooks.applyEditorState?.(
+      currentBuilderState,
+      editorState,
+    )
+    if (nextBuilderState) {
+      builderStateDraftRef.current[tabId] = nextBuilderState
+      setBuilderStateDrafts((current) => ({
+        ...current,
+        [tabId]: nextBuilderState,
+      }))
+    }
+
+    const existingTimer = datastoreEditorStateSyncTimersRef.current[tabId]
+    if (existingTimer) window.clearTimeout(existingTimer)
+    datastoreEditorStateSyncTimersRef.current[tabId] = window.setTimeout(() => {
+      delete datastoreEditorStateSyncTimersRef.current[tabId]
+      void actions.updateDatastoreQueryEditorState({
+        tabId,
+        editorState,
+        queryText,
+        queryViewMode,
+      })
+    }, 350)
+  }
+
+  const copyBuilderDraftToQueryEditor = async (builderState: QueryBuilderState) => {
+    if (!activeTab || !activeWorkbenchSlice?.query?.editorStateFromBuilder) return
+    const nextEditorState =
+      activeWorkbenchSlice.query.editorStateFromBuilder(builderState)
+    if (!nextEditorState) return
+    const currentEditorState =
+      datastoreEditorStateDraftRef.current[activeTab.id] ??
+      activeDatastoreQueryEditorState
+    const currentText = currentEditorState && activeWorkbenchSlice.query.editorText
+      ? activeWorkbenchSlice.query.editorText(currentEditorState)
+      : ''
+    const nextText = activeWorkbenchSlice.query.editorText?.(nextEditorState) ?? ''
+
+    if (
+      currentEditorState?.kind === nextEditorState.kind &&
+      currentEditorState.kind === 'cosmos-sql' &&
+      currentEditorState.source === 'custom' &&
+      currentText.trim() &&
+      currentText !== nextText
+    ) {
+      const confirmed = await confirmReview({
+        title: 'Replace the Query Editor draft?',
+        action: 'Copy the current Query Builder SQL, parameters, and routing into Query Editor.',
+        reasons: ['The customized Query Editor draft will be replaced.'],
+        confirmLabel: 'Replace draft',
+      })
+      if (!confirmed) return
+    }
+
+    persistDatastoreQueryEditorState(activeTab.id, nextEditorState, 'raw')
+    queryWindowModeByTabRef.current[activeTab.id] = 'raw'
+    setQueryWindowMode('raw')
   }
 
   const requestGuideFolderDialog = () => {
@@ -2712,6 +2950,7 @@ function DesktopWorkspace() {
     connectionId: string,
     scope?: string,
     environmentId?: string,
+    cursor?: string,
   ) => {
     const resolvedEnvironmentId = environmentId || activeEnvironmentId
 
@@ -2725,6 +2964,7 @@ function DesktopWorkspace() {
         environmentId: resolvedEnvironmentId,
         limit: 100,
         scope,
+        cursor,
       })
     })()
   }
@@ -2761,27 +3001,33 @@ function DesktopWorkspace() {
     })()
   }
 
-  const openTestSuite = (connectionId?: string, templateId?: string) => {
+  const openTestSuite = (
+    connectionId?: string,
+    templateId?: string,
+    scopedTarget?: ScopedQueryTarget,
+  ) => {
     const targetConnectionId = connectionId ?? activeConnection?.id
 
     if (!targetConnectionId) {
       return
     }
 
+    const targetConnection = snapshot.connections.find(
+      (connection) => connection.id === targetConnectionId,
+    )
+    const environmentId =
+      activeEnvironment &&
+      targetConnection?.environmentIds.includes(activeEnvironment.id)
+        ? activeEnvironment.id
+        : targetConnection?.environmentIds[0]
+
     setConnectionDraft(undefined)
-    void (async () => {
-      await actions.createTestSuiteTab({
-        connectionId: targetConnectionId,
-        templateId,
-      })
-      await actions.updateUiState({
-        activeActivity: 'library',
-        activeSidebarPane: 'library',
-        bottomPanelVisible: true,
-        rightDrawer: 'none',
-        sidebarCollapsed: false,
-      })
-    })()
+    setPendingCreateTestSuite({
+      connectionId: targetConnectionId,
+      environmentId,
+      templateId,
+      scopedTarget,
+    })
   }
 
   const startApiServerFromSidebar = (serverId: string) => {
@@ -2845,39 +3091,12 @@ function DesktopWorkspace() {
         snapshot={snapshot}
       />
       {reviewConfirmationDialog}
-      {pendingTabClose ? (
+      {closeCoordinator.pendingReview ? (
         <CloseSavedTabDialog
-          tab={pendingTabClose.tab}
-          onCancel={() => setPendingTabClose(undefined)}
-          onDiscard={() => {
-            const tabId = pendingTabClose.tab.id
-            const remainingTabIds = pendingTabClose.remainingTabIds
-            setPendingTabClose(undefined)
-            setEnvironmentDrafts((current) => {
-              if (!current[tabId]) {
-                return current
-              }
-              const next = { ...current }
-              delete next[tabId]
-              return next
-            })
-            setEnvironmentSecretDrafts((current) => {
-              const next = { ...current }
-              delete next[tabId]
-              return next
-            })
-            void actions.closeTab(tabId).then(() => continuePendingTabClose(remainingTabIds))
-          }}
-          onSaveAndClose={() => {
-            const tabId = pendingTabClose.tab.id
-            const remainingTabIds = pendingTabClose.remainingTabIds
-            const isEnvironmentTab = pendingTabClose.tab.tabKind === 'environment'
-            setPendingTabClose(undefined)
-            void (isEnvironmentTab
-              ? saveEnvironmentTabDraft(tabId).then(() => actions.closeTab(tabId))
-              : flushQueryTabDrafts(tabId).then(() => actions.saveAndCloseTab(tabId)))
-              .then(() => continuePendingTabClose(remainingTabIds))
-          }}
+          tab={closeCoordinator.pendingReview.tab}
+          onCancel={closeCoordinator.cancelReview}
+          onDiscard={closeCoordinator.discardAndContinue}
+          onSaveAndClose={closeCoordinator.saveAndContinue}
         />
       ) : null}
 
@@ -2948,6 +3167,44 @@ function DesktopWorkspace() {
         />
       ) : null}
 
+      {pendingCreateTestSuite ? (
+        <CreateTestSuiteDialog
+          connections={snapshot.connections}
+          environments={snapshot.environments}
+          explorerError={explorerError}
+          getExplorerNodes={(connectionId, environmentId) =>
+            getConnectionExplorerItems(connectionId, environmentId) ?? []
+          }
+          getExplorerStatus={getConnectionExplorerStatus}
+          initialRequest={pendingCreateTestSuite}
+          isExplorerScopeLoaded={isConnectionExplorerScopeLoaded}
+          isExplorerScopeLoading={(connectionId, environmentId, scope) =>
+            isConnectionExplorerScopeLoading(
+              connectionId,
+              scope,
+              environmentId,
+            )
+          }
+          onCancel={() => setPendingCreateTestSuite(undefined)}
+          onCreate={(request) => {
+            setPendingCreateTestSuite(undefined)
+            void (async () => {
+              await actions.createTestSuiteTab(request)
+              await actions.updateUiState({
+                activeActivity: 'library',
+                activeSidebarPane: 'library',
+                bottomPanelVisible: true,
+                rightDrawer: 'none',
+                sidebarCollapsed: false,
+              })
+            })()
+          }}
+          onLoadExplorerScope={(connectionId, environmentId, scope) =>
+            loadConnectionExplorerScope(connectionId, scope, environmentId)
+          }
+        />
+      ) : null}
+
       <div
         className={`ads-workbench${snapshot.ui.sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
         data-tour-id="workbench"
@@ -2971,7 +3228,9 @@ function DesktopWorkspace() {
               explorerItems={explorerItems}
               explorerFolderOrders={snapshot.preferences.explorerFolderOrders}
               getConnectionExplorerItems={getConnectionExplorerItems}
+              getConnectionExplorerScopes={getConnectionExplorerScopes}
               getConnectionExplorerStatus={getConnectionExplorerStatus}
+              getConnectionExplorerScopeError={getConnectionExplorerScopeError}
               getConnectionHealth={getConnectionHealth}
               explorerSummary={activeExplorerResponse?.summary ?? explorerError}
               explorerStatus={activeExplorerStatus}
@@ -2980,6 +3239,7 @@ function DesktopWorkspace() {
               activeApiServerId={activeApiServerId}
               apiServers={apiServerInstances}
               workspaceSearchEnabled={Boolean(snapshot.preferences.workspaceSearch?.enabled)}
+              datastoreTestsEnabled={Boolean(snapshot.preferences.datastoreTests?.enabled)}
               activeWorkspaceSearch={activeTabIsWorkspaceSearch}
               workspaceSwitcherStatus={workspaceSwitcherStatus}
               createFolderDialogRequestRevision={guideFolderDialogRequestRevision}
@@ -3025,9 +3285,6 @@ function DesktopWorkspace() {
                   },
                 })
               }
-              onDuplicateConnection={(connectionId) =>
-                void actions.duplicateConnection(connectionId)
-              }
               onDuplicateLibraryNode={(nodeId) =>
                 void actions.duplicateLibraryNode({ nodeId })
               }
@@ -3063,7 +3320,9 @@ function DesktopWorkspace() {
               onStartApiServer={startApiServerFromSidebar}
               onStopApiServer={stopApiServerFromSidebar}
               onDeleteApiServer={deleteApiServerFromSidebar}
-              onCreateTestSuite={(connectionId) => openTestSuite(connectionId)}
+              onCreateTestSuite={(connectionId, scopedTarget) =>
+                openTestSuite(connectionId, undefined, scopedTarget)
+              }
               onCreateWorkspace={(name) => void actions.createWorkspace({ name })}
               onOpenTestSuiteTemplate={(connectionId, templateId) =>
                 openTestSuite(connectionId, templateId)
@@ -3072,6 +3331,9 @@ function DesktopWorkspace() {
               onDeleteLibraryNode={requestDeleteLibraryNode}
               onMoveLibraryNode={moveLibraryNode}
               onOpenLibraryItem={(nodeId) => void actions.openLibraryItem(nodeId)}
+              onOpenTestSuiteCase={(libraryItemId, caseId) =>
+                void actions.openTestSuiteCase({ libraryItemId, caseId })
+              }
               onRenameLibraryNode={renameLibraryNode}
               onRenameWorkspace={(workspaceId, name) =>
                 void actions.renameWorkspace({ workspaceId, name })
@@ -3206,6 +3468,7 @@ function DesktopWorkspace() {
                     onUpdateBackupSettings={actions.updateWorkspaceBackupSettings}
                     onUpdateWorkspaceSwitcherSettings={actions.setWorkspaceSwitcherEnabled}
                     onUpdateWorkspaceSearchSettings={actions.updateWorkspaceSearchSettings}
+                    onUpdateDatastoreTestsSettings={actions.updateDatastoreTestsSettings}
                     onUpdateSecurityCheckSettings={actions.updateDatastoreSecurityCheckSettings}
                   />
                 ) : activeTabIsApiServer && activeTab ? (
@@ -3307,47 +3570,71 @@ function DesktopWorkspace() {
                     onSaveEnvironment={() => void saveEnvironmentTabDraft(activeTab.id)}
                     onDeleteEnvironment={requestDeleteEnvironmentProfile}
                   />
-                ) : activeTabIsExplorer ? (
-                  <StructureWorkspace
-                    activeConnection={activeConnection}
-                    activeEnvironment={activeEnvironment}
-                    status={structureStatus}
-                    structure={structure}
-                    error={structureError}
-                    onRefresh={(options) =>
-                      activeConnection && activeEnvironment
-                        ? void actions.loadStructureMap({
-                            connectionId: activeConnection.id,
-                            environmentId: activeEnvironment.id,
-                            limit: 120,
-                            ...options,
-                          })
-                        : undefined
+                ) : activeTabIsExplorer &&
+                  ActiveDatastoreExplorerWorkspace &&
+                  activeConnection &&
+                  activeEnvironment ? (
+                  <ActiveDatastoreExplorerWorkspace
+                    connection={activeConnection}
+                    environment={activeEnvironment}
+                    status={activeExplorerStatus}
+                    error={explorerError}
+                    inspection={explorerInspection}
+                    scopes={activeExplorerCacheEntry?.scopes ?? {}}
+                    relationshipMap={{
+                      status: structureStatus,
+                      structure,
+                      error: structureError,
+                      onRefresh: (options) =>
+                        void actions.loadStructureMap({
+                          connectionId: activeConnection.id,
+                          environmentId: activeEnvironment.id,
+                          limit: 320,
+                          mode: 'relationships',
+                          ...options,
+                        }),
+                    }}
+                    isScopeLoading={(scope) =>
+                      isConnectionExplorerScopeLoading(
+                        activeConnection.id,
+                        scope,
+                        activeEnvironment.id,
+                      )
                     }
-                    onInspectNode={(node) => {
-                      inspectExplorerNode(node.id)
-                    }}
-                    onOpenQuery={(node, queryText) => {
-                      if (!activeConnection) {
-                        return
-                      }
-
-                      openScopedQuery(activeConnection.id, {
-                        kind: node.isView ? 'view' : 'table',
-                        label: node.objectName,
-                        path: [node.schema, node.objectName],
-                        scope: node.qualifiedName,
-                        queryTemplate: queryText,
+                    getScopeError={(scope) =>
+                      getConnectionExplorerScopeError(
+                        activeConnection.id,
+                        activeEnvironment.id,
+                        scope,
+                      )
+                    }
+                    onLoadScope={(scope, cursor) =>
+                      void actions.loadExplorer({
+                        connectionId: activeConnection.id,
+                        environmentId: activeEnvironment.id,
+                        limit: 100,
+                        scope,
+                        cursor,
                       })
-                    }}
-                    onOpenObjectView={(node) => {
-                      if (!activeConnection) {
-                        return
-                      }
-
-                      openObjectView(activeConnection.id, node)
-                    }}
+                    }
+                    onInspectNode={(node) =>
+                      void actions.inspectExplorer({
+                        connectionId: activeConnection.id,
+                        environmentId: activeEnvironment.id,
+                        nodeId: node.id,
+                      })
+                    }
+                    onOpenQuery={(target) => openScopedQuery(activeConnection.id, target)}
+                    onOpenObjectView={(node) => openObjectView(activeConnection.id, node)}
                   />
+                ) : activeTabIsExplorer ? (
+                  <section className="datastore-explorer-workspace" aria-label="Datastore Explorer">
+                    <div className="datastore-explorer-welcome">
+                      <ExplorerIcon />
+                      <h2>Choose a datastore connection</h2>
+                      <p>Explorer needs an active connection and environment.</p>
+                    </div>
+                  </section>
                 ) : activeTabIsMetrics && activeConnection && activeEnvironment && activeTab ? (
                   <MetricsWorkspace
                     connection={activeConnection}
@@ -3370,33 +3657,67 @@ function DesktopWorkspace() {
                   <TestSuiteWorkspace
                     tab={activeTab}
                     connection={activeConnection}
-                    resolvedTheme={resolvedTheme}
-                    testWindowMode={testWindowMode}
+                    environment={activeEnvironment}
+                    enabled={Boolean(snapshot.preferences.datastoreTests?.enabled)}
                     executionStatus={activeExecutionStatus}
-                    onModeChange={setTestWindowMode}
-                    onRunSuite={() =>
-                      void actions.executeTestSuite({
-                        tabId: activeTab.id,
-                      })
-                    }
+                    onEnablePlugin={() => {
+                      void actions.updateDatastoreTestsSettings({ enabled: true })
+                    }}
+                    onRunSuite={(caseId) => {
+                      void (async () => {
+                        const plan = await actions.planTestSuiteRun({
+                          tabId: activeTab.id,
+                          caseId,
+                        })
+                        if (!plan) {
+                          return
+                        }
+                        if (plan.status === 'blocked') {
+                          window.alert(
+                            [
+                              `${plan.scopedTarget.label} · ${plan.inferredLanguage} · ${plan.environmentId}`,
+                              ...plan.blockers,
+                            ].join('\n') ||
+                              'This datastore test run is blocked.',
+                          )
+                          return
+                        }
+                        const confirmationText =
+                          plan.status === 'confirm'
+                            ? window.prompt(
+                                `Target: ${plan.scopedTarget.label}\nEnvironment: ${plan.environmentId}\nLanguage: ${plan.inferredLanguage}\n\nThis run contains datastore writes. Enter the exact phrase:\n${plan.requiredConfirmationText}`,
+                              ) ?? undefined
+                            : undefined
+                        if (
+                          plan.status === 'confirm' &&
+                          confirmationText !== plan.requiredConfirmationText
+                        ) {
+                          return
+                        }
+                        await actions.executeTestSuite({
+                          tabId: activeTab.id,
+                          caseId,
+                          planId: plan.planId,
+                          confirmationText,
+                        })
+                      })()
+                    }}
                     onCancelRun={() =>
-                      activeTab.testRun?.id
+                      activeTab.activeExecution?.executionId || activeTab.testRun?.id
                         ? void actions.cancelTestRun({
                             tabId: activeTab.id,
-                            runId: activeTab.testRun.id,
+                            runId:
+                              activeTab.activeExecution?.executionId ??
+                              activeTab.testRun?.id ??
+                              '',
                           })
                         : undefined
                     }
-                    onUpdateSuite={(suite) =>
+                    onUpdateSuite={(suite, activeTestCaseId) =>
                       void actions.updateTestSuiteTab({
                         tabId: activeTab.id,
                         suite,
-                      })
-                    }
-                    onUpdateRaw={(rawText) =>
-                      void actions.updateTestSuiteTab({
-                        tabId: activeTab.id,
-                        rawText,
+                        activeTestCaseId,
                       })
                     }
                   />
@@ -3441,6 +3762,7 @@ function DesktopWorkspace() {
                       }}
                       canToggleBuilderView={hasBuilderQuery}
                       builderKind={activeBuilderKind}
+                      queryWindowModeLabels={activeWorkbenchSlice?.query?.modeLabels}
                       queryWindowMode={activeQueryWindowMode}
                       onToggleQueryWindowMode={(mode) => {
                         if (activeExecutionLocked) {
@@ -3470,7 +3792,13 @@ function DesktopWorkspace() {
                                   ? defaultScriptTextForConnection(activeConnection)
                                   : '') ??
                                 ''
-                              : resolveQueryText(activeTab)
+                              : mode === 'raw' &&
+                                  activeDatastoreQueryEditorState &&
+                                  activeWorkbenchSlice?.query?.editorText
+                                ? activeWorkbenchSlice.query.editorText(
+                                    activeDatastoreQueryEditorState,
+                                  )
+                                : resolveQueryText(activeTab)
                           if (mode === 'script') {
                             rememberScriptTextDraft(activeTab.id, modeText)
                             mirrorScriptTextDraft(activeTab.id, modeText)
@@ -3564,6 +3892,9 @@ function DesktopWorkspace() {
                             collectionOptions={queryBuilderOptions}
                             tableOptions={queryBuilderOptions}
                             onBuilderStateChange={persistBuilderState}
+                            onUseBuilderInEditor={(builderState) => {
+                              void copyBuilderDraftToQueryEditor(builderState)
+                            }}
                             onExecuteDataEdit={actions.executeDataEdit}
                             onScanRedisKeys={actions.scanRedisKeys}
                             onInspectRedisKey={actions.inspectRedisKey}
@@ -3574,6 +3905,7 @@ function DesktopWorkspace() {
                         ) : null}
                         <DatastoreQueryEditor
                           mode={activeQueryWindowMode}
+                          tab={activeTab}
                           redisConsoleVisible={activeRedisConsoleVisible}
                           connection={activeConnection}
                           builderState={activeBuilderState}
@@ -3620,6 +3952,17 @@ function DesktopWorkspace() {
                               fieldPath,
                             )
                             commitQueryTextDraft(activeTab.id, nextQueryText, 'raw')
+                          }}
+                          editorState={activeDatastoreQueryEditorState}
+                          Editor={activeWorkbenchSlice?.query?.Editor}
+                          onEditorStateChange={(editorState) => {
+                            if (!activeExecutionLocked) {
+                              persistDatastoreQueryEditorState(
+                                activeTab.id,
+                                editorState,
+                                'raw',
+                              )
+                            }
                           }}
                         />
                       </div>

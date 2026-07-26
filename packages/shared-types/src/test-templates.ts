@@ -1,7 +1,7 @@
 import type { DatastoreEngine, DatastoreFamily } from './connection'
 import type {
   DatastoreTestAssertionKind,
-  DatastoreTestSuiteDefinition,
+  DatastoreTestSuiteTemplateDefinition,
   DatastoreTestTemplate,
   QueryLanguage,
 } from './workspace'
@@ -43,7 +43,7 @@ export function datastoreTestTemplatesForEngine(
 function suiteForEngine(
   engine: DatastoreEngine,
   family: DatastoreFamily,
-): DatastoreTestSuiteDefinition | undefined {
+): DatastoreTestSuiteTemplateDefinition | undefined {
   if (isSqlEngine(engine)) {
     return sqlSuiteForEngine(engine, family)
   }
@@ -187,7 +187,7 @@ function suiteForEngine(
 function sqlSuiteForEngine(
   engine: DatastoreEngine,
   family: DatastoreFamily,
-): DatastoreTestSuiteDefinition {
+): DatastoreTestSuiteTemplateDefinition {
   if (engine === 'oracle') {
     return suite(engine, family, 'Oracle SQL smoke test', 'sql', {
       setup: [
@@ -291,7 +291,7 @@ function sqlSuiteForEngine(
 function graphSuiteForEngine(
   engine: DatastoreEngine,
   family: DatastoreFamily,
-): DatastoreTestSuiteDefinition {
+): DatastoreTestSuiteTemplateDefinition {
   if (engine === 'neo4j') {
     return suite(engine, family, 'Neo4j graph test', 'cypher', {
       setup: "MERGE (:DatapadTest {id: 'datapad-test-node', name: 'Ada'})",
@@ -324,7 +324,7 @@ function graphSuiteForEngine(
 function timeSeriesSuiteForEngine(
   engine: DatastoreEngine,
   family: DatastoreFamily,
-): DatastoreTestSuiteDefinition {
+): DatastoreTestSuiteTemplateDefinition {
   if (engine === 'prometheus') {
     return suite(engine, family, 'Prometheus query test', 'promql', {
       setup: [],
@@ -357,7 +357,7 @@ function timeSeriesSuiteForEngine(
 function warehouseSuiteForEngine(
   engine: DatastoreEngine,
   family: DatastoreFamily,
-): DatastoreTestSuiteDefinition {
+): DatastoreTestSuiteTemplateDefinition {
   const language: QueryLanguage = engine === 'bigquery'
     ? 'google-sql'
     : engine === 'snowflake'
@@ -387,7 +387,7 @@ function suite(
     assertion: DatastoreTestAssertionKind
     expected: unknown
   },
-): DatastoreTestSuiteDefinition {
+): DatastoreTestSuiteTemplateDefinition {
   const setup = Array.isArray(definition.setup) ? definition.setup : [definition.setup]
   const teardown = Array.isArray(definition.teardown) ? definition.teardown : [definition.teardown]
 

@@ -664,6 +664,18 @@ describe('migrateWorkspaceSnapshot', () => {
     expect(migrated.lockState).toEqual({ isLocked: false, lockedAt: undefined })
   })
 
+  it('normalizes missing Datastore Tests preferences to disabled without a schema bump', () => {
+    const snapshot = createSeedSnapshot()
+    snapshot.schemaVersion = 10
+    delete snapshot.preferences.datastoreTests
+    const schemaVersion = snapshot.schemaVersion
+
+    const migrated = migrateWorkspaceSnapshot(snapshot)
+
+    expect(migrated.preferences.datastoreTests).toEqual({ enabled: false })
+    expect(migrated.schemaVersion).toBe(schemaVersion)
+  })
+
   it('strips known demo records from untouched seeded snapshots', () => {
     const migrated = migrateWorkspaceSnapshot(createSeedSnapshot())
 

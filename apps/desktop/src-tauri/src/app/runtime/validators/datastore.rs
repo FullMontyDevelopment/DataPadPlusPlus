@@ -16,6 +16,11 @@ pub(in crate::app::runtime) fn validate_explorer_request(
     validate_required_id(&request.connection_id, "Connection id")?;
     validate_required_id(&request.environment_id, "Environment id")?;
     validate_optional_text(request.scope.as_deref(), "Explorer scope", MAX_SCOPE_LENGTH)?;
+    validate_optional_text(
+        request.cursor.as_deref(),
+        "Explorer cursor",
+        MAX_SCOPE_LENGTH,
+    )?;
     clamp_optional_u32(&mut request.limit, 1, MAX_EXPLORER_LIMIT);
     Ok(())
 }

@@ -35,6 +35,7 @@ pub(super) async fn list_opentsdb_explorer_nodes(
         ),
         capabilities: opentsdb_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

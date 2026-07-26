@@ -39,7 +39,6 @@ import {
   MongoSortBuilderSection,
 } from '../datastores/mongodb/MongoFindBuilderSections'
 import { rowId } from '../datastores/mongodb/MongoBuilderSection.types'
-import { MongoScopeSummary } from '../datastores/mongodb/MongoScopeSummary'
 import { mongoFilterRowFromDroppedField } from './mongo-filter-row'
 import { mongoQueryScopeForTab } from './mongo-query-scope'
 import { isSqlSelectBuilderState } from './sql-select'
@@ -48,7 +47,10 @@ import { isSearchDslBuilderState } from './search-dsl'
 import { SearchDslBuilder } from '../datastores/common/search/SearchDslBuilder'
 import { RedisKeyBrowserPanel } from '../datastores/common/keyvalue/RedisKeyBrowserPanel'
 import { isRedisKeyBrowserState } from './redis-key-browser'
-import { QueryBuilderCountFooter } from './QueryBuilderCountFooter'
+import {
+  QueryBuilderCountButton,
+  QueryBuilderCountFooter,
+} from './QueryBuilderCountFooter'
 import {
   filterGroupIdFromDropZone,
   pointInsideElement,
@@ -63,6 +65,7 @@ interface QueryBuilderPanelProps {
   collectionOptions?: string[]
   tableOptions?: string[]
   onBuilderStateChange?(tabId: string, builderState: QueryBuilderState): void
+  onUseBuilderInEditor?(builderState: QueryBuilderState): void
   onExecuteDataEdit?(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
@@ -80,6 +83,7 @@ export function QueryBuilderPanel({
   tab,
   tableOptions = [],
   onBuilderStateChange,
+  onUseBuilderInEditor,
   onExecuteDataEdit,
   onInspectRedisKey,
   onScanRedisKeys,
@@ -90,6 +94,14 @@ export function QueryBuilderPanel({
   const resolvedBuilderState = builderState ?? tab.builderState
   const locked = executionLocked || Boolean(tab.activeExecution) || tab.status === 'queued'
   const safeBuilderStateChange = locked ? undefined : onBuilderStateChange
+  const countControl = resolvedBuilderState ? (
+    <QueryBuilderCountButton
+      activeExecution={locked}
+      builderState={resolvedBuilderState}
+      onCount={locked ? undefined : onCount}
+      tabId={tab.id}
+    />
+  ) : null
   let panel: ReactNode = null
 
   if (isMongoFindBuilderState(resolvedBuilderState)) {
@@ -99,7 +111,7 @@ export function QueryBuilderPanel({
         connection={connection}
         tab={tab}
         builderState={resolvedBuilderState}
-        collectionOptions={collectionOptions}
+        countControl={countControl}
         onBuilderStateChange={safeBuilderStateChange}
       />
     )
@@ -112,7 +124,7 @@ export function QueryBuilderPanel({
         connection={connection}
         tab={tab}
         builderState={resolvedBuilderState}
-        collectionOptions={collectionOptions}
+        countControl={countControl}
         onBuilderStateChange={safeBuilderStateChange}
       />
     )
@@ -139,6 +151,7 @@ export function QueryBuilderPanel({
         builderState={resolvedBuilderState}
         containerOptions={collectionOptions}
         onBuilderStateChange={safeBuilderStateChange}
+        onUseInQueryEditor={onUseBuilderInEditor}
       />
     )
   }
@@ -198,6 +211,10 @@ export function QueryBuilderPanel({
     return null
   }
 
+  const countIsInsideBuilder =
+    isMongoFindBuilderState(resolvedBuilderState) ||
+    isMongoAggregationBuilderState(resolvedBuilderState)
+
   return (
     <div
       className={`query-builder-workspace${locked ? ' is-execution-locked' : ''}`}
@@ -205,12 +222,14 @@ export function QueryBuilderPanel({
     >
       <fieldset className="query-builder-execution-fieldset" disabled={locked}>
         {panel}
-        <QueryBuilderCountFooter
-          activeExecution={locked}
-          builderState={resolvedBuilderState}
-          onCount={locked ? undefined : onCount}
-          tabId={tab.id}
-        />
+        {!countIsInsideBuilder ? (
+          <QueryBuilderCountFooter
+            activeExecution={locked}
+            builderState={resolvedBuilderState}
+            onCount={locked ? undefined : onCount}
+            tabId={tab.id}
+          />
+        ) : null}
       </fieldset>
     </div>
   )
@@ -220,13 +239,13 @@ function MongoFindBuilder({
   connection,
   tab,
   builderState,
-  collectionOptions,
+  countControl,
   onBuilderStateChange,
 }: {
   connection?: ConnectionProfile
   tab: QueryTabState
   builderState: MongoFindBuilderState
-  collectionOptions: string[]
+  countControl?: ReactNode
   onBuilderStateChange?(tabId: string, builderState: QueryBuilderState): void
 }) {
   const draft = builderState
@@ -234,10 +253,6 @@ function MongoFindBuilder({
   const rootRef = useRef<HTMLElement>(null)
   const [builderDragActive, setBuilderDragActive] = useState(false)
   const [activeDropZone, setActiveDropZone] = useState<string>()
-  const resolvedCollectionOptions = uniqueValues([
-    draft.collection,
-    ...collectionOptions,
-  ]).filter(Boolean)
   const scope = mongoQueryScopeForTab({
     builderState: draft,
     connection,
@@ -396,25 +411,7 @@ function MongoFindBuilder({
       onDragLeave={handleBuilderDragLeave}
       onDropCapture={handleBuilderDrop}
     >
-      <MongoScopeSummary scope={scope} />
-      <div className="query-builder-grid">
-        <label className="query-builder-field">
-          <span>Collection</span>
-          <select
-            aria-label="Collection"
-            value={draft.collection}
-            onChange={(event) => updateDraft({ collection: event.target.value })}
-          >
-            {resolvedCollectionOptions.length === 0 ? (
-              <option value="">Select collection</option>
-            ) : null}
-            {resolvedCollectionOptions.map((collection) => (
-              <option key={collection} value={collection}>
-                {collection}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="mongo-query-builder-controls">
         <label className="query-builder-field query-builder-field--number">
           <span>Fetch size</span>
           <input
@@ -425,6 +422,7 @@ function MongoFindBuilder({
             onChange={(event) => updateDraft({ limit: positiveInteger(event.target.value, 20) })}
           />
         </label>
+        {countControl}
       </div>
 
       <MongoFilterBuilderSection
@@ -448,10 +446,6 @@ function MongoFindBuilder({
       />
     </section>
   )
-}
-
-function uniqueValues(values: string[]) {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
 }
 
 function positiveInteger(value: string, fallback: number) {

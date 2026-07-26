@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use futures_util::TryStreamExt;
 use mongodb::{
     bson::{doc, Bson, Document},
-    Database,
+    Client, Database,
 };
 use serde_json::{json, Value};
 
@@ -13,50 +13,48 @@ use super::bson_extjson::{
 };
 use super::catalog::mongodb_execution_capabilities;
 use super::connection::{mongodb_client, mongodb_database_name, mongodb_selected_database_name};
+use super::explorer_discovery::{
+    collection_info_by_name, is_authorization_error, is_gridfs_collection,
+    list_authorized_database_names, list_collection_infos, list_index_documents,
+    MongoCollectionInfo,
+};
+use super::explorer_inspection::inspect_collection;
+use super::explorer_nodes::{
+    collection_node as mongodb_collection_node_for_database, collection_node_in_group, view_node,
+};
+use super::explorer_paging::MongoExplorerPaging;
 use crate::domain::error::mongodb_error_summary;
 
 const SYSTEM_DATABASES: &[&str] = &["admin", "config", "local"];
 const MAX_SCHEMA_FIELD_DEPTH: usize = 32;
 
-struct MongoCollectionInfo {
-    name: String,
-    collection_type: String,
-    options: Document,
-}
-
-impl MongoCollectionInfo {
-    fn is_time_series(&self) -> bool {
-        self.options.contains_key("timeseries")
-    }
-
-    fn is_capped(&self) -> bool {
-        self.options.get_bool("capped").unwrap_or(false)
-    }
-}
-
 pub(super) async fn list_mongodb_explorer_nodes(
     connection: &ResolvedConnectionProfile,
     request: &ExplorerRequest,
 ) -> Result<ExplorerResponse, CommandError> {
-    let client = mongodb_client(connection).await?;
     let limit = bounded_page_size(request.limit.or(Some(100))) as usize;
+    let paging =
+        MongoExplorerPaging::new(request.scope.as_deref(), request.cursor.as_deref(), limit)?;
+    let client = mongodb_client(connection).await?;
     let fallback_database = mongodb_database_name(connection);
-    let nodes = match request.scope.as_deref() {
+    let mut nodes = match request.scope.as_deref() {
         Some(scope) if scope.starts_with("database:") => {
             let database_name = scoped_database(scope, "database:", &fallback_database);
             mongodb_database_children(connection, &database_name)
         }
-        Some("databases") => match client.list_database_names().await {
-            Ok(database_names) => {
-                mongodb_database_group_nodes(connection, database_names, limit, false)
+        Some("databases") => match list_authorized_database_names(&client).await {
+            Ok(database_names) => mongodb_database_group_nodes(connection, database_names, false),
+            Err(error) if is_authorization_error(&error) => {
+                mongodb_database_group_fallback_nodes(connection, false, &error)
             }
-            Err(error) => mongodb_database_group_fallback_nodes(connection, false, &error),
+            Err(error) => return Err(error.into()),
         },
-        Some("system-databases") => match client.list_database_names().await {
-            Ok(database_names) => {
-                mongodb_database_group_nodes(connection, database_names, limit, true)
+        Some("system-databases") => match list_authorized_database_names(&client).await {
+            Ok(database_names) => mongodb_database_group_nodes(connection, database_names, true),
+            Err(error) if is_authorization_error(&error) => {
+                mongodb_database_group_fallback_nodes(connection, true, &error)
             }
-            Err(error) => mongodb_database_group_fallback_nodes(connection, true, &error),
+            Err(error) => return Err(error.into()),
         },
         Some(scope) if scope.starts_with("collections:") => {
             let database_name = scoped_database(scope, "collections:", &fallback_database);
@@ -65,12 +63,12 @@ pub(super) async fn list_mongodb_explorer_nodes(
             infos
                 .into_iter()
                 .filter(|info| {
-                    info.collection_type != "view" && !info.is_time_series() && !info.is_capped()
+                    !info.is_view()
+                        && !info.is_time_series()
+                        && !info.is_capped()
+                        && !is_gridfs_collection(&info.name)
                 })
-                .take(limit)
-                .map(|info| {
-                    mongodb_collection_node_for_database(connection, &database_name, &info.name)
-                })
+                .map(|info| mongodb_collection_node_for_database(&database_name, &info.name))
                 .collect()
         }
         Some(scope) if scope.starts_with("time-series-collections:") => {
@@ -80,9 +78,13 @@ pub(super) async fn list_mongodb_explorer_nodes(
                 .await?
                 .into_iter()
                 .filter(MongoCollectionInfo::is_time_series)
-                .take(limit)
                 .map(|info| {
-                    mongodb_collection_node_for_database(connection, &database_name, &info.name)
+                    collection_node_in_group(
+                        &database_name,
+                        &info.name,
+                        "Time Series Collections",
+                        "Time-series collection with lazy document and storage metadata",
+                    )
                 })
                 .collect()
         }
@@ -92,9 +94,13 @@ pub(super) async fn list_mongodb_explorer_nodes(
                 .await?
                 .into_iter()
                 .filter(MongoCollectionInfo::is_capped)
-                .take(limit)
                 .map(|info| {
-                    mongodb_collection_node_for_database(connection, &database_name, &info.name)
+                    collection_node_in_group(
+                        &database_name,
+                        &info.name,
+                        "Capped Collections",
+                        "Fixed-size capped collection with lazy document and storage metadata",
+                    )
                 })
                 .collect()
         }
@@ -104,9 +110,8 @@ pub(super) async fn list_mongodb_explorer_nodes(
             let infos = list_collection_infos(&database).await?;
             infos
                 .into_iter()
-                .filter(|info| info.collection_type == "view")
-                .take(limit)
-                .map(|info| mongodb_view_node(connection, &database_name, &info))
+                .filter(MongoCollectionInfo::is_view)
+                .map(|info| view_node(&database_name, &info))
                 .collect()
         }
         Some(scope) if scope.starts_with("collection:") => {
@@ -129,7 +134,6 @@ pub(super) async fn list_mongodb_explorer_nodes(
                 .list_index_names()
                 .await?
                 .into_iter()
-                .take(limit)
                 .map(|index_name| mongodb_index_node(&database_name, &collection_name, &index_name))
                 .collect()
         }
@@ -169,6 +173,19 @@ pub(super) async fn list_mongodb_explorer_nodes(
         Some(_) => Vec::new(),
         None => mongodb_root_sections(),
     };
+    if request
+        .scope
+        .as_deref()
+        .is_some_and(mongodb_scope_has_sorted_nodes)
+    {
+        nodes.sort_by(|left, right| {
+            left.label
+                .to_lowercase()
+                .cmp(&right.label.to_lowercase())
+                .then_with(|| left.label.cmp(&right.label))
+        });
+    }
+    let (nodes, page_info) = paging.finish(nodes);
 
     Ok(ExplorerResponse {
         connection_id: request.connection_id.clone(),
@@ -181,6 +198,7 @@ pub(super) async fn list_mongodb_explorer_nodes(
         ),
         capabilities: mongodb_execution_capabilities(),
         nodes,
+        page_info: Some(page_info),
     })
 }
 
@@ -193,7 +211,7 @@ pub(super) async fn inspect_mongodb_explorer_node(
     let node_id = request.node_id.as_str();
 
     if node_id == "mongodb-databases" || node_id == "databases" {
-        let database_names = client.list_database_names().await?;
+        let database_names = list_authorized_database_names(&client).await?;
         return Ok(inspect_database_group(
             request,
             database_names,
@@ -203,13 +221,17 @@ pub(super) async fn inspect_mongodb_explorer_node(
     }
 
     if node_id == "mongodb-system-databases" || node_id == "system-databases" {
-        let database_names = client.list_database_names().await?;
+        let database_names = list_authorized_database_names(&client).await?;
         return Ok(inspect_database_group(
             request,
             database_names,
             true,
             "MongoDB system database list ready.",
         ));
+    }
+
+    if let Some(response) = inspect_gridfs_node(&client, request, &fallback_database).await {
+        return Ok(response);
     }
 
     if let Some(rest) = node_id.strip_prefix("schema-preview:") {
@@ -308,6 +330,42 @@ pub(super) async fn inspect_mongodb_explorer_node(
                 "database": database_name,
                 "collection": collection_name,
                 "indexes": mongodb_document_to_json(&indexes),
+            })),
+        });
+    }
+
+    if let Some(rest) = node_id.strip_prefix("index:") {
+        let (database_name, collection_name, index_name) =
+            split_database_collection_item(rest, &fallback_database);
+        let collection = client
+            .database(&database_name)
+            .collection::<Document>(&collection_name);
+        let indexes = list_index_documents(&collection).await?;
+        let selected = indexes
+            .iter()
+            .find(|index| index.get_str("name").ok() == Some(index_name.as_str()))
+            .map(mongodb_document_to_json)
+            .into_iter()
+            .collect::<Vec<_>>();
+
+        return Ok(ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: if selected.is_empty() {
+                format!(
+                    "Index {index_name} was not returned for {database_name}.{collection_name}."
+                )
+            } else {
+                format!("Index metadata ready for {database_name}.{collection_name}.{index_name}.")
+            },
+            query_template: Some(mongodb_command_query_template(
+                &database_name,
+                doc! { "listIndexes": &collection_name },
+            )),
+            payload: Some(json!({
+                "database": database_name,
+                "collection": collection_name,
+                "indexes": selected,
+                "warning": selected.is_empty().then_some("The selected index may have been removed since the Explorer tree was loaded."),
             })),
         });
     }
@@ -443,6 +501,37 @@ pub(super) async fn inspect_mongodb_explorer_node(
         });
     }
 
+    if let Some(rest) = node_id.strip_prefix("view:") {
+        let (database_name, view_name) = split_database_collection(rest, &fallback_database);
+        let info = collection_info_by_name(&client.database(&database_name), &view_name).await?;
+        let backing_collection = info
+            .as_ref()
+            .and_then(|item| item.options.get_str("viewOn").ok())
+            .map(str::to_string);
+        let pipeline = info
+            .as_ref()
+            .and_then(|item| item.options.get_array("pipeline").ok())
+            .cloned()
+            .unwrap_or_default();
+
+        return Ok(ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: format!("View overview ready for {database_name}.{view_name}."),
+            query_template: Some(mongodb_find_query_template_for_database(
+                &database_name,
+                &view_name,
+                20,
+            )),
+            payload: Some(json!({
+                "database": database_name,
+                "view": view_name,
+                "backingCollection": backing_collection,
+                "pipeline": pipeline.iter().map(mongodb_bson_to_json).collect::<Vec<_>>(),
+                "readOnly": true,
+            })),
+        });
+    }
+
     if let Some(database_name) = node_id.strip_prefix("users:") {
         return Ok(inspect_users_or_roles(
             &client.database(database_name),
@@ -458,6 +547,30 @@ pub(super) async fn inspect_mongodb_explorer_node(
             &client.database(database_name),
             request,
             database_name,
+            false,
+        )
+        .await);
+    }
+
+    if let Some(rest) = node_id.strip_prefix("user:") {
+        let (database_name, user_name) = split_database_item(rest, &fallback_database);
+        return Ok(inspect_mongodb_principal(
+            &client.database(&database_name),
+            request,
+            &database_name,
+            &user_name,
+            true,
+        )
+        .await);
+    }
+
+    if let Some(rest) = node_id.strip_prefix("role:") {
+        let (database_name, role_name) = split_database_item(rest, &fallback_database);
+        return Ok(inspect_mongodb_principal(
+            &client.database(&database_name),
+            request,
+            &database_name,
+            &role_name,
             false,
         )
         .await);
@@ -481,11 +594,11 @@ pub(super) async fn inspect_mongodb_explorer_node(
             payload: Some(json!({
                 "database": database_name,
                 "collections": infos.iter()
-                    .filter(|item| item.collection_type == "collection" && !item.is_time_series() && !item.is_capped() && !is_gridfs_collection(&item.name))
+                    .filter(|item| !item.is_view() && !item.is_time_series() && !item.is_capped() && !is_gridfs_collection(&item.name))
                     .map(collection_info_payload)
                     .collect::<Vec<_>>(),
                 "views": infos.iter()
-                    .filter(|item| item.collection_type == "view")
+                    .filter(|item| item.is_view())
                     .map(collection_info_payload)
                     .collect::<Vec<_>>(),
                 "timeSeriesCollections": infos.iter()
@@ -519,28 +632,7 @@ pub(super) async fn inspect_mongodb_explorer_node(
                 .map(|rest| split_database_collection(rest, &fallback_database))
         })
     {
-        let collection = client
-            .database(&database_name)
-            .collection::<Document>(&collection_name);
-        let sample_documents = collection
-            .find(doc! {})
-            .limit(3)
-            .await?
-            .try_collect::<Vec<Document>>()
-            .await?;
-        let indexes = client
-            .database(&database_name)
-            .run_command(doc! { "listIndexes": &collection_name })
-            .await
-            .ok();
-        let info =
-            collection_info_by_name(&client.database(&database_name), &collection_name).await?;
-        let validator = info.and_then(|item| item.options.get_document("validator").ok().cloned());
-        let statistics = client
-            .database(&database_name)
-            .run_command(doc! { "collStats": &collection_name, "scale": 1 })
-            .await
-            .ok();
+        let inspection = inspect_collection(&client, &database_name, &collection_name).await?;
 
         return Ok(ExplorerInspectResponse {
             node_id: request.node_id.clone(),
@@ -554,16 +646,16 @@ pub(super) async fn inspect_mongodb_explorer_node(
                 "nodeId": request.node_id.clone(),
                 "database": database_name,
                 "collection": collection_name,
-                "indexes": indexes
+                "indexes": inspection.indexes
+                    .as_ref()
+                    .map(|items| mongodb_documents_to_json(items.iter())),
+                "validator": inspection.validator
                     .as_ref()
                     .map(mongodb_document_to_json),
-                "validator": validator
+                "statistics": inspection.statistics
                     .as_ref()
                     .map(mongodb_document_to_json),
-                "statistics": statistics
-                    .as_ref()
-                    .map(mongodb_document_to_json),
-                "sampleDocuments": mongodb_documents_to_json(sample_documents.iter()),
+                "sampleDocuments": mongodb_documents_to_json(inspection.sample_documents.iter()),
             })),
         });
     }
@@ -574,8 +666,8 @@ pub(super) async fn inspect_mongodb_explorer_node(
             "MongoDB inspection metadata is not available for {}.",
             request.node_id
         ),
-        query_template: Some("{}".into()),
-        payload: Some(json!({ "nodeId": request.node_id })),
+        query_template: None,
+        payload: None,
     })
 }
 
@@ -585,7 +677,7 @@ fn mongodb_collection_node(
     collection_name: &str,
 ) -> ExplorerNode {
     let database_name = mongodb_database_name(connection);
-    mongodb_collection_node_for_database(connection, &database_name, collection_name)
+    mongodb_collection_node_for_database(&database_name, collection_name)
 }
 
 #[cfg(test)]
@@ -640,16 +732,31 @@ fn mongodb_root_sections() -> Vec<ExplorerNode> {
     ]
 }
 
+fn mongodb_scope_has_sorted_nodes(scope: &str) -> bool {
+    matches!(scope, "databases" | "system-databases")
+        || [
+            "collections:",
+            "views:",
+            "time-series-collections:",
+            "capped-collections:",
+            "indexes:",
+            "gridfs-buckets:",
+            "users:",
+            "roles:",
+        ]
+        .iter()
+        .any(|prefix| scope.starts_with(prefix))
+}
+
 fn mongodb_database_group_nodes(
     connection: &ResolvedConnectionProfile,
-    database_names: Vec<String>,
-    limit: usize,
+    mut database_names: Vec<String>,
     system: bool,
 ) -> Vec<ExplorerNode> {
+    database_names.sort_by_key(|name| name.to_lowercase());
     database_names
         .into_iter()
         .filter(|database_name| SYSTEM_DATABASES.contains(&database_name.as_str()) == system)
-        .take(limit)
         .map(|database_name| {
             mongodb_database_node(
                 connection,
@@ -683,6 +790,21 @@ fn mongodb_database_group_fallback_nodes(
                 Some(vec![group.into()]),
             ));
         }
+    }
+
+    if !system && mongodb_selected_database_name(connection).is_none() {
+        nodes.push(ExplorerNode {
+            id: "mongodb-open-database-by-name".into(),
+            family: "document".into(),
+            label: "Open database by name".into(),
+            kind: "database-name-fallback".into(),
+            detail: "Enter an authorized database name when database enumeration is restricted."
+                .into(),
+            scope: None,
+            path: Some(vec![group.into()]),
+            query_template: None,
+            expandable: Some(false),
+        });
     }
 
     nodes.push(ExplorerNode {
@@ -1166,50 +1288,6 @@ fn mongodb_section_node(
     }
 }
 
-fn mongodb_collection_node_for_database(
-    _connection: &ResolvedConnectionProfile,
-    database_name: &str,
-    collection_name: &str,
-) -> ExplorerNode {
-    ExplorerNode {
-        id: format!("collection:{database_name}:{collection_name}"),
-        family: "document".into(),
-        label: collection_name.into(),
-        kind: "collection".into(),
-        detail: "Documents, schema, indexes, validation, and aggregations".into(),
-        scope: Some(format!("collection:{database_name}:{collection_name}")),
-        path: Some(vec![database_name.into(), "Collections".into()]),
-        query_template: Some(mongodb_find_query_template_for_database(
-            database_name,
-            collection_name,
-            20,
-        )),
-        expandable: Some(true),
-    }
-}
-
-fn mongodb_view_node(
-    _connection: &ResolvedConnectionProfile,
-    database_name: &str,
-    info: &MongoCollectionInfo,
-) -> ExplorerNode {
-    ExplorerNode {
-        id: format!("view:{database_name}:{}", info.name),
-        family: "document".into(),
-        label: info.name.clone(),
-        kind: "view".into(),
-        detail: "MongoDB collection view".into(),
-        scope: Some(format!("view:{database_name}:{}", info.name)),
-        path: Some(vec![database_name.into(), "Views".into()]),
-        query_template: Some(mongodb_find_query_template_for_database(
-            database_name,
-            &info.name,
-            20,
-        )),
-        expandable: Some(true),
-    }
-}
-
 fn mongodb_index_node(
     database_name: &str,
     collection_name: &str,
@@ -1343,7 +1421,7 @@ async fn inspect_users_or_roles(
             query_template: Some(mongodb_command_query_template(database_name, query_command)),
             payload: Some(json!({
                 "database": database_name,
-                label: payload
+                (label): payload
                     .get_array(label)
                     .map(|items| items.iter().map(mongodb_bson_to_json).collect::<Vec<_>>())
                     .unwrap_or_default(),
@@ -1359,6 +1437,95 @@ async fn inspect_users_or_roles(
             })),
         },
     }
+}
+
+async fn inspect_mongodb_principal(
+    database: &Database,
+    request: &ExplorerInspectRequest,
+    database_name: &str,
+    principal_name: &str,
+    user: bool,
+) -> ExplorerInspectResponse {
+    let identity_key = if user { "user" } else { "role" };
+    let result_key = if user { "users" } else { "roles" };
+    let command_key = if user { "usersInfo" } else { "rolesInfo" };
+    let command = doc! {
+        (command_key): {
+            (identity_key): principal_name,
+            "db": database_name,
+        },
+        "showPrivileges": true,
+        "showCredentials": false,
+    };
+    let query_command = command.clone();
+
+    match database.run_command(command).await {
+        Ok(response) => {
+            let principals = response
+                .get_array(result_key)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Bson::as_document)
+                        .map(|principal| mongodb_principal_payload(principal, identity_key))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            ExplorerInspectResponse {
+                node_id: request.node_id.clone(),
+                summary: if principals.is_empty() {
+                    format!(
+                        "MongoDB {identity_key} {principal_name} was not returned for {database_name}."
+                    )
+                } else {
+                    format!(
+                        "MongoDB {identity_key} metadata loaded for {principal_name}@{database_name}."
+                    )
+                },
+                query_template: Some(mongodb_command_query_template(
+                    database_name,
+                    query_command,
+                )),
+                payload: Some(json!({
+                    "database": database_name,
+                    (result_key): principals,
+                    "warning": principals.is_empty().then(|| format!(
+                        "The selected {identity_key} may be unavailable with the current permissions."
+                    )),
+                })),
+            }
+        }
+        Err(error) => ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: format!(
+                "MongoDB {identity_key} metadata is unavailable for {principal_name}@{database_name}."
+            ),
+            query_template: None,
+            payload: Some(json!({
+                "database": database_name,
+                (result_key): [],
+                "warning": mongodb_error_summary(&error),
+            })),
+        },
+    }
+}
+
+fn mongodb_principal_payload(principal: &Document, identity_key: &str) -> Value {
+    let array_payload = |key: &str| {
+        principal
+            .get_array(key)
+            .map(|items| items.iter().map(mongodb_bson_to_json).collect::<Vec<_>>())
+            .unwrap_or_default()
+    };
+
+    json!({
+        (identity_key): principal.get_str(identity_key).unwrap_or_default(),
+        "db": principal.get_str("db").unwrap_or_default(),
+        "roles": array_payload("roles"),
+        "inheritedRoles": array_payload("inheritedRoles"),
+        "privileges": array_payload("privileges"),
+        "inheritedPrivileges": array_payload("inheritedPrivileges"),
+    })
 }
 
 fn inspection_with_command_result(
@@ -1390,64 +1557,203 @@ fn inspection_with_command_result(
     }
 }
 
-async fn list_collection_infos(
-    database: &Database,
-) -> Result<Vec<MongoCollectionInfo>, CommandError> {
-    let response = database
-        .run_command(doc! { "listCollections": 1, "cursor": {} })
-        .await?;
-    let Some(cursor) = response.get_document("cursor").ok() else {
-        return Ok(Vec::new());
-    };
-    let Some(first_batch) = cursor.get_array("firstBatch").ok() else {
-        return Ok(Vec::new());
-    };
+async fn inspect_gridfs_node(
+    client: &Client,
+    request: &ExplorerInspectRequest,
+    fallback_database: &str,
+) -> Option<ExplorerInspectResponse> {
+    let node_id = request.node_id.as_str();
+    let (database_name, selected_bucket, include_files, include_chunks) =
+        if let Some(rest) = node_id.strip_prefix("gridfs-buckets:") {
+            (
+                scoped_database(rest, "", fallback_database),
+                None,
+                false,
+                false,
+            )
+        } else if let Some(rest) = node_id.strip_prefix("gridfs-bucket:") {
+            let (database, bucket) = split_database_collection(rest, fallback_database);
+            (database, Some(bucket), true, true)
+        } else if let Some(rest) = node_id.strip_prefix("gridfs-files:") {
+            (
+                scoped_database(rest, "", fallback_database),
+                Some("fs".to_string()),
+                true,
+                false,
+            )
+        } else if let Some(rest) = node_id.strip_prefix("gridfs-chunks:") {
+            (
+                scoped_database(rest, "", fallback_database),
+                Some("fs".to_string()),
+                false,
+                true,
+            )
+        } else if let Some(rest) = node_id.strip_prefix("gridfs:") {
+            let (database, collection) = split_database_collection(rest, fallback_database);
+            let bucket = collection
+                .strip_suffix(".files")
+                .or_else(|| collection.strip_suffix(".chunks"))
+                .unwrap_or(collection.as_str())
+                .to_string();
+            let has_collection = rest.contains(':');
+            (
+                database,
+                has_collection.then_some(bucket),
+                has_collection,
+                has_collection,
+            )
+        } else {
+            return None;
+        };
 
-    Ok(first_batch
-        .iter()
-        .filter_map(|item| item.as_document())
-        .filter_map(|document| {
-            let name = document.get_str("name").ok()?.to_string();
-            let collection_type = document.get_str("type").unwrap_or("collection").to_string();
-            let options = document
-                .get_document("options")
-                .ok()
-                .cloned()
-                .unwrap_or_default();
-
-            Some(MongoCollectionInfo {
-                name,
-                collection_type,
-                options,
-            })
+    let database = client.database(&database_name);
+    let infos = match list_collection_infos(&database).await {
+        Ok(infos) => infos,
+        Err(error) => {
+            return Some(gridfs_warning_response(
+                request,
+                &database_name,
+                error.message,
+            ));
+        }
+    };
+    let buckets = gridfs_buckets_from_infos(&infos);
+    let bucket = selected_bucket
+        .or_else(|| {
+            buckets
+                .first()
+                .and_then(|item| item.get("name"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
         })
-        .collect())
+        .unwrap_or_else(|| "fs".to_string());
+    let files_collection_name = format!("{bucket}.files");
+    let chunks_collection_name = format!("{bucket}.chunks");
+    let mut warnings = Vec::new();
+
+    let files = if include_files {
+        let collection = database.collection::<Document>(&files_collection_name);
+        match collection
+            .find(doc! {})
+            .sort(doc! { "uploadDate": -1, "_id": 1 })
+            .limit(25)
+            .await
+        {
+            Ok(cursor) => match cursor.try_collect::<Vec<Document>>().await {
+                Ok(documents) => documents.iter().map(gridfs_file_payload).collect(),
+                Err(error) => {
+                    warnings.push(mongodb_error_summary(&error));
+                    Vec::new()
+                }
+            },
+            Err(error) => {
+                warnings.push(mongodb_error_summary(&error));
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
+    let chunks = if include_chunks {
+        let collection = database.collection::<Document>(&chunks_collection_name);
+        match collection
+            .find(doc! {})
+            .sort(doc! { "files_id": 1, "n": 1 })
+            .limit(25)
+            .await
+        {
+            Ok(cursor) => match cursor.try_collect::<Vec<Document>>().await {
+                Ok(documents) => documents.iter().map(gridfs_chunk_payload).collect(),
+                Err(error) => {
+                    warnings.push(mongodb_error_summary(&error));
+                    Vec::new()
+                }
+            },
+            Err(error) => {
+                warnings.push(mongodb_error_summary(&error));
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
+    Some(ExplorerInspectResponse {
+        node_id: request.node_id.clone(),
+        summary: format!("GridFS metadata ready for {database_name}.{bucket}."),
+        query_template: Some(mongodb_find_query_template_for_database(
+            &database_name,
+            &files_collection_name,
+            20,
+        )),
+        payload: Some(json!({
+            "database": database_name,
+            "bucket": bucket,
+            "filesCollection": files_collection_name,
+            "chunksCollection": chunks_collection_name,
+            "buckets": buckets,
+            "files": files,
+            "chunks": chunks,
+            "sampleLimit": 25,
+            "warning": (!warnings.is_empty()).then(|| warnings.join(" ")),
+        })),
+    })
 }
 
-async fn collection_info_by_name(
-    database: &Database,
-    collection_name: &str,
-) -> Result<Option<MongoCollectionInfo>, CommandError> {
-    Ok(list_collection_infos(database)
-        .await?
-        .into_iter()
-        .find(|item| item.name == collection_name))
+fn gridfs_warning_response(
+    request: &ExplorerInspectRequest,
+    database_name: &str,
+    warning: String,
+) -> ExplorerInspectResponse {
+    ExplorerInspectResponse {
+        node_id: request.node_id.clone(),
+        summary: format!("GridFS metadata is unavailable for {database_name}."),
+        query_template: None,
+        payload: Some(json!({
+            "database": database_name,
+            "buckets": [],
+            "files": [],
+            "chunks": [],
+            "warning": warning,
+        })),
+    }
+}
+
+fn gridfs_file_payload(document: &Document) -> Value {
+    json!({
+        "_id": document.get("_id").map(mongodb_bson_to_json),
+        "filename": document.get_str("filename").ok(),
+        "length": document.get("length").map(mongodb_bson_to_json),
+        "chunkSize": document.get("chunkSize").map(mongodb_bson_to_json),
+        "uploadDate": document.get("uploadDate").map(mongodb_bson_to_json),
+        "metadata": document.get("metadata").map(mongodb_bson_to_json),
+    })
+}
+
+fn gridfs_chunk_payload(document: &Document) -> Value {
+    let size = match document.get("data") {
+        Some(Bson::Binary(binary)) => binary.bytes.len(),
+        _ => 0,
+    };
+    json!({
+        "_id": document.get("_id").map(mongodb_bson_to_json),
+        "files_id": document.get("files_id").map(mongodb_bson_to_json),
+        "n": document.get("n").map(mongodb_bson_to_json),
+        "size": size,
+    })
 }
 
 fn collection_info_payload(info: &MongoCollectionInfo) -> Value {
     json!({
         "name": info.name,
-        "type": info.collection_type,
+        "type": info.type_label(),
         "options": mongodb_document_to_json(&info.options),
         "pipeline": info.options
             .get_array("pipeline")
             .map(|items| items.iter().map(mongodb_bson_to_json).collect::<Vec<_>>())
             .unwrap_or_default(),
     })
-}
-
-fn is_gridfs_collection(collection_name: &str) -> bool {
-    collection_name.ends_with(".files") || collection_name.ends_with(".chunks")
 }
 
 fn gridfs_buckets_from_infos(infos: &[MongoCollectionInfo]) -> Vec<Value> {
@@ -1558,6 +1864,22 @@ fn split_database_collection(rest: &str, fallback_database: &str) -> (String, St
         }
         None => (fallback_database.to_string(), rest.to_string()),
     }
+}
+
+fn split_database_item(rest: &str, fallback_database: &str) -> (String, String) {
+    split_database_collection(rest, fallback_database)
+}
+
+fn split_database_collection_item(rest: &str, fallback_database: &str) -> (String, String, String) {
+    let mut parts = rest.splitn(3, ':');
+    let database_name = parts
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(fallback_database)
+        .to_string();
+    let collection_name = parts.next().unwrap_or_default().to_string();
+    let item_name = parts.next().unwrap_or_default().to_string();
+    (database_name, collection_name, item_name)
 }
 
 fn split_collection_admin_scope(rest: &str, fallback_database: &str) -> (String, String, String) {

@@ -17,6 +17,7 @@ import { buildOracleSqlItems, quoteOracleIdentifier } from './oracle-provider'
 import { buildPostgresSqlItems, quotePostgresIdentifier } from './postgres-provider'
 import { buildRedisItems } from './redis-provider'
 import { SECONDARY_COMPLETION_PROVIDERS } from './secondary-providers'
+import { COSMOS_SQL_COMPLETION_PROVIDER } from '../datastores/cosmosdb/cosmos-sql-provider'
 
 const SQL_ENGINES: Array<ConnectionProfile['engine']> = [
   'postgresql',
@@ -109,6 +110,7 @@ export const ENVIRONMENT_VARIABLE_COMPLETION_PROVIDER: DatastoreCompletionProvid
   }
 
 export const DEFAULT_COMPLETION_PROVIDERS: DatastoreCompletionProvider[] = [
+  COSMOS_SQL_COMPLETION_PROVIDER,
   {
     id: 'sql',
     engines: SQL_ENGINES,

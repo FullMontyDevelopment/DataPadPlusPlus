@@ -125,7 +125,7 @@ export const screenshotSlots: Record<ScreenshotId, ScreenshotSlot> = {
   'test-suites': {
     id: 'test-suites',
     title: 'Datastore test suites',
-    caption: 'Visual and raw JSON editors for setup, execute, assert, and teardown cases.',
+    caption: 'Opt-in visual suites with owned cases, removable steps, focused assertions, and adapter-backed preflight execution.',
     image: '/screenshots/test-suites.png',
   },
   'relationship-explorer': {

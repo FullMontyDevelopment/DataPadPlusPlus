@@ -16,6 +16,24 @@ export function QueryBuilderCountFooter({
   onCount,
   tabId,
 }: QueryBuilderCountFooterProps) {
+  return (
+    <footer className="query-builder-count-footer">
+      <QueryBuilderCountButton
+        activeExecution={activeExecution}
+        builderState={builderState}
+        onCount={onCount}
+        tabId={tabId}
+      />
+    </footer>
+  )
+}
+
+export function QueryBuilderCountButton({
+  activeExecution,
+  builderState,
+  onCount,
+  tabId,
+}: QueryBuilderCountFooterProps) {
   const [counting, setCounting] = useState(false)
   const disabled = counting || activeExecution || !onCount || !canCountQueryBuilderState(builderState)
 
@@ -32,22 +50,20 @@ export function QueryBuilderCountFooter({
   }
 
   return (
-    <footer className="query-builder-count-footer">
-      <button
-        type="button"
-        className="query-builder-count-button"
-        disabled={disabled}
-        aria-busy={counting}
-        title="Count all records matching the current builder filters"
-        onClick={() => void runCount()}
-      >
-        {counting ? (
-          <span className="connection-metadata-spinner" aria-hidden="true" />
-        ) : (
-          <Calculator size={14} aria-hidden="true" />
-        )}
-        <span>{counting ? 'Counting...' : 'Count'}</span>
-      </button>
-    </footer>
+    <button
+      type="button"
+      className="query-builder-count-button"
+      disabled={disabled}
+      aria-busy={counting}
+      title="Count all records matching the current builder filters"
+      onClick={() => void runCount()}
+    >
+      {counting ? (
+        <span className="connection-metadata-spinner" aria-hidden="true" />
+      ) : (
+        <Calculator size={14} aria-hidden="true" />
+      )}
+      <span>{counting ? 'Counting...' : 'Count'}</span>
+    </button>
   )
 }

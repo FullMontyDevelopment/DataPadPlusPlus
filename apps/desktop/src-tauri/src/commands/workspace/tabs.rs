@@ -116,6 +116,15 @@ pub fn open_test_suite_template(
 }
 
 #[tauri::command]
+pub fn open_test_suite_case(
+    state: State<'_, SharedAppState>,
+    request: OpenTestSuiteCaseRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.open_test_suite_case(request)
+}
+
+#[tauri::command]
 pub fn update_test_suite_tab(
     state: State<'_, SharedAppState>,
     request: UpdateTestSuiteTabRequest,
@@ -131,6 +140,15 @@ pub fn close_query_tab(
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(&state)?;
     state.close_query_tab(&tab_id)
+}
+
+#[tauri::command]
+pub fn close_query_tabs(
+    state: State<'_, SharedAppState>,
+    request: CloseQueryTabsRequest,
+) -> Result<CloseQueryTabsResponse, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.close_query_tabs(request)
 }
 
 #[tauri::command]
@@ -175,6 +193,15 @@ pub fn update_query_builder_state(
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(&state)?;
     state.update_query_builder_state(request)
+}
+
+#[tauri::command]
+pub fn update_datastore_query_editor_state(
+    state: State<'_, SharedAppState>,
+    request: UpdateDatastoreQueryEditorStateRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.update_datastore_query_editor_state(request)
 }
 
 #[tauri::command]

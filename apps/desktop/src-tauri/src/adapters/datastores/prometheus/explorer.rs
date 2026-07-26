@@ -31,6 +31,7 @@ pub(super) async fn list_prometheus_explorer_nodes(
         ),
         capabilities: prometheus_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

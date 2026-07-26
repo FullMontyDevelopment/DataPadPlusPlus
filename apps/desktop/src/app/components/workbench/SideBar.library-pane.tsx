@@ -34,6 +34,8 @@ import {
   RefreshIcon,
   SearchIcon,
   StopIcon,
+  TestCaseIcon,
+  TestSuiteIcon,
   TrashIcon,
 } from './icons'
 import {
@@ -65,6 +67,7 @@ interface LibraryPaneProps {
   activeApiServerId?: string
   apiServers?: DatastoreApiServerInstanceStatus[]
   workspaceSearchEnabled?: boolean
+  datastoreTestsEnabled?: boolean
   activeWorkspaceSearch?: boolean
   workspaceSwitcherStatus?: WorkspaceSwitcherStatus
   createFolderDialogRequestRevision?: number
@@ -96,12 +99,14 @@ interface LibraryPaneProps {
   onCreateEnvironment?(): void
   onCreateFolder(parentId: string | undefined, name: string): void
   onCreateTab?(connectionId?: string): void
-  onCreateTestSuite?(connectionId?: string): void
+  onCreateTestSuite?(
+    connectionId?: string,
+    scopedTarget?: ScopedQueryTarget,
+  ): void
   onCreateWorkspace?(name: string): void
   onDeleteNode(nodeId: string): void
   onDeleteConnection?(connectionId: string): void
   onDeleteEnvironment?(environmentId: string): void
-  onDuplicateConnection?(connectionId: string): void
   onDuplicateNode?(nodeId: string): void
   onEditEnvironment?(environmentId: string): void
   onLibraryFilterChange(value: string): void
@@ -126,6 +131,7 @@ interface LibraryPaneProps {
   onStopApiServer?(serverId: string): void
   onDeleteApiServer?(serverId: string): void
   onOpenLibraryItem(nodeId: string): void
+  onOpenTestSuiteCase(libraryItemId: string, caseId: string): void
   onRenameNode(nodeId: string, name: string): void
   onRenameWorkspace?(workspaceId: string, name: string): void
   onSelectConnection?(connectionId: string): void
@@ -219,6 +225,7 @@ export function LibraryPane({
   activeApiServerId,
   apiServers = [],
   workspaceSearchEnabled = false,
+  datastoreTestsEnabled = false,
   activeWorkspaceSearch = false,
   workspaceSwitcherStatus,
   createFolderDialogRequestRevision,
@@ -242,7 +249,6 @@ export function LibraryPane({
   onDeleteConnection = noop,
   onDeleteEnvironment = noop,
   onDeleteNode,
-  onDuplicateConnection = noop,
   onDuplicateNode = noop,
   onEditEnvironment = noop,
   onLibraryFilterChange,
@@ -263,6 +269,7 @@ export function LibraryPane({
   onStopApiServer = noop,
   onDeleteApiServer = noop,
   onOpenLibraryItem,
+  onOpenTestSuiteCase,
   onRenameNode,
   onRenameWorkspace = noop,
   onSelectConnection = noop,
@@ -296,9 +303,15 @@ export function LibraryPane({
   const suppressOpenClickNodeIdRef = useRef<string | undefined>(undefined)
   const [rootDragActive, setRootDragActive] = useState(false)
   const [folderDropTargetId, setFolderDropTargetId] = useState<string>()
+  const visibleLibraryNodes = useMemo(
+    () => datastoreTestsEnabled
+      ? libraryNodes
+      : libraryNodes.filter((node) => node.kind !== 'test-suite'),
+    [datastoreTestsEnabled, libraryNodes],
+  )
   const filteredNodes = useMemo(
-    () => filterLibraryNodes(libraryNodes, libraryFilter),
-    [libraryFilter, libraryNodes],
+    () => filterLibraryNodes(visibleLibraryNodes, libraryFilter),
+    [libraryFilter, visibleLibraryNodes],
   )
   const tree = useMemo(() => buildLibraryTree(filteredNodes), [filteredNodes])
   const collapsibleSectionIds = useMemo(
@@ -733,7 +746,6 @@ export function LibraryPane({
                 onCreateTestSuite={onCreateTestSuite}
                 onDeleteConnection={onDeleteConnection}
                 onDeleteNode={deleteNode}
-                onDuplicateConnection={onDuplicateConnection}
                 onBeginPointerDrag={beginPointerDrag}
                 onClearDrag={clearDrag}
                 onFinishPointerDrag={finishPointerDrag}
@@ -747,6 +759,8 @@ export function LibraryPane({
                 onOpenObjectView={onOpenObjectView}
                 onOpenScopedQuery={onOpenScopedQuery}
                 onOpenLibraryItem={onOpenLibraryItem}
+                onOpenTestSuiteCase={onOpenTestSuiteCase}
+                datastoreTestsEnabled={datastoreTestsEnabled}
                 onPointerDragMove={updatePointerDrag}
                 onRenameNode={requestRenameNode}
                 onSelectConnection={onSelectConnection}
@@ -1231,19 +1245,21 @@ export function LibraryPane({
                 <PlayIcon className="connection-context-menu-icon" />
                 <span>New Query</span>
               </button>
-              <button
-                type="button"
-                className="connection-context-menu-item"
-                role="menuitem"
-                aria-label={`New Test Suite for ${contextMenuConnection.name}`}
-                onClick={() => {
-                  onCreateTestSuite(contextMenuConnection.id)
-                  setContextMenu(undefined)
-                }}
-              >
-                <PlayIcon className="connection-context-menu-icon" />
-                <span>New Test Suite</span>
-              </button>
+              {datastoreTestsEnabled ? (
+                <button
+                  type="button"
+                  className="connection-context-menu-item"
+                  role="menuitem"
+                  aria-label={`New Test Suite for ${contextMenuConnection.name}`}
+                  onClick={() => {
+                    onCreateTestSuite(contextMenuConnection.id)
+                    setContextMenu(undefined)
+                  }}
+                >
+                  <TestSuiteIcon className="connection-context-menu-icon" />
+                  <span>New Test Suite</span>
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="connection-context-menu-item"
@@ -1352,18 +1368,20 @@ export function LibraryPane({
                 <PlayIcon className="connection-context-menu-icon" />
                 <span>New Query</span>
               </button>
-              <button
-                type="button"
-                className="connection-context-menu-item"
-                role="menuitem"
-                onClick={() => {
-                  onCreateTestSuite(activeConnectionId)
-                  setContextMenu(undefined)
-                }}
-              >
-                <PlayIcon className="connection-context-menu-icon" />
-                <span>New Test Suite</span>
-              </button>
+              {datastoreTestsEnabled ? (
+                <button
+                  type="button"
+                  className="connection-context-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    onCreateTestSuite(activeConnectionId)
+                    setContextMenu(undefined)
+                  }}
+                >
+                  <TestSuiteIcon className="connection-context-menu-icon" />
+                  <span>New Test Suite</span>
+                </button>
+              ) : null}
             </>
           ) : null}
           {contextMenu.node.kind !== 'folder' && !contextMenuConnection ? (
@@ -1380,7 +1398,7 @@ export function LibraryPane({
               <span>Open</span>
             </button>
           ) : null}
-          {contextMenu.node.kind === 'query' || contextMenu.node.kind === 'script' ? (
+          {contextMenu.node.kind !== 'folder' && contextMenu.node.kind !== 'connection' ? (
             <button
               type="button"
               className="connection-context-menu-item"
@@ -1631,7 +1649,6 @@ function LibraryTreeItem({
   onCreateTestSuite,
   onDeleteConnection,
   onDeleteNode,
-  onDuplicateConnection,
   onBeginPointerDrag,
   onClearDrag,
   onFinishPointerDrag,
@@ -1645,6 +1662,8 @@ function LibraryTreeItem({
   onOpenObjectView,
   onOpenScopedQuery,
   onOpenLibraryItem,
+  onOpenTestSuiteCase,
+  datastoreTestsEnabled,
   onPointerDragMove,
   onRenameNode,
   onSelectConnection,
@@ -1692,10 +1711,12 @@ function LibraryTreeItem({
   onCreateConnection(parentId?: string): void
   onCreateFolder(parentId?: string): void
   onCreateTab(connectionId?: string): void
-  onCreateTestSuite(connectionId?: string): void
+  onCreateTestSuite(
+    connectionId?: string,
+    scopedTarget?: ScopedQueryTarget,
+  ): void
   onDeleteConnection(connectionId: string): void
   onDeleteNode(node: LibraryNode): void
-  onDuplicateConnection(connectionId: string): void
   onBeginPointerDrag(
     nodeId: string,
     event: ReactPointerEvent<HTMLElement>,
@@ -1716,6 +1737,8 @@ function LibraryTreeItem({
   onOpenObjectView(connectionId: string, node: ExplorerNode): void
   onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
   onOpenLibraryItem(nodeId: string): void
+  onOpenTestSuiteCase(libraryItemId: string, caseId: string): void
+  datastoreTestsEnabled: boolean
   onPointerDragMove(event: ReactPointerEvent<HTMLElement>): void
   onRenameNode(node: LibraryNode): void
   onSelectConnection(connectionId: string): void
@@ -1733,7 +1756,8 @@ function LibraryTreeItem({
       ? connections.find((candidate) => candidate.id === node.connectionId)
       : undefined
   const isConnection = Boolean(connection)
-  const isContainer = isFolder || isConnection
+  const isTestSuite = node.kind === 'test-suite'
+  const isContainer = isFolder || isConnection || isTestSuite
   const isActive = node.id === activeLibraryNodeId
   const sectionId = sidebarSectionId('library', 'node', node.id)
   const [optimisticExpanded, setOptimisticExpanded] = useState<boolean>()
@@ -1891,6 +1915,8 @@ function LibraryTreeItem({
                 )
               ) : node.kind === 'query' ? (
                 <QueryIcon className="library-node-kind-icon" />
+              ) : node.kind === 'test-suite' ? (
+                <TestSuiteIcon className="library-node-kind-icon" />
               ) : null}
             </span>
           )}
@@ -1901,7 +1927,23 @@ function LibraryTreeItem({
               compact
             />
           ) : null}
-          <span>{node.name}</span>
+          {isTestSuite ? (
+            <span className="library-test-suite-copy">
+              <span>{node.name}</span>
+              <small>
+                {(node.summary ??
+                  [
+                      node.connectionId ?? node.testSuite?.connectionId,
+                      node.testSuite?.scopedTarget?.label,
+                    ]
+                      .filter(Boolean)
+                      .join(' / ')) ||
+                  'Target-bound test suite'}
+              </small>
+            </span>
+          ) : (
+            <span>{node.name}</span>
+          )}
         </button>
         <span className="library-tree-meta">
           {isLoadingMetadata && connection ? (
@@ -1978,9 +2020,35 @@ function LibraryTreeItem({
             onAddToApiServer={onAddNodeToApiServer}
             onOpenObjectView={onOpenObjectView}
             onOpenScopedQuery={onOpenScopedQuery}
+            onCreateTestSuite={
+              datastoreTestsEnabled
+                ? (connectionId, scopedTarget) =>
+                    onCreateTestSuite(connectionId, scopedTarget)
+                : undefined
+            }
             onSetExplorerFolderOrder={onSetExplorerFolderOrder}
           />
         </>
+      ) : null}
+      {isTestSuite && datastoreTestsEnabled && expanded ? (
+        <div role="group" className="library-test-case-group">
+          {(node.testSuite?.cases ?? []).map((testCase) => (
+            <button
+              key={testCase.id}
+              type="button"
+              role="treeitem"
+              className="library-test-case-row"
+              style={{ paddingLeft: 8 + (depth + 1) * 14 }}
+              aria-label={`Open test case ${testCase.name}`}
+              onClick={() => onOpenTestSuiteCase(node.id, testCase.id)}
+            >
+              <span className="library-tree-spacer" />
+              <TestCaseIcon className="library-node-kind-icon" />
+              <span>{testCase.name}</span>
+              {testCase.enabled === false ? <small>Disabled</small> : null}
+            </button>
+          ))}
+        </div>
       ) : null}
       {isFolder && expanded && children.length > 0 ? (
         <div role="group">
@@ -2014,7 +2082,6 @@ function LibraryTreeItem({
               onCreateTestSuite={onCreateTestSuite}
               onDeleteConnection={onDeleteConnection}
               onDeleteNode={onDeleteNode}
-              onDuplicateConnection={onDuplicateConnection}
               onBeginPointerDrag={onBeginPointerDrag}
               onClearDrag={onClearDrag}
               onFinishPointerDrag={onFinishPointerDrag}
@@ -2028,6 +2095,8 @@ function LibraryTreeItem({
               onOpenObjectView={onOpenObjectView}
               onOpenScopedQuery={onOpenScopedQuery}
               onOpenLibraryItem={onOpenLibraryItem}
+              onOpenTestSuiteCase={onOpenTestSuiteCase}
+              datastoreTestsEnabled={datastoreTestsEnabled}
               onPointerDragMove={onPointerDragMove}
               onRenameNode={onRenameNode}
               onSelectConnection={onSelectConnection}

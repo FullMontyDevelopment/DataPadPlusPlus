@@ -41,6 +41,7 @@ pub(super) async fn list_litedb_explorer_nodes(
         ),
         capabilities: litedb_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

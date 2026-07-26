@@ -322,6 +322,21 @@ pub struct ExplorerRequest {
     pub environment_id: String,
     pub limit: Option<u32>,
     pub scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplorerPageInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+    pub returned_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub known_total: Option<u32>,
+    pub has_more: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -333,6 +348,8 @@ pub struct ExplorerResponse {
     pub summary: String,
     pub capabilities: ExecutionCapabilities,
     pub nodes: Vec<ExplorerNode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_info: Option<ExplorerPageInfo>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

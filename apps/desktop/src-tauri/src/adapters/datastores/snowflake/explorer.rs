@@ -60,6 +60,7 @@ pub(super) async fn list_snowflake_explorer_nodes(
         ),
         capabilities: snowflake_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

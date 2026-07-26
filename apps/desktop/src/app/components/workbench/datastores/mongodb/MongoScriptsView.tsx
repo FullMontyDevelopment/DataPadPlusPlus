@@ -4,8 +4,9 @@ import {
   mongoScopedQueryMenuLabel,
   type MongoObjectViewDescriptor,
 } from './MongoObjectViewDescriptors'
-import { ObjectSearchIcon, PlayIcon } from '../../icons'
-import { PurposeEmptyState, SectionHeading } from '../../ObjectViewPrimitives'
+import { PlayIcon } from '../../icons'
+import { PurposeEmptyState } from '../../ObjectViewPrimitives'
+import { MongoContextStrip, MongoResourceSection } from './MongoOperationalViewPrimitives'
 
 type JsonRecord = Record<string, unknown>
 
@@ -29,25 +30,40 @@ export function MongoScriptsView({
   onOpenQuery(target: ScopedQueryTarget): void
 }) {
   const scripts = mongoScriptTemplates(payload.scripts)
+  const database = stringValue(payload.database)
+  const collection = stringValue(payload.collection)
+  const isAggregationView = descriptor.kind === 'aggregations'
 
   return (
     <div className="object-view-section">
-      <SectionHeading Icon={ObjectSearchIcon} title={descriptor.title} unit={`${scripts.length} template(s)`} />
-      {queryTarget ? (
-        <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
-          <PlayIcon className="panel-inline-icon" />
-          {descriptor.primaryQueryLabel ?? mongoScopedQueryMenuLabel(descriptor.kind)}
-        </button>
-      ) : null}
-      {scripts.length ? (
-        <div className="mongo-script-template-list" role="list" aria-label="MongoDB script templates">
-          {scripts.map((script) => (
-            <MongoScriptTemplateCard key={script.id} template={script} />
-          ))}
-        </div>
-      ) : (
-        <PurposeEmptyState descriptor={descriptor} />
-      )}
+      <MongoContextStrip
+        eyebrow={isAggregationView ? 'Aggregation workspace' : 'Script catalog'}
+        title={[database, collection].filter(Boolean).join(' / ') || 'MongoDB'}
+        detail={`${scripts.length} reusable template${scripts.length === 1 ? '' : 's'} available`}
+      />
+      <MongoResourceSection
+        eyebrow={isAggregationView ? 'Aggregation workflow' : 'Reusable requests'}
+        title={isAggregationView ? 'Build an aggregation' : 'Script templates'}
+        description={isAggregationView
+          ? 'Open the existing aggregation builder for this target. Templates appear here when metadata provides them.'
+          : 'Review a template before opening the scripting workspace.'}
+        actions={queryTarget ? (
+          <button type="button" className="drawer-button" onClick={() => onOpenQuery(queryTarget)}>
+            <PlayIcon className="panel-inline-icon" />
+            {descriptor.primaryQueryLabel ?? mongoScopedQueryMenuLabel(descriptor.kind)}
+          </button>
+        ) : null}
+      >
+        {scripts.length ? (
+          <div className="mongo-script-template-list" role="list" aria-label="MongoDB script templates">
+            {scripts.map((script) => (
+              <MongoScriptTemplateCard key={script.id} template={script} />
+            ))}
+          </div>
+        ) : (
+          <PurposeEmptyState descriptor={descriptor} />
+        )}
+      </MongoResourceSection>
     </div>
   )
 }

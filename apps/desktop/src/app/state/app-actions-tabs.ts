@@ -1,10 +1,15 @@
 import { useCallback, useMemo, useRef } from 'react'
-import type { BootstrapPayload, QueryTabState } from '@datapadplusplus/shared-types'
+import type {
+  BootstrapPayload,
+  CloseQueryTabsResponse,
+  QueryTabState,
+} from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
 import { ensureWorkspaceUnlocked } from './app-state-factories'
 import { toUserMessage } from './app-state-selectors'
 import { saveQueryTabToCurrentTarget } from './app-actions-tabs-save'
 import { shouldRecordConnectionIssue } from './connection-health'
+import { TabMutationCoordinator } from './tab-mutation-coordinator'
 import type { Actions, AppActionContext } from './app-state-types'
 
 type QueryTabActions = Pick<
@@ -25,10 +30,12 @@ type QueryTabActions = Pick<
   | 'createTestSuiteTab'
   | 'createScopedTab'
   | 'closeTab'
+  | 'closeTabs'
   | 'reopenClosedTab'
   | 'reorderTabs'
   | 'updateQuery'
   | 'updateQueryBuilderState'
+  | 'updateDatastoreQueryEditorState'
   | 'updateQueryTarget'
   | 'updateTestSuiteTab'
   | 'renameTab'
@@ -41,6 +48,7 @@ type QueryTabActions = Pick<
   | 'deleteLibraryNode'
   | 'duplicateLibraryNode'
   | 'openLibraryItem'
+  | 'openTestSuiteCase'
   | 'saveQueryTabToLibrary'
   | 'saveQueryTabToLocalFile'
   | 'openSavedWork'
@@ -49,26 +57,28 @@ type QueryTabActions = Pick<
 
 export function useQueryTabActions({
   state,
+  stateRef,
   dispatch,
   applyPayload,
   handleError,
 }: AppActionContext): QueryTabActions {
-  const closingTabIdsRef = useRef(new Set<string>())
+  const tabMutationCoordinatorRef = useRef(new TabMutationCoordinator())
   const runOpenTabMutation = useCallback(async (
     tabId: string,
     operation: () => Promise<BootstrapPayload>,
   ) => {
-    if (closingTabIdsRef.current.has(tabId)) {
+    const mutationTicket = tabMutationCoordinatorRef.current.beginMutation(tabId)
+    if (!mutationTicket) {
       return false
     }
     try {
       const payload = await operation()
-      if (!closingTabIdsRef.current.has(tabId)) {
+      if (tabMutationCoordinatorRef.current.canApply(mutationTicket)) {
         applyPayload(payload)
         return true
       }
     } catch (error) {
-      if (!closingTabIdsRef.current.has(tabId)) {
+      if (tabMutationCoordinatorRef.current.canApply(mutationTicket)) {
         handleError(error)
       }
     }
@@ -362,6 +372,17 @@ export function useQueryTabActions({
     [applyPayload, handleError],
   )
 
+  const openTestSuiteCase = useCallback<Actions['openTestSuiteCase']>(
+    async (request) => {
+      try {
+        applyPayload(await desktopClient.openTestSuiteCase(request))
+      } catch (error) {
+        handleError(error)
+      }
+    },
+    [applyPayload, handleError],
+  )
+
   const createScopedTab = useCallback<Actions['createScopedTab']>(
     async (request) => {
       try {
@@ -373,20 +394,34 @@ export function useQueryTabActions({
     [applyPayload, handleError],
   )
 
-  const closeTab = useCallback<Actions['closeTab']>(
-    async (tabId) => {
-      if (closingTabIdsRef.current.has(tabId)) {
-        return
+  const closeTabs = useCallback<Actions['closeTabs']>(
+    async (tabIds) => {
+      const requestedTabIds = tabMutationCoordinatorRef.current.beginClose(tabIds)
+      if (requestedTabIds.length === 0) {
+        return undefined
       }
-      closingTabIdsRef.current.add(tabId)
       try {
-        applyPayload(await desktopClient.closeQueryTab(tabId))
+        const response: CloseQueryTabsResponse = await desktopClient.closeQueryTabs({
+          tabIds: requestedTabIds,
+        })
+        tabMutationCoordinatorRef.current.acceptClosed(response.closedTabIds)
+        applyPayload(response.payload)
+        return response
       } catch (error) {
-        closingTabIdsRef.current.delete(tabId)
         handleError(error)
+        return undefined
+      } finally {
+        tabMutationCoordinatorRef.current.finishClose(requestedTabIds)
       }
     },
     [applyPayload, handleError],
+  )
+
+  const closeTab = useCallback<Actions['closeTab']>(
+    async (tabId) => {
+      await closeTabs([tabId])
+    },
+    [closeTabs],
   )
 
   const reopenClosedTab = useCallback<Actions['reopenClosedTab']>(
@@ -436,6 +471,16 @@ export function useQueryTabActions({
     [runOpenTabMutation],
   )
 
+  const updateDatastoreQueryEditorState = useCallback<Actions['updateDatastoreQueryEditorState']>(
+    async (request) => {
+      await runOpenTabMutation(
+        request.tabId,
+        () => desktopClient.updateDatastoreQueryEditorState(request),
+      )
+    },
+    [runOpenTabMutation],
+  )
+
   const updateQueryTarget = useCallback<Actions['updateQueryTarget']>(
     async (request) => {
       return runOpenTabMutation(
@@ -463,33 +508,33 @@ export function useQueryTabActions({
   const saveCurrentQuery = useCallback<Actions['saveCurrentQuery']>(
     async (tabId) => {
       try {
-        await saveQueryTabToCurrentTarget({ payload: state.payload, tabId, applyPayload })
+        await saveQueryTabToCurrentTarget({
+          payload: stateRef.current.payload,
+          tabId,
+          applyPayload,
+        })
       } catch (error) {
         handleError(error)
       }
     },
-    [applyPayload, handleError, state.payload],
+    [applyPayload, handleError, stateRef],
   )
 
   const saveAndCloseTab = useCallback<Actions['saveAndCloseTab']>(
     async (tabId) => {
-      if (closingTabIdsRef.current.has(tabId)) {
-        return
-      }
-      closingTabIdsRef.current.add(tabId)
       try {
         await saveQueryTabToCurrentTarget({
-          payload: state.payload,
+          payload: stateRef.current.payload,
           tabId,
           applyPayload,
-          closeAfterSave: true,
         })
+        return await closeTabs([tabId])
       } catch (error) {
-        closingTabIdsRef.current.delete(tabId)
         handleError(error)
+        return undefined
       }
     },
-    [applyPayload, handleError, state.payload],
+    [applyPayload, closeTabs, handleError, stateRef],
   )
 
   const createLibraryFolder = useCallback<Actions['createLibraryFolder']>(
@@ -642,10 +687,12 @@ export function useQueryTabActions({
       createTestSuiteTab,
       createScopedTab,
       closeTab,
+      closeTabs,
       reopenClosedTab,
       reorderTabs,
       updateQuery,
       updateQueryBuilderState,
+      updateDatastoreQueryEditorState,
       updateQueryTarget,
       updateTestSuiteTab,
       renameTab,
@@ -658,6 +705,7 @@ export function useQueryTabActions({
       deleteLibraryNode,
       duplicateLibraryNode,
       openLibraryItem,
+      openTestSuiteCase,
       saveQueryTabToLibrary,
       saveQueryTabToLocalFile,
       openSavedWork,
@@ -665,6 +713,7 @@ export function useQueryTabActions({
     }),
     [
       closeTab,
+      closeTabs,
       createApiServerTab,
       createEnvironmentTab,
       createMcpServerTab,
@@ -683,6 +732,7 @@ export function useQueryTabActions({
       deleteSavedWork,
       moveLibraryNode,
       openLibraryItem,
+      openTestSuiteCase,
       openSavedWork,
       renameTab,
       renameLibraryNode,
@@ -698,6 +748,7 @@ export function useQueryTabActions({
       setLibraryNodeEnvironment,
       updateQuery,
       updateQueryBuilderState,
+      updateDatastoreQueryEditorState,
       updateQueryTarget,
       updateTestSuiteTab,
     ],

@@ -7,6 +7,37 @@ import { ConnectionObjectTree } from '../../../../src/app/components/workbench/S
 import { explorerFolderOrderKey } from '../../../../src/app/components/workbench/SideBar.connection-object-tree-order'
 
 describe('ConnectionObjectTree', () => {
+  it('prefills a datastore test suite from an eligible Explorer object action', () => {
+    const onCreateTestSuite = vi.fn()
+    render(
+      <ConnectionObjectTree
+        connection={postgresConnection()}
+        nodes={[{
+          id: 'orders',
+          label: 'orders',
+          kind: 'table',
+          path: ['public'],
+          scope: 'table:public.orders',
+        }]}
+        onCreateTestSuite={onCreateTestSuite}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    const ordersRow = screen.getByText('orders').closest('[role="treeitem"]')!
+    fireEvent.contextMenu(ordersRow)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'New Test Suite' }))
+
+    expect(onCreateTestSuite).toHaveBeenCalledWith(
+      'conn-postgres',
+      expect.objectContaining({
+        kind: 'table',
+        label: 'orders',
+        path: ['public'],
+      }),
+    )
+  })
+
   it('renders adapter-manifest structural folders while live metadata is unavailable', () => {
     render(
       <ConnectionObjectTree

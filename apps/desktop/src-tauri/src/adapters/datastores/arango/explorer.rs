@@ -47,6 +47,7 @@ pub(super) async fn list_arango_explorer_nodes(
         ),
         capabilities: arango_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

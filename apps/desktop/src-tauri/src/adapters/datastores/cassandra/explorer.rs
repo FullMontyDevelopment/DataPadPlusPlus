@@ -24,5 +24,6 @@ pub(super) async fn list_cassandra_explorer_nodes(
         ),
         capabilities: cassandra_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }

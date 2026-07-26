@@ -10,6 +10,7 @@ use crate::domain::{
 
 mod capabilities;
 mod count_results;
+mod explorer_paging;
 mod graph_results;
 mod gremlin_ws;
 mod http_client;
@@ -23,6 +24,7 @@ mod tree_manifest;
 
 pub(crate) use capabilities::*;
 pub(crate) use count_results::*;
+pub(crate) use explorer_paging::*;
 pub(crate) use graph_results::*;
 pub(crate) use gremlin_ws::*;
 pub(crate) use http_client::*;

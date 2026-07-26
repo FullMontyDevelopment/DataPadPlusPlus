@@ -107,6 +107,7 @@ pub(super) async fn list_clickhouse_explorer_nodes(
         ),
         capabilities: clickhouse_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

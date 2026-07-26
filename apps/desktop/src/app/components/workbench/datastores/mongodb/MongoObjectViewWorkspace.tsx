@@ -10,7 +10,7 @@ import type {
   QueryTabState,
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
-import { ObjectDocumentIcon, PlayIcon, PlusIcon } from '../../icons'
+import { PlayIcon } from '../../icons'
 import {
   getMongoObjectViewDescriptor,
   mongoScopedQueryMenuLabel,
@@ -39,7 +39,7 @@ import { MongoValidationView } from './MongoValidationView'
 import { mongoValidationViewKey } from './MongoValidationView.helpers'
 import { ObjectViewFeedbackPanel, type ObjectViewFeedback } from '../../ObjectViewFeedbackPanel'
 import { ObjectViewHeader } from '../../ObjectViewHeader'
-import { SectionHeading, WarningList } from '../../ObjectViewPrimitives'
+import { WarningList } from '../../ObjectViewPrimitives'
 import {
   dataEditErrorMessage,
   executeDataEditWithConfirmation,
@@ -92,6 +92,11 @@ export function MongoObjectViewWorkspace({
   const kind = state?.kind ?? 'object'
   const descriptor = getMongoObjectViewDescriptor(kind)
   const title = descriptor.title
+  const childOwnsQueryAction = kind === 'view' ||
+    kind === 'pipeline' ||
+    kind === 'scripts' ||
+    kind === 'aggregations' ||
+    kind.startsWith('gridfs')
   const planMongoOperation = useCallback(async ({
     objectName,
     operationId,
@@ -228,31 +233,7 @@ export function MongoObjectViewWorkspace({
         refreshing={refreshing}
         onRefresh={refresh}
       >
-        {kind === 'collection' ? (
-          <button
-            type="button"
-            className="drawer-button"
-            disabled={!payload.collection}
-            title="Add a document to this collection"
-            onClick={() => openMongoToolView('insert-document', 'Add Document')}
-          >
-            <ObjectDocumentIcon className="panel-inline-icon" />
-            Add Document
-          </button>
-        ) : null}
-        {kind === 'indexes' ? (
-          <button
-            type="button"
-            className="drawer-button"
-            disabled={!payload.collection}
-            title="Create a MongoDB index for this collection"
-            onClick={() => openMongoToolView('create-index', 'Create Index')}
-          >
-            <PlusIcon className="panel-inline-icon" />
-            Create Index
-          </button>
-        ) : null}
-        {queryTarget ? (
+        {queryTarget && !childOwnsQueryAction ? (
           <button
             type="button"
             className="drawer-button"
@@ -307,7 +288,6 @@ function renderMongoObjectView(
   if (kind === 'insert-document') {
     return (
       <MongoDocumentInsertView
-        descriptor={descriptor}
         payload={payload}
         onUploadDocument={actions?.onUploadDocument}
       />
@@ -333,6 +313,7 @@ function renderMongoObjectView(
         queryTarget={queryTarget}
         onOpenQuery={onOpenQuery}
         onPlanOperation={actions?.onPlanOperation}
+        onOpenToolView={actions?.onOpenToolView}
       />
     )
   }
@@ -395,11 +376,9 @@ function renderMongoObjectView(
 }
 
 function MongoDocumentInsertView({
-  descriptor,
   payload,
   onUploadDocument,
 }: {
-  descriptor: MongoObjectViewDescriptor
   payload: JsonRecord
   onUploadDocument?: (document: JsonRecord) => Promise<void>
 }) {
@@ -409,11 +388,10 @@ function MongoDocumentInsertView({
 
   return (
     <div className="object-view-section">
-      <SectionHeading
-        Icon={ObjectDocumentIcon}
-        title={descriptor.title}
-        unit={[database, collection].filter(Boolean).join(' / ') || 'MongoDB'}
-      />
+      <div className="mongo-tool-context">
+        <span>Target collection</span>
+        <strong>{[database, collection].filter(Boolean).join(' / ') || 'MongoDB'}</strong>
+      </div>
       <MongoDocumentInsertPanel
         collection={collection}
         requiredFields={requiredFields}

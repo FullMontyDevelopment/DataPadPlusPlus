@@ -2,6 +2,7 @@ import type { Dispatch, MutableRefObject } from 'react'
 import type {
   BootstrapPayload,
   CancelTestRunRequest,
+  CloseQueryTabsResponse,
   AppLogFileContent,
   AppLogFileSummary,
   AppShortcutId,
@@ -60,6 +61,9 @@ import type {
   DatastoreSecurityChecksRefreshRequest,
   DatastoreSecurityChecksSettingsRequest,
   DatastoreSecurityChecksStatus,
+  DatastoreTestsSettingsRequest,
+  DatastoreTestRunPlanRequest,
+  DatastoreTestRunPlanResponse,
   DiagnosticsReport,
   DocumentNodeChildrenRequest,
   DocumentNodeChildrenResponse,
@@ -89,6 +93,7 @@ import type {
   LocalDatabasePickResult,
   OperationExecutionRequest,
   OperationExecutionResponse,
+  OpenTestSuiteCaseRequest,
   OperationManifestRequest,
   OperationManifestResponse,
   OperationPlanRequest,
@@ -106,6 +111,7 @@ import type {
   StructureResponse,
   UpdateTestSuiteTabRequest,
   UpdateQueryBuilderStateRequest,
+  UpdateDatastoreQueryEditorStateRequest,
   UpdateQueryTabTargetRequest,
   UpdateUiStateRequest,
   WorkspaceBackupDeleteRequest,
@@ -157,6 +163,7 @@ export interface StateShape {
   explorer?: ExplorerResponse
   explorerCache?: Record<string, ExplorerCacheEntry>
   explorerLoadingRequests: Record<string, string>
+  explorerErrors: Record<string, string>
   explorerError?: string
   explorerInspection?: ExplorerInspectResponse
   structureStatus: RemoteStatus
@@ -266,7 +273,6 @@ export interface Actions {
   selectTab(tabId: string): Promise<void>
   selectEnvironment(tabId: string, environmentId: string): Promise<void>
   createConnection(): Promise<void>
-  duplicateConnection(connectionId: string): Promise<void>
   deleteConnection(connectionId: string): Promise<void>
   saveConnection(profile: ConnectionProfile, secret?: string): Promise<boolean>
   createEnvironment(): Promise<void>
@@ -287,6 +293,7 @@ export interface Actions {
   createTestSuiteTab(request: CreateTestSuiteTabRequest): Promise<void>
   createScopedTab(request: CreateScopedQueryTabRequest): Promise<void>
   closeTab(tabId: string): Promise<void>
+  closeTabs(tabIds: string[]): Promise<CloseQueryTabsResponse | undefined>
   reopenClosedTab(closedTabId: string): Promise<void>
   reorderTabs(orderedTabIds: string[]): Promise<void>
   updateQuery(
@@ -296,11 +303,14 @@ export interface Actions {
     documentEfficiencyMode?: boolean,
   ): Promise<void>
   updateQueryBuilderState(request: UpdateQueryBuilderStateRequest): Promise<void>
+  updateDatastoreQueryEditorState(
+    request: UpdateDatastoreQueryEditorStateRequest,
+  ): Promise<void>
   updateQueryTarget(request: UpdateQueryTabTargetRequest): Promise<boolean>
   updateTestSuiteTab(request: UpdateTestSuiteTabRequest): Promise<void>
   renameTab(tabId: string, title: string): Promise<void>
   saveCurrentQuery(tabId: string): Promise<void>
-  saveAndCloseTab(tabId: string): Promise<void>
+  saveAndCloseTab(tabId: string): Promise<CloseQueryTabsResponse | undefined>
   createLibraryFolder(request: LibraryCreateFolderRequest): Promise<void>
   renameLibraryNode(request: LibraryRenameNodeRequest): Promise<void>
   moveLibraryNode(request: LibraryMoveNodeRequest): Promise<void>
@@ -308,6 +318,7 @@ export interface Actions {
   deleteLibraryNode(request: LibraryDeleteNodeRequest): Promise<void>
   duplicateLibraryNode(request: LibraryDuplicateNodeRequest): Promise<void>
   openLibraryItem(libraryItemId: string): Promise<void>
+  openTestSuiteCase(request: OpenTestSuiteCaseRequest): Promise<void>
   saveQueryTabToLibrary(request: SaveQueryTabToLibraryRequest): Promise<void>
   saveQueryTabToLocalFile(request: SaveQueryTabToLocalFileRequest): Promise<void>
   openSavedWork(savedWorkId: string): Promise<void>
@@ -334,11 +345,15 @@ export interface Actions {
     documentEfficiencyMode?: boolean,
     selectedText?: string,
     builderState?: QueryBuilderState,
+    datastoreExecutionInput?: ExecutionRequest['datastoreExecutionInput'],
   ): Promise<void>
   executeBuilderCount(request: {
     tabId: string; builderState: QueryBuilderState; queryText: string; countQueryText: string
   }): Promise<void>
   executeTestSuite(request: ExecuteTestSuiteRequest): Promise<ExecuteTestSuiteResponse | undefined>
+  planTestSuiteRun(
+    request: DatastoreTestRunPlanRequest,
+  ): Promise<DatastoreTestRunPlanResponse | undefined>
   cancelTestRun(
     request: CancelTestRunRequest,
   ): Promise<{ ok: boolean; supported: boolean; message: string } | undefined>
@@ -365,6 +380,7 @@ export interface Actions {
   executeDataEdit(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
+  addWorkbenchMessage(message: Omit<WorkbenchMessage, 'id' | 'createdAt'>): void
   openWorkbenchMessages(): void
   dismissWorkbenchMessage(id: string): void
   clearWorkbenchMessages(): void
@@ -398,6 +414,7 @@ export interface Actions {
   switchWorkspace(request: WorkspaceSwitchRequest): Promise<boolean>
   updateWorkspaceBackupSettings(request: WorkspaceBackupSettingsRequest): Promise<boolean>
   updateWorkspaceSearchSettings(request: WorkspaceSearchSettingsRequest): Promise<boolean>
+  updateDatastoreTestsSettings(request: DatastoreTestsSettingsRequest): Promise<boolean>
   getDatastoreSecurityCheckStatus(): Promise<DatastoreSecurityChecksStatus | undefined>
   updateDatastoreSecurityCheckSettings(
     request: DatastoreSecurityChecksSettingsRequest,

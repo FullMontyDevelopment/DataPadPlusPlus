@@ -119,6 +119,16 @@ Builder output should stay synchronized with executable query text unless a prod
 
 Result renderer changes should preserve the normalized payload contract. Put display-specific state, such as document expansion and inline edit mode, in the result component layer.
 
+## Datastore Tests plugin
+
+Datastore Tests is an experimental, workspace-scoped plugin and is disabled by default. Keep test cases owned by their parent suite; do not add standalone case tabs or Library records. The editor is visual-only, although the runtime must continue accepting legacy `rawText` updates for compatibility and imports.
+
+Execution support is opt-in per datastore through `DatastoreTestExecutionProvider`. A provider may advertise a step kind only when it invokes a real adapter path and has validation evidence. Never add simulated successful results for browser preview or unsupported engines. Mutating steps must pass the preflight planner, safe-mode and read-only checks, and the exact one-time confirmation phrase before the provider hook runs.
+
+Providers also own accepted target kinds, target validation, inferred query language, and target-aware starter requests. Shared test orchestration must not switch on engine names. Suite creation/import must reject missing bindings, and visual or raw updates must reject changes to connection, environment, engine, family, or target with the stable immutable-binding error.
+
+When changing this area, cover disabled-plugin enforcement, required binding selection, Explorer-prefilled targets, suite/case editing, conflicting serialized languages, target mismatch warnings/blockers, plan expiry and staleness, cancellation with teardown, redacted bounded observations, and the relevant local fixtures. Tests and fixture data remain outside the Graphify production architecture graph.
+
 ## Fixtures
 
 Use the default fixture stack for everyday debugging:

@@ -3,16 +3,22 @@ import type {
   DataEditPlanRequest,
   DatastoreEngine,
   ExplorerNode,
+  ExplorerPageInfo,
+  ExplorerRequest,
   OperationPlanRequest,
 } from '@datapadplusplus/shared-types'
 
 export interface DatastoreRuntimeExplorerHooks {
-  createNodes?: (connection: ConnectionProfile, scope?: string) => ExplorerNode[]
+  createNodes: (connection: ConnectionProfile, scope?: string) => ExplorerNode[]
+  pageNodes?: (
+    nodes: ExplorerNode[],
+    request: ExplorerRequest,
+  ) => { nodes: ExplorerNode[]; pageInfo?: ExplorerPageInfo }
   inspectQueryTemplate?: (
     connection: ConnectionProfile,
     nodeId: string,
   ) => string | undefined
-  inspectPayload?: (connection: ConnectionProfile, nodeId: string) => unknown
+  inspectPayload: (connection: ConnectionProfile, nodeId: string) => unknown
 }
 
 export interface DatastoreRuntimeOperationHooks {
@@ -40,7 +46,7 @@ export interface DatastoreRuntimeDataEditHooks {
 
 export interface DatastoreRuntimeSlice {
   engine: DatastoreEngine
-  explorer?: DatastoreRuntimeExplorerHooks
+  explorer: DatastoreRuntimeExplorerHooks
   operation?: DatastoreRuntimeOperationHooks
   validation?: unknown
   dataEdit?: DatastoreRuntimeDataEditHooks

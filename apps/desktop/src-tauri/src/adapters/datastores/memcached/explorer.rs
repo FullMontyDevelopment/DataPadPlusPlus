@@ -29,6 +29,7 @@ pub(super) async fn list_memcached_explorer_nodes(
         ),
         capabilities: memcached_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

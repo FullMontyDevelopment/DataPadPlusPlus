@@ -1,7 +1,12 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { MongoObjectViewDescriptor } from './MongoObjectViewDescriptors'
-import { ObjectSecurityIcon, PlusIcon, TrashIcon } from '../../icons'
-import { PurposeEmptyState, SectionHeading } from '../../ObjectViewPrimitives'
+import { PlusIcon, TrashIcon } from '../../icons'
+import { PurposeEmptyState } from '../../ObjectViewPrimitives'
+import {
+  MongoAdvancedDisclosure,
+  MongoContextStrip,
+  MongoResourceSection,
+} from './MongoOperationalViewPrimitives'
 
 type JsonRecord = Record<string, unknown>
 
@@ -90,108 +95,120 @@ export function MongoValidationView({
 
   return (
     <div className="object-view-section">
-      <SectionHeading Icon={ObjectSecurityIcon} title={descriptor.title} unit={validator ? 'configured' : 'none'} />
-      <div className="object-view-card-grid">
-        <div className="object-view-card">
-          <span>Required fields</span>
-          <strong>{requiredFields.length}</strong>
-        </div>
-        <div className="object-view-card">
-          <span>Validation source</span>
-          <strong>{validator ? 'JSON Schema' : 'none'}</strong>
-        </div>
-      </div>
-      <div className="object-view-management">
-        <strong>Required Fields</strong>
-        {requiredFields.length ? (
-          <div className="object-view-chip-row" aria-label="Required fields">
-            {requiredFields.map((field) => (
-              <button
-                type="button"
-                className="object-view-chip-button"
-                key={field}
-                aria-label={`Remove required field ${field}`}
-                title="Remove required field"
-                onClick={() => removeRequiredField(field)}
-              >
-                <span>{field}</span>
-                <TrashIcon className="toolbar-icon" />
-              </button>
-            ))}
-          </div>
-        ) : (
-          <PurposeEmptyState descriptor={descriptor} />
-        )}
-        <div className="object-view-form-grid">
-          <label className="object-view-field">
-            <span>Field</span>
-            <input
-              value={newRequiredField}
-              onChange={(event) => setNewRequiredField(event.target.value)}
-              placeholder="sku"
-            />
-          </label>
-        </div>
-        {validationError ? <p className="object-view-status is-error">{validationError}</p> : null}
-        <div className="object-view-button-row">
-          <button type="button" className="drawer-button" onClick={addRequiredField}>
-            <PlusIcon className="panel-inline-icon" />
-            Add Field
-          </button>
+      <MongoContextStrip
+        eyebrow="Collection validation"
+        title={[database, collection].filter(Boolean).join(' / ') || 'MongoDB'}
+        detail={validator ? 'A validator is configured for this collection.' : 'No validator is configured.'}
+        metrics={[
+          { label: 'Required fields', value: requiredFields.length },
+          { label: 'Validation source', value: validator ? 'JSON Schema' : 'None' },
+        ]}
+      />
+      <MongoResourceSection
+        eyebrow="Visual editor"
+        title="Required fields"
+        description="Maintain the fields every document must contain."
+        actions={(
           <button
             type="button"
             className="drawer-button drawer-button--primary"
             disabled={!onPlanOperation || !collection}
             onClick={reviewRequiredFields}
           >
-            Run Required Fields
+            Review validation change
           </button>
+        )}
+      >
+        <div className="mongo-inline-editor">
+          {requiredFields.length ? (
+            <div className="object-view-chip-row" aria-label="Required fields">
+              {requiredFields.map((field) => (
+                <button
+                  type="button"
+                  className="object-view-chip-button"
+                  key={field}
+                  aria-label={`Remove required field ${field}`}
+                  title="Remove required field"
+                  onClick={() => removeRequiredField(field)}
+                >
+                  <span>{field}</span>
+                  <TrashIcon className="toolbar-icon" />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <PurposeEmptyState descriptor={descriptor} />
+          )}
+          <div className="object-view-form-grid">
+            <label className="object-view-field">
+              <span>Field</span>
+              <input
+                value={newRequiredField}
+                onChange={(event) => setNewRequiredField(event.target.value)}
+                placeholder="sku"
+              />
+            </label>
+          </div>
+          {validationError ? <p className="object-view-status is-error">{validationError}</p> : null}
+          <div className="object-view-button-row">
+            <button type="button" className="drawer-button" onClick={addRequiredField}>
+              <PlusIcon className="panel-inline-icon" />
+              Add field
+            </button>
+          </div>
         </div>
-      </div>
-      <details className="object-view-disclosure">
-        <summary>Advanced JSON rule</summary>
-        <label className="object-view-field">
-          <span>Validator rule</span>
-          <textarea
-            className="object-view-textarea"
-            value={validatorJson}
-            onChange={(event) => setValidatorJson(event.target.value)}
-            spellCheck={false}
-          />
-        </label>
-        <div className="object-view-button-row">
-          <button
-            type="button"
-            className="drawer-button"
-            disabled={!onPlanOperation || !collection}
-            onClick={previewUpdate}
-          >
-            Run JSON Rule
-          </button>
+        <MongoAdvancedDisclosure
+          label="Native validator JSON"
+          description="Use the native rule editor when the visual required-fields editor is not sufficient."
+        >
+          <label className="object-view-field">
+            <span>Validator rule</span>
+            <textarea
+              className="object-view-textarea"
+              value={validatorJson}
+              onChange={(event) => setValidatorJson(event.target.value)}
+              spellCheck={false}
+            />
+          </label>
+          <div className="object-view-button-row">
+            <button
+              type="button"
+              className="drawer-button"
+              disabled={!onPlanOperation || !collection}
+              onClick={previewUpdate}
+            >
+              Review native validation change
+            </button>
+          </div>
+        </MongoAdvancedDisclosure>
+      </MongoResourceSection>
+      <MongoResourceSection
+        eyebrow="Local check"
+        title="Test document"
+        description="This check runs locally against the required fields currently shown above."
+      >
+        <div className="mongo-inline-editor">
+          <label className="object-view-field">
+            <span>Test document</span>
+            <textarea
+              className="object-view-textarea"
+              value={testDocumentJson}
+              onChange={(event) => setTestDocumentJson(event.target.value)}
+              spellCheck={false}
+            />
+          </label>
+          {testStatus ? (
+            <p className={`object-view-status ${testStatus.kind === 'success' ? 'is-success' : 'is-error'}`}>
+              {testStatus.text}
+            </p>
+          ) : null}
+          <div className="object-view-button-row">
+            <button type="button" className="drawer-button" onClick={testDocument}>
+              Test document
+            </button>
+          </div>
         </div>
-      </details>
-      <div className="object-view-management">
-        <strong>Test Document</strong>
-        <label className="object-view-field">
-          <span>Test document</span>
-          <textarea
-            className="object-view-textarea"
-            value={testDocumentJson}
-            onChange={(event) => setTestDocumentJson(event.target.value)}
-            spellCheck={false}
-          />
-        </label>
-        {testStatus ? (
-          <p className={`object-view-status ${testStatus.kind === 'success' ? 'is-success' : 'is-error'}`}>
-            {testStatus.text}
-          </p>
-        ) : null}
-        <div className="object-view-button-row">
-          <button type="button" className="drawer-button" onClick={testDocument}>
-            Test Document
-          </button>
-        </div>
-      </div>
+      </MongoResourceSection>
     </div>
   )
 }

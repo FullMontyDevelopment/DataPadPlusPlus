@@ -1298,6 +1298,10 @@ function mongoPlacement(
   kind: string,
   normalizedPath: string[],
 ): string[] {
+  if (kind === 'databases' || kind === 'system-databases') {
+    return []
+  }
+
   if (kind === 'database') {
     if (normalizedPath[0] === 'Databases' || normalizedPath[0] === 'System Databases') {
       return normalizedPath

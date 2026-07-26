@@ -4,8 +4,10 @@ import type {
   ConnectionProfile,
   EnvironmentProfile,
   ExplorerNode,
+  ExplorerResponse,
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
+import { workbenchSliceForEngine } from './datastores/registry'
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -26,6 +28,10 @@ export function ExplorerPane({
   explorerItems,
   explorerStatus,
   explorerSummary,
+  explorerScopes,
+  getExplorerScopeError,
+  isExplorerScopeLoading,
+  onLoadExplorerScope,
   onExplorerFilterChange,
   onInspectExplorerNode,
   onOpenScopedQuery,
@@ -38,7 +44,11 @@ export function ExplorerPane({
   explorerItems: ExplorerNode[]
   explorerStatus: 'idle' | 'loading' | 'ready'
   explorerSummary?: string
+  explorerScopes?: Record<string, ExplorerResponse>
   onExplorerFilterChange(value: string): void
+  getExplorerScopeError?(scope?: string): string | undefined
+  isExplorerScopeLoading?(scope?: string): boolean
+  onLoadExplorerScope?(scope?: string, cursor?: string): void
   onInspectExplorerNode(node: ExplorerNode): void
   onOpenScopedQuery(target: ScopedQueryTarget): void
   onRefreshExplorer(): void
@@ -46,6 +56,9 @@ export function ExplorerPane({
 }) {
   const [contextMenu, setContextMenu] = useState<ExplorerContextMenuState>()
   const environmentStyle = environmentAccentVariables(activeEnvironment)
+  const DatastoreExplorerNavigator = activeConnection
+    ? workbenchSliceForEngine(activeConnection.engine).explorer.Navigator
+    : undefined
   const openNodeQuery = (item: ExplorerNode) => {
     if (!isExplorerNodeQueryable(item)) {
       return
@@ -123,14 +136,27 @@ export function ExplorerPane({
       </div>
 
       <div className="sidebar-scroll">
-        {explorerItems.length === 0 ? (
+        {!DatastoreExplorerNavigator && explorerItems.length === 0 ? (
           <div className="sidebar-empty">
             <ExplorerIcon className="empty-icon" />
             <p>No explorer metadata loaded.</p>
           </div>
         ) : null}
 
-        {explorerItems.map((item) => {
+        {DatastoreExplorerNavigator && activeConnection ? (
+          <DatastoreExplorerNavigator
+            compact
+            connection={activeConnection}
+            environment={activeEnvironment}
+            scopes={explorerScopes ?? {}}
+            filter={explorerFilter}
+            isScopeLoading={(scope) => isExplorerScopeLoading?.(scope) ?? false}
+            getScopeError={(scope) => getExplorerScopeError?.(scope)}
+            onLoadScope={(scope, cursor) => onLoadExplorerScope?.(scope, cursor)}
+            onSelectNode={onSelectExplorerNode}
+            onNodeContextMenu={openContextMenu}
+          />
+        ) : explorerItems.map((item) => {
           const depth = Math.max(0, (item.path?.length ?? 1) - 1)
 
           return (

@@ -8,6 +8,7 @@ import {
   createObjectViewTabInSnapshot,
   createQueryTabForConnection,
   createScopedQueryTabInSnapshot,
+  closeQueryTabs,
   scopedTargetsMatch,
   updateQueryTabTargetInSnapshot,
 } from '../../../src/services/runtime/browser-tabs'
@@ -17,6 +18,71 @@ import {
 } from '../../../src/services/runtime/browser-settings-tab'
 
 describe('browser tab runtime', () => {
+  it('closes an eligible batch atomically while preserving locked and missing outcomes', () => {
+    const snapshot = createSeedSnapshot()
+    snapshot.ui.activeTabId = 'tab-mongo-catalog'
+    const lockedTab = snapshot.tabs.find((tab) => tab.id === 'tab-commerce-mysql')
+    if (!lockedTab) throw new Error('Locked tab fixture is missing.')
+    lockedTab.status = 'queued'
+
+    const result = closeQueryTabs(snapshot, {
+      tabIds: [
+        'tab-orders-audit',
+        'tab-commerce-mysql',
+        'tab-missing',
+        'tab-orders-audit',
+        'tab-local-sqlite',
+      ],
+    })
+
+    expect(result.closedTabIds).toEqual(['tab-orders-audit', 'tab-local-sqlite'])
+    expect(result.lockedTabIds).toEqual(['tab-commerce-mysql'])
+    expect(result.missingTabIds).toEqual(['tab-missing'])
+    expect(result.snapshot.tabs.map((tab) => tab.id)).not.toContain('tab-orders-audit')
+    expect(result.snapshot.tabs.map((tab) => tab.id)).not.toContain('tab-local-sqlite')
+    expect(result.snapshot.tabs.map((tab) => tab.id)).toContain('tab-commerce-mysql')
+    expect(result.snapshot.ui.activeTabId).toBe('tab-mongo-catalog')
+    expect(result.snapshot.closedTabs.slice(0, 2).map((tab) => tab.id)).toEqual([
+      'tab-local-sqlite',
+      'tab-orders-audit',
+    ])
+  })
+
+  it('selects the nearest surviving tab when the active tab closes', () => {
+    const snapshot = createSeedSnapshot()
+    snapshot.ui.activeTabId = 'tab-mongo-catalog'
+    const rightTab = snapshot.tabs.find((tab) => tab.id === 'tab-commerce-mysql')
+    if (rightTab) {
+      rightTab.status = 'idle'
+    }
+
+    const result = closeQueryTabs(snapshot, {
+      tabIds: ['tab-mongo-catalog', 'tab-commerce-mysql'],
+    })
+
+    expect(result.snapshot.ui.activeTabId).toBe('tab-orders-audit')
+  })
+
+  it('keeps closed-tab history bounded during a large batch', () => {
+    const snapshot = createSeedSnapshot()
+    snapshot.tabs = Array.from({ length: 30 }, (_, index) => ({
+      ...snapshot.tabs[0]!,
+      id: `tab-${index}`,
+      title: `Tab ${index}`,
+    }))
+    snapshot.ui.activeTabId = 'tab-15'
+
+    const result = closeQueryTabs(snapshot, {
+      tabIds: snapshot.tabs.map((tab) => tab.id),
+    })
+
+    expect(result.closedTabIds).toHaveLength(30)
+    expect(result.snapshot.tabs).toHaveLength(0)
+    expect(result.snapshot.closedTabs).toHaveLength(25)
+    expect(result.snapshot.closedTabs[0]?.id).toBe('tab-29')
+    expect(result.snapshot.closedTabs[24]?.id).toBe('tab-5')
+  })
+
   it('updates a query target atomically while retaining history', () => {
     const snapshot = createSeedSnapshot()
     const tab = snapshot.tabs.find((item) => item.id === 'tab-mongo-catalog')

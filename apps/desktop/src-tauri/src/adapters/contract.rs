@@ -103,6 +103,9 @@ pub trait DatastoreAdapter: Send + Sync {
         connection: &ResolvedConnectionProfile,
         request: &ExplorerRequest,
     ) -> Result<ExplorerResponse, CommandError>;
+    fn handles_explorer_paging(&self) -> bool {
+        false
+    }
     async fn inspect_explorer_node(
         &self,
         connection: &ResolvedConnectionProfile,

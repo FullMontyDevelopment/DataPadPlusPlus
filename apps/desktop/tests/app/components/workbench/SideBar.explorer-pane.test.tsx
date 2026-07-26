@@ -3,6 +3,7 @@ import type {
   ConnectionProfile,
   EnvironmentProfile,
   ExplorerNode,
+  ExplorerResponse,
 } from '@datapadplusplus/shared-types'
 import { describe, expect, it, vi } from 'vitest'
 import { ExplorerPane } from '../../../../src/app/components/workbench/SideBar.explorer-pane'
@@ -15,6 +16,7 @@ describe('ExplorerPane', () => {
         activeEnvironment={localEnvironment()}
         explorerFilter=""
         explorerItems={explorerNodes()}
+        explorerScopes={explorerScopes()}
         explorerStatus="ready"
         explorerSummary="Loaded 2 nodes."
         onExplorerFilterChange={vi.fn()}
@@ -27,10 +29,11 @@ describe('ExplorerPane', () => {
 
     const schemaRow = treeItemForLabel('public')
     const tableRow = treeItemForLabel('accounts')
+    const schemaTreeItem = schemaRow.closest('[role="treeitem"]')
 
-    expect(schemaRow).toHaveClass('has-environment-accent')
-    expect(schemaRow.getAttribute('style')).toContain('--connection-env-color')
-    expect(schemaRow.querySelector('.tree-kind-icon')).not.toBeNull()
+    expect(schemaTreeItem).toHaveClass('has-environment-accent')
+    expect(schemaTreeItem?.getAttribute('style')).toContain('--connection-env-color')
+    expect(schemaTreeItem?.querySelector('.tree-kind-icon')).not.toBeNull()
     expect(tableRow.querySelector('.tree-icon')).not.toBeNull()
   })
 
@@ -43,6 +46,7 @@ describe('ExplorerPane', () => {
         activeEnvironment={localEnvironment()}
         explorerFilter=""
         explorerItems={explorerNodes()}
+        explorerScopes={explorerScopes()}
         explorerStatus="ready"
         explorerSummary="Loaded 2 nodes."
         onExplorerFilterChange={vi.fn()}
@@ -70,6 +74,7 @@ describe('ExplorerPane', () => {
         activeEnvironment={localEnvironment()}
         explorerFilter=""
         explorerItems={explorerNodes()}
+        explorerScopes={explorerScopes()}
         explorerStatus="ready"
         explorerSummary="Loaded 2 nodes."
         onExplorerFilterChange={vi.fn()}
@@ -125,6 +130,30 @@ function explorerNodes(): ExplorerNode[] {
       queryTemplate: 'select * from public.accounts limit 100;',
     },
   ]
+}
+
+function explorerScopes(): Record<string, ExplorerResponse> {
+  const nodes = explorerNodes()
+  return {
+    __root__: {
+      connectionId: 'conn-postgres',
+      environmentId: 'env-local',
+      summary: 'Loaded 2 nodes.',
+      capabilities: {
+        canCancel: true,
+        canExplain: true,
+        supportsLiveMetadata: true,
+        editorLanguage: 'sql',
+        defaultRowLimit: 100,
+      },
+      nodes,
+      pageInfo: {
+        returnedCount: nodes.length,
+        knownTotal: nodes.length,
+        hasMore: false,
+      },
+    },
+  }
 }
 
 function postgresConnection(): ConnectionProfile {

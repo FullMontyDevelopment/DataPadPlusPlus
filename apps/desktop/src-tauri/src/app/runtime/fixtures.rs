@@ -213,6 +213,9 @@ fn fixture_workspace_seed_for_profile_options(
             workspace_search: crate::domain::models::WorkspaceSearchPreferences {
                 enabled: screenshot_seed,
             },
+            datastore_tests: crate::domain::models::DatastoreTestsPreferences {
+                enabled: screenshot_seed,
+            },
             first_install_guide: Default::default(),
             explorer_folder_orders: HashMap::new(),
         },

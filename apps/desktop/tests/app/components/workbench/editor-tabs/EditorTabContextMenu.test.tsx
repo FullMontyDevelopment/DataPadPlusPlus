@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { EditorTabContextMenu } from '../../../../../src/app/components/workbench/editor-tabs/EditorTabContextMenu'
 
 describe('EditorTabContextMenu', () => {
-  it('keeps running tabs out of bulk close operations', () => {
+  it('passes complete bulk target sets so running tabs can be reported', () => {
     const onCloseTabs = vi.fn()
 
     render(
@@ -28,7 +28,24 @@ describe('EditorTabContextMenu', () => {
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'Close all tabs' }))
 
-    expect(onCloseTabs).toHaveBeenCalledWith(['tab-idle'])
+    expect(onCloseTabs).toHaveBeenCalledWith([
+      'tab-running-left',
+      'tab-idle',
+      'tab-running-right',
+    ])
+
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Close other tabs except Query' }),
+    )
+    expect(onCloseTabs).toHaveBeenLastCalledWith([
+      'tab-running-left',
+      'tab-running-right',
+    ])
+
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: 'Close tabs to the right of Query' }),
+    )
+    expect(onCloseTabs).toHaveBeenLastCalledWith(['tab-running-right'])
   })
 
   it('disables direct close for a running tab', () => {

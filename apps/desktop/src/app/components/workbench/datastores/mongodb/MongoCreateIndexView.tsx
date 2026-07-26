@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
-import type { ComponentType } from 'react'
-import { ObjectIndexIcon, PlusIcon, TrashIcon } from '../../icons'
+import { PlusIcon, TrashIcon } from '../../icons'
 import type { MongoObjectViewDescriptor } from './MongoObjectViewDescriptors'
+import { MongoContextStrip, MongoResourceSection } from './MongoOperationalViewPrimitives'
 
 type JsonRecord = Record<string, unknown>
 type IndexDirection = '1' | '-1' | 'text' | 'hashed'
@@ -110,30 +110,36 @@ export function MongoCreateIndexView({
 
   return (
     <div className="object-view-section">
-      <SectionHeading
-        Icon={ObjectIndexIcon}
-        title={descriptor.title}
-        unit={[database, collection].filter(Boolean).join(' / ') || 'MongoDB'}
+      <MongoContextStrip
+        eyebrow={descriptor.title}
+        title={[database, collection].filter(Boolean).join(' / ') || 'MongoDB'}
+        detail="Define the key first, then add optional index behavior."
       />
-      <MongoIndexCreatePanel
-        disabled={!collection || !onPlanOperation}
-        fields={fields}
-        hidden={hidden}
-        indexName={indexName}
-        partialFilter={partialFilter}
-        sparse={sparse}
-        ttlSeconds={ttlSeconds}
-        unique={unique}
-        validationError={validationError}
-        onFieldsChange={setFields}
-        onHiddenChange={setHidden}
-        onIndexNameChange={setIndexName}
-        onPartialFilterChange={setPartialFilter}
-        onPreviewCreate={previewCreate}
-        onSparseChange={setSparse}
-        onTtlSecondsChange={setTtlSeconds}
-        onUniqueChange={setUnique}
-      />
+      <MongoResourceSection
+        eyebrow="Index definition"
+        title="Key and options"
+        description="Every index change is reviewed through the guarded operation planner."
+      >
+        <MongoIndexCreatePanel
+          disabled={!collection || !onPlanOperation}
+          fields={fields}
+          hidden={hidden}
+          indexName={indexName}
+          partialFilter={partialFilter}
+          sparse={sparse}
+          ttlSeconds={ttlSeconds}
+          unique={unique}
+          validationError={validationError}
+          onFieldsChange={setFields}
+          onHiddenChange={setHidden}
+          onIndexNameChange={setIndexName}
+          onPartialFilterChange={setPartialFilter}
+          onPreviewCreate={previewCreate}
+          onSparseChange={setSparse}
+          onTtlSecondsChange={setTtlSeconds}
+          onUniqueChange={setUnique}
+        />
+      </MongoResourceSection>
     </div>
   )
 }
@@ -190,8 +196,7 @@ function MongoIndexCreatePanel({
   }
 
   return (
-    <div className="object-view-management">
-      <strong>Create Index</strong>
+    <div className="mongo-inline-editor">
       <div className="object-view-form-grid">
         <label className="object-view-field">
           <span>Name</span>
@@ -279,10 +284,10 @@ function MongoIndexCreatePanel({
           type="button"
           className="drawer-button drawer-button--primary"
           disabled={disabled}
-          title="Run the index change with confirmation."
+          title="Review the index change before confirmation."
           onClick={onPreviewCreate}
         >
-          Run
+          Review index creation
         </button>
       </div>
     </div>
@@ -314,24 +319,6 @@ function firstDuplicate(values: string[]) {
     seen.add(value)
   }
   return ''
-}
-
-function SectionHeading({
-  Icon,
-  title,
-  unit,
-}: {
-  Icon: ComponentType<{ className?: string }>
-  title: string
-  unit?: string
-}) {
-  return (
-    <div className="object-view-section-heading">
-      <Icon className="panel-inline-icon" />
-      <strong>{title}</strong>
-      {unit ? <span>{unit}</span> : null}
-    </div>
-  )
 }
 
 function parseJsonObject(value: string): { ok: true; value: JsonRecord } | { ok: false; error: string } {

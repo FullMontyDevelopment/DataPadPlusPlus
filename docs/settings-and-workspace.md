@@ -22,12 +22,26 @@ Plugins are opt-in workspace capabilities. The current stable plugin is:
 
 Experimental plugins stay disabled by default because they expose broader workspace or datastore context than ordinary query tabs:
 
+- **Datastore Tests** adds a visual suite/case editor and capability-driven adapter execution. Saved tests remain intact when disabled, active runs must finish or be cancelled before disabling, and browser preview never simulates a successful run.
 - **API Server** opens local REST, GraphQL, or gRPC servers for selected datastore resources and saved Library queries.
 - **MCP Server** opens a local Streamable HTTP MCP endpoint for scoped local coding clients.
 - **Workspaces** adds an app-wide switcher for named local workspaces.
 - **Datastore Security Checks** checks connected datastore product versions against NVD and CISA KEV data, then runs advisory posture checks for saved profiles and supported read-only metadata probes. Scan results also show bundled-catalog guidance such as known newer versions, recommended upgrade targets, and NVD affected-version ranges when the existing vulnerability response includes them. DataPad++ does not make extra release-feed calls or cloud-provider API calls during this step.
 
 Start experimental plugins only when you need the integration, keep local listeners bound to `127.0.0.1`, and review the selected connection, environment, resources, scopes, auth tokens, and logs before leaving them running.
+
+## Datastore Tests
+
+Datastore Tests separates the saved unit of organization from the executable unit:
+
+- A **Test Suite** is the Library item and owns one or more Test Cases.
+- A **Test Case** is a selectable, non-draggable child of its suite; moving the suite moves every case.
+
+Every suite is created for exactly one datastore connection, one assigned environment, and one live datastore-native target. Creation is blocked until all three are valid. Database-level targets are available where the datastore has a meaningful namespace; object-level targets include tables, views, collections, Redis/Valkey prefixes, and DynamoDB tables. Explorer actions can prefill the target.
+
+The connection, environment, engine, family, and target cannot be edited after creation. Every case inherits that binding, and the editor always shows its breadcrumb and target kind. Query language is resolved by the datastore provider and shown read-only; a serialized legacy language value cannot override it.
+
+The visual-only editor provides Setup, Execute, Assertions, and Teardown sections. Steps and assertions can be added or removed, cases can be duplicated and reordered, and the last case is protected from deletion. Structured steps are constrained to the suite target. Ambiguous raw requests are called out during preflight rather than being silently treated as target-local. Before execution, DataPad++ builds a five-minute, revision-bound preflight plan containing the binding. Read-only ready plans can run immediately; plans containing writes require the exact one-time confirmation phrase. Unsupported adapters or step kinds remain editable but are reported as blockers and are never treated as passing.
 
 ## Datastore Security Checks
 
@@ -64,7 +78,7 @@ Automatic setup is desktop-only and user-level in v1. DataPad++ previews the tar
 
 MCP server profiles use `127.0.0.1`, default port `17641`, Streamable HTTP at `/mcp`, scoped auth tokens, optional origin allowlists, status, metrics, and logs. Tokens are shown only once at creation or reset time; store the raw value in a secure environment variable such as `DATAPAD_MCP_TOKEN` and rotate it if it is lost.
 
-The `plugin:read` token scope exposes the read-only `datapad_list_plugins` MCP tool. It lists Workspace Search, API Server, MCP Server, Workspaces, and Datastore Security Checks with enabled status, capability metadata, required scopes, and available MCP tools.
+The `plugin:read` token scope exposes the read-only `datapad_list_plugins` MCP tool. It lists Workspace Search, Datastore Tests, API Server, MCP Server, Workspaces, and Datastore Security Checks with enabled status, capability metadata, required scopes, and available MCP tools.
 
 Using plugin features through MCP requires the matching scope. Workspace Search uses `workspace:search`; Security Checks uses `security:read`; API Server summary access uses `api-server:read`; MCP Server summary access uses `mcp-server:read`; Workspaces profile listing uses `workspaces:read`. These tools are read-only in MCP v1: they do not start or stop local listeners, refresh security scans, mute findings, switch whole workspace profiles, write client config, or expose raw tokens, verifier values, datastore secrets, or query result payloads.
 
@@ -75,7 +89,7 @@ Workspace Search is a plugin-backed workbench tab rather than a global modal. Wh
 - saved connections
 - folders and Library items
 - saved queries and scripts
-- test suites
+- test suites only while the Datastore Tests plugin is enabled
 - open tabs
 - recently closed tabs
 

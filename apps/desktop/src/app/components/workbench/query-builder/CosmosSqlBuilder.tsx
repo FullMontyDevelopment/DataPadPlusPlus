@@ -6,17 +6,30 @@ import type {
   QueryTabState,
 } from '@datapadplusplus/shared-types'
 import { Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  FIELD_POINTER_DRAG_CANCEL_EVENT,
+  FIELD_POINTER_DRAG_DROP_EVENT,
+  FIELD_POINTER_DRAG_MOVE_EVENT,
+  type FieldPointerDragDetail,
+} from '../results/field-drag'
 import { BuilderSection } from './BuilderSection'
 import {
+  buildCosmosSqlRequest,
   buildCosmosSqlQueryText,
   cosmosSqlBuilderRowId,
 } from './cosmos-sql'
+import {
+  pointInsideElement,
+  queryBuilderDropZoneFromPoint,
+} from './query-builder-drag-targets'
 
 interface CosmosSqlBuilderProps {
   tab: QueryTabState
   builderState: CosmosSqlBuilderState
   containerOptions?: string[]
   onBuilderStateChange?(tabId: string, builderState: QueryBuilderState): void
+  onUseInQueryEditor?(builderState: CosmosSqlBuilderState): void
 }
 
 const FILTER_OPERATORS: Array<{ value: CosmosSqlFilterOperator; label: string }> = [
@@ -52,20 +65,93 @@ export function CosmosSqlBuilder({
   builderState,
   containerOptions = [],
   onBuilderStateChange,
+  onUseInQueryEditor,
 }: CosmosSqlBuilderProps) {
   const draft = builderState
+  const rootRef = useRef<HTMLElement>(null)
+  const [builderDragActive, setBuilderDragActive] = useState(false)
+  const [activeDropZone, setActiveDropZone] = useState<CosmosDropZone>()
   const resolvedContainerOptions = uniqueValues([draft.container, ...containerOptions])
-  const updateDraft = (patch: Partial<CosmosSqlBuilderState>) => {
+  const generatedRequest = buildCosmosSqlRequest(draft)
+  const updateDraft = useCallback((patch: Partial<CosmosSqlBuilderState>) => {
     const nextDraft = { ...draft, ...patch }
     const next = {
       ...nextDraft,
       lastAppliedQueryText: buildCosmosSqlQueryText(nextDraft),
     }
     onBuilderStateChange?.(tab.id, next)
-  }
+  }, [draft, onBuilderStateChange, tab.id])
+  const addDroppedField = useCallback((field: string, dropZone: CosmosDropZone) => {
+    if (dropZone === 'projection') {
+      updateDraft({
+        projectionFields: [
+          ...draft.projectionFields,
+          { id: cosmosSqlBuilderRowId('projection'), field },
+        ],
+      })
+      return
+    }
+
+    if (dropZone === 'sort') {
+      updateDraft({ sort: [...draft.sort, { ...newSort(), field }] })
+      return
+    }
+
+    updateDraft({ filters: [...draft.filters, { ...newFilter(), field }] })
+  }, [draft.filters, draft.projectionFields, draft.sort, updateDraft])
+
+  useEffect(() => {
+    const clearPointerDropState = () => {
+      setBuilderDragActive(false)
+      setActiveDropZone(undefined)
+    }
+
+    const handlePointerMove = (event: Event) => {
+      const detail = (event as CustomEvent<FieldPointerDragDetail>).detail
+      const root = rootRef.current
+
+      if (!root || !detail || !pointInsideElement(root, detail.clientX, detail.clientY)) {
+        clearPointerDropState()
+        return
+      }
+
+      setBuilderDragActive(true)
+      setActiveDropZone(cosmosDropZoneFromPoint(detail.clientX, detail.clientY))
+    }
+
+    const handlePointerDrop = (event: Event) => {
+      const detail = (event as CustomEvent<FieldPointerDragDetail>).detail
+      const root = rootRef.current
+
+      clearPointerDropState()
+
+      if (!root || !detail || !pointInsideElement(root, detail.clientX, detail.clientY)) {
+        return
+      }
+
+      const field = detail.payload.fieldPath.trim()
+      if (field) {
+        addDroppedField(field, cosmosDropZoneFromPoint(detail.clientX, detail.clientY))
+      }
+    }
+
+    window.addEventListener(FIELD_POINTER_DRAG_MOVE_EVENT, handlePointerMove)
+    window.addEventListener(FIELD_POINTER_DRAG_DROP_EVENT, handlePointerDrop)
+    window.addEventListener(FIELD_POINTER_DRAG_CANCEL_EVENT, clearPointerDropState)
+
+    return () => {
+      window.removeEventListener(FIELD_POINTER_DRAG_MOVE_EVENT, handlePointerMove)
+      window.removeEventListener(FIELD_POINTER_DRAG_DROP_EVENT, handlePointerDrop)
+      window.removeEventListener(FIELD_POINTER_DRAG_CANCEL_EVENT, clearPointerDropState)
+    }
+  }, [addDroppedField])
 
   return (
-    <section className="query-builder-panel" aria-label="Cosmos DB SQL query builder">
+    <section
+      ref={rootRef}
+      className={`query-builder-panel${builderDragActive ? ' is-drag-over' : ''}`}
+      aria-label="Cosmos DB SQL query builder"
+    >
       <div className="query-builder-grid query-builder-grid--cosmos-target">
         <label className="query-builder-field">
           <span>Database</span>
@@ -153,7 +239,9 @@ export function CosmosSqlBuilder({
       <BuilderSection
         title="Fields"
         actionLabel="Add Field"
+        dragActive={activeDropZone === 'projection'}
         dropHint="Drop a field to select it"
+        dropZone="projection"
         onAdd={() => updateDraft({
           projectionFields: [
             ...draft.projectionFields,
@@ -193,7 +281,9 @@ export function CosmosSqlBuilder({
       <BuilderSection
         title="Filters"
         actionLabel="Add Filter"
+        dragActive={activeDropZone === 'filters'}
         dropHint="Drop a field to filter"
+        dropZone="filters"
         onAdd={() => updateDraft({ filters: [...draft.filters, newFilter()] })}
         onDropField={(field) => updateDraft({
           filters: [...draft.filters, { ...newFilter(), field }],
@@ -276,7 +366,9 @@ export function CosmosSqlBuilder({
       <BuilderSection
         title="Sort"
         actionLabel="Add Sort"
+        dragActive={activeDropZone === 'sort'}
         dropHint="Drop a field to order"
+        dropZone="sort"
         onAdd={() => updateDraft({ sort: [...draft.sort, newSort()] })}
         onDropField={(field) => updateDraft({ sort: [...draft.sort, { ...newSort(), field }] })}
       >
@@ -314,8 +406,49 @@ export function CosmosSqlBuilder({
           </div>
         ))}
       </BuilderSection>
+
+      <section className="cosmos-generated-query" aria-label="Generated query">
+        <div className="cosmos-generated-query__header">
+          <div>
+            <h3>Generated query</h3>
+            <p>SQL and bound values generated from the current builder draft.</p>
+          </div>
+          <button
+            type="button"
+            className="query-builder-action"
+            onClick={() => onUseInQueryEditor?.(draft)}
+          >
+            Use in Query Editor
+          </button>
+        </div>
+        <code className="cosmos-generated-query__sql">{generatedRequest.query}</code>
+        {generatedRequest.parameters.length > 0 ? (
+          <table className="cosmos-generated-query__parameters">
+            <thead>
+              <tr><th>Name</th><th>Value</th></tr>
+            </thead>
+            <tbody>
+              {generatedRequest.parameters.map((parameter) => (
+                <tr key={parameter.name}>
+                  <td>{parameter.name}</td>
+                  <td>{formatGeneratedValue(parameter.value)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="query-builder-empty">No parameter bindings.</p>
+        )}
+      </section>
     </section>
   )
+}
+
+function formatGeneratedValue(value: unknown) {
+  if (value === null) return 'null'
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return JSON.stringify(value)
 }
 
 function RemoveButton({ label, onClick }: { label: string; onClick(): void }) {
@@ -369,4 +502,11 @@ function wholeNumber(value: string, fallback: number, minimum: number) {
 
 function uniqueValues(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
+}
+
+type CosmosDropZone = 'projection' | 'filters' | 'sort'
+
+function cosmosDropZoneFromPoint(clientX: number, clientY: number): CosmosDropZone {
+  const dropZone = queryBuilderDropZoneFromPoint(clientX, clientY)
+  return dropZone === 'projection' || dropZone === 'sort' ? dropZone : 'filters'
 }

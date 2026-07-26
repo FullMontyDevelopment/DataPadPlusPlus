@@ -32,7 +32,7 @@ describe('MongoGridFsView', () => {
       />,
     )
 
-    expect(screen.getByText('GridFS Browser')).toBeInTheDocument()
+    expect(screen.getByText('catalog / fs')).toBeInTheDocument()
     expect(screen.getByText('invoice.pdf')).toBeInTheDocument()
     expect(screen.getAllByText(/2(\.0)? KB/).length).toBeGreaterThan(0)
     expect(screen.getByText(/1(\.0)? KB/)).toBeInTheDocument()
@@ -52,7 +52,7 @@ describe('MongoGridFsView', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Export Files' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review export plan' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.gridfs.export',
       objectName: 'fs.files',
@@ -65,7 +65,7 @@ describe('MongoGridFsView', () => {
       }),
     }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review upload plan' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.gridfs.upload',
       objectName: 'fs.files',
@@ -75,7 +75,7 @@ describe('MongoGridFsView', () => {
       }),
     }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Validate Chunks' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review validation' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.gridfs.validate',
       objectName: 'fs.files',
@@ -105,7 +105,7 @@ describe('MongoGridFsView', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Query GridFS Collection' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Query files' }))
     expect(onOpenQuery).toHaveBeenCalledWith(queryTarget)
   })
 })

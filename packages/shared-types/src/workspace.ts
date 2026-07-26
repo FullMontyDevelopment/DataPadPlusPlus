@@ -300,7 +300,28 @@ export interface CosmosSqlBuilderState {
   partitionKeyValueType?: CosmosSqlBuilderValueType
   enableCrossPartitionQueries?: boolean
   lastAppliedQueryText?: string
+  editorState?: CosmosSqlQueryEditorState
 }
+
+export interface CosmosSqlQueryEditorParameter {
+  id: string
+  name: string
+  valueType: CosmosSqlBuilderValueType
+  value: string
+}
+
+export interface CosmosSqlQueryEditorState {
+  kind: 'cosmos-sql'
+  sql: string
+  parameters: CosmosSqlQueryEditorParameter[]
+  partitionKeyEnabled?: boolean
+  partitionKeyValue?: string
+  partitionKeyValueType?: CosmosSqlBuilderValueType
+  enableCrossPartitionQueries?: boolean
+  source: 'default' | 'builder' | 'custom'
+}
+
+export type DatastoreQueryEditorState = CosmosSqlQueryEditorState
 
 export type SqlSelectFilterOperator =
   | 'eq'
@@ -614,8 +635,29 @@ export interface DatastoreTestStep {
   queryText?: string
   builderState?: QueryBuilderState
   operationId?: string
+  objectName?: string
   editKind?: string
   parameters?: Record<string, unknown>
+  target?: {
+    objectKind: string
+    path: string[]
+    database?: string
+    schema?: string
+    table?: string
+    collection?: string
+    key?: string
+    documentId?: unknown
+    itemKey?: Record<string, unknown>
+    primaryKey?: Record<string, unknown>
+  }
+  changes?: Array<{
+    field?: string
+    path?: string[]
+    value?: unknown
+    valueType?: string
+    newName?: string
+  }>
+  rowLimit?: number
   timeoutMs?: number
 }
 
@@ -627,6 +669,7 @@ export interface DatastoreTestAssertion {
   comparison?: DatastoreTestComparison
   path?: string
   field?: string
+  sourceStepId?: string
   expected?: unknown
   timeoutMs?: number
 }
@@ -636,7 +679,6 @@ export interface DatastoreTestCaseDefinition {
   name: string
   enabled?: boolean
   timeoutMs?: number
-  scopedTarget?: ScopedQueryTarget
   setup: DatastoreTestStep[]
   execute: DatastoreTestStep[]
   assertions: DatastoreTestAssertion[]
@@ -649,10 +691,22 @@ export interface DatastoreTestSuiteDefinition {
   description?: string
   engine?: DatastoreEngine
   family?: DatastoreFamily
-  connectionId?: string
-  environmentId?: string
+  connectionId: string
+  environmentId: string
+  scopedTarget: ScopedQueryTarget
+  inferredLanguage: QueryLanguage
   variables?: Record<string, string>
   cases: DatastoreTestCaseDefinition[]
+}
+
+export type DatastoreTestSuiteTemplateDefinition = Omit<
+  DatastoreTestSuiteDefinition,
+  'connectionId' | 'environmentId' | 'scopedTarget' | 'inferredLanguage'
+> & {
+  connectionId?: string
+  environmentId?: string
+  scopedTarget?: ScopedQueryTarget
+  inferredLanguage?: QueryLanguage
 }
 
 export interface DatastoreTestStepRunResult {
@@ -688,6 +742,10 @@ export interface DatastoreTestCaseRunResult {
 export interface DatastoreTestRunResult {
   id: string
   suiteId: string
+  connectionId?: string
+  environmentId?: string
+  scopedTarget?: ScopedQueryTarget
+  inferredLanguage?: QueryLanguage
   status: DatastoreTestStatus
   startedAt: string
   finishedAt?: string
@@ -705,7 +763,7 @@ export interface DatastoreTestTemplate {
   description: string
   engine?: DatastoreEngine
   family: DatastoreFamily
-  suite: DatastoreTestSuiteDefinition
+  suite: DatastoreTestSuiteTemplateDefinition
 }
 
 export interface QueryExecutionNotice {
@@ -979,10 +1037,12 @@ export interface QueryTabState extends QueryTabDefinition {
   documentEfficiencyMode?: boolean
   scopedTarget?: ScopedQueryTarget
   builderState?: QueryBuilderState
+  queryEditorState?: DatastoreQueryEditorState
   metricsState?: MetricsTabState
   objectViewState?: ObjectViewTabState
   testSuite?: DatastoreTestSuiteDefinition
   testRun?: DatastoreTestRunResult
+  activeTestCaseId?: string
   status: QueryExecutionState
   activeExecution?: QueryTabActiveExecution
   dirty: boolean
@@ -1034,6 +1094,7 @@ export interface LibraryNode {
   documentEfficiencyMode?: boolean
   scopedTarget?: ScopedQueryTarget
   builderState?: QueryBuilderState
+  queryEditorState?: DatastoreQueryEditorState
   scriptText?: string
   testSuite?: DatastoreTestSuiteDefinition
   snapshotResultId?: string

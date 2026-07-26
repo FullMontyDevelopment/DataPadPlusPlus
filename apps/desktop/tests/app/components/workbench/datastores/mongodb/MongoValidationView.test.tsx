@@ -22,13 +22,13 @@ describe('MongoValidationView', () => {
     fireEvent.change(screen.getByLabelText('Test document'), {
       target: { value: '{ "sku": "luna-lamp" }' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Test Document' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Test document' }))
     expect(screen.getByText('Missing required field(s): name')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Test document'), {
       target: { value: '{ "sku": "luna-lamp", "name": "Luna Lamp" }' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Test Document' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Test document' }))
     expect(screen.getByText('Document matches the validator fields DataPad++ can verify locally.')).toBeInTheDocument()
   })
 
@@ -47,10 +47,10 @@ describe('MongoValidationView', () => {
       />,
     )
 
-    expect(screen.getByText('Advanced JSON rule').closest('details')).not.toHaveAttribute('open')
+    expect(screen.getByText('Native validator JSON').closest('details')).not.toHaveAttribute('open')
     fireEvent.change(screen.getByPlaceholderText('sku'), { target: { value: 'name' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add Field' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Run Required Fields' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add field' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review validation change' }))
 
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.validation.update',

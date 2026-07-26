@@ -106,6 +106,7 @@ pub(crate) async fn execute_standard_live_operation<A: DatastoreAdapter + ?Sized
                     environment_id: request.environment_id.clone(),
                     limit: request.row_limit.or(Some(100)),
                     scope: request.object_name.clone(),
+                    cursor: None,
                 },
             )
             .await?;
@@ -192,6 +193,7 @@ pub(crate) async fn execute_standard_live_operation<A: DatastoreAdapter + ?Sized
             confirmed_guardrail_id: None,
             builder_state: None,
             scoped_target: None,
+            datastore_execution_input: None,
         };
         let result = adapter
             .execute(

@@ -7,7 +7,7 @@ import type {
   EditorCompletionContext,
 } from './types'
 
-const DOCUMENT_ENGINES: Array<ConnectionProfile['engine']> = ['cosmosdb', 'litedb']
+const DOCUMENT_ENGINES: Array<ConnectionProfile['engine']> = ['litedb']
 const GRAPH_ENGINES: Array<ConnectionProfile['engine']> = [
   'neo4j',
   'arango',
@@ -20,17 +20,6 @@ const TIMESERIES_ENGINES: Array<ConnectionProfile['engine']> = [
   'opentsdb',
 ]
 
-const COSMOS_SQL_KEYWORDS = [
-  'select',
-  'from',
-  'where',
-  'order by',
-  'offset limit',
-  'join',
-  'is_defined',
-  'array_contains',
-  'contains',
-]
 const DOCUMENT_JSON_KEYS = [
   'operation',
   'database',
@@ -120,26 +109,12 @@ function buildDocumentSecondaryItems(context: EditorCompletionContext) {
   const containers = context.catalog.objects.filter((object) =>
     ['container', 'collection'].includes(object.kind),
   )
-  const databaseSuggestions = context.catalog.schemas.map((schema) =>
-    suggestion(schema.name, schema.name, 'schema', schema.detail),
-  )
   const objectSuggestions = containers.map((object) =>
     suggestion(objectLabel(object), object.name, object.kind === 'collection' ? 'collection' : 'table', object.detail),
   )
   const fieldSuggestions = context.catalog.fields.map((field) =>
     suggestion(field.path ?? field.name, field.path ?? field.name, 'field', field.detail ?? field.dataType),
   )
-
-  if (context.connection?.engine === 'cosmosdb' && context.language === 'sql') {
-    return uniqueSuggestions([
-      ...COSMOS_SQL_KEYWORDS.map((keyword) => suggestion(keyword, keyword, 'keyword')),
-      ...databaseSuggestions,
-      ...objectSuggestions,
-      ...fieldSuggestions,
-      suggestion('bounded container query', 'SELECT * FROM c OFFSET 0 LIMIT 100', 'snippet'),
-      suggestion('partition key filter', 'WHERE c.partitionKey = @partitionKey', 'snippet'),
-    ])
-  }
 
   return uniqueSuggestions([
     ...DOCUMENT_JSON_KEYS.map((key) => jsonPropertySuggestion(key)),

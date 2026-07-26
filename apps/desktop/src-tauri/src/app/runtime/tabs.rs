@@ -8,9 +8,10 @@ use super::query_tabs::{
 };
 use super::ui::focus_query_tab;
 use super::validators::{
-    validate_connection_id, validate_create_object_view_tab_request,
-    validate_create_scoped_query_tab_request, validate_environment_id,
-    validate_query_tab_reorder_request, validate_required_tab_id,
+    validate_close_query_tabs_request, validate_connection_id,
+    validate_create_object_view_tab_request, validate_create_scoped_query_tab_request,
+    validate_environment_id, validate_query_tab_reorder_request, validate_required_tab_id,
+    validate_update_datastore_query_editor_state_request,
     validate_update_query_builder_state_request, validate_update_query_tab_request,
     validate_update_query_tab_target_request,
 };
@@ -18,10 +19,11 @@ use super::{generate_id, timestamp_now, ManagedAppState};
 use crate::domain::{
     error::CommandError,
     models::{
-        BootstrapPayload, ClosedQueryTabSnapshot, CreateObjectViewTabRequest,
-        CreateScopedQueryTabRequest, PersistenceWarning, QueryTabReorderRequest, QueryTabState,
-        ScopedQueryTarget, UpdateQueryBuilderStateRequest, UpdateQueryTabTargetRequest,
-        WorkspaceSnapshot,
+        BootstrapPayload, CloseQueryTabsRequest, CloseQueryTabsResponse, ClosedQueryTabSnapshot,
+        CreateObjectViewTabRequest, CreateScopedQueryTabRequest, PersistenceWarning,
+        QueryTabReorderRequest, QueryTabState, ScopedQueryTarget,
+        UpdateDatastoreQueryEditorStateRequest, UpdateQueryBuilderStateRequest,
+        UpdateQueryTabTargetRequest, WorkspaceSnapshot,
     },
 };
 use crate::infrastructure;
@@ -355,66 +357,49 @@ impl ManagedAppState {
     }
 
     pub fn close_query_tab(&mut self, tab_id: &str) -> Result<BootstrapPayload, CommandError> {
-        validate_required_tab_id(tab_id)?;
-        let Some(tab_index) = self.snapshot.tabs.iter().position(|item| item.id == tab_id) else {
-            return Ok(self.bootstrap_payload());
-        };
-        let closed_tab = self.snapshot.tabs.remove(tab_index);
+        Ok(self
+            .close_query_tabs(CloseQueryTabsRequest {
+                tab_ids: vec![tab_id.to_owned()],
+            })?
+            .payload)
+    }
 
-        archive_closed_tab(&mut self.snapshot, closed_tab.clone(), "user");
+    pub fn close_query_tabs(
+        &mut self,
+        request: CloseQueryTabsRequest,
+    ) -> Result<CloseQueryTabsResponse, CommandError> {
+        validate_close_query_tabs_request(&request)?;
+        let outcome = close_query_tabs_in_snapshot(&mut self.snapshot, request.tab_ids);
 
-        if let Some(active_tab) = self
-            .snapshot
-            .tabs
-            .get(tab_index)
-            .cloned()
-            .or_else(|| {
-                tab_index
-                    .checked_sub(1)
-                    .and_then(|index| self.snapshot.tabs.get(index).cloned())
-            })
-            .or_else(|| self.snapshot.tabs.first().cloned())
-        {
-            self.snapshot.ui.active_tab_id = active_tab.id;
-            self.snapshot.ui.active_connection_id = active_tab.connection_id;
-            self.snapshot.ui.active_environment_id = active_tab.environment_id;
-        } else {
-            let fallback_connection = self
-                .snapshot
-                .connections
-                .iter()
-                .find(|connection| connection.id == closed_tab.connection_id)
-                .cloned()
-                .or_else(|| self.snapshot.connections.first().cloned());
-            self.snapshot.ui.active_tab_id = String::new();
-            self.snapshot.ui.active_connection_id = fallback_connection
-                .as_ref()
-                .map(|connection| connection.id.clone())
-                .unwrap_or_default();
-            self.snapshot.ui.active_environment_id = if closed_tab.environment_id.is_empty() {
-                fallback_connection
-                    .and_then(|connection| connection.environment_ids.first().cloned())
-                    .unwrap_or_default()
-            } else {
-                closed_tab.environment_id
-            };
-            self.snapshot.ui.bottom_panel_visible = false;
+        if outcome.closed_tab_ids.is_empty() {
+            return Ok(CloseQueryTabsResponse {
+                payload: self.bootstrap_payload(),
+                closed_tab_ids: outcome.closed_tab_ids,
+                locked_tab_ids: outcome.locked_tab_ids,
+                missing_tab_ids: outcome.missing_tab_ids,
+            });
         }
 
-        self.snapshot.updated_at = timestamp_now();
         let persistence_warning = tab_close_persistence_warning(self.persist());
         if let Some(warning) = persistence_warning.as_ref() {
             infrastructure::log_warning(
                 "command",
                 format!(
-                    "tab-close-persist-failed tab={tab_id} code={} message={}",
-                    warning.code, warning.message
+                    "tab-close-persist-failed tabs={} code={} message={}",
+                    outcome.closed_tab_ids.join(","),
+                    warning.code,
+                    warning.message
                 ),
             );
         }
         let mut payload = self.bootstrap_payload();
         payload.persistence_warning = persistence_warning;
-        Ok(payload)
+        Ok(CloseQueryTabsResponse {
+            payload,
+            closed_tab_ids: outcome.closed_tab_ids,
+            locked_tab_ids: outcome.locked_tab_ids,
+            missing_tab_ids: outcome.missing_tab_ids,
+        })
     }
 
     pub fn reopen_closed_query_tab(
@@ -512,6 +497,47 @@ impl ManagedAppState {
         }
         if let Some(query_view_mode) = request.query_view_mode {
             tab.query_view_mode = Some(query_view_mode);
+        }
+        tab.dirty = true;
+        tab.error = None;
+        if tab.result.is_none() {
+            tab.status = "idle".into();
+            tab.last_run_at = None;
+        }
+        self.snapshot.updated_at = timestamp_now();
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+
+    pub fn update_datastore_query_editor_state(
+        &mut self,
+        request: UpdateDatastoreQueryEditorStateRequest,
+    ) -> Result<BootstrapPayload, CommandError> {
+        validate_update_datastore_query_editor_state_request(&request)?;
+        let tab = self
+            .snapshot
+            .tabs
+            .iter_mut()
+            .find(|item| item.id == request.tab_id)
+            .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
+
+        tab.query_text = request.query_text;
+        if let Some(query_view_mode) = request.query_view_mode {
+            tab.query_view_mode = Some(query_view_mode);
+        }
+        if request
+            .editor_state
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            == Some("cosmos-sql")
+        {
+            if let Some(builder_state) = tab
+                .builder_state
+                .as_mut()
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                builder_state.insert("editorState".into(), request.editor_state);
+            }
         }
         tab.dirty = true;
         tab.error = None;
@@ -639,6 +665,126 @@ fn legacy_normalized_target_label(label: &str) -> String {
     }
 }
 
+pub(super) struct CloseQueryTabsSnapshotOutcome {
+    pub closed_tab_ids: Vec<String>,
+    pub locked_tab_ids: Vec<String>,
+    pub missing_tab_ids: Vec<String>,
+}
+
+pub(super) fn close_query_tabs_in_snapshot(
+    snapshot: &mut WorkspaceSnapshot,
+    tab_ids: Vec<String>,
+) -> CloseQueryTabsSnapshotOutcome {
+    let mut seen = HashSet::new();
+    let requested_tab_ids = tab_ids
+        .into_iter()
+        .filter(|tab_id| seen.insert(tab_id.clone()))
+        .collect::<Vec<_>>();
+    let mut outcome = CloseQueryTabsSnapshotOutcome {
+        closed_tab_ids: Vec::new(),
+        locked_tab_ids: Vec::new(),
+        missing_tab_ids: Vec::new(),
+    };
+
+    for tab_id in &requested_tab_ids {
+        match snapshot.tabs.iter().find(|tab| tab.id == *tab_id) {
+            None => outcome.missing_tab_ids.push(tab_id.clone()),
+            Some(tab) if tab.active_execution.is_some() || tab.status == "queued" => {
+                outcome.locked_tab_ids.push(tab_id.clone());
+            }
+            Some(_) => outcome.closed_tab_ids.push(tab_id.clone()),
+        }
+    }
+
+    if outcome.closed_tab_ids.is_empty() {
+        return outcome;
+    }
+
+    let original_tabs = std::mem::take(&mut snapshot.tabs);
+    let previous_active_tab_id = snapshot.ui.active_tab_id.clone();
+    let previous_active_index = original_tabs
+        .iter()
+        .position(|tab| tab.id == previous_active_tab_id);
+    let closed_tab_id_set = outcome
+        .closed_tab_ids
+        .iter()
+        .cloned()
+        .collect::<HashSet<_>>();
+    let mut closed_tabs_by_id = HashMap::new();
+
+    for tab in &original_tabs {
+        if closed_tab_id_set.contains(&tab.id) {
+            closed_tabs_by_id.insert(tab.id.clone(), tab.clone());
+        } else {
+            snapshot.tabs.push(tab.clone());
+        }
+    }
+    for tab_id in &outcome.closed_tab_ids {
+        if let Some(tab) = closed_tabs_by_id.get(tab_id).cloned() {
+            archive_closed_tab(snapshot, tab, "user");
+        }
+    }
+
+    let active_tab_survives = snapshot
+        .tabs
+        .iter()
+        .any(|tab| tab.id == previous_active_tab_id);
+    let next_active_tab = if active_tab_survives {
+        snapshot
+            .tabs
+            .iter()
+            .find(|tab| tab.id == previous_active_tab_id)
+            .cloned()
+    } else {
+        find_nearest_surviving_tab(&original_tabs, &snapshot.tabs, previous_active_index)
+    };
+
+    if let Some(active_tab) = next_active_tab {
+        snapshot.ui.active_tab_id = active_tab.id;
+        snapshot.ui.active_connection_id = active_tab.connection_id;
+        snapshot.ui.active_environment_id = active_tab.environment_id;
+    } else {
+        let fallback_closed_tab = original_tabs
+            .iter()
+            .find(|tab| tab.id == previous_active_tab_id)
+            .cloned()
+            .or_else(|| {
+                outcome
+                    .closed_tab_ids
+                    .iter()
+                    .find_map(|tab_id| closed_tabs_by_id.get(tab_id).cloned())
+            });
+        let fallback_connection = snapshot
+            .connections
+            .iter()
+            .find(|connection| {
+                fallback_closed_tab
+                    .as_ref()
+                    .is_some_and(|tab| connection.id == tab.connection_id)
+            })
+            .cloned()
+            .or_else(|| snapshot.connections.first().cloned());
+        snapshot.ui.active_tab_id = String::new();
+        snapshot.ui.active_connection_id = fallback_connection
+            .as_ref()
+            .map(|connection| connection.id.clone())
+            .unwrap_or_default();
+        snapshot.ui.active_environment_id = fallback_closed_tab
+            .as_ref()
+            .map(|tab| tab.environment_id.clone())
+            .filter(|environment_id| !environment_id.is_empty())
+            .or_else(|| {
+                fallback_connection
+                    .and_then(|connection| connection.environment_ids.first().cloned())
+            })
+            .unwrap_or_default();
+        snapshot.ui.bottom_panel_visible = false;
+    }
+
+    snapshot.updated_at = timestamp_now();
+    outcome
+}
+
 fn archive_closed_tab(snapshot: &mut WorkspaceSnapshot, mut tab: QueryTabState, reason: &str) {
     const MAX_CLOSED_TABS: usize = 25;
 
@@ -655,6 +801,31 @@ fn archive_closed_tab(snapshot: &mut WorkspaceSnapshot, mut tab: QueryTabState, 
         },
     );
     snapshot.closed_tabs.truncate(MAX_CLOSED_TABS);
+}
+
+fn find_nearest_surviving_tab(
+    original_tabs: &[QueryTabState],
+    surviving_tabs: &[QueryTabState],
+    previous_active_index: Option<usize>,
+) -> Option<QueryTabState> {
+    let Some(previous_active_index) = previous_active_index else {
+        return surviving_tabs.first().cloned();
+    };
+    let surviving_ids = surviving_tabs
+        .iter()
+        .map(|tab| tab.id.as_str())
+        .collect::<HashSet<_>>();
+    original_tabs
+        .iter()
+        .enumerate()
+        .filter(|(_, tab)| surviving_ids.contains(tab.id.as_str()))
+        .min_by_key(|(index, _)| {
+            (
+                index.abs_diff(previous_active_index),
+                usize::from(*index < previous_active_index),
+            )
+        })
+        .map(|(_, tab)| tab.clone())
 }
 
 pub(super) fn tab_close_persistence_warning(

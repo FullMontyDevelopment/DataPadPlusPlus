@@ -42,19 +42,21 @@ export const clientAdapters = {
       throw new Error('Connection was not found.')
     }
 
-    const { createExplorerNodes } = await import('./browser-explorer')
-    const nodes = createExplorerNodes(connection, request.scope).slice(
-      0,
-      request.limit ?? 50,
+    const { createExplorerNodes, pageExplorerNodes } = await import('./browser-explorer')
+    const page = pageExplorerNodes(
+      connection,
+      createExplorerNodes(connection, request.scope),
+      request,
     )
 
     return redactExplorerResponseForEnvironment({
       connectionId: request.connectionId,
       environmentId: request.environmentId,
       scope: request.scope,
-      summary: `Preview explorer loaded ${nodes.length} node(s) for ${connection.name}.`,
+      summary: `Preview explorer loaded ${page.nodes.length} node(s) for ${connection.name}.`,
       capabilities: buildExecutionCapabilities(connection, snapshot),
-      nodes,
+      nodes: page.nodes,
+      pageInfo: page.pageInfo,
     }, resolveEnvironment(snapshot.environments, request.environmentId))
   },
 

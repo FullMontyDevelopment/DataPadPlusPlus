@@ -5,7 +5,6 @@ import { join, resolve } from 'node:path'
 import waitOn from 'wait-on'
 
 const repoRoot = resolve(import.meta.dirname, '..', '..', '..')
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const driverExecutable = process.platform === 'win32' ? 'tauri-driver.exe' : 'tauri-driver'
 const cargoDriverBin = join(process.env.CARGO_HOME ?? join(homedir(), '.cargo'), 'bin', driverExecutable)
 const driverBin =
@@ -16,6 +15,21 @@ const nativeDriverBin = process.env.DATAPADPLUSPLUS_NATIVE_WEBDRIVER_BIN
 const workspaceDir =
   process.env.DATAPADPLUSPLUS_WORKSPACE_DIR ??
   mkdtempSync(join(tmpdir(), 'datapadplusplus-e2e-workspace-'))
+const desktopEnvironment = {
+  ...process.env,
+  DATAPADPLUSPLUS_FIXTURE_RUN: process.env.DATAPADPLUSPLUS_FIXTURE_RUN ?? '1',
+  DATAPADPLUSPLUS_FIXTURE_PROFILE: process.env.DATAPADPLUSPLUS_FIXTURE_PROFILE ?? '',
+  DATAPADPLUSPLUS_WORKSPACE_DIR: workspaceDir,
+  DATAPADPLUSPLUS_SECRET_STORE: 'file',
+  DATAPADPLUSPLUS_SECRET_FILE: join(workspaceDir, 'secrets.json'),
+  DATAPADPLUSPLUS_SQLITE_FIXTURE: resolve(
+    repoRoot,
+    'tests',
+    'fixtures',
+    'sqlite',
+    'datapadplusplus.sqlite3',
+  ),
+}
 
 function candidateBinaries() {
   const releaseDir = resolve(repoRoot, 'apps', 'desktop', 'src-tauri', 'target', 'release')
@@ -74,26 +88,30 @@ function ensureTauriDriver() {
 }
 
 function runWdio(application) {
+  const wdioCli = resolve(repoRoot, 'node_modules', '@wdio', 'cli', 'bin', 'wdio.js')
+  const configPath = resolve(repoRoot, 'apps', 'desktop', 'e2e', 'wdio.conf.mjs')
   const result = spawnSync(
-    npm,
-    ['exec', '--workspace', '@datapadplusplus/desktop', '--', 'wdio', 'run', 'apps/desktop/e2e/wdio.conf.mjs'],
+    process.execPath,
+    [
+      wdioCli,
+      'run',
+      configPath,
+    ],
     {
-      cwd: repoRoot,
+      cwd: tmpdir(),
       env: {
-        ...process.env,
+        ...desktopEnvironment,
         DATAPADPLUSPLUS_DESKTOP_BINARY: application,
-        DATAPADPLUSPLUS_FIXTURE_RUN: process.env.DATAPADPLUSPLUS_FIXTURE_RUN ?? '1',
-        DATAPADPLUSPLUS_FIXTURE_PROFILE: process.env.DATAPADPLUSPLUS_FIXTURE_PROFILE ?? '',
-        DATAPADPLUSPLUS_WORKSPACE_DIR: workspaceDir,
-        DATAPADPLUSPLUS_SECRET_STORE: 'file',
-        DATAPADPLUSPLUS_SECRET_FILE: join(workspaceDir, 'secrets.json'),
-        DATAPADPLUSPLUS_SQLITE_FIXTURE: resolve(repoRoot, 'tests', 'fixtures', 'sqlite', 'datapadplusplus.sqlite3'),
         DATAPADPLUSPLUS_TAURI_DRIVER_PORT: driverPort,
       },
       stdio: 'inherit',
       shell: false,
     },
   )
+
+  if (result.error) {
+    throw result.error
+  }
 
   if (result.status !== 0) {
     throw new Error(`Desktop E2E failed with exit code ${result.status}`)
@@ -110,7 +128,7 @@ if (nativeDriverBin) {
 
 const driver = spawn(driverBin, driverArgs, {
   cwd: repoRoot,
-  env: process.env,
+  env: desktopEnvironment,
   stdio: 'inherit',
   shell: false,
 })

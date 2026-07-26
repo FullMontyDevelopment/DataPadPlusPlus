@@ -38,7 +38,7 @@ export const coreFeatures: Feature[] = [
   {
     title: 'Search and prove reusable work',
     description:
-      'Search the workspace across connections, Library items, tabs, scripts, and tests, then turn repeatable checks into datastore test suites.',
+      'Search reusable work, then opt into target-bound datastore test suites with owned cases, inferred query languages, guarded preflight, and real adapter-backed observations.',
     screenshot: 'workspace-search',
   },
   {
@@ -88,7 +88,7 @@ export const launchWorkflow = [
   'Attach the right environment before querying.',
   'Explore native objects and diagnostics.',
   'Run bounded reads, inspect results, export what you need, then save useful work.',
-  'Search saved work or build test suites for repeatable checks.',
+  'Search saved work or enable Datastore Tests for target-bound, adapter-backed checks.',
   'Promote edits or admin actions only after guardrails prove the target.',
   'Enable API Server or MCP Server plugins only when a local integration needs it.',
 ]

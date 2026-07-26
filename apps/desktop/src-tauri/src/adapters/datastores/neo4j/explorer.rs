@@ -80,6 +80,7 @@ pub(super) async fn list_neo4j_explorer_nodes(
         ),
         capabilities: neo4j_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

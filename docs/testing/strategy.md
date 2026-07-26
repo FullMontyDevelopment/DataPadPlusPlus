@@ -62,7 +62,13 @@ Generated API project validation has two compile lanes. `npm run api-export:vali
 - environment switching and read-only behavior
 - Workspace Search can recover saved work and open tabs without losing context
 - API Server and MCP Server remain opt-in, local-only, and observable from their workspaces
-- test suites can be opened, edited, run, and cancelled from a saved Library item
+- the default-disabled Datastore Tests plugin preserves suites while hiding disabled entry points
+- suites expose suite-owned case navigation, visual-only editing, removable steps/assertions, and last-case protection
+- test-suite creation requires a connection, assigned environment, and provider-accepted live target
+- suite bindings are immutable, case languages are provider-inferred, and plan fingerprints include the target
+- Explorer-prefilled targets and target-aware starters remain provider-contract tested
+- preflight blocks unsupported steps and browser-preview execution instead of producing simulated passes
+- supported adapters return real observations for assertions, with mutation plans requiring one-time confirmation
 
 ## CI gates
 

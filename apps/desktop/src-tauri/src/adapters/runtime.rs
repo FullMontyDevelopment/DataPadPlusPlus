@@ -15,9 +15,16 @@ pub async fn list_explorer_nodes(
     connection: &ResolvedConnectionProfile,
     request: &ExplorerRequest,
 ) -> Result<ExplorerResponse, CommandError> {
-    adapter_for_engine(&connection.engine)?
-        .list_explorer_nodes(connection, request)
-        .await
+    let adapter = adapter_for_engine(&connection.engine)?;
+    let fetch_request = if adapter.handles_explorer_paging() {
+        request.clone()
+    } else {
+        prepare_default_explorer_request(&connection.engine, request)?
+    };
+    let response = adapter
+        .list_explorer_nodes(connection, &fetch_request)
+        .await?;
+    apply_default_explorer_paging(&connection.engine, request, response)
 }
 
 pub async fn inspect_explorer_node(

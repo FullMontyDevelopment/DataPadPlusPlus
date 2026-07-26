@@ -109,6 +109,8 @@ pub struct QueryTabState {
     pub test_suite: Option<Value>,
     #[serde(default)]
     pub test_run: Option<Value>,
+    #[serde(default)]
+    pub active_test_case_id: Option<String>,
     pub status: String,
     #[serde(default)]
     pub active_execution: Option<QueryTabActiveExecution>,
@@ -145,8 +147,9 @@ pub struct ClosedQueryTabSnapshot {
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTestSuiteTabRequest {
-    pub connection_id: Option<String>,
-    pub environment_id: Option<String>,
+    pub connection_id: String,
+    pub environment_id: String,
+    pub scoped_target: ScopedQueryTarget,
     pub template_id: Option<String>,
     pub suite: Option<Value>,
 }
@@ -157,6 +160,52 @@ pub struct UpdateTestSuiteTabRequest {
     pub tab_id: String,
     pub suite: Option<Value>,
     pub raw_text: Option<String>,
+    pub active_test_case_id: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenTestSuiteCaseRequest {
+    pub library_item_id: String,
+    pub case_id: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreTestRunPlanRequest {
+    pub tab_id: String,
+    pub case_id: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreTestStepRunPlan {
+    pub case_id: String,
+    pub step_id: String,
+    pub label: String,
+    pub phase: String,
+    pub kind: String,
+    pub status: String,
+    pub generated_request: Option<String>,
+    pub blockers: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreTestRunPlanResponse {
+    pub plan_id: String,
+    pub suite_revision: String,
+    pub connection_id: String,
+    pub environment_id: String,
+    pub scoped_target: ScopedQueryTarget,
+    pub inferred_language: String,
+    pub status: String,
+    pub expires_at: String,
+    pub required_confirmation_text: Option<String>,
+    pub steps: Vec<DatastoreTestStepRunPlan>,
+    pub blockers: Vec<String>,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -164,6 +213,9 @@ pub struct UpdateTestSuiteTabRequest {
 pub struct ExecuteTestSuiteRequest {
     pub tab_id: String,
     pub case_id: Option<String>,
+    pub run_id: Option<String>,
+    pub plan_id: Option<String>,
+    pub confirmation_text: Option<String>,
     pub confirmed_guardrail_id: Option<String>,
 }
 
@@ -185,8 +237,9 @@ pub struct CancelTestRunRequest {
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenTestSuiteTemplateRequest {
-    pub connection_id: Option<String>,
-    pub environment_id: Option<String>,
+    pub connection_id: String,
+    pub environment_id: String,
+    pub scoped_target: ScopedQueryTarget,
     pub template_id: String,
 }
 
@@ -313,6 +366,8 @@ pub struct ExecutionRequest {
     pub builder_state: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scoped_target: Option<ScopedQueryTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub datastore_execution_input: Option<Value>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -489,6 +544,22 @@ pub struct QueryTabReorderRequest {
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct CloseQueryTabsRequest {
+    pub tab_ids: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloseQueryTabsResponse {
+    pub payload: BootstrapPayload,
+    pub closed_tab_ids: Vec<String>,
+    pub locked_tab_ids: Vec<String>,
+    pub missing_tab_ids: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+#[derive(PartialEq, Eq)]
 pub struct ScopedQueryTarget {
     pub kind: String,
     pub label: String,
@@ -520,6 +591,16 @@ pub struct UpdateQueryBuilderStateRequest {
     pub tab_id: String,
     pub builder_state: Value,
     pub query_text: Option<String>,
+    #[serde(default)]
+    pub query_view_mode: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDatastoreQueryEditorStateRequest {
+    pub tab_id: String,
+    pub editor_state: Value,
+    pub query_text: String,
     #[serde(default)]
     pub query_view_mode: Option<String>,
 }

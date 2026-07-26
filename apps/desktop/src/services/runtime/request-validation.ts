@@ -58,6 +58,7 @@ export function validateExplorerRequest(request: ExplorerRequest): ExplorerReque
   return {
     ...request,
     scope: validateOptionalText(request.scope, 'Explorer scope', MAX_SCOPE_LENGTH),
+    cursor: validateOptionalText(request.cursor, 'Explorer cursor', MAX_SCOPE_LENGTH),
     limit: clampOptionalInteger(request.limit, 'Explorer limit', 1, MAX_EXPLORER_LIMIT),
   }
 }
@@ -276,6 +277,9 @@ export function validateExecutionRequest(request: ExecutionRequest): ExecutionRe
   const mode = validateOptionalExecutionMode(request.mode)
   if (request.builderState !== undefined) {
     assertJsonSize(request.builderState, 'Query builder state')
+  }
+  if (request.datastoreExecutionInput !== undefined) {
+    assertJsonSize(request.datastoreExecutionInput, 'Datastore execution input')
   }
   const scopedTarget = request.scopedTarget
     ? validateScopedQueryTarget(request.scopedTarget)

@@ -51,6 +51,9 @@ export function createDefaultPreferences(): AppPreferences {
     workspaceSearch: {
       enabled: false,
     },
+    datastoreTests: {
+      enabled: false,
+    },
     firstInstallGuide: {
       status: 'unseen',
     },

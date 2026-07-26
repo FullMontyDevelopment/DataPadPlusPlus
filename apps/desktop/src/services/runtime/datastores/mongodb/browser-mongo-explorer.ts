@@ -11,12 +11,10 @@ export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: 
   const database = connection.database?.trim()
 
   if (!scope) {
-    return database
-      ? [mongoDatabaseNode(database)]
-      : [
-          mongoRootSectionNode('databases', 'Databases', 'User MongoDB databases'),
-          mongoRootSectionNode('system-databases', 'System Databases', 'admin, config, and local'),
-        ]
+    return [
+      mongoRootSectionNode('databases', 'Databases', 'User MongoDB databases · preview metadata'),
+      mongoRootSectionNode('system-databases', 'System Databases', 'admin, config, and local · preview metadata'),
+    ]
   }
 
   if (scope === 'databases') {
@@ -38,7 +36,11 @@ export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: 
     return [
       mongoSectionNode(databaseName, 'Collections', 'collections', 'Document collections'),
       mongoSectionNode(databaseName, 'Views', 'views', 'Read-only collection views'),
+      mongoSectionNode(databaseName, 'Time Series Collections', 'time-series-collections', 'Time-series optimized collections'),
+      mongoSectionNode(databaseName, 'Capped Collections', 'capped-collections', 'Fixed-size capped collections'),
       mongoSectionNode(databaseName, 'GridFS', 'gridfs', 'GridFS buckets, files, and chunks'),
+      mongoSectionNode(databaseName, 'Search Indexes', 'search-indexes', 'Atlas Search indexes where supported'),
+      mongoSectionNode(databaseName, 'Vector Indexes', 'vector-indexes', 'Vector search indexes where supported'),
       mongoSectionNode(databaseName, 'Users', 'users', 'Database users'),
       mongoSectionNode(databaseName, 'Roles', 'roles', 'Database roles'),
       documentExplorerNode({
@@ -82,6 +84,20 @@ export function createMongoExplorerNodes(connection: ConnectionProfile, scope?: 
 
   if (scope.startsWith('time-series-collections:') || scope.startsWith('capped-collections:')) {
     return []
+  }
+
+  if (scope.startsWith('search-indexes:') || scope.startsWith('vector-indexes:')) {
+    const [kind, databaseName = database ?? ''] = scope.split(':', 2)
+    if (!databaseName) return []
+    return [
+      documentExplorerNode({
+        id: `unavailable:${databaseName}:${kind}`,
+        label: 'Unavailable',
+        kind: 'unavailable',
+        detail: `${kind === 'search-indexes' ? 'Atlas Search' : 'Vector search'} metadata is not available in browser preview.`,
+        path: [databaseName, kind === 'search-indexes' ? 'Search Indexes' : 'Vector Indexes'],
+      }),
+    ]
   }
 
   if (scope.startsWith('view:')) {

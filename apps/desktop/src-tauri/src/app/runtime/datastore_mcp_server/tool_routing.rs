@@ -255,6 +255,7 @@ impl DatapadMcpTools {
                 environment_id: request.environment_id,
                 scope: request.scope,
                 limit: request.limit.map(|limit| limit.clamp(1, 100)),
+                cursor: None,
             })
             .await
             .map_err(command_to_mcp)?;
@@ -602,6 +603,7 @@ async fn execute_mcp_query(
         confirmed_guardrail_id: None,
         builder_state: None,
         scoped_target: None,
+        datastore_execution_input: None,
     };
     let result = adapters::execute(&resolved_connection, &execution_request, execution_notices)
     .await

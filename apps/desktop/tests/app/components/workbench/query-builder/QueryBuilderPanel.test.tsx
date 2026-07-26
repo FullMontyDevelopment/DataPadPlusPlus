@@ -26,7 +26,7 @@ describe('QueryBuilderPanel', () => {
     clearMongoBuilderRowDrag()
   })
 
-  it('runs Count from the shared footer with the current builder state', async () => {
+  it('runs Count from the Mongo builder controls with the current builder state', async () => {
     const onCount = vi.fn().mockResolvedValue(undefined)
 
     render(
@@ -37,12 +37,16 @@ describe('QueryBuilderPanel', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Count' }))
+    const builder = screen.getByLabelText('MongoDB query builder')
+    fireEvent.click(within(builder).getByRole('button', { name: 'Count' }))
 
     await waitFor(() => expect(onCount).toHaveBeenCalledWith(
       'tab-mongo',
       expect.objectContaining({ kind: 'mongo-find', collection: 'products' }),
     ))
+    expect(builder.closest('.query-builder-execution-fieldset')?.querySelector(
+      '.query-builder-count-footer',
+    )).not.toBeInTheDocument()
   })
 
   it('disables Count when the target is missing or the tab is executing', () => {
@@ -70,17 +74,19 @@ describe('QueryBuilderPanel', () => {
       />,
     )
     expect(screen.getByRole('button', { name: 'Count' })).toBeDisabled()
-    expect(screen.getByLabelText('Collection')).toBeDisabled()
+    expect(screen.queryByLabelText('Collection')).not.toBeInTheDocument()
   })
 
   it('edits Cosmos SQL fields, filters, paging, and partition routing', () => {
     const onBuilderStateChange = vi.fn()
+    const onUseBuilderInEditor = vi.fn()
 
     render(
       <BuilderHarness
         connectionEngine="cosmosdb"
         initialBuilderState={createDefaultCosmosSqlBuilderState('products', 'catalog', 25)}
         onBuilderStateChange={onBuilderStateChange}
+        onUseBuilderInEditor={onUseBuilderInEditor}
         onCount={vi.fn().mockResolvedValue(undefined)}
         tab={cosmosTab()}
       />,
@@ -119,6 +125,156 @@ describe('QueryBuilderPanel', () => {
       enableCrossPartitionQueries: false,
     })
     expect(screen.getByRole('button', { name: 'Count' })).toBeEnabled()
+    expect(screen.getByRole('region', { name: 'Generated query' })).toHaveTextContent(
+      'SELECT TOP 25 c["profile"]["name"] FROM c WHERE c["status"] = @p0',
+    )
+    expect(screen.queryByText('"operation": "QueryDocuments"')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Use in Query Editor' }))
+    expect(onUseBuilderInEditor).toHaveBeenCalledWith(next)
+  })
+
+  it('adds document result fields to the Cosmos builder section they are dropped on', () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(
+      <div>
+        <ResultPayloadView
+          payload={{
+            renderer: 'document',
+            documents: [
+              {
+                _id: 'product-1',
+                profile: { name: 'Lamp', status: 'active' },
+                createdAt: '2026-01-01T00:00:00.000Z',
+              },
+            ],
+          }}
+        />
+        <BuilderHarness
+          connectionEngine="cosmosdb"
+          initialBuilderState={createDefaultCosmosSqlBuilderState('products', 'catalog', 25)}
+          onBuilderStateChange={onBuilderStateChange}
+          tab={cosmosTab()}
+        />
+      </div>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand product-1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand profile' }))
+
+    pointerDragDocumentFieldToTarget(
+      'profile.status',
+      section('Filters'),
+      'Cosmos DB SQL query builder',
+    )
+    expect(screen.getByLabelText('Filter field')).toHaveValue('profile.status')
+    expect(screen.getByLabelText('Filter value')).toHaveValue('')
+
+    pointerDragDocumentFieldToTarget(
+      'profile.name',
+      section('Fields'),
+      'Cosmos DB SQL query builder',
+    )
+    expect(screen.getByLabelText('Projection field')).toHaveValue('profile.name')
+
+    pointerDragDocumentFieldToTarget(
+      'createdAt',
+      section('Sort'),
+      'Cosmos DB SQL query builder',
+    )
+    expect(screen.getByLabelText('Sort field')).toHaveValue('createdAt')
+
+    const next = lastBuilderState(onBuilderStateChange)
+    expect(next).toMatchObject({
+      kind: 'cosmos-sql',
+      projectionFields: [expect.objectContaining({ field: 'profile.name' })],
+      filters: [expect.objectContaining({
+        field: 'profile.status',
+        operator: 'eq',
+        value: '',
+        valueType: 'string',
+      })],
+      sort: [expect.objectContaining({ field: 'createdAt', direction: 'asc' })],
+    })
+    expect(JSON.parse(next.lastAppliedQueryText ?? '{}')).toMatchObject({
+      query:
+        'SELECT TOP 25 c["profile"]["name"] FROM c WHERE c["profile"]["status"] = @p0 ORDER BY c["createdAt"] ASC',
+      parameters: [{ name: '@p0', value: '' }],
+    })
+    expect(onBuilderStateChange).toHaveBeenCalledTimes(3)
+  })
+
+  it('ignores out-of-bounds Cosmos pointer drops and clears canceled drag state', () => {
+    const onBuilderStateChange = vi.fn()
+
+    render(
+      <div>
+        <ResultPayloadView
+          payload={{
+            renderer: 'document',
+            documents: [{ _id: 'product-1', sku: 'luna-lamp' }],
+          }}
+        />
+        <BuilderHarness
+          connectionEngine="cosmosdb"
+          initialBuilderState={createDefaultCosmosSqlBuilderState('products', 'catalog', 25)}
+          onBuilderStateChange={onBuilderStateChange}
+          tab={cosmosTab()}
+        />
+      </div>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand product-1' }))
+
+    const source = screen.getAllByTitle('Drag sku to the query builder').at(-1) as HTMLElement
+    const builder = screen.getByLabelText('Cosmos DB SQL query builder') as HTMLElement
+    const filterSection = section('Filters')
+    const builderRect = vi.spyOn(builder, 'getBoundingClientRect').mockReturnValue({
+      bottom: 500,
+      height: 500,
+      left: 0,
+      right: 500,
+      toJSON: () => ({}),
+      top: 0,
+      width: 500,
+      x: 0,
+      y: 0,
+    })
+    const originalElementFromPoint = document.elementFromPoint
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn().mockReturnValue(filterSection),
+    })
+
+    try {
+      fireEvent.pointerDown(source, { button: 0, clientX: 10, clientY: 600, pointerId: 7 })
+      fireEvent.pointerMove(window, { clientX: 18, clientY: 590, pointerId: 7 })
+      fireEvent.pointerMove(window, { clientX: 40, clientY: 40, pointerId: 7 })
+
+      expect(builder).toHaveClass('is-drag-over')
+      expect(filterSection).toHaveClass('is-drag-over')
+
+      fireEvent.pointerCancel(window, { clientX: 40, clientY: 40, pointerId: 7 })
+
+      expect(builder).not.toHaveClass('is-drag-over')
+      expect(filterSection).not.toHaveClass('is-drag-over')
+
+      fireEvent.pointerDown(source, { button: 0, clientX: 10, clientY: 600, pointerId: 8 })
+      fireEvent.pointerMove(window, { clientX: 620, clientY: 620, pointerId: 8 })
+      fireEvent.pointerUp(window, { clientX: 620, clientY: 620, pointerId: 8 })
+
+      expect(onBuilderStateChange).not.toHaveBeenCalled()
+    } finally {
+      builderRect.mockRestore()
+      if (originalElementFromPoint) {
+        Object.defineProperty(document, 'elementFromPoint', {
+          configurable: true,
+          value: originalElementFromPoint,
+        })
+      } else {
+        Reflect.deleteProperty(document, 'elementFromPoint')
+      }
+    }
   })
 
   it('adds dragged result fields to filter, projection, and sort sections', () => {
@@ -130,9 +286,9 @@ describe('QueryBuilderPanel', () => {
     expect(screen.queryByText('Live query')).not.toBeInTheDocument()
     expect(screen.queryByText('Mongo Find Builder')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'products' })).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Collection')).toHaveValue('products')
     expect(screen.getByLabelText('Fetch size')).toHaveValue(20)
-    expect(within(screen.getByLabelText('Mongo query scope')).getByText('products')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Collection')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Mongo query scope')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Filter group logic Group 1')).not.toBeInTheDocument()
 
     dropField(section('Filters'), 'profile.status')
@@ -162,7 +318,7 @@ describe('QueryBuilderPanel', () => {
     expect(onBuilderStateChange).toHaveBeenCalled()
   })
 
-  it('shows the Mongo database and collection for scoped query tabs', () => {
+  it('uses the scoped Mongo target without repeating it inside the builder', () => {
     const onBuilderStateChange = vi.fn()
 
     render(
@@ -178,9 +334,8 @@ describe('QueryBuilderPanel', () => {
       />,
     )
 
-    const scope = screen.getByLabelText('Mongo query scope')
-    expect(within(scope).getByText('catalog')).toBeInTheDocument()
-    expect(within(scope).getByText('products')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Mongo query scope')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Collection')).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Fetch size'), { target: { value: '25' } })
 
@@ -374,8 +529,12 @@ describe('QueryBuilderPanel', () => {
     )
 
     expect(screen.getByRole('region', { name: 'MongoDB aggregation builder' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Collection')).toHaveValue('orders')
     expect(screen.getByLabelText('Fetch size')).toHaveValue(20)
+    expect(screen.queryByLabelText('Collection')).not.toBeInTheDocument()
+    expect(within(screen.getByLabelText('MongoDB aggregation builder')).getByRole(
+      'button',
+      { name: 'Count' },
+    )).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Stage' }))
 
@@ -580,7 +739,7 @@ describe('QueryBuilderPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand product-1' }))
 
-    pointerDragDocumentFieldToTarget('sku', screen.getByLabelText('Collection'))
+    pointerDragDocumentFieldToTarget('sku', screen.getByLabelText('MongoDB query builder'))
 
     expect(screen.getByLabelText('Filter field')).toHaveValue('sku')
     expect(screen.getByLabelText('Filter value')).toHaveValue('luna-lamp')
@@ -994,6 +1153,7 @@ function BuilderHarness({
   onExecuteDataEdit,
   onCount,
   onBuilderStateChange,
+  onUseBuilderInEditor,
   tab,
 }: {
   connectionEngine?: 'mongodb' | 'cosmosdb' | 'postgresql' | 'dynamodb' | 'cassandra' | 'elasticsearch' | 'redis'
@@ -1003,6 +1163,7 @@ function BuilderHarness({
   onInspectRedisKey?: ComponentProps<typeof QueryBuilderPanel>['onInspectRedisKey']
   onScanRedisKeys?: ComponentProps<typeof QueryBuilderPanel>['onScanRedisKeys']
   onBuilderStateChange(tabId: string, builderState: QueryBuilderState): void
+  onUseBuilderInEditor?: ComponentProps<typeof QueryBuilderPanel>['onUseBuilderInEditor']
   tab: QueryTabState
 }) {
   const [builderState, setBuilderState] = useState<QueryBuilderState>(
@@ -1047,6 +1208,7 @@ function BuilderHarness({
         setBuilderState(nextBuilderState)
         onBuilderStateChange(tabId, nextBuilderState)
       }}
+      onUseBuilderInEditor={onUseBuilderInEditor}
       onExecuteDataEdit={onExecuteDataEdit}
       onInspectRedisKey={onInspectRedisKey}
       onScanRedisKeys={onScanRedisKeys}
@@ -1253,9 +1415,13 @@ function lastBuilderState(onBuilderStateChange: ReturnType<typeof vi.fn>) {
   return onBuilderStateChange.mock.calls.at(-1)?.[1] as QueryBuilderState
 }
 
-function pointerDragDocumentFieldToTarget(field: string, target: HTMLElement) {
+function pointerDragDocumentFieldToTarget(
+  field: string,
+  target: HTMLElement,
+  builderLabel = 'MongoDB query builder',
+) {
   const source = screen.getAllByTitle(`Drag ${field} to the query builder`).at(-1) as HTMLElement
-  const builder = screen.getByLabelText('MongoDB query builder') as HTMLElement
+  const builder = screen.getByLabelText(builderLabel) as HTMLElement
   const builderRect = vi.spyOn(builder, 'getBoundingClientRect').mockReturnValue({
     bottom: 500,
     height: 500,

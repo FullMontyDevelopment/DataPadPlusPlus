@@ -80,16 +80,32 @@ export function mergeExplorerCacheEntry(
   incoming: ExplorerResponse,
 ): ExplorerCacheEntry {
   const scopeKey = explorerScopeKey(incoming.scope)
-  const scopes =
+  const matchingCurrent =
     current &&
     current.connectionId === incoming.connectionId &&
     current.environmentId === incoming.environmentId
+      ? current
+      : undefined
+  const currentScope = matchingCurrent?.scopes[scopeKey]
+  const scopeResponse =
+    incoming.pageInfo?.cursor && currentScope
       ? {
-          ...current.scopes,
-          [scopeKey]: incoming,
+          ...incoming,
+          nodes: Array.from(
+            new Map(
+              [...currentScope.nodes, ...incoming.nodes].map((node) => [node.id, node]),
+            ).values(),
+          ),
+        }
+      : incoming
+  const scopes =
+    matchingCurrent
+      ? {
+          ...matchingCurrent.scopes,
+          [scopeKey]: scopeResponse,
         }
       : {
-          [scopeKey]: incoming,
+          [scopeKey]: scopeResponse,
         }
   const nodesById = new Map<string, ExplorerResponse['nodes'][number]>()
   const scopedResponses = [
@@ -113,6 +129,7 @@ export function mergeExplorerCacheEntry(
       ...incoming,
       scope: undefined,
       nodes: Array.from(nodesById.values()),
+      pageInfo: undefined,
     },
   }
 }

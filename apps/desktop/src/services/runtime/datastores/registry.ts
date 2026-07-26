@@ -61,8 +61,24 @@ const runtimeSlices: DatastoreRuntimeSlice[] = [
   bigqueryRuntimeSlice,
 ]
 
+const runtimeSlicesByEngine = new Map(
+  runtimeSlices.map((slice) => [slice.engine, slice] as const),
+)
+
+if (runtimeSlicesByEngine.size !== runtimeSlices.length) {
+  throw new Error('Datastore runtime registry contains duplicate engine providers.')
+}
+
 export function runtimeSliceForEngine(engine: DatastoreRuntimeSlice['engine']) {
-  return runtimeSlices.find((slice) => slice.engine === engine)
+  const slice = runtimeSlicesByEngine.get(engine)
+  if (!slice) {
+    throw new Error(`Datastore runtime provider is missing for ${engine}.`)
+  }
+  return slice
+}
+
+export function registeredRuntimeSliceForEngine(engine: string) {
+  return runtimeSlicesByEngine.get(engine as DatastoreRuntimeSlice['engine'])
 }
 
 export { runtimeSlices }

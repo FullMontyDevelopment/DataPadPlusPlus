@@ -7,6 +7,7 @@ import {
   ObjectSearchIcon,
   PlayIcon,
   RefreshIcon,
+  TestSuiteIcon,
 } from './icons'
 import {
   isObjectViewNode,
@@ -40,6 +41,7 @@ export function ConnectionObjectContextMenu({
   onInspectNode,
   onOpenObjectView,
   onOpenQuery,
+  onCreateTestSuite,
   onCreateApiServer,
   onAddToApiServer,
   onRefresh,
@@ -55,6 +57,7 @@ export function ConnectionObjectContextMenu({
   onInspectNode?(node: ConnectionTreeNode): void
   onOpenObjectView?(node: ConnectionTreeNode): void
   onOpenQuery(node: ConnectionTreeNode): void
+  onCreateTestSuite?(node: ConnectionTreeNode): void
   onCreateApiServer?(node: ConnectionTreeNode): void
   onAddToApiServer?(node: ConnectionTreeNode): void
   onRefresh(node: ConnectionTreeNode): void
@@ -95,6 +98,21 @@ export function ConnectionObjectContextMenu({
         >
           <PlayIcon className="connection-context-menu-icon" />
           <span>{scopedQueryMenuLabel(connection, node.kind)}</span>
+        </button>
+      ) : null}
+
+      {onCreateTestSuite ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="connection-context-menu-item"
+          onClick={() => {
+            onCreateTestSuite(node)
+            onClose()
+          }}
+        >
+          <TestSuiteIcon className="connection-context-menu-icon" />
+          <span>New Test Suite</span>
         </button>
       ) : null}
 
@@ -147,7 +165,7 @@ export function ConnectionObjectContextMenu({
         </button>
       ) : null}
 
-      {queryable || canOpenObjectView || canInspect || hasChildren ? (
+      {queryable || onCreateTestSuite || canOpenObjectView || canInspect || hasChildren ? (
         <div className="connection-context-menu-separator" role="separator" />
       ) : null}
 

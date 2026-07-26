@@ -150,18 +150,27 @@ export function duplicateLibraryNode(
   if (!source) {
     throw new Error('Library item was not found.')
   }
-  if (source.kind !== 'query' && source.kind !== 'script') {
-    throw new Error('Only Library queries and scripts can be duplicated.')
+  if (source.kind === 'connection' || source.kind === 'folder') {
+    throw new Error('Connections and folders cannot be duplicated.')
   }
   const timestamp = new Date().toISOString()
+  const name = nextLibraryCopyName(next.libraryNodes, source)
   next.libraryNodes.push({
     ...source,
     id: createId('library-item'),
-    name: nextLibraryCopyName(next.libraryNodes, source),
+    name,
     createdAt: timestamp,
     updatedAt: timestamp,
     lastOpenedAt: undefined,
     snapshotResultId: undefined,
+    testSuite:
+      source.kind === 'test-suite' && source.testSuite
+        ? {
+            ...source.testSuite,
+            id: createId('test-suite'),
+            name,
+          }
+        : source.testSuite,
   })
   next.updatedAt = timestamp
   return next
@@ -220,7 +229,10 @@ export function saveQueryTabToLibrary(
     createdAt: timestamp,
     updatedAt: timestamp,
     connectionId: tab.connectionId,
-    environmentId: request.environmentId,
+    environmentId:
+      kind === 'test-suite'
+        ? tab.environmentId
+        : request.environmentId,
     language: tab.language,
     queryText: kind === 'script' || kind === 'test-suite' ? undefined : tab.queryText,
     queryViewMode: tab.queryViewMode,
@@ -269,6 +281,11 @@ export function saveQueryTabToLocalFile(
 export function openLibraryItem(snapshot: WorkspaceSnapshot, libraryItemId: string) {
   const next = cloneSnapshot(snapshot)
   const item = next.libraryNodes.find((node) => node.id === libraryItemId)
+  if (item?.kind === 'test-suite' && !next.preferences.datastoreTests?.enabled) {
+    throw new Error(
+      'Enable the experimental Datastore Tests plugin in Settings before opening test suites.',
+    )
+  }
   const queryText =
     item?.queryText ??
     item?.scriptText ??
@@ -298,6 +315,10 @@ export function openLibraryItem(snapshot: WorkspaceSnapshot, libraryItemId: stri
   if (!connection) {
     return next
   }
+  const testSuiteBinding =
+    item.kind === 'test-suite'
+      ? requiredTestSuiteLibraryBinding(item, connection.id)
+      : undefined
 
   const tab: QueryTabState = {
     id: createId('tab'),
@@ -305,16 +326,23 @@ export function openLibraryItem(snapshot: WorkspaceSnapshot, libraryItemId: stri
     tabKind: item.kind === 'test-suite' ? 'test-suite' : 'query',
     connectionId: connection.id,
     environmentId:
+      testSuiteBinding?.environmentId ??
       effectiveLibraryEnvironmentId(next.libraryNodes, item.id) ??
       effectiveConnectionEnvironmentId(next, connection),
     family: connection.family,
-    language: item.language ?? languageForConnection(connection),
-    editorLabel: editorLabelForConnection(connection),
+    language:
+      item.kind === 'test-suite'
+        ? languageForConnection(connection)
+        : item.language ?? languageForConnection(connection),
+    editorLabel:
+      testSuiteBinding
+        ? `${connection.name} · ${testSuiteBinding.scopedTarget.label} tests`
+        : editorLabelForConnection(connection),
     queryText,
     queryViewMode: item.queryViewMode ?? (item.kind === 'script' ? 'script' : undefined),
     scriptText: item.scriptText,
     documentEfficiencyMode: item.documentEfficiencyMode,
-    scopedTarget: item.scopedTarget,
+    scopedTarget: testSuiteBinding?.scopedTarget ?? item.scopedTarget,
     builderState: item.builderState,
     testSuite: item.testSuite,
     status: 'idle',
@@ -330,6 +358,34 @@ export function openLibraryItem(snapshot: WorkspaceSnapshot, libraryItemId: stri
   next.ui.activeTabId = tab.id
   next.updatedAt = new Date().toISOString()
   return next
+}
+
+function requiredTestSuiteLibraryBinding(
+  item: LibraryNode,
+  connectionId: string,
+) {
+  const suite = item.testSuite
+  const scopedTarget = item.scopedTarget ?? suite?.scopedTarget
+  if (
+    !suite ||
+    !suite.connectionId ||
+    !suite.environmentId ||
+    !scopedTarget
+  ) {
+    throw new Error('datastore-test-target-required')
+  }
+  if (
+    suite.connectionId !== connectionId ||
+    JSON.stringify(suite.scopedTarget) !== JSON.stringify(scopedTarget)
+  ) {
+    throw new Error(
+      'datastore-test-binding-immutable: Test suite connection, environment, and target cannot be changed.',
+    )
+  }
+  return {
+    environmentId: suite.environmentId,
+    scopedTarget,
+  }
 }
 
 function collectDescendantIds(nodes: LibraryNode[], nodeId: string) {
@@ -370,7 +426,9 @@ export function effectiveLibraryEnvironmentId(nodes: LibraryNode[], nodeId: stri
 
 function connectionSummary(snapshot: WorkspaceSnapshot, tab: QueryTabState) {
   const connection = snapshot.connections.find((item) => item.id === tab.connectionId)
-  return connection?.name
+  return tab.tabKind === 'test-suite' && tab.scopedTarget
+    ? `${connection?.name ?? tab.connectionId} / ${tab.scopedTarget.label}`
+    : connection?.name
 }
 
 function isLibraryBackedTab(tab: QueryTabState, libraryItemId: string) {

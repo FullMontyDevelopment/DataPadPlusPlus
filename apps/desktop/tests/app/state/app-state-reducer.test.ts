@@ -514,7 +514,42 @@ describe('app-state reducer explorer metadata cache', () => {
     })
 
     expect(state.explorerError).toBe('Unable to inspect explorer object.')
+    expect(state.explorerErrors['connection-mongo::env-dev::__root__']).toBe(
+      'Unable to inspect explorer object.',
+    )
     expect(state.explorerLoadingRequests).toEqual({})
+  })
+
+  it('keeps explorer failures per scope and clears only the retried scope', () => {
+    const databaseRequest = {
+      connectionId: 'connection-mongo',
+      environmentId: 'env-dev',
+      scope: 'database:catalog',
+    }
+    let state = reducer(initialState, {
+      type: 'EXPLORER_ERROR',
+      request: databaseRequest,
+      message: 'Database metadata timed out.',
+    })
+    state = reducer(state, {
+      type: 'EXPLORER_ERROR',
+      request: {
+        ...databaseRequest,
+        scope: 'collections:catalog',
+      },
+      message: 'Collection metadata is forbidden.',
+    })
+
+    state = reducer(state, {
+      type: 'EXPLORER_LOADING',
+      request: databaseRequest,
+      requestId: 'retry-database',
+    })
+
+    expect(state.explorerErrors['connection-mongo::env-dev::database:catalog']).toBeUndefined()
+    expect(state.explorerErrors['connection-mongo::env-dev::collections:catalog']).toBe(
+      'Collection metadata is forbidden.',
+    )
   })
 })
 

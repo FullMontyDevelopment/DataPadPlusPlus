@@ -46,6 +46,133 @@ describe('LibraryPane', () => {
     expect(queryRow.querySelector('.library-node-icon--query svg')).toBeInTheDocument()
   })
 
+  it('renders suite-owned cases as non-draggable virtual children when the plugin is enabled', () => {
+    const onOpenTestSuiteCase = vi.fn()
+    const suiteNode: LibraryNode = {
+      id: 'suite-orders',
+      kind: 'test-suite',
+      name: 'Order checks',
+      tags: [],
+      createdAt: '2026-05-14T00:00:00.000Z',
+      updatedAt: '2026-05-14T00:00:00.000Z',
+      testSuite: {
+        id: 'suite-orders',
+        name: 'Order checks',
+        cases: [
+          {
+            id: 'case-list',
+            name: 'lists orders',
+            enabled: true,
+            setup: [],
+            execute: [],
+            assertions: [],
+            teardown: [],
+          },
+          {
+            id: 'case-create',
+            name: 'creates an order',
+            enabled: false,
+            setup: [],
+            execute: [],
+            assertions: [],
+            teardown: [],
+          },
+        ],
+      },
+    }
+
+    renderLibraryPane(vi.fn(), {
+      datastoreTestsEnabled: true,
+      libraryNodes: [suiteNode],
+      onOpenTestSuiteCase,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Order checks' }))
+    const caseButton = screen.getByRole('treeitem', { name: 'Open test case lists orders' })
+    expect(caseButton).not.toHaveAttribute('draggable')
+    expect(caseButton.querySelector('svg')).toBeInTheDocument()
+    expect(screen.getByText('Disabled')).toBeInTheDocument()
+
+    fireEvent.click(caseButton)
+    expect(onOpenTestSuiteCase).toHaveBeenCalledWith('suite-orders', 'case-list')
+  })
+
+  it('hides saved suites and cases while the plugin is disabled', () => {
+    renderLibraryPane(vi.fn(), {
+      datastoreTestsEnabled: false,
+      libraryNodes: [{
+        id: 'suite-hidden',
+        kind: 'test-suite',
+        name: 'Hidden suite',
+        tags: [],
+        createdAt: '2026-05-14T00:00:00.000Z',
+        updatedAt: '2026-05-14T00:00:00.000Z',
+        testSuite: {
+          id: 'suite-hidden',
+          name: 'Hidden suite',
+          cases: [],
+        },
+      }],
+    })
+
+    expect(screen.queryByText('Hidden suite')).not.toBeInTheDocument()
+  })
+
+  it('offers duplication for test suites while keeping connection duplication unavailable', () => {
+    const onDuplicateNode = vi.fn()
+    const suiteNode: LibraryNode = {
+      id: 'suite-copy',
+      kind: 'test-suite',
+      name: 'Mongo checks',
+      tags: [],
+      createdAt: '2026-05-14T00:00:00.000Z',
+      updatedAt: '2026-05-14T00:00:00.000Z',
+      connectionId: 'connection-mongodb',
+      environmentId: 'env-dev',
+      scopedTarget: {
+        kind: 'collection',
+        label: 'products',
+        scope: 'collection:catalog:products',
+      },
+      testSuite: {
+        id: 'suite-copy',
+        name: 'Mongo checks',
+        engine: 'mongodb',
+        family: 'document',
+        connectionId: 'connection-mongodb',
+        environmentId: 'env-dev',
+        scopedTarget: {
+          kind: 'collection',
+          label: 'products',
+          scope: 'collection:catalog:products',
+        },
+        inferredLanguage: 'mongodb',
+        cases: [],
+      },
+    }
+
+    renderLibraryPane(vi.fn(), {
+      datastoreTestsEnabled: true,
+      libraryNodes: [
+        suiteNode,
+        connectionNode(
+          'library-connection-mongodb',
+          'MongoDB local',
+          'connection-mongodb',
+        ),
+      ],
+      onDuplicateNode,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions for Mongo checks' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate Mongo checks' }))
+    expect(onDuplicateNode).toHaveBeenCalledWith('suite-copy')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions for MongoDB local' }))
+    expect(screen.queryByRole('menuitem', { name: /Duplicate connection/i }))
+      .not.toBeInTheDocument()
+  })
+
   it('reveals, selects, and scrolls a deeply nested active query into view', () => {
     const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
     const scrollIntoView = vi.fn()
@@ -803,6 +930,7 @@ function renderLibraryPane(
     onCreateFolder: (parentId: string | undefined, name: string) => void
     onCloneEnvironment: (environmentId: string) => void
     onDeleteEnvironment: (environmentId: string) => void
+    onDuplicateNode: (nodeId: string) => void
     onEditEnvironment: (environmentId: string) => void
     onLoadExplorerScope: (connectionId: string, scope?: string, environmentId?: string) => void
     onRenameNode: (nodeId: string, name: string) => void
@@ -818,8 +946,10 @@ function renderLibraryPane(
     workspaceSearchEnabled: boolean
     activeWorkspaceSearch: boolean
     apiServerEnabled: boolean
+    datastoreTestsEnabled: boolean
     apiServers: DatastoreApiServerInstanceStatus[]
     onCreateApiServer: () => void
+    onOpenTestSuiteCase: (libraryItemId: string, caseId: string) => void
     onCollapseExplorerItems: (sectionIds: string[]) => void
     workspaceSwitcherStatus: WorkspaceSwitcherStatus
   }> = {},
@@ -842,6 +972,7 @@ function renderLibraryPane(
       environments={overrides.environments ?? []}
       explorerStatus={overrides.explorerStatus ?? 'idle'}
       apiServerEnabled={overrides.apiServerEnabled ?? false}
+      datastoreTestsEnabled={overrides.datastoreTestsEnabled ?? false}
       apiServers={overrides.apiServers ?? []}
       workspaceSwitcherStatus={overrides.workspaceSwitcherStatus}
       workspaceSearchEnabled={overrides.workspaceSearchEnabled ?? false}
@@ -858,12 +989,14 @@ function renderLibraryPane(
       onCreateFolder={overrides.onCreateFolder ?? vi.fn()}
       onDeleteEnvironment={overrides.onDeleteEnvironment ?? vi.fn()}
       onDeleteNode={vi.fn()}
+      onDuplicateNode={overrides.onDuplicateNode ?? vi.fn()}
       onEditEnvironment={overrides.onEditEnvironment ?? vi.fn()}
       onLibraryFilterChange={vi.fn()}
       onLoadExplorerScope={overrides.onLoadExplorerScope ?? vi.fn()}
       onMoveNode={onMoveNode}
       onOpenWorkspaceSearch={overrides.onOpenWorkspaceSearch ?? vi.fn()}
       onOpenLibraryItem={vi.fn()}
+      onOpenTestSuiteCase={overrides.onOpenTestSuiteCase ?? vi.fn()}
       onRenameNode={overrides.onRenameNode ?? vi.fn()}
       onRenameWorkspace={overrides.onRenameWorkspace ?? vi.fn()}
       onSwitchWorkspace={overrides.onSwitchWorkspace ?? vi.fn()}

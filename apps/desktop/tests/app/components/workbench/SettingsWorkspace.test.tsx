@@ -113,6 +113,7 @@ function renderSettings(overrides: Partial<ComponentProps<typeof SettingsWorkspa
     onUpdateBackupSettings: vi.fn().mockResolvedValue(true),
     onUpdateWorkspaceSwitcherSettings: vi.fn().mockResolvedValue(true),
     onUpdateWorkspaceSearchSettings: vi.fn().mockResolvedValue(true),
+    onUpdateDatastoreTestsSettings: vi.fn().mockResolvedValue(true),
     onUpdateSecurityCheckSettings: vi.fn().mockResolvedValue(true),
     ...overrides,
   }
@@ -266,6 +267,33 @@ describe('SettingsWorkspace', () => {
 
     expect(within(mcpGroup).getByText('Experimental')).toBeInTheDocument()
     expect(within(securityChecksGroup).getByText('Experimental')).toBeInTheDocument()
+  })
+
+  it('shows and updates the experimental Datastore Tests plugin', async () => {
+    const onUpdateDatastoreTestsSettings = vi.fn().mockResolvedValue(true)
+    renderSettings({
+      initialSection: 'experimental',
+      onUpdateDatastoreTestsSettings,
+    })
+
+    const experimentalPluginsGroup = screen.getByRole('region', {
+      name: 'Experimental Plugins',
+    })
+    const datastoreTestsGroup = within(experimentalPluginsGroup).getByRole('region', {
+      name: 'Datastore Tests',
+    })
+    const toggle = within(datastoreTestsGroup).getByLabelText('Datastore Tests')
+
+    expect(within(datastoreTestsGroup).getByText('Experimental')).toBeInTheDocument()
+    expect(toggle).not.toBeChecked()
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(onUpdateDatastoreTestsSettings).toHaveBeenCalledWith({ enabled: true })
+    })
+    expect(
+      within(datastoreTestsGroup).getByText('Datastore Tests plugin enabled.'),
+    ).toBeInTheDocument()
   })
 
   it('opens Workspace Search when enabled', () => {

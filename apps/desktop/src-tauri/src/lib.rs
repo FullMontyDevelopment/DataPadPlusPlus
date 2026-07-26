@@ -92,6 +92,9 @@ pub fn run() {
                 app::runtime::ActiveExecutionRegistry::default(),
             ));
             app.manage(std::sync::Mutex::new(
+                app::runtime::ActiveTestRunRegistry::default(),
+            ));
+            app.manage(std::sync::Mutex::new(
                 app::runtime::datastore_api_server::DatastoreApiServerManager::default(),
             ));
             app.manage(std::sync::Mutex::new(
@@ -190,6 +193,7 @@ pub fn run() {
             commands::workspace::cancel_execution_request,
             commands::workspace::cancel_test_run,
             commands::workspace::close_query_tab,
+            commands::workspace::close_query_tabs,
             commands::workspace::collect_adapter_diagnostics,
             commands::workspace::create_library_folder,
             commands::workspace::create_local_database,
@@ -224,6 +228,7 @@ pub fn run() {
             commands::workspace::execute_query_request,
             commands::workspace::execute_datastore_operation,
             commands::workspace::execute_test_suite,
+            commands::workspace::plan_test_suite_run,
             commands::workspace::export_result_file,
             commands::workspace::export_datastore_api_server_project_file,
             commands::workspace::export_workspace_bundle,
@@ -253,6 +258,7 @@ pub fn run() {
             commands::workspace::move_library_node,
             commands::workspace::open_library_item,
             commands::workspace::open_test_suite_template,
+            commands::workspace::open_test_suite_case,
             commands::workspace::open_saved_work_item,
             commands::workspace::plan_data_edit,
             commands::workspace::plan_datastore_operation,
@@ -302,11 +308,13 @@ pub fn run() {
             commands::workspace::update_datastore_security_check_settings,
             commands::workspace::create_datastore_mcp_server_token,
             commands::workspace::update_query_builder_state,
+            commands::workspace::update_datastore_query_editor_state,
             commands::workspace::update_query_tab_target,
             commands::workspace::update_query_tab,
             commands::workspace::update_test_suite_tab,
             commands::workspace::update_workspace_backup_settings,
             commands::workspace::update_workspace_search_settings,
+            commands::workspace::update_datastore_tests_settings,
             commands::workspace::upsert_connection_profile,
             commands::workspace::upsert_environment_profile,
             commands::workspace::upsert_saved_work_item

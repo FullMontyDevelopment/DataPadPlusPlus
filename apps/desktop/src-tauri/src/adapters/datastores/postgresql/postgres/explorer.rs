@@ -30,6 +30,7 @@ pub(super) async fn list_postgres_explorer_nodes(
         ),
         capabilities: adapter.execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

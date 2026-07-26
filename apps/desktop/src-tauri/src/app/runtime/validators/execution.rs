@@ -36,6 +36,9 @@ pub(in crate::app::runtime) fn validate_execution_request(
     if let Some(builder_state) = &request.builder_state {
         assert_json_size(builder_state, "Query builder state")?;
     }
+    if let Some(datastore_execution_input) = &request.datastore_execution_input {
+        assert_json_size(datastore_execution_input, "Datastore execution input")?;
+    }
     if let Some(scoped_target) = &request.scoped_target {
         validate_scoped_query_target(scoped_target)?;
     }

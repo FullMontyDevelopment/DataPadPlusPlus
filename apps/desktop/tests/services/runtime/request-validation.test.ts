@@ -3,8 +3,10 @@ import {
   validateCreateLibraryFolderRequest,
   validateCreateObjectViewTabRequest,
   validateCreateScopedQueryTabRequest,
+  validateCreateTestSuiteTabRequest,
   validateConnectionProfile,
   validateConnectionTestRequest,
+  validateCloseQueryTabsRequest,
   validateDataEditPlanRequest,
   validateDocumentNodeChildrenRequest,
   validateEnvironmentProfile,
@@ -12,6 +14,7 @@ import {
   validateExplorerRequest,
   validateOperationExecutionRequest,
   validateOperationPlanRequest,
+  validateOpenTestSuiteTemplateRequest,
   validateRedisKeyInspectRequest,
   validateRedisKeyScanRequest,
   validateResultPageRequest,
@@ -23,6 +26,51 @@ import {
 } from '../../../src/services/runtime/request-validation'
 
 describe('runtime request validation', () => {
+  it('requires test-suite connection, environment, and target bindings', () => {
+    expect(() =>
+      validateCreateTestSuiteTabRequest({
+        connectionId: 'conn-1',
+      } as never),
+    ).toThrow(/Environment id is required/)
+    expect(() =>
+      validateCreateTestSuiteTabRequest({
+        connectionId: 'conn-1',
+        environmentId: 'env-1',
+      } as never),
+    ).toThrow(/target/i)
+
+    expect(
+      validateOpenTestSuiteTemplateRequest({
+        connectionId: 'conn-1',
+        environmentId: 'env-1',
+        templateId: 'postgresql-smoke-suite',
+        scopedTarget: {
+          kind: 'table',
+          label: 'orders',
+          path: ['public'],
+        },
+      }),
+    ).toMatchObject({
+      connectionId: 'conn-1',
+      environmentId: 'env-1',
+      scopedTarget: {
+        kind: 'table',
+        label: 'orders',
+      },
+    })
+  })
+
+  it('validates every bulk tab-close id while allowing idempotent duplicates', () => {
+    expect(validateCloseQueryTabsRequest({
+      tabIds: ['tab-a', 'tab-a', 'tab-b'],
+    })).toEqual({
+      tabIds: ['tab-a', 'tab-a', 'tab-b'],
+    })
+    expect(() => validateCloseQueryTabsRequest({
+      tabIds: ['tab-a', '   '],
+    })).toThrow('Tab id is required.')
+  })
+
   it('accepts the full MongoDB nesting limit for lazy document paths', () => {
     const request = {
       tabId: 'tab-mongodb',

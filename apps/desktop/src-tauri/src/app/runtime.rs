@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Mutex};
 
 use futures_util::future::AbortHandle;
 use tauri::AppHandle;
+use tokio::sync::watch;
 
 pub mod app_logs;
 pub mod app_updates;
@@ -82,6 +83,37 @@ impl ActiveExecutionRegistry {
 
 pub type SharedAppState = Mutex<ManagedAppState>;
 pub type SharedExecutionRegistry = Mutex<ActiveExecutionRegistry>;
+
+#[derive(Default)]
+pub struct ActiveTestRunRegistry {
+    cancellations: HashMap<String, watch::Sender<bool>>,
+}
+
+impl ActiveTestRunRegistry {
+    pub fn register(
+        &mut self,
+        run_id: String,
+        cancellation: watch::Sender<bool>,
+    ) -> Result<(), &'static str> {
+        if self.cancellations.contains_key(&run_id) {
+            return Err("A test run with this id is already active.");
+        }
+        self.cancellations.insert(run_id, cancellation);
+        Ok(())
+    }
+
+    pub fn cancel(&self, run_id: &str) -> bool {
+        self.cancellations
+            .get(run_id)
+            .is_some_and(|cancellation| cancellation.send(true).is_ok())
+    }
+
+    pub fn remove(&mut self, run_id: &str) {
+        self.cancellations.remove(run_id);
+    }
+}
+
+pub type SharedTestRunRegistry = Mutex<ActiveTestRunRegistry>;
 
 #[cfg(test)]
 #[path = "../../tests/unit/app/runtime/active_execution_registry_tests.rs"]

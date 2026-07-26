@@ -20,6 +20,7 @@ export const initialState: StateShape = {
   status: 'booting',
   explorerStatus: 'idle',
   explorerLoadingRequests: {},
+  explorerErrors: {},
   structureStatus: 'idle',
   executionStatus: 'idle',
   executionsByTab: {},
@@ -87,15 +88,21 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
     case 'CONNECTION_HEALTH_ISSUE':
       return reduceConnectionHealth(state, action)
     case 'EXPLORER_LOADING':
+    {
+      const requestKey = explorerRequestKey(action.request)
+      const explorerErrors = { ...state.explorerErrors }
+      delete explorerErrors[requestKey]
       return {
         ...state,
         explorerStatus: 'loading',
         explorerLoadingRequests: {
           ...state.explorerLoadingRequests,
-          [explorerRequestKey(action.request)]: action.requestId,
+          [requestKey]: action.requestId,
         },
+        explorerErrors,
         explorerError: undefined,
       }
+    }
     case 'EXPLORER_READY': {
       const requestKey = explorerRequestKey(action.explorer)
       if (state.explorerLoadingRequests[requestKey] !== action.requestId) {
@@ -110,7 +117,9 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         action.explorer,
       )
       const loadingRequests = { ...state.explorerLoadingRequests }
+      const explorerErrors = { ...state.explorerErrors }
       delete loadingRequests[requestKey]
+      delete explorerErrors[requestKey]
 
       return {
         ...state,
@@ -121,6 +130,7 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
           [cacheKey]: cacheEntry,
         },
         explorerLoadingRequests: loadingRequests,
+        explorerErrors,
         explorerError: undefined,
       }
     }
@@ -139,6 +149,10 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         ...state,
         explorerStatus: Object.keys(loadingRequests).length ? 'loading' : 'ready',
         explorerLoadingRequests: loadingRequests,
+        explorerErrors: {
+          ...state.explorerErrors,
+          [requestKey]: action.message,
+        },
         explorerError: action.message,
       }
     }

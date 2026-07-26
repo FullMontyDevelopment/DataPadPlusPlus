@@ -22,6 +22,7 @@ async fn execute_posture_probe(
         confirmed_guardrail_id: None,
         builder_state: None,
         scoped_target: None,
+        datastore_execution_input: None,
     };
     let notices = vec![QueryExecutionNotice {
         code: "datastore-security-checks-posture-probe".into(),

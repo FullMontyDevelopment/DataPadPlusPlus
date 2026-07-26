@@ -5,6 +5,7 @@ import type {
   RightDrawerView,
   SidebarPane,
   UiActivity,
+  BootstrapPayload,
   PersistenceWarning,
 } from './app'
 import type { ConnectionProfile, DatastoreEngine, DatastoreFamily } from './connection'
@@ -24,6 +25,7 @@ import type {
   DatastoreTestTemplate,
   QueryBuilderKind,
   QueryBuilderState,
+  DatastoreQueryEditorState,
   QueryLanguage,
   QueryViewMode,
   ScopedQueryTarget,
@@ -705,6 +707,10 @@ export interface WorkspaceSearchSettingsRequest {
   enabled: boolean
 }
 
+export interface DatastoreTestsSettingsRequest {
+  enabled: boolean
+}
+
 export type DataEditKind =
   | 'insert-row'
   | 'update-row'
@@ -896,6 +902,15 @@ export interface ExplorerRequest {
   environmentId: string
   limit?: number
   scope?: string
+  cursor?: string
+}
+
+export interface ExplorerPageInfo {
+  cursor?: string
+  nextCursor?: string
+  returnedCount: number
+  knownTotal?: number
+  hasMore: boolean
 }
 
 export interface ExplorerResponse {
@@ -905,6 +920,7 @@ export interface ExplorerResponse {
   summary: string
   capabilities: ExecutionCapabilities
   nodes: ExplorerNode[]
+  pageInfo?: ExplorerPageInfo
 }
 
 export interface ExplorerInspectRequest {
@@ -964,7 +980,25 @@ export interface ExecutionRequest {
   confirmedGuardrailId?: string
   builderState?: QueryBuilderState
   scopedTarget?: ScopedQueryTarget
+  datastoreExecutionInput?: DatastoreExecutionInput
 }
+
+export interface CosmosSqlExecutionInput {
+  kind: 'cosmos-sql'
+  database?: string
+  container: string
+  sql: string
+  parameters: Array<{
+    name: string
+    value: unknown
+    valueType?: import('./workspace').CosmosSqlBuilderValueType
+  }>
+  partitionKey?: unknown
+  partitionKeyValueType?: import('./workspace').CosmosSqlBuilderValueType
+  enableCrossPartitionQueries: boolean
+}
+
+export type DatastoreExecutionInput = CosmosSqlExecutionInput
 
 export interface ExecutionResponse {
   executionId: string
@@ -1102,6 +1136,17 @@ export interface QueryTabReorderRequest {
   orderedTabIds: string[]
 }
 
+export interface CloseQueryTabsRequest {
+  tabIds: string[]
+}
+
+export interface CloseQueryTabsResponse {
+  payload: BootstrapPayload
+  closedTabIds: string[]
+  lockedTabIds: string[]
+  missingTabIds: string[]
+}
+
 export interface CreateScopedQueryTabRequest {
   connectionId: string
   environmentId?: string
@@ -1109,8 +1154,9 @@ export interface CreateScopedQueryTabRequest {
 }
 
 export interface CreateTestSuiteTabRequest {
-  connectionId?: string
-  environmentId?: string
+  connectionId: string
+  environmentId: string
+  scopedTarget: ScopedQueryTarget
   templateId?: string
   suite?: DatastoreTestSuiteDefinition
 }
@@ -1119,12 +1165,55 @@ export interface UpdateTestSuiteTabRequest {
   tabId: string
   suite?: DatastoreTestSuiteDefinition
   rawText?: string
+  activeTestCaseId?: string
+}
+
+export interface OpenTestSuiteCaseRequest {
+  libraryItemId: string
+  caseId: string
+}
+
+export type DatastoreTestRunPlanStatus = 'ready' | 'confirm' | 'blocked'
+
+export interface DatastoreTestStepRunPlan {
+  caseId: string
+  stepId: string
+  label: string
+  phase: import('./workspace').DatastoreTestPhase
+  kind: import('./workspace').DatastoreTestStepKind
+  status: DatastoreTestRunPlanStatus
+  generatedRequest?: string
+  blockers: string[]
+  warnings: string[]
+}
+
+export interface DatastoreTestRunPlanRequest {
+  tabId: string
+  caseId?: string
+}
+
+export interface DatastoreTestRunPlanResponse {
+  planId: string
+  suiteRevision: string
+  connectionId: string
+  environmentId: string
+  scopedTarget: ScopedQueryTarget
+  inferredLanguage: import('./workspace').QueryLanguage
+  status: DatastoreTestRunPlanStatus
+  expiresAt: string
+  requiredConfirmationText?: string
+  steps: DatastoreTestStepRunPlan[]
+  blockers: string[]
+  warnings: string[]
 }
 
 export interface ExecuteTestSuiteRequest {
   tabId: string
   caseId?: string
   confirmedGuardrailId?: string
+  runId?: string
+  planId?: string
+  confirmationText?: string
 }
 
 export interface ExecuteTestSuiteResponse {
@@ -1139,8 +1228,9 @@ export interface CancelTestRunRequest {
 }
 
 export interface OpenTestSuiteTemplateRequest {
-  connectionId?: string
-  environmentId?: string
+  connectionId: string
+  environmentId: string
+  scopedTarget: ScopedQueryTarget
   templateId: string
 }
 
@@ -1148,6 +1238,13 @@ export interface UpdateQueryBuilderStateRequest {
   tabId: string
   builderState: QueryBuilderState
   queryText?: string
+  queryViewMode?: QueryViewMode
+}
+
+export interface UpdateDatastoreQueryEditorStateRequest {
+  tabId: string
+  editorState: DatastoreQueryEditorState
+  queryText: string
   queryViewMode?: QueryViewMode
 }
 

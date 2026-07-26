@@ -2,6 +2,9 @@ import type {
   CosmosSqlBuilderState,
   CosmosSqlBuilderValueType,
   CosmosSqlFilterOperator,
+  CosmosSqlExecutionInput,
+  CosmosSqlQueryEditorParameter,
+  CosmosSqlQueryEditorState,
   QueryBuilderState,
 } from '@datapadplusplus/shared-types'
 
@@ -9,7 +12,7 @@ interface CosmosSqlQueryBuildOptions {
   count?: boolean
 }
 
-interface CosmosSqlRequest {
+export interface CosmosSqlRequest {
   operation: 'QueryDocuments'
   database?: string
   container: string
@@ -68,6 +71,10 @@ export function isCosmosSqlBuilderState(
 
 export function buildCosmosSqlQueryText(state: CosmosSqlBuilderState) {
   return JSON.stringify(buildCosmosSqlRequest(state), null, 2)
+}
+
+export function buildCosmosSqlStatementText(state: CosmosSqlBuilderState) {
+  return buildCosmosSqlRequest(state).query
 }
 
 export function buildCosmosSqlCountQueryText(state: CosmosSqlBuilderState) {
@@ -176,7 +183,7 @@ export function cosmosSqlBuilderRowId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-function buildCosmosSqlStatement(
+export function buildCosmosSqlStatement(
   state: CosmosSqlBuilderState,
   parameters: CosmosSqlRequest['parameters'],
   options: CosmosSqlQueryBuildOptions,
@@ -217,6 +224,292 @@ function buildCosmosSqlStatement(
   }
 
   return clauses.join(' ')
+}
+
+export function createCosmosSqlQueryEditorState(
+  queryText: string,
+  builderState: CosmosSqlBuilderState,
+): CosmosSqlQueryEditorState {
+  const persisted = builderState.editorState
+  if (persisted?.kind === 'cosmos-sql') {
+    return normalizeCosmosSqlQueryEditorState(persisted)
+  }
+
+  const legacy = parseCosmosSqlEnvelope(queryText)
+  if (legacy) {
+    return {
+      kind: 'cosmos-sql',
+      sql: legacy.query,
+      parameters: legacy.parameters.map((parameter, index) =>
+        editorParameterFromValue(parameter.name, parameter.value, `legacy-${index}`),
+      ),
+      partitionKeyEnabled: Object.prototype.hasOwnProperty.call(legacy, 'partitionKey'),
+      partitionKeyValue: cosmosSqlDisplayValue(legacy.partitionKey).value,
+      partitionKeyValueType: cosmosSqlDisplayValue(legacy.partitionKey).type,
+      enableCrossPartitionQueries: legacy.enableCrossPartitionQueries,
+      source: 'default',
+    }
+  }
+
+  const trimmed = queryText.trim()
+  return {
+    kind: 'cosmos-sql',
+    sql: trimmed && !trimmed.startsWith('{')
+      ? trimmed
+      : buildCosmosSqlStatementText(builderState),
+    parameters: [],
+    partitionKeyEnabled: false,
+    partitionKeyValue: '',
+    partitionKeyValueType: 'string',
+    enableCrossPartitionQueries: true,
+    source: 'default',
+  }
+}
+
+export function cosmosSqlEditorStateFromBuilder(
+  builderState: CosmosSqlBuilderState,
+): CosmosSqlQueryEditorState {
+  const request = buildCosmosSqlRequest(builderState)
+  return {
+    kind: 'cosmos-sql',
+    sql: request.query,
+    parameters: request.parameters.map((parameter, index) =>
+      editorParameterFromValue(parameter.name, parameter.value, `builder-${index}`),
+    ),
+    partitionKeyEnabled: Object.prototype.hasOwnProperty.call(request, 'partitionKey'),
+    partitionKeyValue: cosmosSqlDisplayValue(request.partitionKey).value,
+    partitionKeyValueType: cosmosSqlDisplayValue(request.partitionKey).type,
+    enableCrossPartitionQueries: request.enableCrossPartitionQueries,
+    source: 'builder',
+  }
+}
+
+export interface CosmosSqlEditorValidation {
+  input?: CosmosSqlExecutionInput
+  errors: string[]
+  warnings: string[]
+}
+
+export function validateCosmosSqlEditorState(
+  state: CosmosSqlQueryEditorState,
+  context: { database?: string; container?: string },
+  selectedSql?: string,
+): CosmosSqlEditorValidation {
+  const sql = (selectedSql?.trim() || state.sql.trim())
+  const errors: string[] = []
+  const warnings: string[] = []
+  const container = context.container?.trim() ?? ''
+
+  if (!sql) {
+    errors.push('Enter a Cosmos DB query before running it.')
+  } else if (!isSingleCosmosQueryStatement(sql)) {
+    errors.push('Cosmos Query Editor accepts one read-only SELECT statement.')
+  }
+  if (!container) {
+    errors.push('Select a Cosmos DB container before running the query.')
+  }
+
+  const names = new Set<string>()
+  const parameters: Array<{
+    name: string
+    value: unknown
+    valueType?: CosmosSqlBuilderValueType
+  }> = []
+  for (const parameter of state.parameters) {
+    const name = parameter.name.trim()
+    if (!/^@[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      errors.push(`Parameter "${name || '(empty)'}" must start with @ and contain only letters, numbers, or underscores.`)
+      continue
+    }
+    const normalizedName = name.toLowerCase()
+    if (names.has(normalizedName)) {
+      errors.push(`Parameter ${name} is defined more than once.`)
+      continue
+    }
+    names.add(normalizedName)
+    const parsed = parseCosmosTypedValue(parameter.value, parameter.valueType)
+    if (!parsed.ok) {
+      errors.push(`${name}: ${parsed.error}`)
+      continue
+    }
+    parameters.push({ name, value: parsed.value, valueType: parameter.valueType })
+  }
+
+  const referencedNames = cosmosSqlReferencedParameters(sql)
+  for (const name of referencedNames) {
+    if (!names.has(name.toLowerCase())) {
+      errors.push(`Query parameter ${name} does not have a binding.`)
+    }
+  }
+  for (const parameter of parameters) {
+    if (!referencedNames.some((name) => name.toLowerCase() === parameter.name.toLowerCase())) {
+      warnings.push(`Parameter ${parameter.name} is not referenced by the query.`)
+    }
+  }
+
+  let partitionKey: unknown
+  if (state.partitionKeyEnabled) {
+    const parsed = parseCosmosTypedValue(
+      state.partitionKeyValue ?? '',
+      state.partitionKeyValueType ?? 'string',
+    )
+    if (!parsed.ok) {
+      errors.push(`Partition key: ${parsed.error}`)
+    } else {
+      partitionKey = parsed.value
+    }
+  } else if (state.enableCrossPartitionQueries ?? true) {
+    warnings.push('Cross-partition execution can fan out across physical partitions and consume more RUs.')
+  }
+
+  return {
+    errors,
+    warnings,
+    input: errors.length > 0
+      ? undefined
+      : {
+          kind: 'cosmos-sql',
+          database: context.database?.trim() || undefined,
+          container,
+          sql,
+          parameters,
+          ...(state.partitionKeyEnabled ? { partitionKey } : {}),
+          ...(state.partitionKeyEnabled
+            ? { partitionKeyValueType: state.partitionKeyValueType ?? 'string' }
+            : {}),
+          enableCrossPartitionQueries: state.partitionKeyEnabled
+            ? false
+            : state.enableCrossPartitionQueries ?? true,
+        },
+  }
+}
+
+export function normalizeCosmosSqlQueryEditorState(
+  state: CosmosSqlQueryEditorState,
+): CosmosSqlQueryEditorState {
+  return {
+    kind: 'cosmos-sql',
+    sql: typeof state.sql === 'string' ? state.sql : '',
+    parameters: Array.isArray(state.parameters)
+      ? state.parameters.map((parameter, index) => ({
+          id: parameter.id || `parameter-${index}`,
+          name: typeof parameter.name === 'string' ? parameter.name : '',
+          valueType: isCosmosValueType(parameter.valueType) ? parameter.valueType : 'string',
+          value: typeof parameter.value === 'string' ? parameter.value : '',
+        }))
+      : [],
+    partitionKeyEnabled: Boolean(state.partitionKeyEnabled),
+    partitionKeyValue: typeof state.partitionKeyValue === 'string' ? state.partitionKeyValue : '',
+    partitionKeyValueType: isCosmosValueType(state.partitionKeyValueType)
+      ? state.partitionKeyValueType
+      : 'string',
+    enableCrossPartitionQueries: state.enableCrossPartitionQueries ?? true,
+    source: state.source === 'builder' || state.source === 'custom' ? state.source : 'default',
+  }
+}
+
+function parseCosmosSqlEnvelope(queryText: string): CosmosSqlRequest | undefined {
+  const trimmed = queryText.trim()
+  if (!trimmed.startsWith('{')) return undefined
+  try {
+    const request = JSON.parse(trimmed) as Record<string, unknown>
+    const operation = stringValue(request.operation)?.toLowerCase()
+    const query = stringValue(request.query)
+    const container =
+      stringValue(request.container) ??
+      stringValue(request.containerName) ??
+      stringValue(request.collection)
+    if ((operation && operation !== 'querydocuments' && operation !== 'query') || !query || !container) {
+      return undefined
+    }
+    const rawParameters = Array.isArray(request.parameters) ? request.parameters : []
+    return {
+      operation: 'QueryDocuments',
+      database: stringValue(request.database),
+      container,
+      query,
+      parameters: rawParameters.flatMap((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+        const value = item as Record<string, unknown>
+        const name = stringValue(value.name)
+        return name ? [{ name, value: value.value }] : []
+      }),
+      ...(Object.prototype.hasOwnProperty.call(request, 'partitionKey')
+        ? { partitionKey: request.partitionKey }
+        : {}),
+      enableCrossPartitionQueries:
+        typeof request.enableCrossPartitionQueries === 'boolean'
+          ? request.enableCrossPartitionQueries
+          : true,
+    }
+  } catch {
+    return undefined
+  }
+}
+
+function editorParameterFromValue(
+  name: string,
+  value: unknown,
+  id: string,
+): CosmosSqlQueryEditorParameter {
+  const display = cosmosSqlDisplayValue(value)
+  return {
+    id,
+    name,
+    value: display.value,
+    valueType: display.type,
+  }
+}
+
+function parseCosmosTypedValue(
+  value: string,
+  type: CosmosSqlBuilderValueType,
+): { ok: true; value: unknown } | { ok: false; error: string } {
+  if (type === 'null') return { ok: true, value: null }
+  if (isEnvironmentToken(value)) return { ok: true, value }
+  if (type === 'string') return { ok: true, value }
+  if (type === 'boolean') {
+    if (!/^(true|false)$/i.test(value.trim())) {
+      return { ok: false, error: 'enter true or false.' }
+    }
+    return { ok: true, value: value.trim().toLowerCase() === 'true' }
+  }
+  if (type === 'number') {
+    const number = Number(value)
+    return Number.isFinite(number)
+      ? { ok: true, value: number }
+      : { ok: false, error: 'enter a finite number.' }
+  }
+  try {
+    return { ok: true, value: JSON.parse(value) }
+  } catch {
+    return { ok: false, error: 'enter valid JSON.' }
+  }
+}
+
+function isSingleCosmosQueryStatement(sql: string) {
+  const withoutComments = sql
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--.*$/gm, ' ')
+    .trim()
+  const withoutTrailingSemicolon = withoutComments.replace(/;\s*$/, '').trim()
+  return /^select\b/i.test(withoutTrailingSemicolon) && !withoutTrailingSemicolon.includes(';')
+}
+
+function cosmosSqlReferencedParameters(sql: string) {
+  return Array.from(new Set(sql.match(/@[A-Za-z_][A-Za-z0-9_]*/g) ?? []))
+}
+
+function isEnvironmentToken(value: string) {
+  return /^\s*\{\{[A-Za-z_][A-Za-z0-9_]*\}\}\s*$/.test(value)
+}
+
+function isCosmosValueType(value: unknown): value is CosmosSqlBuilderValueType {
+  return value === 'string' ||
+    value === 'number' ||
+    value === 'boolean' ||
+    value === 'null' ||
+    value === 'json'
 }
 
 function cosmosProjection(state: CosmosSqlBuilderState) {

@@ -96,6 +96,10 @@ pub(super) fn normalize_library_kind(kind: Option<String>) -> Result<String, Com
     Ok(kind.into())
 }
 
+pub(super) fn is_library_item_kind(kind: &str) -> bool {
+    LIBRARY_ITEM_KINDS.contains(&kind)
+}
+
 pub(super) fn normalize_library_tags(tags: Vec<String>) -> Result<Vec<String>, CommandError> {
     if tags.len() > MAX_LIBRARY_TAGS {
         return Err(CommandError::new(

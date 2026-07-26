@@ -78,6 +78,7 @@ pub(super) async fn list_redis_explorer_nodes(
         ),
         capabilities: redis_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

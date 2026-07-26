@@ -174,6 +174,22 @@ pub(super) fn plugin_catalog_for_snapshot(
             ],
         }),
         plugin_catalog_entry(PluginCatalogEntry {
+            id: "datastore-tests",
+            label: "Datastore Tests",
+            stability: "experimental",
+            enabled: Some(preferences.datastore_tests.enabled),
+            enabled_source: "workspace-preferences",
+            summary: "Build and run visual, adapter-backed datastore test suites.",
+            workspace_tab_kind: "test-suite",
+            required_scopes: &[],
+            mcp_tools: &[],
+            capabilities: &[
+                "visual-test-suites",
+                "suite-owned-test-cases",
+                "adapter-backed-execution",
+            ],
+        }),
+        plugin_catalog_entry(PluginCatalogEntry {
             id: "datastore-api-server",
             label: "API Server",
             stability: "experimental",

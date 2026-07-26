@@ -106,6 +106,7 @@ impl DatastoreAdapter for CockroachAdapter {
                     ),
                     capabilities: self.execution_capabilities(),
                     nodes,
+                    page_info: None,
                 });
             }
         }

@@ -1,15 +1,72 @@
 use serde_json::json;
 
 use crate::domain::models::{
-    CosmosDbConnectionOptions, GraphConnectionOptions, ResolvedConnectionProfile,
+    CosmosDbConnectionOptions, ExecutionRequest, GraphConnectionOptions, ResolvedConnectionProfile,
 };
 
 use super::{
-    bounded_cosmosdb_response, cosmosdb_gremlin_request, cosmosdb_operation,
-    cosmosdb_profile_payload, cosmosdb_query_body, cosmosdb_request_container,
+    bounded_cosmosdb_response, cosmos_sql_execution_request, cosmosdb_gremlin_request,
+    cosmosdb_operation, cosmosdb_profile_payload, cosmosdb_query_body, cosmosdb_request_container,
     is_read_only_cosmosdb_gremlin, normalize_cosmosdb_gremlin_response,
     normalize_cosmosdb_response_bounded, parse_request,
 };
+
+#[test]
+fn cosmosdb_execution_input_builds_a_parameterized_query_request() {
+    let mut request = execution_request("SELECT * FROM c WHERE c.score > @score");
+    request.datastore_execution_input = Some(json!({
+        "kind": "cosmos-sql",
+        "database": "catalog",
+        "container": "orders",
+        "sql": "SELECT * FROM c WHERE c.score > @score",
+        "parameters": [{
+            "name": "@score",
+            "value": "42",
+            "valueType": "number"
+        }],
+        "partitionKey": "north",
+        "partitionKeyValueType": "string",
+        "enableCrossPartitionQueries": true
+    }));
+
+    let value = cosmos_sql_execution_request(&request).unwrap().unwrap();
+
+    assert_eq!(value["operation"], "QueryDocuments");
+    assert_eq!(value["query"], "SELECT * FROM c WHERE c.score > @score");
+    assert_eq!(
+        value["parameters"],
+        json!([{ "name": "@score", "value": 42 }])
+    );
+    assert_eq!(value["partitionKey"], "north");
+    assert_eq!(value["enableCrossPartitionQueries"], false);
+    assert!(value["parameters"][0].get("valueType").is_none());
+}
+
+#[test]
+fn cosmosdb_execution_input_rejects_missing_bindings_and_multiple_statements() {
+    let mut request = execution_request("SELECT * FROM c WHERE c.id = @id");
+    request.datastore_execution_input = Some(json!({
+        "kind": "cosmos-sql",
+        "container": "orders",
+        "sql": "SELECT * FROM c WHERE c.id = @id",
+        "parameters": []
+    }));
+    assert_eq!(
+        cosmos_sql_execution_request(&request).unwrap_err().code,
+        "cosmosdb-parameter-missing"
+    );
+
+    request.datastore_execution_input = Some(json!({
+        "kind": "cosmos-sql",
+        "container": "orders",
+        "sql": "SELECT * FROM c; DELETE FROM c",
+        "parameters": []
+    }));
+    assert_eq!(
+        cosmos_sql_execution_request(&request).unwrap_err().code,
+        "cosmosdb-query-invalid"
+    );
+}
 
 #[test]
 fn cosmosdb_plain_sql_becomes_query_documents_request() {
@@ -210,5 +267,26 @@ fn gremlin_connection() -> ResolvedConnectionProfile {
         mongodb_options: None,
         warehouse_options: None,
         read_only: true,
+    }
+}
+
+fn execution_request(query_text: &str) -> ExecutionRequest {
+    ExecutionRequest {
+        execution_id: Some("execution-cosmos".into()),
+        tab_id: "tab-cosmos".into(),
+        connection_id: "conn-cosmos".into(),
+        environment_id: "env-local".into(),
+        language: "sql".into(),
+        query_text: query_text.into(),
+        execution_input_mode: Some("raw".into()),
+        script_text: None,
+        selected_text: None,
+        mode: Some("full".into()),
+        row_limit: Some(100),
+        document_efficiency_mode: None,
+        confirmed_guardrail_id: None,
+        builder_state: None,
+        scoped_target: None,
+        datastore_execution_input: None,
     }
 }

@@ -3,53 +3,86 @@ import type {
   ConnectionProfile,
   CreateTestSuiteTabRequest,
   DatastoreTestAssertion,
-  DatastoreTestCaseDefinition,
-  DatastoreTestRunResult,
-  DatastoreTestStatus,
+  DatastoreTestRunPlanRequest,
+  DatastoreTestRunPlanResponse,
   DatastoreTestStep,
   DatastoreTestSuiteDefinition,
+  DatastoreTestSuiteTemplateDefinition,
   ExecuteTestSuiteRequest,
   ExecuteTestSuiteResponse,
+  OpenTestSuiteCaseRequest,
   OpenTestSuiteTemplateRequest,
   QueryTabState,
+  ScopedQueryTarget,
   UpdateTestSuiteTabRequest,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import { datastoreTestTemplatesForEngine } from '@datapadplusplus/shared-types'
 import {
   createId,
-  editorLabelForConnection,
   languageForConnection,
 } from '../../app/state/helpers'
-import { cloneSnapshot, findConnection, findEnvironment, findTab } from './browser-store'
+import { datastoreTestStarterQuery } from './datastore-test-target-providers'
+import { cloneSnapshot, findConnection, findTab } from './browser-store'
 import { effectiveConnectionEnvironmentId } from './library-connection-helpers'
+import { openLibraryItem } from './browser-library'
 
 export function createTestSuiteTabInSnapshot(
   snapshot: WorkspaceSnapshot,
   request: CreateTestSuiteTabRequest,
 ): WorkspaceSnapshot {
+  ensureDatastoreTestsEnabled(snapshot)
   const next = cloneSnapshot(snapshot)
-  const connection = request.connectionId
-    ? findConnection(next, request.connectionId)
-    : findConnection(next, next.ui.activeConnectionId)
+  const connection = findConnection(next, request.connectionId)
 
   if (!connection) {
     return next
   }
+  if (
+    !request.environmentId ||
+    !connection.environmentIds.includes(request.environmentId) ||
+    !next.environments.some(
+      (environment) => environment.id === request.environmentId,
+    )
+  ) {
+    throw new Error(
+      'datastore-test-environment-invalid: Choose an environment assigned to the selected datastore connection.',
+    )
+  }
+  if (!request.scopedTarget?.kind?.trim() || !request.scopedTarget.label?.trim()) {
+    throw new Error('datastore-test-target-required')
+  }
 
+  const environmentId = effectiveConnectionEnvironmentId(
+    next,
+    connection,
+    request.environmentId,
+  )
+  if (request.suite) {
+    assertSuiteCreationBinding(
+      request.suite,
+      connection,
+      environmentId,
+      request.scopedTarget,
+    )
+  }
   const suite = normalizeSuite(
     request.suite ?? (
       request.templateId
-        ? templateSuiteForConnection(connection, request.templateId)
-        : emptySuite(connection)
+        ? templateSuiteForConnection(connection, request.scopedTarget, request.templateId)
+        : emptySuite(connection, request.scopedTarget)
     ),
     connection,
+    environmentId,
+    request.scopedTarget,
   )
   const existingTab = next.tabs.find(
     (tab) =>
       tab.tabKind === 'test-suite' &&
       tab.testSuite?.id === suite.id &&
-      tab.connectionId === connection.id,
+      tab.connectionId === connection.id &&
+      tab.environmentId === environmentId &&
+      JSON.stringify(tab.scopedTarget) === JSON.stringify(request.scopedTarget),
   )
 
   if (existingTab) {
@@ -59,10 +92,14 @@ export function createTestSuiteTabInSnapshot(
     return next
   }
 
-  const environmentId =
-    request.environmentId ??
-    suite.environmentId ??
-    effectiveConnectionEnvironmentId(next, connection)
+  const boundSuite = {
+    ...suite,
+    connectionId: connection.id,
+    environmentId,
+    engine: connection.engine,
+    family: connection.family,
+    scopedTarget: structuredClone(request.scopedTarget),
+  }
   const tab: QueryTabState = {
     id: createId('test-tab'),
     title: uniqueTestTabTitle(next, suite.name),
@@ -71,9 +108,10 @@ export function createTestSuiteTabInSnapshot(
     environmentId,
     family: connection.family,
     language: 'json',
-    editorLabel: `${connection.name} tests`,
-    queryText: JSON.stringify({ ...suite, connectionId: connection.id, environmentId }, null, 2),
-    testSuite: { ...suite, connectionId: connection.id, environmentId },
+    editorLabel: `${connection.name} · ${request.scopedTarget.label} tests`,
+    queryText: JSON.stringify(boundSuite, null, 2),
+    scopedTarget: structuredClone(request.scopedTarget),
+    testSuite: boundSuite,
     status: 'idle',
     dirty: true,
     history: [],
@@ -97,10 +135,32 @@ export function openTestSuiteTemplateInSnapshot(
   return createTestSuiteTabInSnapshot(snapshot, request)
 }
 
+export function openTestSuiteCaseInSnapshot(
+  snapshot: WorkspaceSnapshot,
+  request: OpenTestSuiteCaseRequest,
+): WorkspaceSnapshot {
+  ensureDatastoreTestsEnabled(snapshot)
+  const item = snapshot.libraryNodes.find(
+    (node) => node.id === request.libraryItemId && node.kind === 'test-suite',
+  )
+  if (!item?.testSuite?.cases.some((testCase) => testCase.id === request.caseId)) {
+    throw new Error('The selected test case does not belong to this suite.')
+  }
+  const next = openLibraryItem(snapshot, request.libraryItemId)
+  const tab = findTab(next, next.ui.activeTabId)
+  if (!tab || tab.tabKind !== 'test-suite') {
+    throw new Error('Test suite tab was not found.')
+  }
+  tab.activeTestCaseId = request.caseId
+  next.updatedAt = new Date().toISOString()
+  return next
+}
+
 export function updateTestSuiteTabInSnapshot(
   snapshot: WorkspaceSnapshot,
   request: UpdateTestSuiteTabRequest,
 ): WorkspaceSnapshot {
+  ensureDatastoreTestsEnabled(snapshot)
   const next = cloneSnapshot(snapshot)
   const tab = findTab(next, request.tabId)
 
@@ -108,17 +168,43 @@ export function updateTestSuiteTabInSnapshot(
     return next
   }
 
+  let contentChanged = false
   if (request.suite) {
-    const suite = normalizeSuite(request.suite, findConnection(next, tab.connectionId))
+    const connection = findConnection(next, tab.connectionId)
+    assertRequestedSuiteBinding(tab, request.suite)
+    const suite = normalizeSuite(
+      request.suite,
+      connection,
+      tab.environmentId,
+      tab.scopedTarget,
+    )
+    assertImmutableSuiteBinding(tab, suite)
     tab.testSuite = suite
     tab.queryText = JSON.stringify(suite, null, 2)
     tab.error = undefined
+    contentChanged = true
   } else if (request.rawText !== undefined) {
     tab.queryText = request.rawText
+    contentChanged = true
     try {
-      tab.testSuite = normalizeSuite(JSON.parse(request.rawText), findConnection(next, tab.connectionId))
+      const parsedSuite = JSON.parse(request.rawText)
+      assertRequestedSuiteBinding(tab, parsedSuite)
+      const suite = normalizeSuite(
+        parsedSuite,
+        findConnection(next, tab.connectionId),
+        tab.environmentId,
+        tab.scopedTarget,
+      )
+      assertImmutableSuiteBinding(tab, suite)
+      tab.testSuite = suite
       tab.error = undefined
-    } catch {
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith('datastore-test-binding-immutable')
+      ) {
+        throw error
+      }
       tab.error = {
         code: 'test-suite-json-invalid',
         message: 'The raw test suite JSON is invalid. The visual suite was not overwritten.',
@@ -126,8 +212,17 @@ export function updateTestSuiteTabInSnapshot(
     }
   }
 
-  tab.dirty = true
-  tab.status = 'idle'
+  if (request.activeTestCaseId !== undefined) {
+    if (!tab.testSuite?.cases.some((testCase) => testCase.id === request.activeTestCaseId)) {
+      throw new Error('The selected test case does not belong to this suite.')
+    }
+    tab.activeTestCaseId = request.activeTestCaseId
+  }
+
+  if (contentChanged) {
+    tab.dirty = true
+    tab.status = 'idle'
+  }
   next.updatedAt = new Date().toISOString()
   return next
 }
@@ -136,45 +231,40 @@ export function executeTestSuiteLocally(
   snapshot: WorkspaceSnapshot,
   request: ExecuteTestSuiteRequest,
 ): { snapshot: WorkspaceSnapshot; response: ExecuteTestSuiteResponse } {
-  const next = cloneSnapshot(snapshot)
-  const tab = findTab(next, request.tabId)
+  void request
+  ensureDatastoreTestsEnabled(snapshot)
+  throw new Error(
+    'Datastore test execution requires the desktop app; browser preview supports editing only.',
+  )
+}
 
-  if (!tab || tab.tabKind !== 'test-suite') {
+export function planTestSuiteRunLocally(
+  snapshot: WorkspaceSnapshot,
+  request: DatastoreTestRunPlanRequest,
+): DatastoreTestRunPlanResponse {
+  ensureDatastoreTestsEnabled(snapshot)
+  const tab = findTab(snapshot, request.tabId)
+  if (!tab) {
     throw new Error('Test suite tab was not found.')
   }
-
-  const connection = findConnection(next, tab.connectionId)
-  const suite = normalizeSuite(tab.testSuite ?? JSON.parse(tab.queryText), connection)
-  const run = buildRunResult(suite, request.caseId, connection, next)
-
-  tab.testSuite = suite
-  tab.testRun = run
-  tab.status = run.status === 'passed' ? 'success' : run.status === 'blocked' ? 'blocked' : 'error'
-  tab.lastRunAt = run.finishedAt
-  tab.error =
-    run.status === 'passed'
-      ? undefined
-      : { code: `test-suite-${run.status}`, message: `${run.failed} assertion(s) failed.` }
-  tab.history.unshift({
-    id: createId('history'),
-    queryText: `Run test suite: ${suite.name}`,
-    executedAt: run.startedAt,
-    status: tab.status,
-  })
-  next.ui.activeTabId = tab.id
-  next.ui.activeConnectionId = tab.connectionId
-  next.ui.activeEnvironmentId = tab.environmentId
-  next.ui.bottomPanelVisible = true
-  next.ui.activeBottomPanelTab = 'results'
-  next.updatedAt = new Date().toISOString()
-
+  const connection = findConnection(snapshot, tab.connectionId)
+  if (!connection || !tab.scopedTarget) {
+    throw new Error('datastore-test-target-required')
+  }
   return {
-    snapshot: next,
-    response: {
-      tab,
-      run,
-      diagnostics: run.warnings,
-    },
+    planId: createId('test-plan'),
+    suiteRevision: 'browser-preview',
+    connectionId: connection.id,
+    environmentId: tab.environmentId,
+    scopedTarget: structuredClone(tab.scopedTarget),
+    inferredLanguage: languageForConnection(connection),
+    status: 'blocked',
+    expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+    steps: [],
+    blockers: [
+      'Datastore test execution requires the desktop app; browser preview supports editing only.',
+    ],
+    warnings: [],
   }
 }
 
@@ -201,17 +291,30 @@ export function cancelTestRunLocally(
 
 function templateSuiteForConnection(
   connection: ConnectionProfile,
+  scopedTarget: ScopedQueryTarget,
   templateId?: string,
-): DatastoreTestSuiteDefinition {
+): DatastoreTestSuiteDefinition | DatastoreTestSuiteTemplateDefinition {
   const templates = datastoreTestTemplatesForEngine(connection.engine, connection.family)
-  const template =
-    templates.find((item) => item.id === templateId) ??
-    templates[0]
+  const template = templateId
+    ? templates.find((item) => item.id === templateId)
+    : undefined
+  const targetAwareSuite = emptySuite(connection, scopedTarget)
+  if (!template) {
+    return targetAwareSuite
+  }
 
-  return template?.suite ?? emptySuite(connection)
+  return {
+    ...targetAwareSuite,
+    id: template.suite.id,
+    name: template.suite.name,
+    description: `${template.suite.description ?? template.description} The generated request is bound to the selected datastore target.`,
+  }
 }
 
-function emptySuite(connection: ConnectionProfile): DatastoreTestSuiteDefinition {
+function emptySuite(
+  connection: ConnectionProfile,
+  scopedTarget: ScopedQueryTarget,
+): DatastoreTestSuiteTemplateDefinition {
   return {
     id: `${connection.engine}-custom-suite`,
     name: `${connection.name} test suite`,
@@ -219,6 +322,8 @@ function emptySuite(connection: ConnectionProfile): DatastoreTestSuiteDefinition
     engine: connection.engine,
     family: connection.family,
     connectionId: connection.id,
+    scopedTarget: structuredClone(scopedTarget),
+    inferredLanguage: languageForConnection(connection),
     variables: {},
     cases: [
       {
@@ -234,7 +339,7 @@ function emptySuite(connection: ConnectionProfile): DatastoreTestSuiteDefinition
             kind: 'query',
             enabled: true,
             language: languageForConnection(connection),
-            queryText: defaultTestQuery(connection),
+            queryText: datastoreTestStarterQuery(connection, scopedTarget),
           },
         ],
         assertions: [
@@ -253,32 +358,44 @@ function emptySuite(connection: ConnectionProfile): DatastoreTestSuiteDefinition
 }
 
 function normalizeSuite(
-  suite: DatastoreTestSuiteDefinition,
+  suite: DatastoreTestSuiteDefinition | DatastoreTestSuiteTemplateDefinition,
   connection?: ConnectionProfile,
+  environmentId?: string,
+  scopedTarget?: ScopedQueryTarget,
 ): DatastoreTestSuiteDefinition {
+  if (!connection || !environmentId || !scopedTarget) {
+    throw new Error('datastore-test-target-required')
+  }
+  const inferredLanguage = languageForConnection(connection)
   return {
     id: suite.id || createId('test-suite'),
     name: suite.name?.trim() || `${connection?.name ?? 'Datastore'} test suite`,
     description: suite.description,
-    engine: suite.engine ?? connection?.engine,
-    family: suite.family ?? connection?.family,
-    connectionId: suite.connectionId ?? connection?.id,
-    environmentId: suite.environmentId,
+    engine: suite.engine ?? connection.engine,
+    family: suite.family ?? connection.family,
+    connectionId: suite.connectionId ?? connection.id,
+    environmentId: suite.environmentId ?? environmentId,
+    scopedTarget: structuredClone(suite.scopedTarget ?? scopedTarget),
+    inferredLanguage,
     variables: suite.variables ?? {},
     cases: (suite.cases ?? []).map((testCase) => ({
       ...testCase,
       id: testCase.id || createId('test-case'),
       name: testCase.name?.trim() || 'test case',
       enabled: testCase.enabled !== false,
-      setup: normalizeSteps(testCase.setup, 'setup'),
-      execute: normalizeSteps(testCase.execute, 'execute'),
+      setup: normalizeSteps(testCase.setup, 'setup', inferredLanguage),
+      execute: normalizeSteps(testCase.execute, 'execute', inferredLanguage),
       assertions: normalizeAssertions(testCase.assertions),
-      teardown: normalizeSteps(testCase.teardown, 'teardown'),
+      teardown: normalizeSteps(testCase.teardown, 'teardown', inferredLanguage),
     })),
   }
 }
 
-function normalizeSteps(steps: DatastoreTestStep[], phase: DatastoreTestStep['phase']) {
+function normalizeSteps(
+  steps: DatastoreTestStep[],
+  phase: DatastoreTestStep['phase'],
+  inferredLanguage: QueryTabState['language'],
+) {
   return (steps ?? []).map((step) => ({
     ...step,
     id: step.id || createId('test-step'),
@@ -286,6 +403,7 @@ function normalizeSteps(steps: DatastoreTestStep[], phase: DatastoreTestStep['ph
     phase,
     kind: step.kind ?? 'query',
     enabled: step.enabled !== false,
+    language: inferredLanguage,
   }))
 }
 
@@ -296,105 +414,6 @@ function normalizeAssertions(assertions: DatastoreTestAssertion[]) {
     label: assertion.label?.trim() || assertion.kind,
     enabled: assertion.enabled !== false,
   }))
-}
-
-function buildRunResult(
-  suite: DatastoreTestSuiteDefinition,
-  caseId: string | undefined,
-  connection: ConnectionProfile | undefined,
-  snapshot: WorkspaceSnapshot,
-): DatastoreTestRunResult {
-  const startedAt = new Date().toISOString()
-  const cases = suite.cases
-    .filter((testCase) => testCase.enabled !== false)
-    .filter((testCase) => !caseId || testCase.id === caseId)
-    .map((testCase) => runCase(testCase))
-  const failed = cases.reduce(
-    (count, testCase) =>
-      count + testCase.assertions.filter((assertion) => assertion.status !== 'passed').length,
-    0,
-  )
-  const status: DatastoreTestStatus = failed > 0 ? 'failed' : 'passed'
-  const durationMs = cases.reduce((total, testCase) => total + testCase.durationMs, 0)
-
-  return {
-    id: createId('test-run'),
-    suiteId: suite.id,
-    status,
-    startedAt,
-    finishedAt: new Date().toISOString(),
-    durationMs,
-    passed: cases.reduce(
-      (count, testCase) =>
-        count + testCase.assertions.filter((assertion) => assertion.status === 'passed').length,
-      0,
-    ),
-    failed,
-    blocked: 0,
-    warnings: guardrailWarnings(connection, snapshot),
-    cases,
-  }
-}
-
-function runCase(testCase: DatastoreTestCaseDefinition) {
-  const steps = [
-    ...testCase.setup,
-    ...testCase.execute,
-    ...testCase.teardown,
-  ]
-    .filter((step) => step.enabled !== false)
-    .map((step) => ({
-      id: step.id,
-      label: step.label,
-      phase: step.phase,
-      status: 'passed' as const,
-      durationMs: 5,
-      messages: [`${step.label} completed in preview mode.`],
-      warnings: [],
-      payloadSummary: step.queryText ? firstLine(step.queryText) : step.kind,
-    }))
-  const assertions = testCase.assertions
-    .filter((assertion) => assertion.enabled !== false)
-    .map((assertion) => ({
-      id: assertion.id,
-      label: assertion.label,
-      kind: assertion.kind,
-      status: assertion.expected === false ? 'failed' as const : 'passed' as const,
-      expected: assertion.expected,
-      actual: assertion.expected ?? true,
-      message:
-        assertion.expected === false
-          ? `${assertion.label} failed in preview mode.`
-          : `${assertion.label} passed.`,
-    }))
-  const failed = assertions.some((assertion) => assertion.status !== 'passed')
-
-  return {
-    id: testCase.id,
-    name: testCase.name,
-    status: failed ? 'failed' as const : 'passed' as const,
-    durationMs: steps.reduce((total, step) => total + step.durationMs, 0),
-    steps,
-    assertions,
-  }
-}
-
-function guardrailWarnings(
-  connection: ConnectionProfile | undefined,
-  snapshot: WorkspaceSnapshot,
-) {
-  const environment = findEnvironment(snapshot, snapshot.ui.activeEnvironmentId)
-  const warnings: string[] = []
-
-  if (connection?.readOnly) {
-    warnings.push('Read-only connection: setup and teardown writes require guardrail approval in the desktop runtime.')
-  }
-
-  if (environment?.safeMode || snapshot.preferences.safeModeEnabled) {
-    warnings.push('Safe mode is enabled; destructive setup and teardown steps remain confirmation-gated.')
-  }
-
-  return warnings
 }
 
 function uniqueTestTabTitle(snapshot: WorkspaceSnapshot, name: string) {
@@ -412,18 +431,74 @@ function uniqueTestTabTitle(snapshot: WorkspaceSnapshot, name: string) {
   return title
 }
 
-function defaultTestQuery(connection: ConnectionProfile) {
-  switch (editorLabelForConnection(connection)) {
-    case 'Redis console':
-    case 'Valkey console':
-      return 'PING'
-    case 'Document query':
-      return JSON.stringify({ collection: '', filter: {}, limit: 1 }, null, 2)
-    default:
-      return 'select 1;'
+function assertImmutableSuiteBinding(
+  tab: QueryTabState,
+  suite: DatastoreTestSuiteDefinition,
+) {
+  const current = tab.testSuite
+  if (
+    !current ||
+    suite.connectionId !== current.connectionId ||
+    suite.environmentId !== current.environmentId ||
+    suite.engine !== current.engine ||
+    suite.family !== current.family ||
+    JSON.stringify(suite.scopedTarget) !== JSON.stringify(current.scopedTarget)
+  ) {
+    throw new Error(
+      'datastore-test-binding-immutable: Test suite connection, environment, and target cannot be changed.',
+    )
   }
 }
 
-function firstLine(value: string) {
-  return value.trim().split(/\r?\n/)[0] ?? ''
+function assertRequestedSuiteBinding(
+  tab: QueryTabState,
+  suite: DatastoreTestSuiteDefinition,
+) {
+  const current = tab.testSuite
+  if (
+    !current ||
+    suite.connectionId !== current.connectionId ||
+    suite.environmentId !== current.environmentId ||
+    suite.engine !== current.engine ||
+    suite.family !== current.family ||
+    JSON.stringify(suite.scopedTarget) !== JSON.stringify(current.scopedTarget)
+  ) {
+    throw new Error(
+      'datastore-test-binding-immutable: Test suite connection, environment, and target cannot be changed.',
+    )
+  }
+}
+
+function assertSuiteCreationBinding(
+  suite: DatastoreTestSuiteDefinition,
+  connection: ConnectionProfile,
+  environmentId: string,
+  scopedTarget: ScopedQueryTarget,
+) {
+  if (
+    !suite.connectionId ||
+    !suite.environmentId ||
+    !suite.scopedTarget
+  ) {
+    throw new Error('datastore-test-target-required')
+  }
+  if (
+    suite.connectionId !== connection.id ||
+    suite.environmentId !== environmentId ||
+    suite.engine !== connection.engine ||
+    suite.family !== connection.family ||
+    JSON.stringify(suite.scopedTarget) !== JSON.stringify(scopedTarget)
+  ) {
+    throw new Error(
+      'datastore-test-binding-immutable: Test suite connection, environment, and target cannot be changed.',
+    )
+  }
+}
+
+function ensureDatastoreTestsEnabled(snapshot: WorkspaceSnapshot) {
+  if (!snapshot.preferences.datastoreTests?.enabled) {
+    throw new Error(
+      'Enable the experimental Datastore Tests plugin in Settings before working with test suites.',
+    )
+  }
 }

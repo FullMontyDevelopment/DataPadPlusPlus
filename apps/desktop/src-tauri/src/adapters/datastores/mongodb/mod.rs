@@ -7,6 +7,10 @@ mod diagnostics;
 mod document_lazy;
 mod editing;
 mod explorer;
+mod explorer_discovery;
+mod explorer_inspection;
+mod explorer_nodes;
+mod explorer_paging;
 mod import_export;
 mod management;
 mod metadata;
@@ -100,6 +104,10 @@ impl DatastoreAdapter for MongoDbAdapter {
         request: &ExplorerRequest,
     ) -> Result<ExplorerResponse, CommandError> {
         list_mongodb_explorer_nodes(connection, request).await
+    }
+
+    fn handles_explorer_paging(&self) -> bool {
+        true
     }
 
     async fn inspect_explorer_node(

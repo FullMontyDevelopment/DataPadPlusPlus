@@ -1,17 +1,20 @@
 import type {
   CancelTestRunRequest,
+  CloseQueryTabsRequest,
   ConnectionProfile,
   ConnectionTestRequest,
   CreateScopedQueryTabRequest,
   CreateTestSuiteTabRequest,
   EnvironmentProfile,
   ExecuteTestSuiteRequest,
+  DatastoreTestRunPlanRequest,
   OpenTestSuiteTemplateRequest,
   QueryTabReorderRequest,
   QueryViewMode,
   SecretRef,
   ScopedQueryTarget,
   UpdateQueryBuilderStateRequest,
+  UpdateDatastoreQueryEditorStateRequest,
   UpdateQueryTabTargetRequest,
   UpdateQueryTabRequest,
   UpdateTestSuiteTabRequest,
@@ -205,6 +208,15 @@ export function validateQueryTabReorderRequest(
   return request
 }
 
+export function validateCloseQueryTabsRequest(
+  request: CloseQueryTabsRequest,
+): CloseQueryTabsRequest {
+  for (const tabId of request.tabIds) {
+    validateRequiredId(tabId, 'Tab id')
+  }
+  return request
+}
+
 export function validateUpdateQueryTabRequest(
   request: UpdateQueryTabRequest,
 ): UpdateQueryTabRequest {
@@ -222,6 +234,16 @@ export function validateUpdateQueryBuilderStateRequest(
   if (request.queryText !== undefined) {
     validateQueryText(request.queryText, 'Query text')
   }
+  validateQueryViewMode(request.queryViewMode)
+  return request
+}
+
+export function validateUpdateDatastoreQueryEditorStateRequest(
+  request: UpdateDatastoreQueryEditorStateRequest,
+): UpdateDatastoreQueryEditorStateRequest {
+  validateRequiredId(request.tabId, 'Tab id')
+  validateQueryText(request.queryText, 'Query text')
+  assertJsonSize(request.editorState, 'Datastore query editor state')
   validateQueryViewMode(request.queryViewMode)
   return request
 }
@@ -254,20 +276,30 @@ export function validateUpdateQueryTabTargetRequest(
 export function validateCreateTestSuiteTabRequest(
   request: CreateTestSuiteTabRequest,
 ): CreateTestSuiteTabRequest {
-  validateOptionalId(request.connectionId, 'Connection id')
-  validateOptionalId(request.environmentId, 'Environment id')
+  validateRequiredId(request.connectionId, 'Connection id')
+  validateRequiredId(request.environmentId, 'Environment id')
+  if (!request.scopedTarget) {
+    throw new Error('Datastore test target is required.')
+  }
+  const scopedTarget = validateScopedQueryTarget(request.scopedTarget)
   validateOptionalText(request.templateId, 'Test template id', MAX_ID_LENGTH)
   assertJsonSize(request.suite, 'Test suite definition')
-  return request
+  return { ...request, scopedTarget }
 }
 
 export function validateOpenTestSuiteTemplateRequest(
   request: OpenTestSuiteTemplateRequest,
 ): OpenTestSuiteTemplateRequest {
-  validateOptionalId(request.connectionId, 'Connection id')
-  validateOptionalId(request.environmentId, 'Environment id')
+  validateRequiredId(request.connectionId, 'Connection id')
+  validateRequiredId(request.environmentId, 'Environment id')
   validateRequiredId(request.templateId, 'Test template id')
-  return request
+  if (!request.scopedTarget) {
+    throw new Error('Datastore test target is required.')
+  }
+  return {
+    ...request,
+    scopedTarget: validateScopedQueryTarget(request.scopedTarget),
+  }
 }
 
 export function validateUpdateTestSuiteTabRequest(
@@ -278,6 +310,7 @@ export function validateUpdateTestSuiteTabRequest(
   if (request.rawText !== undefined) {
     validateQueryText(request.rawText, 'Test suite JSON')
   }
+  validateOptionalId(request.activeTestCaseId, 'Active test case id')
   return request
 }
 
@@ -287,6 +320,17 @@ export function validateExecuteTestSuiteRequest(
   validateRequiredId(request.tabId, 'Tab id')
   validateOptionalId(request.caseId, 'Test case id')
   validateOptionalId(request.confirmedGuardrailId, 'Guardrail confirmation id')
+  validateOptionalId(request.runId, 'Test run id')
+  validateOptionalId(request.planId, 'Test run plan id')
+  validateOptionalText(request.confirmationText, 'Confirmation text', MAX_OBJECT_NAME_LENGTH)
+  return request
+}
+
+export function validateDatastoreTestRunPlanRequest(
+  request: DatastoreTestRunPlanRequest,
+): DatastoreTestRunPlanRequest {
+  validateRequiredId(request.tabId, 'Tab id')
+  validateOptionalId(request.caseId, 'Test case id')
   return request
 }
 

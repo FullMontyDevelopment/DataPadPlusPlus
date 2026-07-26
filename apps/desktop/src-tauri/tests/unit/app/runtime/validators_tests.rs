@@ -2,11 +2,26 @@ use serde_json::json;
 
 use super::*;
 use crate::domain::models::{
-    ConnectionProfile, CreateObjectViewTabRequest, DataEditChange, DataEditTarget,
-    DocumentNodeChildrenRequest, EnvironmentProfile, EnvironmentVariableDefinition,
-    ExplorerRequest, OperationPlanRequest, RedisKeyScanRequest, ResultPageRequest,
-    ScopedQueryTarget, UpdateQueryBuilderStateRequest, UpdateQueryTabTargetRequest,
+    CloseQueryTabsRequest, ConnectionProfile, CreateObjectViewTabRequest, DataEditChange,
+    DataEditTarget, DatastoreTestRunPlanRequest, DocumentNodeChildrenRequest, EnvironmentProfile,
+    EnvironmentVariableDefinition, ExecuteTestSuiteRequest, ExplorerRequest, OperationPlanRequest,
+    RedisKeyScanRequest, ResultPageRequest, ScopedQueryTarget, UpdateQueryBuilderStateRequest,
+    UpdateQueryTabTargetRequest,
 };
+
+#[test]
+fn bulk_close_validation_accepts_duplicates_and_rejects_blank_ids() {
+    validate_close_query_tabs_request(&CloseQueryTabsRequest {
+        tab_ids: vec!["tab-a".into(), "tab-a".into(), "tab-b".into()],
+    })
+    .expect("duplicates are handled idempotently by the runtime");
+
+    let error = validate_close_query_tabs_request(&CloseQueryTabsRequest {
+        tab_ids: vec!["tab-a".into(), " ".into()],
+    })
+    .unwrap_err();
+    assert!(error.message.contains("Tab id is required"));
+}
 
 #[test]
 fn validators_clamp_metadata_and_redis_limits() {
@@ -15,6 +30,7 @@ fn validators_clamp_metadata_and_redis_limits() {
         environment_id: "env-1".into(),
         limit: Some(99_999),
         scope: None,
+        cursor: None,
     };
     let mut redis = RedisKeyScanRequest {
         connection_id: "conn-1".into(),
@@ -47,6 +63,39 @@ fn validators_reject_bad_ids_and_operation_ids() {
 
     assert_eq!(error.code, "invalid-request");
     assert!(error.message.contains("Operation id"));
+}
+
+#[test]
+fn datastore_test_run_requests_validate_revision_bound_ids_and_confirmation_text() {
+    validate_datastore_test_run_plan_request(&DatastoreTestRunPlanRequest {
+        tab_id: "test-tab-1".into(),
+        case_id: Some("case-1".into()),
+    })
+    .expect("valid test plan request");
+    validate_execute_test_suite_request(&ExecuteTestSuiteRequest {
+        tab_id: "test-tab-1".into(),
+        case_id: Some("case-1".into()),
+        run_id: Some("test-run-1".into()),
+        plan_id: Some("test-plan-1".into()),
+        confirmation_text: Some("CONFIRM TEST RUN suite-1".into()),
+        confirmed_guardrail_id: None,
+    })
+    .expect("valid planned test execution");
+
+    let invalid_plan = validate_datastore_test_run_plan_request(&DatastoreTestRunPlanRequest {
+        tab_id: "../test-tab".into(),
+        case_id: None,
+    })
+    .unwrap_err();
+    assert!(invalid_plan.message.contains("Tab id"));
+
+    let invalid_confirmation = validate_execute_test_suite_request(&ExecuteTestSuiteRequest {
+        tab_id: "test-tab-1".into(),
+        confirmation_text: Some("x".repeat(513)),
+        ..Default::default()
+    })
+    .unwrap_err();
+    assert!(invalid_confirmation.message.contains("Confirmation text"));
 }
 
 #[test]

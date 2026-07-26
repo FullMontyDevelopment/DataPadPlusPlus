@@ -213,21 +213,79 @@ const CONNECTIONS = [
   ...PROFILE_CONNECTIONS.filter((connection) => fixtureProfileEnabled(connection.profile)),
 ]
 
+async function applicationWindows() {
+  const currentHandle = await browser.getWindowHandle()
+  const handles = await browser.getWindowHandles()
+  const windows = []
+
+  for (const handle of handles) {
+    await browser.switchToWindow(handle)
+    windows.push({
+      handle,
+      url: await browser.getUrl(),
+      title: await browser.getTitle(),
+    })
+  }
+
+  await browser.switchToWindow(currentHandle)
+  return windows
+}
+
+async function selectApplicationWindow() {
+  const windows = await applicationWindows()
+  const applicationWindow = windows.find(
+    (window) => window.url !== 'about:blank' || window.title.length > 0,
+  )
+
+  if (applicationWindow) {
+    await browser.switchToWindow(applicationWindow.handle)
+  }
+
+  return windows
+}
+
 async function appText() {
+  await selectApplicationWindow()
   return browser.execute(() => document.body.innerText)
 }
 
+async function appBootstrapDiagnostics() {
+  const windows = await selectApplicationWindow()
+  const documentState = await browser.execute(() => ({
+    url: window.location.href,
+    readyState: document.readyState,
+    title: document.title,
+    rootHtml: document.querySelector('#root')?.innerHTML.slice(0, 2_000) ?? '<missing>',
+    bodyHtml: document.body?.innerHTML.slice(0, 2_000) ?? '<missing>',
+    scripts: [...document.scripts].map((script) => script.src || '<inline>'),
+  }))
+
+  return {
+    windows,
+    document: documentState,
+  }
+}
+
 async function waitForText(text, timeout = 30000) {
-  await browser.waitUntil(
-    async () => {
-      const body = await appText()
-      return body.includes(text)
-    },
-    {
-      timeout,
-      timeoutMsg: `Expected desktop shell to contain "${text}"`,
-    },
-  )
+  try {
+    await browser.waitUntil(
+      async () => {
+        const body = await appText()
+        return body.includes(text)
+      },
+      {
+        timeout,
+        timeoutMsg: `Expected desktop shell to contain "${text}"`,
+      },
+    )
+  } catch (error) {
+    const visibleText = (await appText()).replace(/\s+/g, ' ').trim().slice(0, 1_000)
+    const diagnostics = await appBootstrapDiagnostics()
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(
+      `${message}. Visible desktop text: ${visibleText || '<empty>'}. Bootstrap: ${JSON.stringify(diagnostics)}`,
+    )
+  }
 }
 
 async function expectNoText(text) {
@@ -421,6 +479,12 @@ async function exportWorkspace() {
   return browser.execute(() => document.querySelector('.drawer-code code')?.textContent ?? '')
 }
 
+async function editorTabCount() {
+  return browser.execute(
+    () => document.querySelectorAll('[role="tablist"][aria-label="Editor tabs"] [role="tab"]').length,
+  )
+}
+
 describe('DataPad++ Tauri desktop fixtures', () => {
   it('starts with a fixture-seeded workspace instead of demo seed data', async () => {
     for (const connection of CORE_CONNECTIONS) {
@@ -452,5 +516,107 @@ describe('DataPad++ Tauri desktop fixtures', () => {
     assert.equal(encryptedPayload.includes('DataPadPlusPlus_pwd_123'), false)
     assert.equal(encryptedPayload.includes('fixture-token'), false)
     assert.equal(encryptedPayload.includes('"secret"'), false)
+  })
+
+  it('opens the visual Datastore Tests plugin editor for a fixture connection', async () => {
+    await clickControl('Library view')
+    await clickControl('Open actions for Fixture SQLite')
+    await clickControl('New Test Suite for Fixture SQLite')
+
+    await waitForText('Run Suite')
+    await waitForText('Add Case')
+    await waitForText('Setup')
+    await waitForText('Execute')
+    await waitForText('Teardown')
+    await waitForText('Assertions')
+    await expectNoText('Raw JSON')
+
+    const iconLabels = await browser.execute(() =>
+      [...document.querySelectorAll('[aria-label$=" icon"]')]
+        .map((element) => element.getAttribute('aria-label'))
+        .filter(Boolean),
+    )
+    assert.ok(iconLabels.includes('Test Suite icon'))
+    assert.ok(iconLabels.includes('Test Case icon'))
+  })
+
+  it('closes eligible tabs in one transition while a running tab remains usable', async () => {
+    const initialTabCount = await editorTabCount()
+    assert.ok(initialTabCount > 3, 'Expected several fixture tabs for bulk-close validation.')
+
+    await browser.execute(() => {
+      window.__datapadBulkCloseTabCounts = []
+      const tablist = document.querySelector('[role="tablist"][aria-label="Editor tabs"]')
+      const observer = new MutationObserver(() => {
+        window.__datapadBulkCloseTabCounts.push(
+          tablist?.querySelectorAll('[role="tab"]').length ?? 0,
+        )
+      })
+      if (tablist) {
+        observer.observe(tablist, { childList: true, subtree: true })
+      }
+      window.__datapadBulkCloseObserver = observer
+    })
+
+    await clickControl('Run query')
+    const openedMenu = await browser.execute(() => {
+      const selectedTab = document.querySelector(
+        '[role="tablist"][aria-label="Editor tabs"] [role="tab"][aria-selected="true"]',
+      )
+      if (!selectedTab) {
+        return false
+      }
+      selectedTab.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true,
+        clientX: 200,
+        clientY: 100,
+      }))
+      return true
+    })
+    assert.equal(openedMenu, true, 'Unable to open the active tab context menu.')
+    await clickControl('Close All')
+
+    await browser.waitUntil(async () => (await editorTabCount()) === 1, {
+      timeout: 30000,
+      timeoutMsg: 'Expected all eligible tabs to close while the running tab remained.',
+    })
+    await waitForText('still open because its query is running or queued')
+    const observedCounts = await browser.execute(() => {
+      window.__datapadBulkCloseObserver?.disconnect()
+      return window.__datapadBulkCloseTabCounts ?? []
+    })
+    assert.equal(
+      observedCounts.some((count) => count > 1 && count < initialTabCount),
+      false,
+      `Expected one atomic tab transition, observed counts: ${observedCounts.join(', ')}`,
+    )
+
+    await browser.waitUntil(
+      async () => browser.execute(() => {
+        const runButton = [...document.querySelectorAll('button')].find(
+          (button) => button.getAttribute('aria-label') === 'Run query',
+        )
+        return Boolean(runButton && !runButton.disabled)
+      }),
+      {
+        timeout: 60000,
+        timeoutMsg: 'Expected the surviving tab to unlock after its query completed.',
+      },
+    )
+    const closedSurvivor = await browser.execute(() => {
+      const closeButton = document.querySelector(
+        '[role="tablist"][aria-label="Editor tabs"] [aria-label^="Close tab "]',
+      )
+      if (!(closeButton instanceof HTMLElement)) {
+        return false
+      }
+      closeButton.click()
+      return true
+    })
+    assert.equal(closedSurvivor, true, 'Unable to close the surviving unlocked tab.')
+    await browser.waitUntil(async () => (await editorTabCount()) === 0, {
+      timeout: 30000,
+      timeoutMsg: 'Expected the surviving tab to close normally after it unlocked.',
+    })
   })
 })

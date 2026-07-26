@@ -19,6 +19,15 @@ pub fn update_workspace_search_settings(
 }
 
 #[tauri::command]
+pub fn update_datastore_tests_settings(
+    state: State<'_, SharedAppState>,
+    request: DatastoreTestsSettingsRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.update_datastore_tests_settings(request)
+}
+
+#[tauri::command]
 pub fn get_workspace_switcher_status(
     state: State<'_, SharedAppState>,
 ) -> Result<WorkspaceSwitcherStatus, CommandError> {

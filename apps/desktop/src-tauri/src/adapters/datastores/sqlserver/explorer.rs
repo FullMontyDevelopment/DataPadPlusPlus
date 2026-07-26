@@ -28,6 +28,7 @@ pub(super) async fn list_sqlserver_explorer_nodes(
         ),
         capabilities: adapter.execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

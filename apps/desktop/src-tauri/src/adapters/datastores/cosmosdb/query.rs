@@ -45,7 +45,8 @@ pub(super) async fn execute_cosmosdb_query(
         };
     }
 
-    let request_value = parse_request(query_text)?;
+    let request_value =
+        cosmos_sql_execution_request(request)?.unwrap_or(parse_request(query_text)?);
     let operation = cosmosdb_operation(&request_value)?;
     if !READ_OPERATIONS.contains(&operation.as_str()) {
         return Err(CommandError::new(
@@ -120,6 +121,207 @@ pub(super) async fn execute_cosmosdb_query(
     });
     apply_cosmosdb_result_paging(&mut result, &response, row_limit)?;
     Ok(result)
+}
+
+fn cosmos_sql_execution_request(request: &ExecutionRequest) -> Result<Option<Value>, CommandError> {
+    let Some(input) = request.datastore_execution_input.as_ref() else {
+        return Ok(None);
+    };
+    if input.get("kind").and_then(Value::as_str) != Some("cosmos-sql") {
+        return Err(CommandError::new(
+            "cosmosdb-execution-input-invalid",
+            "The datastore execution input is not a Cosmos DB SQL query.",
+        ));
+    }
+
+    let sql = input
+        .get("sql")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            CommandError::new(
+                "cosmosdb-query-missing",
+                "Cosmos DB SQL execution requires a query.",
+            )
+        })?;
+    validate_single_cosmos_sql_query(sql)?;
+    let container = input
+        .get("container")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            CommandError::new(
+                "cosmosdb-container-missing",
+                "Cosmos DB SQL execution requires a scoped container.",
+            )
+        })?;
+
+    let parameters = normalize_cosmos_sql_parameters(input.get("parameters"))?;
+    validate_cosmos_sql_parameter_references(sql, &parameters)?;
+    let partition_key = input
+        .get("partitionKey")
+        .map(|value| {
+            coerce_cosmos_typed_value(
+                value,
+                input.get("partitionKeyValueType").and_then(Value::as_str),
+                "Partition key",
+            )
+        })
+        .transpose()?;
+
+    let mut value = json!({
+        "operation": "QueryDocuments",
+        "container": container,
+        "query": sql,
+        "parameters": parameters,
+        "enableCrossPartitionQueries": input
+            .get("enableCrossPartitionQueries")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+    });
+    if let Some(database) = input
+        .get("database")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        value["database"] = Value::String(database.into());
+    }
+    if let Some(partition_key) = partition_key {
+        value["partitionKey"] = partition_key;
+        value["enableCrossPartitionQueries"] = Value::Bool(false);
+    }
+    Ok(Some(value))
+}
+
+fn validate_single_cosmos_sql_query(sql: &str) -> Result<(), CommandError> {
+    let without_trailing = sql.trim().trim_end_matches(';').trim();
+    let starts_with_select = without_trailing
+        .split_whitespace()
+        .next()
+        .is_some_and(|token| token.eq_ignore_ascii_case("select"));
+    if !starts_with_select || without_trailing.contains(';') {
+        return Err(CommandError::new(
+            "cosmosdb-query-invalid",
+            "Cosmos Query Editor accepts one read-only SELECT statement.",
+        ));
+    }
+    Ok(())
+}
+
+fn normalize_cosmos_sql_parameters(value: Option<&Value>) -> Result<Vec<Value>, CommandError> {
+    let values = value.and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    values
+        .iter()
+        .map(|parameter| {
+            let name = parameter
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|name| valid_cosmos_parameter_name(name))
+                .ok_or_else(|| {
+                    CommandError::new(
+                        "cosmosdb-parameter-invalid",
+                        "Cosmos DB parameter names must start with @ and contain only letters, numbers, or underscores.",
+                    )
+                })?;
+            if !seen.insert(name.to_ascii_lowercase()) {
+                return Err(CommandError::new(
+                    "cosmosdb-parameter-duplicate",
+                    format!("Cosmos DB parameter {name} is defined more than once."),
+                ));
+            }
+            let normalized = coerce_cosmos_typed_value(
+                parameter.get("value").unwrap_or(&Value::Null),
+                parameter.get("valueType").and_then(Value::as_str),
+                name,
+            )?;
+            Ok(json!({ "name": name, "value": normalized }))
+        })
+        .collect()
+}
+
+fn coerce_cosmos_typed_value(
+    value: &Value,
+    value_type: Option<&str>,
+    label: &str,
+) -> Result<Value, CommandError> {
+    let Some(value_type) = value_type else {
+        return Ok(value.clone());
+    };
+    if value_type == "null" {
+        return Ok(Value::Null);
+    }
+    let Some(text) = value.as_str() else {
+        return Ok(value.clone());
+    };
+    match value_type {
+        "string" => Ok(Value::String(text.into())),
+        "number" => text
+            .parse::<serde_json::Number>()
+            .map(Value::Number)
+            .map_err(|_| {
+                CommandError::new(
+                    "cosmosdb-parameter-invalid",
+                    format!("{label} must resolve to a finite number."),
+                )
+            }),
+        "boolean" => text.parse::<bool>().map(Value::Bool).map_err(|_| {
+            CommandError::new(
+                "cosmosdb-parameter-invalid",
+                format!("{label} must resolve to true or false."),
+            )
+        }),
+        "json" => serde_json::from_str(text).map_err(|_| {
+            CommandError::new(
+                "cosmosdb-parameter-invalid",
+                format!("{label} must resolve to valid JSON."),
+            )
+        }),
+        _ => Err(CommandError::new(
+            "cosmosdb-parameter-invalid",
+            format!("{label} has an unsupported Cosmos DB parameter type."),
+        )),
+    }
+}
+
+fn validate_cosmos_sql_parameter_references(
+    sql: &str,
+    parameters: &[Value],
+) -> Result<(), CommandError> {
+    let bound = parameters
+        .iter()
+        .filter_map(|parameter| parameter.get("name").and_then(Value::as_str))
+        .map(str::to_ascii_lowercase)
+        .collect::<std::collections::HashSet<_>>();
+    for token in sql.split(|character: char| {
+        !(character.is_ascii_alphanumeric() || character == '_' || character == '@')
+    }) {
+        if token.starts_with('@')
+            && valid_cosmos_parameter_name(token)
+            && !bound.contains(&token.to_ascii_lowercase())
+        {
+            return Err(CommandError::new(
+                "cosmosdb-parameter-missing",
+                format!("Query parameter {token} does not have a binding."),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn valid_cosmos_parameter_name(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix('@') else {
+        return false;
+    };
+    let mut characters = rest.chars();
+    characters
+        .next()
+        .is_some_and(|character| character.is_ascii_alphabetic() || character == '_')
+        && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
 }
 
 async fn execute_cosmosdb_gremlin_query(

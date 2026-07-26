@@ -53,12 +53,10 @@ export function EditorTabContextMenu({
   const lockedTabs = new Set(lockedTabIds)
   const contextTabLocked = lockedTabs.has(contextTab.id)
   const closeOtherTabIds = orderedTabIds.filter(
-    (tabId) => tabId !== contextTab.id && !lockedTabs.has(tabId),
+    (tabId) => tabId !== contextTab.id,
   )
-  const closeRightTabIds = orderedTabIds
-    .slice(contextTabIndex + 1)
-    .filter((tabId) => !lockedTabs.has(tabId))
-  const closeAllTabIds = orderedTabIds.filter((tabId) => !lockedTabs.has(tabId))
+  const closeRightTabIds = orderedTabIds.slice(contextTabIndex + 1)
+  const closeAllTabIds = orderedTabIds
 
   return (
     <div

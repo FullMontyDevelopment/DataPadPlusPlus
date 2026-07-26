@@ -5,12 +5,11 @@ import type {
   QueryBuilderState,
   QueryTabState,
 } from '@datapadplusplus/shared-types'
-import type { DragEvent, PointerEvent } from 'react'
+import type { DragEvent, PointerEvent, ReactNode } from 'react'
 import { useRef } from 'react'
 import { BuilderSection } from '../../query-builder/BuilderSection'
 import { buildMongoAggregationQueryText } from '../../query-builder/mongo-aggregation'
 import { mongoQueryScopeForTab } from '../../query-builder/mongo-query-scope'
-import { MongoScopeSummary } from './MongoScopeSummary'
 import {
   acceptMongoBuilderRowDrag,
   acceptMongoBuilderRowPointerDrop,
@@ -36,7 +35,7 @@ interface MongoAggregationBuilderProps {
   connection?: ConnectionProfile
   tab: QueryTabState
   builderState: MongoAggregationBuilderState
-  collectionOptions: string[]
+  countControl?: ReactNode
   onBuilderStateChange?(tabId: string, builderState: QueryBuilderState): void
 }
 
@@ -44,13 +43,10 @@ export function MongoAggregationBuilder({
   connection,
   tab,
   builderState,
-  collectionOptions,
+  countControl,
   onBuilderStateChange,
 }: MongoAggregationBuilderProps) {
   const draft = builderState
-  const resolvedCollectionOptions = Array.from(
-    new Set([draft.collection, ...collectionOptions].map((item) => item.trim()).filter(Boolean)),
-  )
   const scope = mongoQueryScopeForTab({
     builderState: draft,
     connection,
@@ -127,25 +123,7 @@ export function MongoAggregationBuilder({
 
   return (
     <section className="query-builder-panel" aria-label="MongoDB aggregation builder">
-      <MongoScopeSummary scope={scope} />
-      <div className="query-builder-grid">
-        <label className="query-builder-field">
-          <span>Collection</span>
-          <select
-            aria-label="Collection"
-            value={draft.collection}
-            onChange={(event) => updateDraft({ collection: event.target.value })}
-          >
-            {resolvedCollectionOptions.length === 0 ? (
-              <option value="">Select collection</option>
-            ) : null}
-            {resolvedCollectionOptions.map((collection) => (
-              <option key={collection} value={collection}>
-                {collection}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="mongo-query-builder-controls">
         <label className="query-builder-field query-builder-field--number">
           <span>Fetch size</span>
           <input
@@ -156,6 +134,7 @@ export function MongoAggregationBuilder({
             onChange={(event) => updateDraft({ limit: positiveInteger(event.target.value, 20) })}
           />
         </label>
+        {countControl}
       </div>
 
       <BuilderSection

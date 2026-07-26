@@ -195,6 +195,7 @@ fn explorer_metadata_redacts_display_fields_without_changing_functional_ids() {
             query_template: Some("{\"token\":\"super-secret-token\"}".into()),
             expandable: Some(true),
         }],
+        page_info: None,
     };
 
     let redacted = redact_explorer_response_for_environment(response, &environment_with_secret());

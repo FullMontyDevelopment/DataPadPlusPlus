@@ -51,6 +51,64 @@ describe('QueryTargetPicker', () => {
     }))
   })
 
+  it('renders a collision-aware floating menu outside scroll containers', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-catalog')
+    if (!connection) throw new Error('MongoDB fixture connection is missing.')
+    const onChange = vi.fn()
+
+    render(
+      <QueryTargetPicker
+        floatingMenu
+        connection={connection}
+        nodes={[
+          node('database', 'catalog', ['Databases'], 'database:catalog', true),
+          node('collection', 'products', ['catalog', 'Collections'], 'collection:catalog:products'),
+          node('collection', 'orders', ['catalog', 'Collections'], 'collection:catalog:orders'),
+        ]}
+        scopedTarget={{
+          kind: 'collection',
+          label: 'products',
+          path: ['catalog', 'Collections'],
+          scope: 'collection:catalog:products',
+        }}
+        builderState={undefined}
+        isScopeLoaded={() => true}
+        isScopeLoading={() => false}
+        onChange={onChange}
+        onLoadScope={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Change Collection' })
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({
+      x: 380,
+      y: 600,
+      top: 600,
+      right: 700,
+      bottom: 632,
+      left: 380,
+      width: 320,
+      height: 32,
+      toJSON: () => ({}),
+    })
+    fireEvent.click(trigger)
+
+    const menu = screen.getByRole('listbox', { name: 'Collection' })
+      .closest('.query-target-menu')
+    expect(menu).not.toBeNull()
+    expect(menu?.parentElement).toBe(document.body)
+    expect(menu).toHaveStyle({ position: 'fixed' })
+    expect(menu?.style.bottom).not.toBe('auto')
+
+    fireEvent.click(screen.getByRole('option', { name: 'orders' }))
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      label: 'orders',
+      scope: 'collection:catalog:orders',
+    }))
+  })
+
   it('loads root metadata when a picker first opens', async () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-catalog')

@@ -326,6 +326,9 @@ function normalizePreferences(
     workspaceSearch: {
       enabled: Boolean(preferences?.workspaceSearch?.enabled),
     },
+    datastoreTests: {
+      enabled: Boolean(preferences?.datastoreTests?.enabled),
+    },
     firstInstallGuide: normalizeFirstInstallGuidePreferences(preferences?.firstInstallGuide),
     explorerFolderOrders: normalizeExplorerFolderOrders(preferences?.explorerFolderOrders),
   }

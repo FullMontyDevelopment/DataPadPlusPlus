@@ -42,14 +42,15 @@ describe('ObjectViewWorkspace', () => {
       />,
     )
 
-    expect(screen.getAllByText('Database Overview').length).toBeGreaterThan(0)
-    expect(screen.getByText('Collections')).toBeInTheDocument()
+    expect(screen.getAllByText('Database Overview')).toHaveLength(1)
+    expect(screen.getByRole('heading', { name: 'Collections' })).toBeInTheDocument()
     expect(screen.getByText('GridFS buckets')).toBeInTheDocument()
     expect(screen.getByText('products')).toBeInTheDocument()
     expect(screen.getByText('active_products')).toBeInTheDocument()
     expect(screen.getByText('$match - Filters documents before later stages run.')).toBeInTheDocument()
     expect(screen.queryByText('[{"$match":{"active":true}}]')).not.toBeInTheDocument()
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
+    expect(screen.queryByText('No MongoDB views were returned for this database.')).not.toBeInTheDocument()
   })
 
   it('renders a Mongo collection overview with documents, indexes, validator state, and import/export actions', () => {
@@ -87,8 +88,8 @@ describe('ObjectViewWorkspace', () => {
       />,
     )
 
-    expect(screen.getAllByText('Collection Overview').length).toBeGreaterThan(0)
-    expect(screen.getByText('Sample size')).toBeInTheDocument()
+    expect(screen.getAllByText('Collection Overview')).toHaveLength(1)
+    expect(screen.getByText('Sampled documents')).toBeInTheDocument()
     expect(screen.getByText('Validator')).toBeInTheDocument()
     expect(screen.getByText('sku_1')).toBeInTheDocument()
     expect(screen.getByText('p1')).toBeInTheDocument()
@@ -96,7 +97,7 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.queryByText(/"luna-lamp"/)).not.toBeInTheDocument()
     expect(screen.getByText('2.0 KB')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review export' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.collection.export',
       objectName: 'products',
@@ -108,7 +109,7 @@ describe('ObjectViewWorkspace', () => {
       }),
     }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review import' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.collection.import',
       objectName: 'products',
@@ -159,7 +160,7 @@ describe('ObjectViewWorkspace', () => {
       />,
     )
 
-    expect(screen.getAllByText('Schema Preview').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Schema Preview')).toHaveLength(1)
     expect(screen.queryByText(/Understand document shape/i)).not.toBeInTheDocument()
     expect(screen.getByText('inventory.available')).toBeInTheDocument()
     expect(screen.getByText('int32 (18), int64 (2)')).toBeInTheDocument()
@@ -168,7 +169,7 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getByText('Mixed BSON types')).toBeInTheDocument()
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Prepare Validator' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review generated validator' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.validation.update',
       parameters: expect.objectContaining({
@@ -218,7 +219,7 @@ describe('ObjectViewWorkspace', () => {
     )
 
     expect(screen.getAllByText('Index Manager').length).toBeGreaterThan(0)
-    expect(screen.getAllByRole('button', { name: 'Create Index' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'New index' }).length).toBeGreaterThan(0)
     expect(screen.getByText('_id_')).toBeInTheDocument()
     expect(screen.getByText('sku_1')).toBeInTheDocument()
     expect(screen.getByText('legacy_1')).toBeInTheDocument()
@@ -289,7 +290,7 @@ describe('ObjectViewWorkspace', () => {
     fireEvent.change(screen.getByLabelText('Order'), { target: { value: '-1' } })
     fireEvent.click(screen.getByLabelText('Unique'))
     fireEvent.change(screen.getByLabelText('TTL seconds'), { target: { value: '3600' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review index creation' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.index.create',
       objectName: 'products',
@@ -343,7 +344,7 @@ describe('ObjectViewWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add Field' }))
     fireEvent.change(screen.getByLabelText('Field 2'), { target: { value: 'category' } })
     fireEvent.change(screen.getByLabelText('Order 2'), { target: { value: '-1' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review index creation' }))
 
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.index.create',
@@ -387,7 +388,7 @@ describe('ObjectViewWorkspace', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review index creation' }))
 
     await waitFor(() => expect(onPlanOperation).toHaveBeenCalled())
     expect(screen.queryByText('Create index field_1')).not.toBeInTheDocument()
@@ -518,13 +519,13 @@ describe('ObjectViewWorkspace', () => {
       />,
     )
 
-    expect(screen.getByText('Required fields')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Required fields' })).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Test document'), { target: { value: '{ "sku": "only-sku" }' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Test Document' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Test document' }))
     expect(screen.getByText('Missing required field(s): name')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Test document'), { target: { value: '{ "sku": "nova", "name": "Nova Chair" }' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Test Document' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Test document' }))
     expect(screen.getByText(/Document matches the validator fields/i)).toBeInTheDocument()
   })
 
@@ -561,8 +562,8 @@ describe('ObjectViewWorkspace', () => {
 
     expect(screen.getByLabelText('Validator rule')).not.toBeVisible()
     fireEvent.change(screen.getByLabelText('Field'), { target: { value: 'name' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add Field' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Run Required Fields' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add field' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review validation change' }))
 
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.validation.update',
@@ -911,13 +912,13 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.queryByText('Role')).not.toBeInTheDocument()
     expect(screen.getByText('read on catalog')).toBeInTheDocument()
     expect(screen.queryByText('[{"role":"read","db":"catalog"}]')).not.toBeInTheDocument()
-    expect(screen.queryByPlaceholderText('reporting_user')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
-    fireEvent.change(screen.getByPlaceholderText('reporting_user'), { target: { value: 'analytics' } })
+    expect(screen.queryByLabelText('Username')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'New user' }))
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'analytics' } })
     fireEvent.change(screen.getByPlaceholderText('{{MONGO_USER_PASSWORD}}'), {
       target: { value: '{{MONGO_USER_PASSWORD}}' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review user creation' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.user.create',
       objectName: 'analytics',
@@ -964,12 +965,12 @@ describe('ObjectViewWorkspace', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
-    fireEvent.change(screen.getByPlaceholderText('reporting_user'), { target: { value: 'analytics' } })
+    fireEvent.click(screen.getByRole('button', { name: 'New user' }))
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'analytics' } })
     fireEvent.change(screen.getByPlaceholderText('{{MONGO_USER_PASSWORD}}'), {
       target: { value: 'plain-secret' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review user creation' }))
 
     expect(screen.getByText('Use an environment secret variable such as {{MONGO_USER_PASSWORD}}.')).toBeInTheDocument()
     expect(onPlanOperation).not.toHaveBeenCalled()
@@ -1010,9 +1011,9 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.queryByText('User')).not.toBeInTheDocument()
     expect(screen.getByText('find on catalog.products')).toBeInTheDocument()
     expect(screen.queryByText(/"actions":/)).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Create Role' }))
-    fireEvent.change(screen.getByPlaceholderText('analytics_reader'), { target: { value: 'inventory_reader' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'New role' }))
+    fireEvent.change(screen.getByLabelText('Role name'), { target: { value: 'inventory_reader' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review role creation' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.role.create',
       objectName: 'inventory_reader',
@@ -1122,7 +1123,7 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getByText('Missing chunks')).toBeInTheDocument()
     expect(screen.queryByText('Raw inspection payload')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Export Files' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review export plan' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.gridfs.export',
       objectName: 'fs.files',
@@ -1135,7 +1136,7 @@ describe('ObjectViewWorkspace', () => {
       }),
     }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Upload File' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review upload plan' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.gridfs.upload',
       objectName: 'fs.files',
@@ -1148,7 +1149,7 @@ describe('ObjectViewWorkspace', () => {
       }),
     }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Validate Chunks' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review validation' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.gridfs.validate',
       objectName: 'fs.files',

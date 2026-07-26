@@ -59,6 +59,7 @@ pub(super) async fn list_janusgraph_explorer_nodes(
         ),
         capabilities: janusgraph_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

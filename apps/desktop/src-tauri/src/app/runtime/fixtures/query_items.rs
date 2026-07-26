@@ -34,6 +34,7 @@ pub(super) fn fixture_query_tab(
         object_view_state: None,
         test_suite: None,
         test_run: None,
+        active_test_case_id: None,
         status: "idle".into(),
         active_execution: None,
         dirty: false,

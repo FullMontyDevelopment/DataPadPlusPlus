@@ -390,6 +390,7 @@ fn plugin_catalog_reports_current_plugins_and_security_checks() {
     snapshot.preferences.datastore_api_server.enabled = true;
     snapshot.preferences.datastore_mcp_server.enabled = true;
     snapshot.preferences.datastore_security_checks.enabled = true;
+    snapshot.preferences.datastore_tests.enabled = true;
 
     let catalog = plugin_catalog_for_snapshot(&snapshot, Some(true));
     let plugins = catalog["plugins"].as_array().expect("plugins array");
@@ -400,8 +401,8 @@ fn plugin_catalog_reports_current_plugins_and_security_checks() {
             .unwrap_or_else(|| panic!("missing plugin {id}"))
     };
 
-    assert_eq!(catalog["counts"]["total"], 5);
-    assert_eq!(catalog["counts"]["enabled"], 5);
+    assert_eq!(catalog["counts"]["total"], 6);
+    assert_eq!(catalog["counts"]["enabled"], 6);
     assert_eq!(plugin_by_id("workspace-search")["stability"], "stable");
     assert_eq!(
         plugin_by_id("workspace-search")["mcpTools"],
@@ -412,6 +413,8 @@ fn plugin_catalog_reports_current_plugins_and_security_checks() {
         json!(["workspace:search"])
     );
     assert_eq!(plugin_by_id("datastore-api-server")["enabled"], true);
+    assert_eq!(plugin_by_id("datastore-tests")["stability"], "experimental");
+    assert_eq!(plugin_by_id("datastore-tests")["enabled"], true);
     assert_eq!(plugin_by_id("datastore-mcp-server")["enabled"], true);
     assert_eq!(
         plugin_by_id("workspaces")["enabledSource"],

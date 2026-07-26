@@ -17,6 +17,7 @@ import type {
   DatastoreSecurityChecksRefreshRequest,
   DatastoreSecurityChecksSettingsRequest,
   DatastoreSecurityChecksStatus,
+  DatastoreTestsSettingsRequest,
   UpdateUiStateRequest,
   WorkspaceSearchSettingsRequest,
   WorkspaceSnapshot,
@@ -465,6 +466,32 @@ export const clientWorkspace = {
     next.preferences.workspaceSearch = {
       enabled: Boolean(request.enabled),
     }
+    next.updatedAt = new Date().toISOString()
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
+  },
+
+  async updateDatastoreTestsSettings(
+    request: DatastoreTestsSettingsRequest,
+  ): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('update_datastore_tests_settings', { request })
+    }
+
+    const next = cloneSnapshot(loadBrowserSnapshot())
+    if (
+      !request.enabled &&
+      next.tabs.some(
+        (tab) =>
+          tab.tabKind === 'test-suite' &&
+          (tab.activeExecution || tab.status === 'running' || tab.status === 'queued'),
+      )
+    ) {
+      throw new Error(
+        'Wait for the active datastore test run to finish or cancel it before disabling the plugin.',
+      )
+    }
+    next.preferences.datastoreTests = { enabled: Boolean(request.enabled) }
     next.updatedAt = new Date().toISOString()
     saveBrowserSnapshot(next)
     return buildBrowserPayload(next)

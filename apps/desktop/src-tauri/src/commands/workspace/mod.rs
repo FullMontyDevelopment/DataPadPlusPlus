@@ -16,13 +16,15 @@ use crate::{
     app::runtime::{
         datastore_api_server, datastore_mcp_client_setup, datastore_mcp_server,
         datastore_security_checks, generate_id, timestamp_now, ActiveExecutionRegistry,
-        ManagedAppState, SharedAppState, SharedExecutionRegistry,
+        ActiveTestRunRegistry, ManagedAppState, SharedAppState, SharedExecutionRegistry,
+        SharedTestRunRegistry,
     },
     domain::{
         error::CommandError,
         models::{
             AdapterDiagnosticsRequest, AdapterDiagnosticsResponse, BootstrapPayload,
-            CancelExecutionRequest, CancelExecutionResult, CancelTestRunRequest, ConnectionProfile,
+            CancelExecutionRequest, CancelExecutionResult, CancelTestRunRequest,
+            CloseQueryTabsRequest, CloseQueryTabsResponse, ConnectionProfile,
             ConnectionTestRequest, ConnectionTestResult, CreateObjectViewTabRequest,
             CreateScopedQueryTabRequest, CreateTestSuiteTabRequest, DataEditExecutionRequest,
             DataEditExecutionResponse, DataEditPlanRequest, DataEditPlanResponse,
@@ -49,9 +51,10 @@ use crate::{
             DatastoreMcpServerTokenCreateRequest, DatastoreMcpServerTokenCreateResponse,
             DatastoreMcpServerTokenDeleteRequest, DatastoreMcpServerUpdateRequest,
             DatastoreSecurityChecksRefreshRequest, DatastoreSecurityChecksSettingsRequest,
-            DatastoreSecurityChecksStatus, DocumentNodeChildrenRequest,
-            DocumentNodeChildrenResponse, EnvironmentProfile, ExecuteTestSuiteRequest,
-            ExecuteTestSuiteResponse, ExecutionRequest, ExecutionResponse,
+            DatastoreSecurityChecksStatus, DatastoreTestRunPlanRequest,
+            DatastoreTestRunPlanResponse, DatastoreTestsSettingsRequest,
+            DocumentNodeChildrenRequest, DocumentNodeChildrenResponse, EnvironmentProfile,
+            ExecuteTestSuiteRequest, ExecuteTestSuiteResponse, ExecutionRequest, ExecutionResponse,
             ExplorerFolderOrderRequest, ExplorerInspectRequest, ExplorerInspectResponse,
             ExplorerRequest, ExplorerResponse, ExportBundle, ExportResultFileRequest,
             ExportResultFileResponse, GuardrailDecision, LibraryCreateFolderRequest,
@@ -59,21 +62,22 @@ use crate::{
             LibraryRenameNodeRequest, LibrarySetEnvironmentRequest, LocalDatabaseCreateRequest,
             LocalDatabaseCreateResult, LocalDatabasePickRequest, LocalDatabasePickResult,
             MaterializeResultRendererRequest, MaterializeResultRendererResponse,
-            OpenTestSuiteTemplateRequest, OperationExecutionRequest, OperationExecutionResponse,
-            OperationManifestRequest, OperationManifestResponse, OperationPlanRequest,
-            OperationPlanResponse, PermissionInspectionRequest, PermissionInspectionResponse,
-            QueryHistoryEntry, QueryTabActiveExecution, QueryTabReorderRequest,
-            RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse,
-            ResultExportReference, ResultPageRequest, ResultPageResponse,
+            OpenTestSuiteCaseRequest, OpenTestSuiteTemplateRequest, OperationExecutionRequest,
+            OperationExecutionResponse, OperationManifestRequest, OperationManifestResponse,
+            OperationPlanRequest, OperationPlanResponse, PermissionInspectionRequest,
+            PermissionInspectionResponse, QueryHistoryEntry, QueryTabActiveExecution,
+            QueryTabReorderRequest, RedisKeyInspectRequest, RedisKeyScanRequest,
+            RedisKeyScanResponse, ResultExportReference, ResultPageRequest, ResultPageResponse,
             SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest, SavedWorkItem,
-            StructureRequest, StructureResponse, UpdateQueryBuilderStateRequest,
-            UpdateQueryTabTargetRequest, UpdateTestSuiteTabRequest, UpdateUiStateRequest,
-            UserFacingError, WorkspaceBackupDeleteRequest, WorkspaceBackupRestoreRequest,
-            WorkspaceBackupRunRequest, WorkspaceBackupRunResponse, WorkspaceBackupSettingsRequest,
-            WorkspaceBackupSummary, WorkspaceBundleFileExportRequest,
-            WorkspaceBundleFileExportResponse, WorkspaceBundleFileImportRequest,
-            WorkspaceCreateRequest, WorkspaceRenameRequest, WorkspaceSearchSettingsRequest,
-            WorkspaceSwitchRequest, WorkspaceSwitcherSettingsRequest, WorkspaceSwitcherStatus,
+            StructureRequest, StructureResponse, UpdateDatastoreQueryEditorStateRequest,
+            UpdateQueryBuilderStateRequest, UpdateQueryTabTargetRequest, UpdateTestSuiteTabRequest,
+            UpdateUiStateRequest, UserFacingError, WorkspaceBackupDeleteRequest,
+            WorkspaceBackupRestoreRequest, WorkspaceBackupRunRequest, WorkspaceBackupRunResponse,
+            WorkspaceBackupSettingsRequest, WorkspaceBackupSummary,
+            WorkspaceBundleFileExportRequest, WorkspaceBundleFileExportResponse,
+            WorkspaceBundleFileImportRequest, WorkspaceCreateRequest, WorkspaceRenameRequest,
+            WorkspaceSearchSettingsRequest, WorkspaceSwitchRequest,
+            WorkspaceSwitcherSettingsRequest, WorkspaceSwitcherStatus,
         },
     },
     infrastructure,
@@ -97,6 +101,17 @@ fn lock_executions<'a, 'b>(
         CommandError::new(
             "execution-registry-unavailable",
             "Execution cancellation state is temporarily unavailable. Restart DataPad++ if this continues.",
+        )
+    })
+}
+
+fn lock_test_runs<'a, 'b>(
+    test_runs: &'a State<'b, SharedTestRunRegistry>,
+) -> Result<MutexGuard<'a, ActiveTestRunRegistry>, CommandError> {
+    test_runs.lock().map_err(|_| {
+        CommandError::new(
+            "test-run-registry-unavailable",
+            "Test run cancellation state is temporarily unavailable. Restart DataPad++ if this continues.",
         )
     })
 }
@@ -140,6 +155,13 @@ fn mark_tab_execution_running(
         .iter_mut()
         .find(|tab| tab.id == tab_id)
         .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
+
+    if tab.tab_kind.as_deref() == Some("test-suite") && tab.active_execution.is_some() {
+        return Err(CommandError::new(
+            "test-run-active",
+            "This test suite already has an active run.",
+        ));
+    }
 
     tab.status = "running".into();
     tab.error = None;

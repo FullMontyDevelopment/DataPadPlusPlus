@@ -10,6 +10,7 @@ type RuntimeCommandActions = Pick<
   Actions,
   | 'cancelExecution'
   | 'executeTestSuite'
+  | 'planTestSuiteRun'
   | 'cancelTestRun'
   | 'pickLocalDatabaseFile'
   | 'createLocalDatabase'
@@ -60,7 +61,10 @@ export function useRuntimeCommandActions({
           tabId: request.tabId,
           execution: tabExecution(executionId, 'server', 'Running test suite'),
         })
-        const response = await desktopClient.executeTestSuite(request)
+        const response = await desktopClient.executeTestSuite({
+          ...request,
+          runId: request.runId ?? executionId,
+        })
         dispatch({ type: 'COMMAND_SUCCESS', payload: await desktopClient.bootstrapApp() })
         dispatch({
           type: 'EXECUTION_DISPLAYED',
@@ -80,6 +84,14 @@ export function useRuntimeCommandActions({
       }
     },
     [dispatch, handleError, state.payload],
+  )
+
+  const planTestSuiteRun = useCallback<Actions['planTestSuiteRun']>(
+    async (request) =>
+      callRuntimeCommand(state.payload, handleError, () =>
+        desktopClient.planTestSuiteRun(request),
+      ),
+    [handleError, state.payload],
   )
 
   const cancelTestRun = useCallback<Actions['cancelTestRun']>(
@@ -168,6 +180,7 @@ export function useRuntimeCommandActions({
     () => ({
       cancelExecution,
       executeTestSuite,
+      planTestSuiteRun,
       cancelTestRun,
       pickLocalDatabaseFile,
       createLocalDatabase,
@@ -184,6 +197,7 @@ export function useRuntimeCommandActions({
       executeDataEdit,
       executeDatastoreOperation,
       executeTestSuite,
+      planTestSuiteRun,
       listDatastoreOperations,
       pickLocalDatabaseFile,
       planDataEdit,

@@ -3,11 +3,12 @@ use std::collections::HashSet;
 use crate::domain::{
     error::CommandError,
     models::{
-        CancelTestRunRequest, ConnectionProfile, ConnectionTestRequest,
-        CreateScopedQueryTabRequest, CreateTestSuiteTabRequest, EnvironmentProfile,
-        ExecuteTestSuiteRequest, OpenTestSuiteTemplateRequest, QueryTabReorderRequest,
-        ScopedQueryTarget, SecretRef, UpdateQueryBuilderStateRequest, UpdateQueryTabTargetRequest,
-        UpdateTestSuiteTabRequest,
+        CancelTestRunRequest, CloseQueryTabsRequest, ConnectionProfile, ConnectionTestRequest,
+        CreateScopedQueryTabRequest, CreateTestSuiteTabRequest, DatastoreTestRunPlanRequest,
+        EnvironmentProfile, ExecuteTestSuiteRequest, OpenTestSuiteTemplateRequest,
+        QueryTabReorderRequest, ScopedQueryTarget, SecretRef,
+        UpdateDatastoreQueryEditorStateRequest, UpdateQueryBuilderStateRequest,
+        UpdateQueryTabTargetRequest, UpdateTestSuiteTabRequest,
     },
 };
 
@@ -191,6 +192,15 @@ pub(in crate::app::runtime) fn validate_query_tab_reorder_request(
     Ok(())
 }
 
+pub(in crate::app::runtime) fn validate_close_query_tabs_request(
+    request: &CloseQueryTabsRequest,
+) -> Result<(), CommandError> {
+    for tab_id in &request.tab_ids {
+        validate_required_id(tab_id, "Tab id")?;
+    }
+    Ok(())
+}
+
 pub(in crate::app::runtime) fn validate_update_query_tab_request(
     tab_id: &str,
     query_text: &str,
@@ -209,6 +219,15 @@ pub(in crate::app::runtime) fn validate_update_query_builder_state_request(
     if let Some(query_text) = request.query_text.as_deref() {
         validate_query_text(query_text, "Query text")?;
     }
+    validate_query_view_mode(request.query_view_mode.as_deref())
+}
+
+pub(in crate::app::runtime) fn validate_update_datastore_query_editor_state_request(
+    request: &UpdateDatastoreQueryEditorStateRequest,
+) -> Result<(), CommandError> {
+    validate_required_id(&request.tab_id, "Tab id")?;
+    validate_query_text(&request.query_text, "Query text")?;
+    assert_json_size(&request.editor_state, "Datastore query editor state")?;
     validate_query_view_mode(request.query_view_mode.as_deref())
 }
 
@@ -231,8 +250,16 @@ pub(in crate::app::runtime) fn validate_update_query_tab_target_request(
 pub(in crate::app::runtime) fn validate_create_test_suite_tab_request(
     request: &CreateTestSuiteTabRequest,
 ) -> Result<(), CommandError> {
-    validate_optional_id(request.connection_id.as_deref(), "Connection id")?;
-    validate_optional_id(request.environment_id.as_deref(), "Environment id")?;
+    validate_required_id(&request.connection_id, "Connection id")?;
+    validate_required_id(&request.environment_id, "Environment id")?;
+    if request.scoped_target.kind.trim().is_empty() || request.scoped_target.label.trim().is_empty()
+    {
+        return Err(CommandError::new(
+            "datastore-test-target-required",
+            "Choose a database or datastore object before creating the test suite.",
+        ));
+    }
+    validate_scoped_query_target(&request.scoped_target)?;
     validate_optional_text(
         request.template_id.as_deref(),
         "Test template id",
@@ -244,8 +271,16 @@ pub(in crate::app::runtime) fn validate_create_test_suite_tab_request(
 pub(in crate::app::runtime) fn validate_open_test_suite_template_request(
     request: &OpenTestSuiteTemplateRequest,
 ) -> Result<(), CommandError> {
-    validate_optional_id(request.connection_id.as_deref(), "Connection id")?;
-    validate_optional_id(request.environment_id.as_deref(), "Environment id")?;
+    validate_required_id(&request.connection_id, "Connection id")?;
+    validate_required_id(&request.environment_id, "Environment id")?;
+    if request.scoped_target.kind.trim().is_empty() || request.scoped_target.label.trim().is_empty()
+    {
+        return Err(CommandError::new(
+            "datastore-test-target-required",
+            "Choose a database or datastore object before creating the test suite.",
+        ));
+    }
+    validate_scoped_query_target(&request.scoped_target)?;
     validate_required_id(&request.template_id, "Test template id")
 }
 
@@ -257,7 +292,18 @@ pub(in crate::app::runtime) fn validate_update_test_suite_tab_request(
     if let Some(raw_text) = request.raw_text.as_deref() {
         validate_query_text(raw_text, "Test suite JSON")?;
     }
+    validate_optional_id(
+        request.active_test_case_id.as_deref(),
+        "Active test case id",
+    )?;
     Ok(())
+}
+
+pub(in crate::app::runtime) fn validate_datastore_test_run_plan_request(
+    request: &DatastoreTestRunPlanRequest,
+) -> Result<(), CommandError> {
+    validate_required_id(&request.tab_id, "Tab id")?;
+    validate_optional_id(request.case_id.as_deref(), "Test case id")
 }
 
 pub(in crate::app::runtime) fn validate_execute_test_suite_request(
@@ -268,6 +314,13 @@ pub(in crate::app::runtime) fn validate_execute_test_suite_request(
     validate_optional_id(
         request.confirmed_guardrail_id.as_deref(),
         "Guardrail confirmation id",
+    )?;
+    validate_optional_id(request.run_id.as_deref(), "Test run id")?;
+    validate_optional_id(request.plan_id.as_deref(), "Test run plan id")?;
+    validate_optional_text(
+        request.confirmation_text.as_deref(),
+        "Confirmation text",
+        MAX_OBJECT_NAME_LENGTH,
     )
 }
 

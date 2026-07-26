@@ -39,6 +39,7 @@ type RuntimeActions = Pick<
   | 'executeQuery'
   | 'executeBuilderCount'
   | 'executeTestSuite'
+  | 'planTestSuiteRun'
   | 'cancelTestRun'
   | 'fetchResultPage'
   | 'fetchDocumentNodeChildren'

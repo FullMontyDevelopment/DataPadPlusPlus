@@ -108,6 +108,35 @@ fn library_copy_names_are_scoped_to_the_immediate_parent() {
 }
 
 #[test]
+fn duplicated_test_suites_receive_an_independent_identity_and_copy_name() {
+    let mut node = test_node("suite-copy", Some("tests"), None);
+    node.kind = "test-suite".into();
+    node.name = "Copy of Catalog checks".into();
+    node.test_suite = Some(json!({
+        "id": "suite-source",
+        "name": "Catalog checks",
+        "cases": [],
+    }));
+
+    refresh_duplicated_test_suite_identity(&mut node);
+
+    assert_eq!(
+        node.test_suite
+            .as_ref()
+            .and_then(|suite| suite.get("name"))
+            .and_then(Value::as_str),
+        Some("Copy of Catalog checks")
+    );
+    assert_ne!(
+        node.test_suite
+            .as_ref()
+            .and_then(|suite| suite.get("id"))
+            .and_then(Value::as_str),
+        Some("suite-source")
+    );
+}
+
+#[test]
 fn local_file_content_uses_script_text_for_script_tabs() {
     let tab = QueryTabState {
         query_text: "{ \"collection\": \"products\" }".into(),

@@ -95,6 +95,7 @@ impl DatastoreAdapter for BetaAdapter {
             ),
             capabilities: self.execution_capabilities(),
             nodes,
+            page_info: None,
         })
     }
 

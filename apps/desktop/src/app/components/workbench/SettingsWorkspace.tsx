@@ -8,6 +8,7 @@ import type {
   DatastoreApiServerSettingsRequest,
   DatastoreMcpServerSettingsRequest,
   DatastoreSecurityChecksSettingsRequest,
+  DatastoreTestsSettingsRequest,
   DiagnosticsReport,
   WorkspaceBackupRunResponse,
   WorkspaceBackupSummary,
@@ -69,6 +70,7 @@ export function SettingsWorkspace({
   onUpdateBackupSettings,
   onUpdateWorkspaceSwitcherSettings,
   onUpdateWorkspaceSearchSettings,
+  onUpdateDatastoreTestsSettings,
   onUpdateSecurityCheckSettings,
 }: {
   diagnostics?: DiagnosticsReport
@@ -111,6 +113,9 @@ export function SettingsWorkspace({
   ): Promise<boolean>
   onUpdateWorkspaceSearchSettings(
     request: WorkspaceSearchSettingsRequest,
+  ): Promise<boolean>
+  onUpdateDatastoreTestsSettings(
+    request: DatastoreTestsSettingsRequest,
   ): Promise<boolean>
   onUpdateSecurityCheckSettings(
     request: DatastoreSecurityChecksSettingsRequest,
@@ -217,6 +222,7 @@ export function SettingsWorkspace({
             onUpdateMcpServerSettings={onUpdateMcpServerSettings}
             onUpdateWorkspaceSwitcherSettings={onUpdateWorkspaceSwitcherSettings}
             onUpdateWorkspaceSearchSettings={onUpdateWorkspaceSearchSettings}
+            onUpdateDatastoreTestsSettings={onUpdateDatastoreTestsSettings}
             onUpdateSecurityCheckSettings={onUpdateSecurityCheckSettings}
           />
         ) : null}

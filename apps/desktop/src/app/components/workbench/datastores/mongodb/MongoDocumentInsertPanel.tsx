@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent } from 'react'
+import { MongoResourceSection } from './MongoOperationalViewPrimitives'
 
 type JsonRecord = Record<string, unknown>
 const MAX_DOCUMENT_FILE_BYTES = 16 * 1024 * 1024
@@ -88,16 +89,18 @@ export function MongoDocumentInsertPanel({
   }, [loadJsonFile])
 
   return (
-    <div className="object-view-management object-view-management--primary">
-      <div className="object-view-management-header">
-        <div title="Load, validate, and insert one MongoDB document.">
-          <strong>Insert Document</strong>
-        </div>
+    <MongoResourceSection
+      eyebrow="Document editor"
+      title="Document JSON"
+      description="Load, validate, and insert one MongoDB document."
+      actions={(
         <div className="object-view-action-chips" aria-label="Insert checks">
           <span>{validation.ok ? 'Valid JSON' : 'Needs fix'}</span>
           <span>{requiredFields.length ? `${requiredFields.length} required` : 'No required fields'}</span>
         </div>
-      </div>
+      )}
+    >
+      <div className="mongo-inline-editor">
       {requiredFields.length ? (
         <div className="object-view-chip-row" aria-label="Required document fields">
           {requiredFields.map((field) => <span key={field}>{field}</span>)}
@@ -192,7 +195,8 @@ export function MongoDocumentInsertPanel({
           Insert Document
         </button>
       </div>
-    </div>
+      </div>
+    </MongoResourceSection>
   )
 }
 

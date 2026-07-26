@@ -609,6 +609,7 @@ async fn discover_resource_configs(
                 environment_id: environment_id.into(),
                 limit: Some(page_limit),
                 scope: scope.clone(),
+                cursor: None,
             })
             .await?;
 

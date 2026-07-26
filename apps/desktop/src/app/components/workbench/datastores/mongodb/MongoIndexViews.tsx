@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
-import type { ComponentType } from 'react'
-import { HideIcon, ObjectIndexIcon, PlusIcon, ShowIcon, TrashIcon } from '../../icons'
+import { HideIcon, PlusIcon, ShowIcon, TrashIcon } from '../../icons'
 import type { MongoObjectViewDescriptor } from './MongoObjectViewDescriptors'
+import { MongoContextStrip, MongoResourceSection } from './MongoOperationalViewPrimitives'
 
 type JsonRecord = Record<string, unknown>
 
@@ -29,10 +29,10 @@ export function MongoIndexesView({
   const database = stringValue(payload.database)
   const collection = stringValue(payload.collection)
   const summaryRows = [
-    ['Indexes', String(indexes.length)],
-    ['Unique', String(indexes.filter((index) => Boolean(index.unique)).length)],
-    ['TTL', String(indexes.filter((index) => index.expireAfterSeconds !== undefined).length)],
-    ['Hidden', String(indexes.filter((index) => Boolean(index.hidden)).length)],
+    { label: 'Indexes', value: indexes.length },
+    { label: 'Unique', value: indexes.filter((index) => Boolean(index.unique)).length },
+    { label: 'TTL', value: indexes.filter((index) => index.expireAfterSeconds !== undefined).length },
+    { label: 'Hidden', value: indexes.filter((index) => Boolean(index.hidden)).length },
   ]
   const previewDrop = useCallback((name: string) => {
     onPlanOperation?.({
@@ -61,9 +61,17 @@ export function MongoIndexesView({
 
   return (
     <div className="object-view-section">
-      <div className="object-view-section-heading-row">
-        <SectionHeading Icon={ObjectIndexIcon} title={descriptor.title} unit={`${indexes.length} index(es)`} />
-        {onOpenCreateIndex ? (
+      <MongoContextStrip
+        eyebrow="Index metadata"
+        title={[database, collection].filter(Boolean).join(' / ') || 'MongoDB'}
+        detail={`${indexes.length} index${indexes.length === 1 ? '' : 'es'} returned`}
+        metrics={summaryRows}
+      />
+      <MongoResourceSection
+        eyebrow="Index inventory"
+        title="Indexes"
+        description="Key definitions, options, usage, visibility, and guarded management actions."
+        actions={onOpenCreateIndex ? (
           <button
             type="button"
             className="drawer-button"
@@ -71,23 +79,15 @@ export function MongoIndexesView({
             onClick={onOpenCreateIndex}
           >
             <PlusIcon className="panel-inline-icon" />
-            Create Index
+            New index
           </button>
         ) : null}
-      </div>
-      <div className="object-view-card-grid">
-        {summaryRows.map(([label, value]) => (
-          <div key={label} className="object-view-card">
-            <span>{label}</span>
-            <strong>{value}</strong>
-          </div>
-        ))}
-      </div>
-      {indexes.length === 0 ? (
-        <PurposeEmptyState descriptor={descriptor} />
-      ) : (
-        <div className="object-view-table-wrap">
-          <table className="object-view-table">
+      >
+        {indexes.length === 0 ? (
+          <PurposeEmptyState descriptor={descriptor} />
+        ) : (
+          <div className="object-view-table-wrap">
+            <table className="object-view-table">
             <thead>
               <tr>
                 {['Name', 'Key pattern', 'Unique', 'Sparse', 'TTL', 'Hidden', 'Usage', 'Options', 'Actions'].map((column) => (
@@ -136,27 +136,10 @@ export function MongoIndexesView({
                 )
               })}
             </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function SectionHeading({
-  Icon,
-  title,
-  unit,
-}: {
-  Icon: ComponentType<{ className?: string }>
-  title: string
-  unit?: string
-}) {
-  return (
-    <div className="object-view-section-heading">
-      <Icon className="panel-inline-icon" />
-      <strong>{title}</strong>
-      {unit ? <span>{unit}</span> : null}
+            </table>
+          </div>
+        )}
+      </MongoResourceSection>
     </div>
   )
 }

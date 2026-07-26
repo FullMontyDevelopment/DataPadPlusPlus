@@ -1,7 +1,11 @@
 import { useCallback } from 'react'
 import type { MongoObjectViewDescriptor } from './MongoObjectViewDescriptors'
-import { ObjectDocumentIcon } from '../../icons'
-import { ObjectViewTable, SectionHeading } from '../../ObjectViewPrimitives'
+import { ObjectViewTable } from '../../ObjectViewPrimitives'
+import {
+  MongoAdvancedDisclosure,
+  MongoContextStrip,
+  MongoResourceSection,
+} from './MongoOperationalViewPrimitives'
 import {
   fieldPresenceText,
   fieldTypeNames,
@@ -51,53 +55,56 @@ export function MongoSchemaView({
 
   return (
     <div className="object-view-section">
-      <SectionHeading Icon={ObjectDocumentIcon} title={descriptor.title} unit={`${fields.length} field(s)`} />
-      <div className="object-view-card-grid">
-        <div className="object-view-card">
-          <span>Sampled documents</span>
-          <strong>{sampleSize}</strong>
-        </div>
-        <div className="object-view-card">
-          <span>Field paths</span>
-          <strong>{fields.length}</strong>
-        </div>
-        <div className="object-view-card">
-          <span>Mixed types</span>
-          <strong>{mixedTypeCount}</strong>
-        </div>
-        <div className="object-view-card">
-          <span>Required fields</span>
-          <strong>{requiredFields.length}</strong>
-        </div>
-      </div>
-      <ObjectViewTable
-        columns={['Field path', 'BSON types', 'Presence', 'Examples', 'Warnings']}
-        rows={fields.map((field) => [
-          stringValue(field.path),
-          fieldTypesText(field),
-          fieldPresenceText(field, sampleSize),
-          compactJson(field.examples ?? field.example ?? ''),
-          fieldWarningsText(field, sampleSize),
-        ])}
-        emptyText={`${descriptor.emptyTitle}. ${descriptor.emptyDescription}`}
+      <MongoContextStrip
+        eyebrow="Schema sample"
+        title={[database, collection].filter(Boolean).join(' / ') || 'MongoDB'}
+        detail="Field inference is based on a bounded document sample."
+        metrics={[
+          { label: 'Sampled documents', value: sampleSize },
+          { label: 'Field paths', value: fields.length },
+          { label: 'Mixed types', value: mixedTypeCount },
+          { label: 'Required fields', value: requiredFields.length },
+        ]}
       />
-      <div className="object-view-management">
-        <strong>Validator</strong>
-        <details className="object-view-disclosure">
-          <summary>Generated rule</summary>
-          <pre className="object-view-code">{prettyJson(generateValidatorFromFields(fields, sampleSize))}</pre>
-        </details>
-        <div className="object-view-button-row">
+      <MongoResourceSection
+        eyebrow="Field inventory"
+        title="Fields"
+        description="Presence, BSON types, examples, and schema drift warnings."
+      >
+        <ObjectViewTable
+          columns={['Field path', 'BSON types', 'Presence', 'Examples', 'Warnings']}
+          rows={fields.map((field) => [
+            stringValue(field.path),
+            fieldTypesText(field),
+            fieldPresenceText(field, sampleSize),
+            compactJson(field.examples ?? field.example ?? ''),
+            fieldWarningsText(field, sampleSize),
+          ])}
+          emptyText={`${descriptor.emptyTitle}. ${descriptor.emptyDescription}`}
+        />
+      </MongoResourceSection>
+      <MongoResourceSection
+        eyebrow="Recommendation"
+        title="Collection validator"
+        description="Generate a validation rule from the sampled fields and review it before applying."
+        actions={(
           <button
             type="button"
             className="drawer-button"
             disabled={!onPlanOperation || !collection || fields.length === 0}
             onClick={previewValidator}
           >
-            Prepare Validator
+            Review generated validator
           </button>
-        </div>
-      </div>
+        )}
+      >
+        <MongoAdvancedDisclosure
+          label="Generated validator JSON"
+          description="Inspect the native MongoDB rule before reviewing the operation."
+        >
+          <pre className="object-view-code">{prettyJson(generateValidatorFromFields(fields, sampleSize))}</pre>
+        </MongoAdvancedDisclosure>
+      </MongoResourceSection>
     </div>
   )
 }

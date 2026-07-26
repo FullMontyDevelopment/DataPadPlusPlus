@@ -221,4 +221,43 @@ describe('workspace-search-index', () => {
     expect(search(next, 'result-secret-value').totalMatches).toBe(0)
     expect(search(next, 'workspace-search-private-text').totalMatches).toBe(0)
   })
+
+  it('indexes test suites only while the Datastore Tests plugin is enabled', () => {
+    const base = createSeedSnapshot()
+    const suite = {
+      id: 'suite-search',
+      name: 'Needle verification suite',
+      cases: [],
+    }
+    const testTab = {
+      ...base.tabs[0]!,
+      id: 'tab-test-search',
+      title: 'Needle verification suite',
+      tabKind: 'test-suite' as const,
+      testSuite: suite,
+    }
+    const snapshot: WorkspaceSnapshot = {
+      ...base,
+      preferences: {
+        ...base.preferences,
+        datastoreTests: { enabled: false },
+      },
+      libraryNodes: [{
+        id: 'library-test-search',
+        kind: 'test-suite',
+        name: suite.name,
+        tags: [],
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-06-01T00:00:00.000Z',
+        testSuite: suite,
+      }],
+      tabs: [testTab],
+      closedTabs: [],
+    }
+
+    expect(search(snapshot, 'Needle').totalMatches).toBe(0)
+
+    snapshot.preferences.datastoreTests = { enabled: true }
+    expect(search(snapshot, 'Needle').totalMatches).toBeGreaterThan(0)
+  })
 })

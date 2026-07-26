@@ -76,6 +76,7 @@ fn execution_request(
         confirmed_guardrail_id: None,
         builder_state: None,
         scoped_target: None,
+        datastore_execution_input: None,
     }
 }
 
@@ -591,6 +592,7 @@ async fn beta_adapter_contract_surfaces_operations_permissions_and_diagnostics(
             environment_id: "env-dev".into(),
             limit: Some(20),
             scope: None,
+            cursor: None,
         },
     )
     .await?;
@@ -729,6 +731,7 @@ async fn duckdb_local_file_fixture_validates_read_profile_catalog_and_guard_boun
             environment_id: "env-dev".into(),
             limit: Some(50),
             scope: None,
+            cursor: None,
         },
     )
     .await?;
@@ -748,6 +751,7 @@ async fn duckdb_local_file_fixture_validates_read_profile_catalog_and_guard_boun
             environment_id: "env-dev".into(),
             limit: Some(50),
             scope: Some("tables:main".into()),
+            cursor: None,
         },
     )
     .await?;
@@ -1780,6 +1784,7 @@ async fn postgres_adapter_fixture_roundtrip() -> Result<(), CommandError> {
             environment_id: "env-dev".into(),
             limit: Some(20),
             scope: None,
+            cursor: None,
         },
     )
     .await
@@ -2088,6 +2093,7 @@ async fn assert_mysql_explorer_tree(
         environment_id: "env-dev".into(),
         limit: Some(100),
         scope: scope.map(str::to_string),
+        cursor: None,
     };
 
     let root = adapters::list_explorer_nodes(connection, &request(None)).await?;
@@ -2254,6 +2260,7 @@ async fn sqlite_adapter_fixture_roundtrip() -> Result<(), CommandError> {
             environment_id: "env-dev".into(),
             limit: Some(20),
             scope: None,
+            cursor: None,
         },
     )
     .await?;
@@ -2266,6 +2273,7 @@ async fn sqlite_adapter_fixture_roundtrip() -> Result<(), CommandError> {
             environment_id: "env-dev".into(),
             limit: Some(1),
             scope: None,
+            cursor: None,
         },
     )
     .await?;

@@ -10,7 +10,7 @@ import type {
   QueryTabState,
 } from '@datapadplusplus/shared-types'
 import { DatastoreIcon } from '../DatastoreIcon'
-import { CloseIcon, DatabaseIcon, EnvironmentsIcon, ObjectSecurityIcon, ObjectServerIcon, SearchIcon, SettingsIcon, WarningIcon } from '../icons'
+import { CloseIcon, DatabaseIcon, EnvironmentsIcon, ObjectSecurityIcon, ObjectServerIcon, SearchIcon, SettingsIcon, TestSuiteIcon, WarningIcon } from '../icons'
 import { normalizeTabDisplayTitle } from './tab-title'
 
 export interface EditorTabDropTarget {
@@ -97,7 +97,13 @@ export function EditorTabItem({
       ? 'Workspace environment'
       : connection?.name ?? 'Unknown connection'
   const environmentName = environment?.label ?? 'No environment'
-  const tooltip = `${tab.title}\nConnection: ${connectionName}\nEnvironment: ${environmentName}${
+  const testSuiteContext =
+    tab.tabKind === 'test-suite' && tab.scopedTarget
+      ? `\nTarget: ${tab.scopedTarget.label}\nLanguage: ${
+          tab.testSuite?.inferredLanguage ?? 'inferred by adapter'
+        }`
+      : ''
+  const tooltip = `${tab.title}\nConnection: ${connectionName}\nEnvironment: ${environmentName}${testSuiteContext}${
     tabRunning
       ? `\nStatus: ${tab.activeExecution?.phase ?? tab.status}`
       : ''
@@ -162,6 +168,11 @@ export function EditorTabItem({
           className="editor-tab-fallback-icon"
           aria-label="Environment icon"
         />
+      ) : tab.tabKind === 'test-suite' ? (
+        <TestSuiteIcon
+          className="editor-tab-fallback-icon"
+          aria-label="Test Suite icon"
+        />
       ) : connection ? (
         <DatastoreIcon
           className="editor-tab-datastore-icon"
@@ -201,6 +212,14 @@ export function EditorTabItem({
       ) : (
         <span className="editor-tab-label">{normalizeTabDisplayTitle(tab.title)}</span>
       )}
+      {!editing && tab.tabKind === 'test-suite' && tab.scopedTarget ? (
+        <span
+          className="editor-tab-target"
+          title={`Bound target: ${tab.scopedTarget.label}`}
+        >
+          {tab.scopedTarget.label}
+        </span>
+      ) : null}
       {showUnsavedChanges ? (
         <span className="editor-tab-dirty" title="Unsaved changes" aria-hidden="true" />
       ) : null}

@@ -74,6 +74,8 @@ import {
   Sun,
   Table2,
   Terminal,
+  TestTubeDiagonal,
+  TestTubes,
   Trash2,
   Upload,
   UserRound,
@@ -104,6 +106,8 @@ export const ExplorerIcon = adapt(FolderTree)
 export const SavedWorkIcon = adapt(BookMarked)
 export const GuideIcon = adapt(BookOpen)
 export const TestsIcon = adapt(FlaskConical)
+export const TestSuiteIcon = adapt(TestTubes)
+export const TestCaseIcon = adapt(TestTubeDiagonal)
 export const SearchIcon = adapt(Search)
 export const CaseSensitiveIcon = adapt(CaseSensitive)
 export const WholeWordIcon = adapt(WholeWord)

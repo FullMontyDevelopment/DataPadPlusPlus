@@ -48,6 +48,7 @@ fn execute_sqlite_query_reads_tables_from_database_path() {
                 confirmed_guardrail_id: None,
                 builder_state: None,
                 scoped_target: None,
+                datastore_execution_input: None,
             },
             Vec::new(),
         )
@@ -136,6 +137,7 @@ fn execute_sqlite_query_returns_batch_sections_for_multiple_selects() {
                 confirmed_guardrail_id: None,
                 builder_state: None,
                 scoped_target: None,
+                datastore_execution_input: None,
             },
             Vec::new(),
         )

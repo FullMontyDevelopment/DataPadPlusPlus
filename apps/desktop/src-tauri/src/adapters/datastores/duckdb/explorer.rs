@@ -62,6 +62,7 @@ pub(super) async fn list_duckdb_explorer_nodes(
         ),
         capabilities: duckdb_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

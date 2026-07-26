@@ -286,7 +286,9 @@ test('datastore registry smoke tests derive expected engines from the shared roa
   }
 
   for (const token of [
-    'objectViewWorkspace',
+    'slice.explorer',
+    'slice.objectView',
+    'detailProviders',
     'relationalDescriptor',
     'relationalInsights',
     'warehouseInsights',

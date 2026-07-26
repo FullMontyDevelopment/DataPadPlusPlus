@@ -1,10 +1,12 @@
 use super::{
-    collection_info_payload, gridfs_buckets_from_infos, infer_schema_fields, is_gridfs_collection,
-    mongodb_collection_children, mongodb_collection_node, mongodb_database_children,
-    mongodb_root_database_nodes, MongoCollectionInfo,
+    collection_info_payload, gridfs_buckets_from_infos, gridfs_chunk_payload, gridfs_file_payload,
+    infer_schema_fields, is_gridfs_collection, mongodb_collection_children,
+    mongodb_collection_node, mongodb_database_children, mongodb_principal_payload,
+    mongodb_root_database_nodes, split_database_collection_item, split_database_item,
+    MongoCollectionInfo,
 };
 use crate::domain::models::ResolvedConnectionProfile;
-use mongodb::bson::doc;
+use mongodb::bson::{doc, spec::BinarySubtype, Binary};
 
 #[test]
 fn mongodb_root_nodes_separate_user_and_system_databases() {
@@ -142,17 +144,17 @@ fn mongodb_database_overview_helpers_classify_collections() {
     let infos = vec![
         MongoCollectionInfo {
             name: "products".into(),
-            collection_type: "collection".into(),
+            collection_type: mongodb::results::CollectionType::Collection,
             options: doc! {},
         },
         MongoCollectionInfo {
             name: "fs.files".into(),
-            collection_type: "collection".into(),
+            collection_type: mongodb::results::CollectionType::Collection,
             options: doc! {},
         },
         MongoCollectionInfo {
             name: "active_products".into(),
-            collection_type: "view".into(),
+            collection_type: mongodb::results::CollectionType::View,
             options: doc! { "pipeline": [{ "$match": { "active": true } }] },
         },
     ];
@@ -163,6 +165,68 @@ fn mongodb_database_overview_helpers_classify_collections() {
     let view = collection_info_payload(&infos[2]);
     assert_eq!(view["name"], "active_products");
     assert_eq!(view["pipeline"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn mongodb_gridfs_payloads_are_bounded_metadata_without_binary_bodies() {
+    let file = gridfs_file_payload(&doc! {
+        "_id": "file-1",
+        "filename": "report.pdf",
+        "length": 2048_i64,
+        "metadata": { "tenant": "qa" },
+    });
+    let chunk = gridfs_chunk_payload(&doc! {
+        "_id": "chunk-1",
+        "files_id": "file-1",
+        "n": 0_i32,
+        "data": Binary {
+            subtype: BinarySubtype::Generic,
+            bytes: vec![1, 2, 3, 4],
+        },
+    });
+
+    assert_eq!(file["filename"], "report.pdf");
+    assert_eq!(chunk["size"], 4);
+    assert_eq!(chunk["files_id"], "file-1");
+    assert!(chunk.get("data").is_none());
+    assert!(!chunk.to_string().contains("AQIDBA"));
+}
+
+#[test]
+fn mongodb_leaf_inspection_scopes_preserve_database_collection_and_item_names() {
+    assert_eq!(
+        split_database_collection_item("catalog:products:sku_1", "admin"),
+        ("catalog".into(), "products".into(), "sku_1".into())
+    );
+    assert_eq!(
+        split_database_item("catalog:fixture_reader", "admin"),
+        ("catalog".into(), "fixture_reader".into())
+    );
+}
+
+#[test]
+fn mongodb_principal_payload_excludes_credentials_and_password_material() {
+    let payload = mongodb_principal_payload(
+        &doc! {
+            "user": "fixture_reader",
+            "db": "catalog",
+            "roles": [{ "role": "read", "db": "catalog" }],
+            "inheritedPrivileges": [{
+                "resource": { "db": "catalog", "collection": "products" },
+                "actions": ["find"],
+            }],
+            "credentials": { "SCRAM-SHA-256": { "storedKey": "secret" } },
+            "password": "secret",
+        },
+        "user",
+    );
+
+    assert_eq!(payload["user"], "fixture_reader");
+    assert_eq!(payload["roles"][0]["role"], "read");
+    assert_eq!(payload["inheritedPrivileges"][0]["actions"][0], "find");
+    assert!(payload.get("credentials").is_none());
+    assert!(payload.get("password").is_none());
+    assert!(!payload.to_string().contains("secret"));
 }
 
 fn resolved_connection(database: Option<&str>) -> ResolvedConnectionProfile {

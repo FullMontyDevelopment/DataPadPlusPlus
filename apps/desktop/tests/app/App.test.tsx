@@ -13,6 +13,7 @@ import { createObjectViewTabInSnapshot } from '../../src/services/runtime/browse
 import { App } from '../../src/app/App'
 import { createBlankBootstrapPayload } from '../../src/app/data/workspace-factory'
 import { startupConnectionHealthTargets } from '../../src/app/state/app-state'
+import { createDefaultCosmosSqlBuilderState } from '../../src/app/components/workbench/query-builder/cosmos-sql'
 
 vi.mock('@monaco-editor/react', () => ({
   default: ({
@@ -324,6 +325,65 @@ async function createCatalogMongoWithBuilderTab() {
   }, { timeout: 4000 })
 }
 
+function cosmosQuerySnapshot(customEditor = false) {
+  const snapshot = createBlankBootstrapPayload().snapshot
+  const environment = testEnvironment('env-local', 'Local')
+  const connection: ConnectionProfile = {
+    ...startupConnection('conn-cosmos', 'Orders Cosmos'),
+    engine: 'cosmosdb',
+    family: 'document',
+    port: 443,
+    database: 'catalog',
+    icon: 'COS',
+    cosmosDbOptions: {
+      api: 'nosql',
+      databaseName: 'catalog',
+      containerPrefix: 'orders',
+    },
+  }
+  const builderState = createDefaultCosmosSqlBuilderState('orders', 'catalog', 25)
+  if (customEditor) {
+    builderState.editorState = {
+      kind: 'cosmos-sql',
+      sql: 'SELECT VALUE c.id FROM c WHERE c.status = @status',
+      parameters: [{
+        id: 'status',
+        name: '@status',
+        valueType: 'string',
+        value: 'custom',
+      }],
+      source: 'custom',
+    }
+  }
+  snapshot.environments = [environment]
+  snapshot.connections = [connection]
+  snapshot.tabs = [{
+    id: 'tab-cosmos',
+    title: 'orders.sql',
+    connectionId: connection.id,
+    environmentId: environment.id,
+    family: 'document',
+    language: 'sql',
+    editorLabel: 'Cosmos SQL',
+    queryText: builderState.lastAppliedQueryText ?? '',
+    queryViewMode: 'builder',
+    scopedTarget: {
+      kind: 'container',
+      label: 'orders',
+      path: ['catalog', 'orders'],
+      preferredBuilder: 'cosmos-sql',
+    },
+    builderState,
+    status: 'idle',
+    dirty: false,
+    history: [],
+  }]
+  snapshot.ui.activeTabId = 'tab-cosmos'
+  snapshot.ui.activeConnectionId = connection.id
+  snapshot.ui.activeEnvironmentId = environment.id
+  return snapshot
+}
+
 describe('App', () => {
   it('keys startup connection checks by connection and environment revision', () => {
     const payload = createBlankBootstrapPayload()
@@ -511,7 +571,11 @@ describe('App', () => {
     guide = await screen.findByRole('dialog', { name: 'Create a connection' })
     fireEvent.click(within(guide).getByRole('button', { name: 'New Connection' }))
 
-    const drawer = await screen.findByLabelText('connection drawer')
+    const drawer = await screen.findByLabelText(
+      'connection drawer',
+      {},
+      { timeout: 5_000 },
+    )
     guide = await screen.findByRole('dialog', { name: 'Create a connection' })
     expect(within(drawer).getByLabelText('Name')).toHaveValue('PostgreSQL connection')
     fireEvent.click(within(guide).getByRole('button', { name: 'Next' }))
@@ -519,7 +583,11 @@ describe('App', () => {
     await screen.findByRole('dialog', { name: 'Test and save' })
     fireEvent.click(within(drawer).getByLabelText('Close drawer'))
 
-    const reopenedDrawer = await screen.findByLabelText('connection drawer')
+    const reopenedDrawer = await screen.findByLabelText(
+      'connection drawer',
+      {},
+      { timeout: 5_000 },
+    )
     await screen.findByRole('dialog', { name: 'Test and save' })
     expect(within(reopenedDrawer).getByLabelText('Name')).toHaveValue('PostgreSQL connection')
 
@@ -1101,12 +1169,16 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: 'PostgreSQL connection' }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Visual database structure' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'PostgreSQL Explorer' })).toBeInTheDocument()
 
     expect(screen.queryByLabelText('Activity bar')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('Open settings'))
-    const settingsTab = await screen.findByRole('tab', { name: /Settings/i })
+    const settingsTab = await screen.findByRole(
+      'tab',
+      { name: /Settings/i },
+      { timeout: 5_000 },
+    )
     expect(settingsTab).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('heading', { level: 2, name: 'Appearance' })).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('Close tab Settings'))
@@ -1152,7 +1224,7 @@ describe('App', () => {
         screen.getByRole('tab', { name: /Explorer - PostgreSQL connection/i }),
       ).toBeInTheDocument()
     })
-    expect(screen.getByRole('region', { name: 'Visual database structure' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'PostgreSQL Explorer' })).toBeInTheDocument()
     expect(
       screen.queryByRole('menuitem', {
         name: 'Save tab Explorer - PostgreSQL connection',
@@ -1173,51 +1245,54 @@ describe('App', () => {
         screen.getByRole('tab', { name: /Explorer - PostgreSQL connection/i }),
       ).toBeInTheDocument()
     })
-    expect(screen.getByRole('region', { name: 'Visual database structure' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'PostgreSQL Explorer' })).toBeInTheDocument()
   })
 
-  it('inspects Explorer objects in the bottom Details panel without opening the right drawer', async () => {
+  it('inspects Explorer objects in the purpose-built detail pane without opening another panel', async () => {
     render(<App />)
 
     await createFirstConnection()
     await openExplorerFromConnection()
 
-    const explorer = await screen.findByRole('region', { name: 'Visual database structure' })
+    const explorer = await screen.findByRole('region', { name: 'PostgreSQL Explorer' })
+    fireEvent.click(await within(explorer).findByRole('button', { name: 'Expand public' }))
+    fireEvent.click(await within(explorer).findByRole('button', { name: 'Expand Tables' }))
     const accountsButtons = await within(explorer).findAllByRole('button', { name: /accounts/i })
-    const catalogButton = accountsButtons.find((button) =>
-      button.classList.contains('sql-rel-catalog-row'),
+    const accountsButton = accountsButtons.find((button) =>
+      button.classList.contains('datastore-explorer-node'),
     )
-    expect(catalogButton).toBeDefined()
-    fireEvent.click(catalogButton!)
-    const inspectButton = await within(explorer).findByRole('button', { name: 'Inspect accounts' })
-
-    fireEvent.click(inspectButton)
+    expect(accountsButton).toBeDefined()
+    fireEvent.click(accountsButton!)
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Bottom panel')).toBeInTheDocument()
-      expect(screen.getByRole('tab', { name: 'details' })).toHaveAttribute(
-        'aria-selected',
-        'true',
-      )
-      expect(
-        screen.getByText('Inspection ready for public.accounts on PostgreSQL connection.'),
-      ).toBeInTheDocument()
+      expect(within(explorer).getByRole('heading', { name: 'accounts' })).toBeInTheDocument()
+      expect(within(explorer).getByRole('heading', { name: 'Columns' })).toBeInTheDocument()
     }, { timeout: 5_000 })
+    expect(screen.queryByLabelText('Bottom panel')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('inspection drawer')).not.toBeInTheDocument()
   }, 10_000)
 
   it('treats empty Explorer metadata as loaded instead of reloading forever', async () => {
-    const loadStructureSpy = vi
-      .spyOn(desktopClient, 'loadStructureMap')
+    const loadExplorerSpy = vi
+      .spyOn(desktopClient, 'loadExplorer')
       .mockImplementation(async (request) => ({
         connectionId: request.connectionId,
         environmentId: request.environmentId,
-        engine: 'postgresql',
-        summary: 'Loaded 0 structure node(s).',
-        groups: [],
+        scope: request.scope,
+        summary: 'Loaded 0 explorer node(s).',
+        capabilities: {
+          canCancel: true,
+          canExplain: true,
+          supportsLiveMetadata: true,
+          editorLanguage: 'sql',
+          defaultRowLimit: 100,
+        },
         nodes: [],
-        edges: [],
-        metrics: [],
+        pageInfo: {
+          returnedCount: 0,
+          knownTotal: 0,
+          hasMore: false,
+        },
       }))
 
     render(<App />)
@@ -1226,11 +1301,11 @@ describe('App', () => {
     await openExplorerFromConnection()
 
     await waitFor(() => {
-      expect(screen.getByText('No structure objects found')).toBeInTheDocument()
+      expect(screen.getByText('No objects returned')).toBeInTheDocument()
     })
     await waitFor(() => {
-      expect(screen.queryByText('Loading structure...')).not.toBeInTheDocument()
-      expect(loadStructureSpy).toHaveBeenCalledTimes(1)
+      expect(screen.queryByText('Loading metadata…')).not.toBeInTheDocument()
+      expect(loadExplorerSpy).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -2131,6 +2206,18 @@ describe('App', () => {
   })
 
   it('supports VS Code-style tab close actions from the context menu', async () => {
+    const closeTabs = desktopClient.closeQueryTabs.bind(desktopClient)
+    let releaseBulkClose: () => void = () => undefined
+    const bulkCloseGate = new Promise<void>((resolve) => {
+      releaseBulkClose = resolve
+    })
+    const closeTabsSpy = vi
+      .spyOn(desktopClient, 'closeQueryTabs')
+      .mockImplementationOnce(async (request) => {
+        await bulkCloseGate
+        return closeTabs(request)
+      })
+
     render(<App />)
 
     await createFirstConnection()
@@ -2148,6 +2235,11 @@ describe('App', () => {
       screen.getByRole('menuitem', { name: /Close other tabs except Query 1/i }),
     )
 
+    expect(within(tablist).getAllByRole('tab')).toHaveLength(3)
+    expect(closeTabsSpy).toHaveBeenCalledTimes(1)
+    expect(closeTabsSpy.mock.calls[0]?.[0].tabIds).toHaveLength(2)
+
+    releaseBulkClose()
     await waitFor(() => {
       expect(within(tablist).getAllByRole('tab')).toHaveLength(1)
     })
@@ -2498,6 +2590,139 @@ describe('App', () => {
     expect(updateBuilderSpy).not.toHaveBeenCalled()
   })
 
+  it('executes the latest Cosmos builder fields, filters, sort, and paging as validated input', async () => {
+    const snapshot = createBlankBootstrapPayload().snapshot
+    const environment = testEnvironment('env-local', 'Local')
+    const connection: ConnectionProfile = {
+      ...startupConnection('conn-cosmos', 'Orders Cosmos'),
+      engine: 'cosmosdb',
+      family: 'document',
+      port: 443,
+      database: 'catalog',
+      icon: 'COS',
+      cosmosDbOptions: {
+        api: 'nosql',
+        databaseName: 'catalog',
+        containerPrefix: 'orders',
+      },
+    }
+    const builderState = createDefaultCosmosSqlBuilderState('orders', 'catalog', 25)
+    snapshot.environments = [environment]
+    snapshot.connections = [connection]
+    snapshot.tabs = [{
+      id: 'tab-cosmos',
+      title: 'orders.sql',
+      connectionId: connection.id,
+      environmentId: environment.id,
+      family: 'document',
+      language: 'sql',
+      editorLabel: 'Cosmos SQL',
+      queryText: builderState.lastAppliedQueryText ?? '',
+      queryViewMode: 'builder',
+      scopedTarget: {
+        kind: 'container',
+        label: 'orders',
+        path: ['catalog', 'orders'],
+        preferredBuilder: 'cosmos-sql',
+      },
+      builderState,
+      status: 'idle',
+      dirty: false,
+      history: [],
+    }]
+    snapshot.ui.activeTabId = 'tab-cosmos'
+    snapshot.ui.activeConnectionId = connection.id
+    snapshot.ui.activeEnvironmentId = environment.id
+    saveBrowserSnapshot(snapshot)
+    const executeSpy = vi.spyOn(desktopClient, 'executeQuery')
+
+    render(<App />)
+    const builder = await screen.findByLabelText('Cosmos DB SQL query builder')
+    fireEvent.click(within(builder).getByRole('button', { name: 'Add Field' }))
+    fireEvent.change(within(builder).getByLabelText('Projection field'), {
+      target: { value: 'customer.name' },
+    })
+    fireEvent.click(within(builder).getByRole('button', { name: 'Add Filter' }))
+    fireEvent.change(within(builder).getByLabelText('Filter field'), {
+      target: { value: 'status' },
+    })
+    fireEvent.change(within(builder).getByLabelText('Filter value'), {
+      target: { value: 'open' },
+    })
+    fireEvent.click(within(builder).getByRole('button', { name: 'Add Sort' }))
+    fireEvent.change(within(builder).getByLabelText('Sort field'), {
+      target: { value: 'createdAt' },
+    })
+    fireEvent.change(within(builder).getByLabelText('Sort direction'), {
+      target: { value: 'desc' },
+    })
+    fireEvent.change(within(builder).getByLabelText('Offset'), {
+      target: { value: '10' },
+    })
+    fireEvent.change(within(builder).getByLabelText('Limit'), {
+      target: { value: '20' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run query' }))
+
+    await waitFor(() => expect(executeSpy).toHaveBeenCalled())
+    expect(executeSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+      executionInputMode: 'builder',
+      queryText:
+        'SELECT c["customer"]["name"] FROM c WHERE c["status"] = @p0 ORDER BY c["createdAt"] DESC OFFSET 10 LIMIT 20',
+      datastoreExecutionInput: {
+        kind: 'cosmos-sql',
+        database: 'catalog',
+        container: 'orders',
+        sql:
+          'SELECT c["customer"]["name"] FROM c WHERE c["status"] = @p0 ORDER BY c["createdAt"] DESC OFFSET 10 LIMIT 20',
+        parameters: [{ name: '@p0', value: 'open' }],
+        enableCrossPartitionQueries: true,
+      },
+    })
+  }, 10000)
+
+  it('shows only Cosmos Query Builder and Query Editor and explicitly copies over a custom draft', async () => {
+    saveBrowserSnapshot(cosmosQuerySnapshot(true))
+    const updateEditorSpy = vi.spyOn(desktopClient, 'updateDatastoreQueryEditorState')
+
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: 'Query Builder' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Query Editor' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Raw' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Query Editor' }))
+    expect(await screen.findByLabelText('Query editor')).toHaveValue(
+      'SELECT VALUE c.id FROM c WHERE c.status = @status',
+    )
+    expect(screen.queryByText(/"operation"\s*:\s*"QueryDocuments"/)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Query Builder' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Use in Query Editor' }))
+
+    const confirmation = await screen.findByRole('dialog', {
+      name: 'Replace the Query Editor draft?',
+    })
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Replace draft' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Query editor')).toHaveValue('SELECT TOP 25 * FROM c')
+    })
+    await waitFor(() => {
+      expect(updateEditorSpy).toHaveBeenCalledWith(expect.objectContaining({
+        tabId: 'tab-cosmos',
+        queryText: 'SELECT TOP 25 * FROM c',
+        queryViewMode: 'raw',
+        editorState: expect.objectContaining({
+          kind: 'cosmos-sql',
+          source: 'builder',
+          sql: 'SELECT TOP 25 * FROM c',
+        }),
+      }))
+    })
+  }, 10000)
+
   it('keeps a tab closed when a delayed builder update resolves after persistence warning', async () => {
     render(<App />)
     await createCatalogMongoWithBuilderTab()
@@ -2510,14 +2735,20 @@ describe('App', () => {
     const updateBuilderSpy = vi
       .spyOn(desktopClient, 'updateQueryBuilderState')
       .mockReturnValue(pendingBuilderUpdate)
-    const closeQueryTab = desktopClient.closeQueryTab.bind(desktopClient)
-    vi.spyOn(desktopClient, 'closeQueryTab').mockImplementation(async (tabId) => ({
-      ...await closeQueryTab(tabId),
-      persistenceWarning: {
-        code: 'workspace-save-blocked',
-        message: 'The tab closed, but the workspace file is temporarily in use.',
-      },
-    }))
+    const closeQueryTabs = desktopClient.closeQueryTabs.bind(desktopClient)
+    vi.spyOn(desktopClient, 'closeQueryTabs').mockImplementation(async (request) => {
+      const response = await closeQueryTabs(request)
+      return {
+        ...response,
+        payload: {
+          ...response.payload,
+          persistenceWarning: {
+            code: 'workspace-save-blocked',
+            message: 'The tab closed, but the workspace file is temporarily in use.',
+          },
+        },
+      }
+    })
 
     const builder = screen.getByLabelText('MongoDB query builder')
     fireEvent.click(within(builder).getAllByRole('button', { name: 'Add Filter' })[0] as HTMLElement)
@@ -2833,15 +3064,17 @@ describe('App', () => {
   })
 
   it('keeps explorer load failures local to the explorer pane', async () => {
-    vi.spyOn(desktopClient, 'loadStructureMap').mockRejectedValueOnce(
-      new Error('Explorer fixture unavailable'),
-    )
-
     render(<App />)
 
     await createFirstConnection()
 
+    vi.spyOn(desktopClient, 'loadExplorer').mockRejectedValue(
+      new Error('Explorer fixture unavailable'),
+    )
+
     await openExplorerFromConnection()
+    const explorer = await screen.findByRole('region', { name: 'PostgreSQL Explorer' })
+    fireEvent.click(within(explorer).getByRole('button', { name: 'Refresh' }))
 
     await waitFor(() => {
       expect(screen.getByText('Explorer fixture unavailable')).toBeInTheDocument()

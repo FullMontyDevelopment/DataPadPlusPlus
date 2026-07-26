@@ -96,6 +96,7 @@ pub(super) async fn list_oracle_explorer_nodes(
         ),
         capabilities: oracle_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

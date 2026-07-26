@@ -36,6 +36,7 @@ pub(super) async fn list_dynamodb_explorer_nodes(
         ),
         capabilities: dynamodb_execution_capabilities(),
         nodes,
+        page_info: None,
     })
 }
 

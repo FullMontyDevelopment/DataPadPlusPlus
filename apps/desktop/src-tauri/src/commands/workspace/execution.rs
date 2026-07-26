@@ -145,21 +145,137 @@ pub async fn execute_query_request(
 }
 
 #[tauri::command]
-pub fn execute_test_suite(
+pub async fn execute_test_suite(
     state: State<'_, SharedAppState>,
-    request: ExecuteTestSuiteRequest,
+    test_runs: State<'_, SharedTestRunRegistry>,
+    mut request: ExecuteTestSuiteRequest,
 ) -> Result<ExecuteTestSuiteResponse, CommandError> {
-    let mut state = lock_state(&state)?;
-    state.execute_test_suite(request)
+    let run_id = request
+        .run_id
+        .clone()
+        .unwrap_or_else(|| generate_id("test-run"));
+    request.run_id = Some(run_id.clone());
+    let tab_id = request.tab_id.clone();
+    let (cancel_sender, cancel_receiver) = tokio::sync::watch::channel(false);
+    {
+        let mut runs = lock_test_runs(&test_runs)?;
+        runs.register(run_id.clone(), cancel_sender)
+            .map_err(|message| CommandError::new("test-run-active", message))?;
+    }
+    if let Err(error) = mark_tab_execution_running(
+        &state,
+        &tab_id,
+        &run_id,
+        Some("Running datastore test suite".into()),
+    ) {
+        if let Ok(mut runs) = lock_test_runs(&test_runs) {
+            runs.remove(&run_id);
+        }
+        return Err(error);
+    }
+    let mut runtime = match clone_runtime(&state) {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            if let Ok(mut runs) = lock_test_runs(&test_runs) {
+                runs.remove(&run_id);
+            }
+            clear_tab_execution_after_error_best_effort(
+                &state,
+                &tab_id,
+                &run_id,
+                error.message.clone(),
+            );
+            return Err(error);
+        }
+    };
+    let execution = runtime
+        .execute_test_suite_with_cancellation(request, cancel_receiver)
+        .await;
+    {
+        let mut runs = lock_test_runs(&test_runs)?;
+        runs.remove(&run_id);
+    }
+
+    match execution {
+        Ok(response) => merge_test_suite_response(&state, response, &run_id),
+        Err(error) => {
+            clear_tab_execution_after_error_best_effort(
+                &state,
+                &tab_id,
+                &run_id,
+                error.message.clone(),
+            );
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+pub fn plan_test_suite_run(
+    state: State<'_, SharedAppState>,
+    request: DatastoreTestRunPlanRequest,
+) -> Result<DatastoreTestRunPlanResponse, CommandError> {
+    let runtime = clone_runtime(&state)?;
+    runtime.plan_test_suite_run(request)
 }
 
 #[tauri::command]
 pub fn cancel_test_run(
     state: State<'_, SharedAppState>,
+    test_runs: State<'_, SharedTestRunRegistry>,
     request: CancelTestRunRequest,
 ) -> Result<CancelExecutionResult, CommandError> {
+    {
+        let runs = lock_test_runs(&test_runs)?;
+        runs.cancel(&request.run_id);
+    }
     let mut state = lock_state(&state)?;
     state.cancel_test_run(request)
+}
+
+fn merge_test_suite_response(
+    state: &State<'_, SharedAppState>,
+    mut response: ExecuteTestSuiteResponse,
+    run_id: &str,
+) -> Result<ExecuteTestSuiteResponse, CommandError> {
+    let mut state = lock_state(state)?;
+    let Some(index) = state
+        .snapshot
+        .tabs
+        .iter()
+        .position(|tab| tab.id == response.tab.id)
+    else {
+        return Err(CommandError::new(
+            "tab-missing",
+            "Test suite tab was closed before the run completed.",
+        ));
+    };
+    let current = state.snapshot.tabs[index].clone();
+    if current
+        .active_execution
+        .as_ref()
+        .is_some_and(|active| active.execution_id != run_id)
+    {
+        return Err(CommandError::new(
+            "test-run-stale",
+            "A newer test run now owns this tab.",
+        ));
+    }
+    response.tab.title = current.title;
+    response.tab.pinned = current.pinned;
+    response.tab.save_target = current.save_target;
+    response.tab.saved_query_id = current.saved_query_id;
+    response.tab.dirty = current.dirty;
+    response.tab.active_execution = None;
+    state.snapshot.tabs[index] = response.tab.clone();
+    state.snapshot.ui.active_tab_id = response.tab.id.clone();
+    state.snapshot.ui.active_connection_id = response.tab.connection_id.clone();
+    state.snapshot.ui.active_environment_id = response.tab.environment_id.clone();
+    state.snapshot.ui.bottom_panel_visible = true;
+    state.snapshot.ui.active_bottom_panel_tab = "results".into();
+    state.snapshot.updated_at = timestamp_now();
+    state.persist()?;
+    Ok(response)
 }
 
 #[tauri::command]

@@ -58,6 +58,7 @@ pub(super) async fn list_mysql_explorer_nodes(
         ),
         capabilities: sql_capabilities(false, false),
         nodes,
+        page_info: None,
     })
 }
 

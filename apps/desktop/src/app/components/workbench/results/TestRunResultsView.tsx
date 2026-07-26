@@ -1,5 +1,6 @@
 import type { DatastoreTestRunResult } from '@datapadplusplus/shared-types'
 import { ClockIcon } from '../icons'
+import { datastoreTestTargetBreadcrumb } from '../query-targets/test-suite-target-registry'
 import { formatDurationClock } from './result-runtime'
 
 interface TestRunResultsViewProps {
@@ -41,6 +42,15 @@ export function TestRunResultsView({ run }: TestRunResultsViewProps) {
           {formatDurationClock(run.durationMs)}
         </span>
       </div>
+
+      {run.scopedTarget ? (
+        <div className="test-run-context" aria-label="Test run datastore binding">
+          <strong>{datastoreTestTargetBreadcrumb(run.scopedTarget)}</strong>
+          <span>{run.connectionId}</span>
+          <span>{run.environmentId}</span>
+          <span>{run.inferredLanguage}</span>
+        </div>
+      ) : null}
 
       {run.warnings.length > 0 ? (
         <div className="test-run-warning-list">

@@ -142,6 +142,7 @@ export function queryTargetOptions(
   nodes: ExplorerNode[],
   currentTarget: ScopedQueryTarget | undefined,
   builderState: QueryBuilderState | undefined,
+  selectableLevelIds?: ReadonlySet<string>,
 ) {
   const registry = queryTargetRegistryForEngine(connection.engine)
   const options = registry.levels.map(() => [] as QueryTargetOption[])
@@ -171,7 +172,12 @@ export function queryTargetOptions(
         values,
         scope: explicitLevel ? node.scope : undefined,
         target:
-          explicitLevel && (targetLevel.selectable || levelIndex === registry.levels.length - 1)
+          explicitLevel &&
+          (
+            targetLevel.selectable ||
+            selectableLevelIds?.has(targetLevel.id) ||
+            levelIndex === registry.levels.length - 1
+          )
             ? target
             : undefined,
       })

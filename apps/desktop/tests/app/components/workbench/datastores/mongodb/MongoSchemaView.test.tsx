@@ -55,7 +55,7 @@ describe('MongoSchemaView', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Prepare Validator' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review generated validator' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.validation.update',
       objectName: 'products',

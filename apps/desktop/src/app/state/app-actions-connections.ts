@@ -18,7 +18,6 @@ type ConnectionActions = Pick<
   | 'selectConnection'
   | 'selectEnvironment'
   | 'createConnection'
-  | 'duplicateConnection'
   | 'deleteConnection'
   | 'saveConnection'
   | 'createEnvironment'
@@ -72,42 +71,6 @@ export function useConnectionActions({
         }
 
         const profile = createConnectionProfile(environmentId)
-
-        await desktopClient.upsertConnection(profile)
-        await desktopClient.createQueryTab(profile.id)
-        applyPayload(
-          await desktopClient.updateUiState({
-            activeActivity: 'library',
-            activeSidebarPane: 'library',
-            rightDrawer: 'connection',
-          }),
-        )
-      } catch (error) {
-        handleError(error)
-      }
-    },
-    [applyPayload, handleError, state.payload],
-  )
-
-  const duplicateConnection = useCallback<Actions['duplicateConnection']>(
-    async (connectionId) => {
-      try {
-        if (!state.payload) {
-          throw new Error('Workspace is not ready for connection duplication.')
-        }
-        ensureWorkspaceUnlocked(state.payload)
-        const source = state.payload.snapshot.connections.find(
-          (connection) => connection.id === connectionId,
-        )
-
-        if (!source) {
-          throw new Error('Connection was not found.')
-        }
-
-        const profile = createConnectionProfile(
-          state.payload.snapshot.ui.activeEnvironmentId,
-          source,
-        )
 
         await desktopClient.upsertConnection(profile)
         await desktopClient.createQueryTab(profile.id)
@@ -241,7 +204,6 @@ export function useConnectionActions({
       selectConnection,
       selectEnvironment,
       createConnection,
-      duplicateConnection,
       deleteConnection,
       saveConnection,
       createEnvironment,
@@ -253,7 +215,6 @@ export function useConnectionActions({
       createEnvironment,
       deleteEnvironment,
       deleteConnection,
-      duplicateConnection,
       saveConnection,
       saveEnvironment,
       selectConnection,

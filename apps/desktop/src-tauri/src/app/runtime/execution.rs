@@ -1,4 +1,6 @@
+use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 
 use super::{
     environments::resolve_string_template,
@@ -64,6 +66,11 @@ impl ManagedAppState {
             .script_text
             .as_deref()
             .map(|value| resolve_string_template(value, &resolved_environment.variables))
+            .transpose()?;
+        resolved_request.datastore_execution_input = request
+            .datastore_execution_input
+            .as_ref()
+            .map(|value| resolve_json_templates(value, &resolved_environment.variables))
             .transpose()?;
         let mut guardrail = security::evaluate_guardrails(
             &profile,
@@ -300,6 +307,28 @@ impl ManagedAppState {
         let (resolved, _, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
         adapters::fetch_document_node_children(&resolved, &request).await
+    }
+}
+
+fn resolve_json_templates(
+    value: &Value,
+    variables: &HashMap<String, String>,
+) -> Result<Value, CommandError> {
+    match value {
+        Value::String(value) => Ok(Value::String(resolve_string_template(value, variables)?)),
+        Value::Array(values) => values
+            .iter()
+            .map(|value| resolve_json_templates(value, variables))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Array),
+        Value::Object(values) => values
+            .iter()
+            .map(|(key, value)| {
+                resolve_json_templates(value, variables).map(|value| (key.clone(), value))
+            })
+            .collect::<Result<serde_json::Map<_, _>, _>>()
+            .map(Value::Object),
+        _ => Ok(value.clone()),
     }
 }
 
@@ -577,7 +606,7 @@ fn normalized_kind(value: &str) -> String {
     value.trim().to_ascii_lowercase().replace(['_', ' '], "-")
 }
 
-fn confirmation_guardrail_id(
+pub(super) fn confirmation_guardrail_id(
     connection_id: &str,
     environment_id: &str,
     mode: &str,
