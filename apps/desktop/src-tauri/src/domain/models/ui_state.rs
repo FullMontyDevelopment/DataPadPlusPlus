@@ -39,6 +39,7 @@ pub struct AppPreferences {
     pub theme: String,
     pub telemetry: String,
     pub lock_after_minutes: u32,
+    #[serde(default)]
     pub safe_mode_enabled: bool,
     #[serde(default)]
     pub keyboard_shortcuts: HashMap<String, String>,

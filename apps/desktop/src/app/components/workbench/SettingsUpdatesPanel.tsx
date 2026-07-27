@@ -43,7 +43,9 @@ export function SettingsUpdatesPanel({
   onSetUpdatePrereleases,
 }: SettingsUpdatesProps) {
   const updates = updateSettings ?? {
+    buildChannel: 'stable',
     includePrereleases: false,
+    prereleaseAutoEnabled: false,
     supported: false,
   }
   const availableUpdate = updateCheckResult?.status === 'available'
@@ -68,11 +70,27 @@ export function SettingsUpdatesPanel({
           <input
             type="checkbox"
             checked={updates.includePrereleases}
-            disabled={!updates.supported || updateBusy}
+            disabled={updateBusy}
             onChange={(event) => onSetUpdatePrereleases(event.target.checked)}
           />
           <span>Pre-release updates</span>
         </label>
+        {updates.buildChannel === 'prerelease' ? (
+          <div className="settings-channel-note" role="note">
+            <strong>
+              {updates.prereleaseAutoEnabled
+                ? 'Enabled automatically for this pre-release build'
+                : updates.includePrereleases
+                  ? 'Pre-release update channel enabled'
+                  : 'Stable-only update checks selected'}
+            </strong>
+            <span>
+              {updates.includePrereleases
+                ? 'DataPad++ will include pre-release fixes in update checks. You can turn this off at any time.'
+                : 'Opting out may omit fixes that are published only as pre-release builds.'}
+            </span>
+          </div>
+        ) : null}
         <div className="settings-action-row">
           <button
             type="button"

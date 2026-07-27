@@ -28,11 +28,35 @@ fn normal_blank_workspace_has_no_fixture_user_data() {
     let snapshot = blank_workspace_snapshot();
 
     assert!(workspace_is_empty(&snapshot));
+    assert!(!snapshot.preferences.safe_mode_enabled);
     assert!(snapshot.connections.is_empty());
     assert!(snapshot.environments.is_empty());
     assert!(snapshot.tabs.is_empty());
     assert!(snapshot.saved_work.is_empty());
     assert!(snapshot.library_nodes.is_empty());
+}
+
+#[test]
+fn workspace_deserialization_defaults_missing_safe_mode_off_and_preserves_explicit_values() {
+    let snapshot = blank_workspace_snapshot();
+    let mut value = serde_json::to_value(&snapshot).expect("snapshot should serialize");
+    let preferences = value
+        .get_mut("preferences")
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("preferences should be an object");
+    preferences.remove("safeModeEnabled");
+
+    let missing: crate::domain::models::WorkspaceSnapshot =
+        serde_json::from_value(value).expect("snapshot without safe mode should deserialize");
+    assert!(!missing.preferences.safe_mode_enabled);
+
+    let mut enabled = blank_workspace_snapshot();
+    enabled.preferences.safe_mode_enabled = true;
+    let round_trip: crate::domain::models::WorkspaceSnapshot = serde_json::from_value(
+        serde_json::to_value(enabled).expect("enabled snapshot should serialize"),
+    )
+    .expect("enabled snapshot should deserialize");
+    assert!(round_trip.preferences.safe_mode_enabled);
 }
 
 #[test]

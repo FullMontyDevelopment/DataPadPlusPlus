@@ -296,7 +296,7 @@ function normalizePreferences(
     theme: preferences?.theme ?? 'dark',
     telemetry: preferences?.telemetry ?? 'opt-in',
     lockAfterMinutes: preferences?.lockAfterMinutes ?? 15,
-    safeModeEnabled: preferences?.safeModeEnabled ?? true,
+    safeModeEnabled: preferences?.safeModeEnabled ?? false,
     keyboardShortcuts: {
       ...defaultKeyboardShortcuts(),
       ...(preferences?.keyboardShortcuts ?? {}),

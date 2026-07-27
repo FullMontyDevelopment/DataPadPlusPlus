@@ -43,7 +43,7 @@ export const docArticles: DocArticle[] = [
       },
       {
         title: 'Review update availability',
-        body: 'Release builds include updater metadata when signing assets are present. If updates appear unavailable, download the next published release manually from GitHub.',
+        body: 'Release builds include updater metadata when signing assets are present. Versions with SemVer prerelease metadata show a bottom-left Pre-release badge and automatically include pre-release updates on first use. You can opt out in Settings → Updates and remain on stable-only checks.',
       },
     ],
     notes: [
@@ -69,7 +69,7 @@ export const docArticles: DocArticle[] = [
       },
       {
         title: 'Set a safe default posture',
-        body: 'Create or choose a Local, QA, or read-only environment before connecting to production-like systems.',
+        body: 'Global safe mode is off by default for new workspaces. Enable it for workspace-wide confirmation and inline-edit protection, or create a Local, QA, read-only, or safe-mode environment before connecting to production-like systems. Environment protections remain independent.',
       },
       {
         title: 'Open Settings',

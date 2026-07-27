@@ -159,6 +159,18 @@ The current env prefix is `DATAPADPLUSPLUS_*`. Legacy prefixes are compatibility
 
 Releases are created through the manual GitHub Actions `Release` workflow. The workflow accepts a semantic version, updates version files, commits `chore: release v<version>`, tags `app-v<version>`, creates a draft GitHub Release, and explicitly uploads draft Tauri artifacts. Release assets include Windows NSIS/MSI installers, Linux deb/rpm/AppImage bundles, macOS Apple Silicon app/DMG bundles, and raw executable archives for each platform. GitHub still shows automatic source-code archives on every release; those are not the desktop installers.
 
+The Rust updater is authoritative for installed-build channel detection. Versions with SemVer
+prerelease metadata auto-select the pre-release lane on first observation, while versions with
+build metadata only remain stable. When changing updater state, preserve the device-local opt-out,
+the stable-build reset transition, and the immediate startup check when the effective channel
+differs from the previous result. Keep the status-bar indicator driven by the Rust-reported build
+channel rather than duplicating SemVer classification in React.
+
+Global safe mode defaults belong in both Rust and browser blank-workspace creation, and a missing
+serialized field must normalize to `false`. Never use a default change to overwrite an explicit
+existing value. Fixture/demo workspaces may opt in explicitly when their safety assertions depend
+on it.
+
 Useful release checks:
 
 ```bash

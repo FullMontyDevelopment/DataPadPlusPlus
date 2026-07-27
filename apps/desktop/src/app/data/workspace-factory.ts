@@ -19,7 +19,7 @@ export function createDefaultPreferences(): AppPreferences {
     theme: 'dark',
     telemetry: 'opt-in',
     lockAfterMinutes: 15,
-    safeModeEnabled: true,
+    safeModeEnabled: false,
     keyboardShortcuts: defaultKeyboardShortcuts(),
     workspaceBackups: {
       enabled: false,

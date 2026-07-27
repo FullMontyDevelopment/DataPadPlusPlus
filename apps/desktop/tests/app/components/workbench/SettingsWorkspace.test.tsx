@@ -62,7 +62,9 @@ function renderSettings(overrides: Partial<ComponentProps<typeof SettingsWorkspa
     workspaceSwitcherStatus,
     updateInstallStatus: 'idle',
     updateSettings: {
+      buildChannel: 'stable',
       includePrereleases: false,
+      prereleaseAutoEnabled: false,
       supported: true,
     },
     updateStatus: 'idle',
@@ -147,6 +149,23 @@ describe('SettingsWorkspace', () => {
     fireEvent.click(safeModeToggle)
 
     expect(props.onSetSafeMode).toHaveBeenCalledWith(false)
+  })
+
+  it('explains process-level safe-mode behavior and supports the default-off state', () => {
+    const preferences = {
+      ...createSeedSnapshot().preferences,
+      safeModeEnabled: false,
+    }
+    renderSettings({ initialSection: 'security', preferences })
+
+    expect(screen.getByLabelText('Global safe mode')).not.toBeChecked()
+    expect(screen.getByText('How safe mode affects processes')).toBeInTheDocument()
+    expect(screen.getByText('Queries, operations, and datastore tests')).toBeInTheDocument()
+    expect(screen.getByText('Inline result editing')).toBeInTheDocument()
+    expect(screen.getByText('API and MCP requests')).toBeInTheDocument()
+    expect(screen.getByText('Read-only work')).toBeInTheDocument()
+    expect(screen.getByText(/Environment safe mode is independent/)).toBeInTheDocument()
+    expect(screen.getByText(/does not disable read-only connections/)).toBeInTheDocument()
   })
 
   it('gates the API Server workspace behind Plugins settings', async () => {
@@ -437,7 +456,9 @@ describe('SettingsWorkspace', () => {
         checkedAt: '1770000000',
         message: 'DataPad++ 0.1.23 is available.',
         settings: {
+          buildChannel: 'stable',
           includePrereleases: false,
+          prereleaseAutoEnabled: false,
           supported: true,
         },
         candidate: {
@@ -461,7 +482,9 @@ describe('SettingsWorkspace', () => {
   it('shows the updater support reason when updates are unavailable', () => {
     renderSettings({
       updateSettings: {
+        buildChannel: 'stable',
         includePrereleases: false,
+        prereleaseAutoEnabled: false,
         supported: false,
         supportMessage: 'Update signing public key is not configured for this build.',
       },
@@ -472,7 +495,42 @@ describe('SettingsWorkspace', () => {
     expect(screen.getByText('Update signing public key is not configured for this build.')).toHaveClass(
       'settings-inline-message--warning',
     )
+    expect(screen.getByLabelText('Pre-release updates')).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Check for Updates' })).toBeDisabled()
+  })
+
+  it('explains automatic pre-release enrollment and opting out', () => {
+    const props = renderSettings({
+      initialSection: 'updates',
+      updateSettings: {
+        buildChannel: 'prerelease',
+        includePrereleases: true,
+        prereleaseAutoEnabled: true,
+        supported: true,
+      },
+    })
+
+    expect(
+      screen.getByText('Enabled automatically for this pre-release build'),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/include pre-release fixes/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Pre-release updates'))
+    expect(props.onSetUpdatePrereleases).toHaveBeenCalledWith(false)
+  })
+
+  it('warns when a pre-release build is opted out of pre-release fixes', () => {
+    renderSettings({
+      initialSection: 'updates',
+      updateSettings: {
+        buildChannel: 'prerelease',
+        includePrereleases: false,
+        prereleaseAutoEnabled: false,
+        supported: true,
+      },
+    })
+    expect(screen.getByText('Stable-only update checks selected')).toBeInTheDocument()
+    expect(screen.getByText(/may omit fixes/)).toBeInTheDocument()
   })
 
   it('shows DataPad++ about information and project links', () => {

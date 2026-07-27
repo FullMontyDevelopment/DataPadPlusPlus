@@ -24,7 +24,11 @@ export const clientUpdates = {
     }
 
     const current = browserUpdateSettings()
-    const next = { ...current, includePrereleases }
+    const next = {
+      ...current,
+      includePrereleases,
+      prereleaseAutoEnabled: false,
+    }
     saveBrowserUpdateSettings(next)
     return next
   },
@@ -70,7 +74,9 @@ export const clientUpdates = {
 
 function browserUpdateSettings(): AppUpdateSettings {
   const fallback: AppUpdateSettings = {
+    buildChannel: 'stable',
     includePrereleases: false,
+    prereleaseAutoEnabled: false,
     supported: false,
     supportMessage: 'Updates are only available in the installed desktop app.',
   }
@@ -82,7 +88,9 @@ function browserUpdateSettings(): AppUpdateSettings {
     }
     const parsed = JSON.parse(raw) as Partial<AppUpdateSettings>
     return {
+      buildChannel: 'stable',
       includePrereleases: Boolean(parsed.includePrereleases),
+      prereleaseAutoEnabled: false,
       supported: false,
       supportMessage: fallback.supportMessage,
       lastCheckedAt: parsed.lastCheckedAt,
@@ -97,7 +105,9 @@ function saveBrowserUpdateSettings(settings: AppUpdateSettings) {
   globalThis.localStorage?.setItem(
     BROWSER_UPDATE_SETTINGS_KEY,
     JSON.stringify({
+      buildChannel: settings.buildChannel,
       includePrereleases: settings.includePrereleases,
+      prereleaseAutoEnabled: settings.prereleaseAutoEnabled,
       supportMessage: settings.supportMessage,
       lastCheckedAt: settings.lastCheckedAt,
       lastResult: settings.lastResult,

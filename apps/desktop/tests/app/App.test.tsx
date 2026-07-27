@@ -483,6 +483,35 @@ describe('App', () => {
     expect(screen.queryByText('Ops dashboard')).not.toBeInTheDocument()
   })
 
+  it('opens Updates settings from the pre-release status indicator', async () => {
+    const payload = createBlankBootstrapPayload()
+    payload.health.runtime = 'tauri'
+    payload.diagnostics.appVersion = '0.2.0-beta.3'
+    vi.spyOn(desktopClient, 'bootstrapApp').mockResolvedValueOnce(payload)
+    vi.spyOn(desktopClient, 'getAppUpdateSettings').mockResolvedValueOnce({
+      buildChannel: 'prerelease',
+      includePrereleases: true,
+      prereleaseAutoEnabled: true,
+      supported: false,
+      supportMessage: 'Updates are unavailable in this test build.',
+    })
+
+    render(<App />)
+
+    const prerelease = await screen.findByRole('button', {
+      name: 'DataPad++ 0.2.0-beta.3 pre-release build. Open update settings',
+    })
+    fireEvent.click(prerelease)
+
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Updates' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Settings/i })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+  })
+
   it('prompts for the first install guide and persists skip', async () => {
     render(<App />)
 

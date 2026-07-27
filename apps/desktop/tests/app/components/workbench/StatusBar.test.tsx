@@ -11,6 +11,7 @@ function renderStatusBar(overrides: Partial<Parameters<typeof StatusBar>[0]> = {
     onInstallUpdate: vi.fn(),
     onOpenDiagnostics: vi.fn(),
     onOpenMessages: vi.fn(),
+    onOpenUpdates: vi.fn(),
     onToggleBottomPanel: vi.fn(),
     ...overrides,
   }
@@ -20,6 +21,32 @@ function renderStatusBar(overrides: Partial<Parameters<typeof StatusBar>[0]> = {
 }
 
 describe('StatusBar', () => {
+  it('shows a pre-release build at the far left and opens update settings', () => {
+    const props = renderStatusBar({
+      prereleaseVersion: 'v0.2.0-beta.3',
+    })
+
+    const button = screen.getByRole('button', {
+      name: 'DataPad++ 0.2.0-beta.3 pre-release build. Open update settings',
+    })
+
+    expect(button).toHaveTextContent('Pre-release · v0.2.0-beta.3')
+    expect(button).toHaveAttribute(
+      'title',
+      'This is a pre-release build and may be less stable. Open update settings.',
+    )
+    expect(button).toBe(screen.getAllByRole('button')[0])
+
+    fireEvent.click(button)
+    expect(props.onOpenUpdates).toHaveBeenCalledOnce()
+  })
+
+  it('does not show a pre-release indicator for stable builds', () => {
+    renderStatusBar()
+
+    expect(screen.queryByText(/Pre-release ·/)).not.toBeInTheDocument()
+  })
+
   it('does not show API or MCP indicators when neither server feature is visible', () => {
     renderStatusBar()
 

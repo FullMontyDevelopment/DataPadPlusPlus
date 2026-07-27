@@ -11,8 +11,8 @@ use crate::domain::error::CommandError;
 use super::{
     app_updates_github::{fetch_github_releases, select_app_update_release, UPDATE_CHECK_TIMEOUT},
     app_updates_settings::{
-        channel_for_settings, read_stored_settings, save_stored_settings, settings_response,
-        StoredAppUpdateSettings,
+        channel_for_settings, read_stored_settings, reconcile_settings_for_build,
+        save_stored_settings, set_include_prereleases, settings_response, StoredAppUpdateSettings,
     },
     timestamp_now,
 };
@@ -104,9 +104,28 @@ fn updater_support() -> UpdaterSupport {
     }
 }
 
-fn update_settings_response(settings: StoredAppUpdateSettings) -> AppUpdateSettings {
+fn update_settings_response(
+    settings: StoredAppUpdateSettings,
+    current_version: &Version,
+) -> AppUpdateSettings {
     let support = updater_support();
-    settings_response(settings, support.supported, support.message)
+    settings_response(
+        settings,
+        current_version,
+        support.supported,
+        support.message,
+    )
+}
+
+fn read_current_settings<R: Runtime>(
+    app: &AppHandle<R>,
+    current_version: &Version,
+) -> Result<StoredAppUpdateSettings, CommandError> {
+    let mut settings = read_stored_settings(app)?;
+    if reconcile_settings_for_build(&mut settings, current_version) {
+        save_stored_settings(app, &settings)?;
+    }
+    Ok(settings)
 }
 
 pub fn updater_plugin<R: Runtime>() -> TauriPlugin<R, tauri_plugin_updater::Config> {
@@ -120,29 +139,36 @@ pub fn updater_plugin<R: Runtime>() -> TauriPlugin<R, tauri_plugin_updater::Conf
 pub fn get_app_update_settings<R: Runtime>(
     app: &AppHandle<R>,
 ) -> Result<AppUpdateSettings, CommandError> {
-    Ok(update_settings_response(read_stored_settings(app)?))
+    let current_version = current_version()?;
+    Ok(update_settings_response(
+        read_current_settings(app, &current_version)?,
+        &current_version,
+    ))
 }
 
 pub fn set_app_update_settings<R: Runtime>(
     app: &AppHandle<R>,
     request: AppUpdateSettingsRequest,
 ) -> Result<AppUpdateSettings, CommandError> {
-    let mut settings = read_stored_settings(app)?;
-    settings.include_prereleases = request.include_prereleases;
+    let current_version = current_version()?;
+    let mut settings = read_current_settings(app, &current_version)?;
+    set_include_prereleases(&mut settings, &current_version, request.include_prereleases);
     save_stored_settings(app, &settings)?;
-    Ok(update_settings_response(settings))
+    Ok(update_settings_response(settings, &current_version))
 }
 
 pub async fn check_app_update<R: Runtime>(
     app: AppHandle<R>,
     pending_update: State<'_, PendingAppUpdate>,
 ) -> Result<AppUpdateCheckResult, CommandError> {
-    let settings = read_stored_settings(&app)?;
-    let result = match check_app_update_inner(&app, &pending_update, &settings).await {
-        Ok(result) => result,
-        Err(error) => error_update_result(&settings, &error.message),
-    };
-    persist_check_result(&app, result)
+    let current_version = current_version()?;
+    let settings = read_current_settings(&app, &current_version)?;
+    let result =
+        match check_app_update_inner(&app, &pending_update, &settings, &current_version).await {
+            Ok(result) => result,
+            Err(error) => error_update_result(&settings, &current_version, &error.message),
+        };
+    persist_check_result(&app, &current_version, result)
 }
 
 pub async fn install_app_update(
@@ -199,10 +225,10 @@ async fn check_app_update_inner<R: Runtime>(
     app: &AppHandle<R>,
     pending_update: &State<'_, PendingAppUpdate>,
     settings: &StoredAppUpdateSettings,
+    current_version: &Version,
 ) -> Result<AppUpdateCheckResult, CommandError> {
     let checked_at = timestamp_now();
-    let channel = channel_for_settings(settings);
-    let current_version = current_version()?;
+    let channel = channel_for_settings(settings, current_version);
     let support = updater_support();
 
     if !support.supported {
@@ -216,14 +242,14 @@ async fn check_app_update_inner<R: Runtime>(
                 .message
                 .unwrap_or("Updates are not available for this build.")
                 .into(),
-            settings: update_settings_response(settings.clone()),
+            settings: update_settings_response(settings.clone(), current_version),
             candidate: None,
         });
     }
 
     let releases = fetch_github_releases().await?;
     let Some(release) =
-        select_app_update_release(&releases, settings.include_prereleases, &current_version)?
+        select_app_update_release(&releases, channel == "prerelease", current_version)?
     else {
         clear_pending_update(pending_update)?;
         return Ok(AppUpdateCheckResult {
@@ -232,7 +258,7 @@ async fn check_app_update_inner<R: Runtime>(
             current_version: current_version.to_string(),
             checked_at,
             message: "DataPad++ is up to date.".into(),
-            settings: update_settings_response(settings.clone()),
+            settings: update_settings_response(settings.clone(), current_version),
             candidate: None,
         });
     };
@@ -280,7 +306,7 @@ async fn check_app_update_inner<R: Runtime>(
                 "GitHub release app-v{} exists, but no signed update is available for this platform.",
                 release.version
             ),
-            settings: update_settings_response(settings.clone()),
+            settings: update_settings_response(settings.clone(), current_version),
             candidate: None,
         });
     };
@@ -319,7 +345,7 @@ async fn check_app_update_inner<R: Runtime>(
         current_version: current_version.to_string(),
         checked_at,
         message: format!("DataPad++ {} is available.", candidate.version),
-        settings: update_settings_response(settings.clone()),
+        settings: update_settings_response(settings.clone(), current_version),
         candidate: Some(candidate),
     })
 }
@@ -333,24 +359,29 @@ fn current_version() -> Result<Version, CommandError> {
     })
 }
 
-fn error_update_result(settings: &StoredAppUpdateSettings, message: &str) -> AppUpdateCheckResult {
+fn error_update_result(
+    settings: &StoredAppUpdateSettings,
+    current_version: &Version,
+    message: &str,
+) -> AppUpdateCheckResult {
     let checked_at = timestamp_now();
     AppUpdateCheckResult {
         status: "error".into(),
-        channel: channel_for_settings(settings),
-        current_version: env!("CARGO_PKG_VERSION").into(),
+        channel: channel_for_settings(settings, current_version),
+        current_version: current_version.to_string(),
         checked_at,
         message: message.into(),
-        settings: update_settings_response(settings.clone()),
+        settings: update_settings_response(settings.clone(), current_version),
         candidate: None,
     }
 }
 
 fn persist_check_result<R: Runtime>(
     app: &AppHandle<R>,
+    current_version: &Version,
     result: AppUpdateCheckResult,
 ) -> Result<AppUpdateCheckResult, CommandError> {
-    let mut settings = read_stored_settings(app)?;
+    let mut settings = read_current_settings(app, current_version)?;
     settings.last_checked_at = Some(result.checked_at.clone());
     settings.last_result = Some(AppUpdateLastResult {
         status: result.status.clone(),
@@ -365,7 +396,7 @@ fn persist_check_result<R: Runtime>(
     save_stored_settings(app, &settings)?;
 
     Ok(AppUpdateCheckResult {
-        settings: update_settings_response(settings),
+        settings: update_settings_response(settings, current_version),
         ..result
     })
 }

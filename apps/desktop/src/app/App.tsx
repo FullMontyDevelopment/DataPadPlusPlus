@@ -4193,6 +4193,11 @@ function DesktopWorkspace() {
           onOpen: () => void actions.createMcpServerTab(mcpServerStatusTargetId),
         }}
         messageCount={workbenchMessages.length}
+        prereleaseVersion={
+          appUpdateSettings?.buildChannel === 'prerelease'
+            ? diagnostics?.appVersion
+            : undefined
+        }
         securityChecksIndicator={
           securityStatusCounts
             ? {
@@ -4211,6 +4216,7 @@ function DesktopWorkspace() {
         }
         onOpenMessages={actions.openWorkbenchMessages}
         onOpenDiagnostics={openDiagnosticsDrawer}
+        onOpenUpdates={() => openDiagnosticsDrawer('updates')}
       />
     </div>
   )

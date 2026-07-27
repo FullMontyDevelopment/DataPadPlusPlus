@@ -7,12 +7,47 @@ DataPad++ settings open as a normal workbench tab. The tab is closeable, non-sav
 - **Appearance**: theme selection and workbench display preferences.
 - **Workspace**: file-based workspace export and import.
 - **Backups**: opt-in encrypted automatic backups and restore tools.
-- **Security**: credential-store status and secret handling options.
+- **Updates**: update availability and stable or pre-release channel selection.
+- **Security**: Global safe mode and its execution impact.
 - **Plugins**: opt-in workspace capabilities, split between stable plugins and experimental plugins.
 - **Shortcuts**: keyboard shortcuts and command behavior.
 - **Health**: workspace counts, warnings, and app/runtime status.
 
 Settings apply immediately. The Settings tab does not show dirty indicators or save prompts.
+
+## Updates And Pre-Release Builds
+
+DataPad++ derives the installed build channel from the application’s SemVer version. A version
+with prerelease metadata, such as `0.2.0-beta.3`, is a pre-release build; build metadata alone,
+such as `0.2.0+windows.4`, does not make a version pre-release.
+
+The first time a pre-release build is observed, DataPad++ automatically includes pre-release
+updates and performs a startup check if the previous check used the stable channel. Later checks
+return to the normal 24-hour interval. The bottom-left status bar identifies the build as
+`Pre-release · v<version>` and opens Updates settings when selected.
+
+You can turn **Pre-release updates** off. That choice remains in effect across consecutive
+pre-release builds, although it can omit fixes that are published only in that channel. Observing
+a stable build resets the automatic transition, so a future manually installed pre-release can
+enable its matching update lane again. Update preferences and history remain device-local.
+
+## Global Safe Mode
+
+Global safe mode defaults to off for new workspaces and for older workspace data where the field
+is absent. DataPad++ preserves every explicitly stored on or off choice.
+
+When Global safe mode is enabled:
+
+- risky queries, operations, and datastore-test writes require confirmation
+- inline result editing is blocked
+- non-interactive API and MCP requests run only when existing guardrails return `allow`;
+  confirmation-required requests are rejected
+- read-only queries and navigation are unaffected
+
+Environment safe mode is independent and can enforce these protections even when Global safe mode
+is off. Turning the global setting off also does not disable read-only connections,
+unresolved-variable blocking, environment confirmation and risk policies, or datastore-specific
+destructive-operation safeguards.
 
 ## Plugins
 

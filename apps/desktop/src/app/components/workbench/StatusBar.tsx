@@ -33,6 +33,7 @@ interface StatusBarProps {
   bottomPanelVisible: boolean
   mcpServerIndicator?: McpServerIndicator
   messageCount: number
+  prereleaseVersion?: string
   securityChecksIndicator?: SecurityChecksIndicator
   updateInstallStatus: 'idle' | 'installing' | 'installed' | 'error'
   updateStatus: 'idle' | 'loading' | 'ready'
@@ -40,6 +41,7 @@ interface StatusBarProps {
   onToggleBottomPanel(): void
   onOpenMessages(): void
   onOpenDiagnostics(): void
+  onOpenUpdates(): void
 }
 
 export function StatusBar({
@@ -48,6 +50,7 @@ export function StatusBar({
   bottomPanelVisible,
   mcpServerIndicator,
   messageCount,
+  prereleaseVersion,
   securityChecksIndicator,
   updateInstallStatus,
   updateStatus,
@@ -55,14 +58,28 @@ export function StatusBar({
   onToggleBottomPanel,
   onOpenMessages,
   onOpenDiagnostics,
+  onOpenUpdates,
 }: StatusBarProps) {
   const updateInstalling = updateInstallStatus === 'installing'
   const updateBusy = updateStatus === 'loading' || updateInstalling
   const showUpdateButton = Boolean(availableUpdateVersion) && updateInstallStatus !== 'installed'
   const securityAttentionCount = securityChecksIndicator?.attentionCount ?? 0
+  const normalizedPrereleaseVersion = prereleaseVersion?.replace(/^v/i, '')
 
   return (
     <footer className="status-bar" aria-label="Status bar">
+      {normalizedPrereleaseVersion ? (
+        <button
+          type="button"
+          className="status-button status-button--prerelease"
+          aria-label={`DataPad++ ${normalizedPrereleaseVersion} pre-release build. Open update settings`}
+          title="This is a pre-release build and may be less stable. Open update settings."
+          onClick={onOpenUpdates}
+        >
+          <WarningIcon className="status-icon" />
+          <span>Pre-release · v{normalizedPrereleaseVersion}</span>
+        </button>
+      ) : null}
       <div className="status-bar-group">
         {apiServerIndicator?.visible ? (
           <button

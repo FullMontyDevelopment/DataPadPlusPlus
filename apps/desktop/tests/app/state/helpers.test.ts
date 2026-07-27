@@ -185,6 +185,32 @@ describe('migrateWorkspaceSnapshot', () => {
 
     expect(snapshot.preferences.firstInstallGuide).toEqual({ status: 'unseen' })
     expect(snapshot.preferences.explorerFolderOrders).toEqual({})
+    expect(snapshot.preferences.safeModeEnabled).toBe(false)
+  })
+
+  it('defaults a missing safe-mode preference off and preserves explicit choices', () => {
+    const snapshot = createSeedSnapshot()
+    const preferencesWithoutSafeMode = { ...snapshot.preferences } as Partial<
+      typeof snapshot.preferences
+    >
+    delete preferencesWithoutSafeMode.safeModeEnabled
+
+    const missing = migrateWorkspaceSnapshot({
+      ...snapshot,
+      preferences: preferencesWithoutSafeMode,
+    } as typeof snapshot)
+    const enabled = migrateWorkspaceSnapshot({
+      ...snapshot,
+      preferences: { ...snapshot.preferences, safeModeEnabled: true },
+    })
+    const disabled = migrateWorkspaceSnapshot({
+      ...snapshot,
+      preferences: { ...snapshot.preferences, safeModeEnabled: false },
+    })
+
+    expect(missing.preferences.safeModeEnabled).toBe(false)
+    expect(enabled.preferences.safeModeEnabled).toBe(true)
+    expect(disabled.preferences.safeModeEnabled).toBe(false)
   })
 
   it('normalizes first install guide preferences during migration', () => {

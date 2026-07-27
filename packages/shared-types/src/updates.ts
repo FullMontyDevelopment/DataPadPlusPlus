@@ -10,7 +10,9 @@ export interface AppUpdateLastResult {
 }
 
 export interface AppUpdateSettings {
+  buildChannel: AppUpdateChannel
   includePrereleases: boolean
+  prereleaseAutoEnabled: boolean
   supported: boolean
   supportMessage?: string
   lastCheckedAt?: string

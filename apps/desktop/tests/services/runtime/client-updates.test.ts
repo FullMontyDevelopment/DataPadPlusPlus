@@ -16,12 +16,16 @@ describe('client updates', () => {
 
   it('keeps browser-preview update settings device-local and unsupported', async () => {
     await expect(clientUpdates.setAppUpdateSettings(true)).resolves.toMatchObject({
+      buildChannel: 'stable',
       includePrereleases: true,
+      prereleaseAutoEnabled: false,
       supported: false,
     })
 
     await expect(clientUpdates.getAppUpdateSettings()).resolves.toMatchObject({
+      buildChannel: 'stable',
       includePrereleases: true,
+      prereleaseAutoEnabled: false,
       supported: false,
     })
   })
@@ -34,7 +38,9 @@ describe('client updates', () => {
       channel: 'prerelease',
       message: 'Updates are only available in the installed desktop app.',
       settings: expect.objectContaining({
+        buildChannel: 'stable',
         includePrereleases: true,
+        prereleaseAutoEnabled: false,
         supported: false,
       }),
     })

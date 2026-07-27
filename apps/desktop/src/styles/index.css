@@ -14360,6 +14360,71 @@ td {
   font-size: 12px;
 }
 
+.settings-channel-note,
+.settings-safety-impact {
+  border: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.settings-channel-note {
+  display: grid;
+  gap: 3px;
+  width: min(100%, 640px);
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-channel-note strong {
+  color: var(--text);
+}
+
+.settings-safety-impact {
+  display: grid;
+  gap: 0;
+}
+
+.settings-safety-impact__heading {
+  display: grid;
+  gap: 3px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-safety-impact__heading span,
+.settings-safety-impact__footnote {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-safety-impact__list {
+  margin: 0;
+}
+
+.settings-safety-impact__list > div {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.8fr) minmax(260px, 1.6fr);
+  gap: 16px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-safety-impact__list dt {
+  font-weight: 650;
+}
+
+.settings-safety-impact__list dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+.settings-safety-impact__footnote {
+  margin: 0;
+  padding: 10px 12px;
+}
+
 .settings-action-row {
   display: flex;
   flex-wrap: wrap;
@@ -15205,6 +15270,17 @@ td {
   background: rgba(78, 201, 176, 0.16);
 }
 
+.status-button--prerelease {
+  margin-right: auto;
+  gap: 4px;
+  color: color-mix(in srgb, var(--warning) 88%, var(--status-text));
+  background: color-mix(in srgb, var(--warning) 20%, transparent);
+}
+
+.status-button--prerelease:hover {
+  background: color-mix(in srgb, var(--warning) 30%, transparent);
+}
+
 .status-button--update:hover,
 .status-button--update:disabled,
 .status-button--update:disabled:hover {
@@ -15344,6 +15420,11 @@ td {
   .drawer-button-row,
   .status-bar-group {
     flex-wrap: wrap;
+  }
+
+  .settings-safety-impact__list > div {
+    grid-template-columns: 1fr;
+    gap: 3px;
   }
 }
 .mongo-explorer-workspace {

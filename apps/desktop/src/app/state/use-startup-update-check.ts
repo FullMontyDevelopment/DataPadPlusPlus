@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { MutableRefObject } from 'react'
-import type { BootstrapPayload } from '@datapadplusplus/shared-types'
+import type { AppUpdateSettings, BootstrapPayload } from '@datapadplusplus/shared-types'
 import type { Actions, StateShape } from './app-state-types'
 
 const STARTUP_UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
@@ -27,7 +27,7 @@ export function useStartupUpdateCheck({
     void actions.getAppUpdateSettings().then((settings) => {
       if (
         !settings?.supported ||
-        !shouldRunStartupUpdateCheck(settings.lastCheckedAt) ||
+        !shouldRunStartupUpdateCheck(settings) ||
         !providerMountedRef.current
       ) {
         return undefined
@@ -38,7 +38,14 @@ export function useStartupUpdateCheck({
   }, [actions, providerMountedRef, runtime, status])
 }
 
-function shouldRunStartupUpdateCheck(lastCheckedAt?: string | null) {
+export function shouldRunStartupUpdateCheck(
+  settings: Pick<AppUpdateSettings, 'includePrereleases' | 'lastCheckedAt' | 'lastResult'>,
+) {
+  const expectedChannel = settings.includePrereleases ? 'prerelease' : 'stable'
+  if (settings.lastResult?.channel !== expectedChannel) {
+    return true
+  }
+  const { lastCheckedAt } = settings
   if (!lastCheckedAt) {
     return true
   }

@@ -244,6 +244,17 @@ DataPad++ is moving quickly. That is exciting, but it also means:
 - release artifacts may change as packaging matures
 - docs may lag a little behind fast-moving features
 
+Installed versions with SemVer prerelease metadata identify themselves in the bottom-left status
+bar. On first observation, a pre-release build automatically includes pre-release updates so it
+can receive fixes from the same release lane. You can opt out in **Settings → Updates**; that
+stable-only preference is preserved across consecutive pre-release builds.
+
+Global safe mode is off by default for new workspaces. Enable it in **Settings → Security** when
+you want workspace-wide confirmation for risky queries, operations, and datastore-test writes,
+plus blocking for inline result edits. Environment safe mode, read-only connections,
+unresolved-variable blocking, environment risk policies, and datastore-specific destructive
+operation safeguards remain active independently.
+
 If you are evaluating the app, the best path is:
 
 1. Start with local or Docker-backed datastores.
