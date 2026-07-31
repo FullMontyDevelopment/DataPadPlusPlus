@@ -18,6 +18,7 @@ describe('datastore-native Explorer workspace', () => {
     const view = render(<ExplorerWorkspace {...props} />)
 
     expect(screen.getByText('User Schemas')).toBeInTheDocument()
+    const treePanel = view.container.querySelector('.datastore-explorer-tree-panel')!
     const publicNode = screen.getAllByRole('button', { name: /public/i })
       .find((button) => button.classList.contains('datastore-explorer-node'))!
     fireEvent.click(publicNode)
@@ -26,11 +27,10 @@ describe('datastore-native Explorer workspace', () => {
     expect(onLoadScope).not.toHaveBeenCalledWith('schema:public')
     expect(screen.getByRole('heading', { name: 'Overview' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Inventory' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /products/i })).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Expand public' }))
-    const treePanel = view.container.querySelector('.datastore-explorer-tree-panel')!
+    const inventory = view.container.querySelector('.datastore-explorer-inventory')!
+    expect(within(inventory).getByRole('button', { name: /products/i })).toBeInTheDocument()
     expect(within(treePanel).getByText('products')).toBeInTheDocument()
+
     fireEvent.click(publicNode)
 
     expect(within(treePanel).queryByText('products')).not.toBeInTheDocument()

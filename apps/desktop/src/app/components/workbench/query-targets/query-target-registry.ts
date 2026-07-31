@@ -6,6 +6,7 @@ import type {
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
 import { explorerNodeTarget } from '../SideBar.helpers'
+import { parseOracleObjectTarget } from './oracle-query-target'
 
 export interface QueryTargetLevel {
   id: string
@@ -364,7 +365,9 @@ function targetLevelHints(connection: ConnectionProfile, target: ScopedQueryTarg
     set('database', tableDatabase ?? (parts[0] === 'mysql' ? parts[1] : undefined))
   }
   if (connection.engine === 'oracle' && parts[0] === 'oracle' && parts[1] === 'object') {
-    set('schema', parts[3])
+    const oracleTarget = parseOracleObjectTarget(scope)
+    set('database', oracleTarget?.database)
+    set('schema', oracleTarget?.schema)
   }
   if (
     ['postgresql', 'cockroachdb', 'timescaledb', 'sqlite', 'duckdb', 'clickhouse', 'snowflake', 'bigquery']

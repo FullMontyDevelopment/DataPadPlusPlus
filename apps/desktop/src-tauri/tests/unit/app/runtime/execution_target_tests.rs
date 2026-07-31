@@ -1,4 +1,4 @@
-use super::apply_scoped_target_override;
+use super::{apply_scoped_target_override, sql_database_from_target, sql_schema_from_target};
 use crate::domain::models::{
     CassandraConnectionOptions, CosmosDbConnectionOptions, PostgresConnectionOptions,
     RedisConnectionOptions, ResolvedConnectionProfile, ScopedQueryTarget,
@@ -121,10 +121,50 @@ fn sql_targets_decode_database_and_schema_without_using_the_connection_name() {
             "table",
             "ACCOUNTS",
             &["Fixture oracle", "Databases", "FREEPDB1", "Tables"],
-            "oracle:object:table:DATAPADPLUSPLUS:ACCOUNTS",
+            "oracle:object:table:database:FREEPDB1:DATAPADPLUSPLUS:ACCOUNTS",
         )),
     );
     assert_eq!(oracle.database.as_deref(), Some("FREEPDB1"));
+}
+
+#[test]
+fn oracle_object_targets_decode_current_and_legacy_schema_positions() {
+    let database_target = target(
+        "table",
+        "Order:Lines",
+        &["Fixture oracle", "Databases", "FREEPDB1", "Tables"],
+        "oracle:object:table:database:FREEPDB1:Mixed%3AOwner:Order%3ALines",
+    );
+    let schema_target = target(
+        "table",
+        "ACCOUNTS",
+        &["Fixture oracle", "Schemas", "APP", "Tables"],
+        "oracle:object:table:schema:APP:ACCOUNTS",
+    );
+    let legacy_target = target(
+        "table",
+        "ACCOUNTS",
+        &["Fixture oracle", "Schemas", "APP", "Tables"],
+        "oracle:object:table:APP:ACCOUNTS",
+    );
+    let oracle = resolved_connection("oracle", "sql");
+
+    assert_eq!(
+        sql_database_from_target(&oracle, &database_target, &[]).as_deref(),
+        Some("FREEPDB1")
+    );
+    assert_eq!(
+        sql_schema_from_target(&database_target).as_deref(),
+        Some("Mixed:Owner")
+    );
+    assert_eq!(
+        sql_schema_from_target(&schema_target).as_deref(),
+        Some("APP")
+    );
+    assert_eq!(
+        sql_schema_from_target(&legacy_target).as_deref(),
+        Some("APP")
+    );
 }
 
 #[test]

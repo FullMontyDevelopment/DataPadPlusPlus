@@ -1078,6 +1078,52 @@ describe('SQL SELECT query builder', () => {
     )
   })
 
+  it('normalizes ordinary Oracle identifiers while preserving explicitly quoted names', () => {
+    expect(
+      buildSqlSelectQueryText(
+        {
+          kind: 'sql-select',
+          schema: 'app',
+          table: 'accounts',
+          projectionFields: [{ id: 'field-account-id', field: 'account_id' }],
+          filters: [],
+          filterLogic: 'and',
+          sort: [],
+          limit: 20,
+        },
+        'oracle',
+      ),
+    ).toBe(
+      'select "ACCOUNT_ID" from "APP"."ACCOUNTS" fetch first 20 rows only;',
+    )
+
+    expect(
+      parseSqlSelectQueryText(
+        'select "AccountId" from "MixedOwner"."AccountLedger" fetch first 20 rows only;',
+        'oracle',
+      ),
+    ).toMatchObject({
+      schema: '"MixedOwner"',
+      table: '"AccountLedger"',
+      projectionFields: [{ field: '"AccountId"' }],
+      lastAppliedQueryText: 'select "AccountId" from "MixedOwner"."AccountLedger" fetch first 20 rows only;',
+    })
+  })
+
+  it('round-trips unquoted lowercase Oracle references using Oracle uppercase semantics', () => {
+    expect(
+      parseSqlSelectQueryText(
+        'select account_id from app.accounts fetch first 20 rows only;',
+        'oracle',
+      ),
+    ).toMatchObject({
+      schema: 'app',
+      table: 'accounts',
+      projectionFields: [{ field: 'account_id' }],
+      lastAppliedQueryText: 'select "ACCOUNT_ID" from "APP"."ACCOUNTS" fetch first 20 rows only;',
+    })
+  })
+
   it('parses simple table SELECTs back into builder state', () => {
     expect(parseSqlSelectQueryText('select top 50 [order_id], [status] from [dbo].[orders] order by [order_id] desc;', 'sqlserver')).toMatchObject({
       kind: 'sql-select',

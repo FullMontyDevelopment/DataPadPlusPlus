@@ -1,8 +1,8 @@
 use super::{
     decode_scope_component, encode_scope_component, inspect_oracle_explorer_node,
-    list_oracle_explorer_nodes, oracle_empty_category_node, oracle_query_for_node,
-    oracle_schema_discovery_query, oracle_schema_from_scope, oracle_table_query,
-    OracleObjectContext,
+    list_oracle_explorer_nodes, oracle_category_query, oracle_empty_category_node,
+    oracle_query_for_node, oracle_schema_discovery_query, oracle_schema_from_scope,
+    oracle_table_query, OracleExplorerPaging, OracleObjectContext,
 };
 use crate::domain::models::{
     ExplorerInspectRequest, ExplorerRequest, OracleConnectionOptions, ResolvedConnectionProfile,
@@ -311,6 +311,144 @@ async fn oracle_object_categories_expand_to_meaningful_read_only_leaf_nodes() {
     .expect("oracle packages")
     .nodes;
     assert_eq!(packages.len(), 2);
+}
+
+#[tokio::test]
+async fn oracle_contract_categories_page_distinct_objects_with_scope_bound_cursors() {
+    let scope = "oracle:category:database:FREEPDB1:APP:tables";
+    let first = list_oracle_explorer_nodes(
+        &connection(),
+        &ExplorerRequest {
+            connection_id: "conn-oracle".into(),
+            environment_id: "env".into(),
+            limit: Some(2),
+            scope: Some(scope.into()),
+            cursor: None,
+        },
+    )
+    .await
+    .expect("first Oracle table page");
+    let first_page = first.page_info.expect("first page info");
+
+    assert_eq!(
+        first
+            .nodes
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>(),
+        vec!["ACCOUNTS", "ORDERS"]
+    );
+    assert!(first_page.has_more);
+    assert_eq!(first_page.returned_count, 2);
+    assert_eq!(first_page.known_total, Some(4));
+
+    let second = list_oracle_explorer_nodes(
+        &connection(),
+        &ExplorerRequest {
+            connection_id: "conn-oracle".into(),
+            environment_id: "env".into(),
+            limit: Some(2),
+            scope: Some(scope.into()),
+            cursor: first_page.next_cursor,
+        },
+    )
+    .await
+    .expect("second Oracle table page");
+    let second_page = second.page_info.expect("second page info");
+
+    assert_eq!(
+        second
+            .nodes
+            .iter()
+            .map(|node| node.label.as_str())
+            .collect::<Vec<_>>(),
+        vec!["ORDER_ITEMS", "SUPPORT_TICKETS"]
+    );
+    assert!(!second_page.has_more);
+    assert_eq!(second_page.known_total, Some(4));
+}
+
+#[tokio::test]
+async fn oracle_paging_deduplicates_package_specs_and_rejects_cross_scope_cursors() {
+    let package_scope = "oracle:category:database:FREEPDB1:APP:packages";
+    let first = list_oracle_explorer_nodes(
+        &connection(),
+        &ExplorerRequest {
+            connection_id: "conn-oracle".into(),
+            environment_id: "env".into(),
+            limit: Some(1),
+            scope: Some(package_scope.into()),
+            cursor: None,
+        },
+    )
+    .await
+    .expect("first Oracle package page");
+    let cursor = first
+        .page_info
+        .expect("package page info")
+        .next_cursor
+        .expect("package continuation cursor");
+    assert_eq!(first.nodes[0].label, "ACCOUNT_API");
+
+    let second = list_oracle_explorer_nodes(
+        &connection(),
+        &ExplorerRequest {
+            connection_id: "conn-oracle".into(),
+            environment_id: "env".into(),
+            limit: Some(1),
+            scope: Some(package_scope.into()),
+            cursor: Some(cursor.clone()),
+        },
+    )
+    .await
+    .expect("second Oracle package page");
+    assert_eq!(second.nodes[0].label, "ORDER_API");
+    assert!(!second.page_info.expect("last package page").has_more);
+
+    let error = list_oracle_explorer_nodes(
+        &connection(),
+        &ExplorerRequest {
+            connection_id: "conn-oracle".into(),
+            environment_id: "env".into(),
+            limit: Some(1),
+            scope: Some("oracle:category:database:FREEPDB1:APP:tables".into()),
+            cursor: Some(cursor),
+        },
+    )
+    .await
+    .err()
+    .expect("cursor must be bound to its Oracle scope");
+    assert_eq!(error.code, "invalid-explorer-cursor");
+}
+
+#[test]
+fn oracle_paged_category_queries_return_one_row_per_explorer_object() {
+    let packages = oracle_category_query("packages", "APP");
+    let types = oracle_category_query("types", "APP");
+    let json = oracle_category_query("json-collections", "APP");
+
+    assert!(packages.contains("object_type in ('PACKAGE')"));
+    assert!(!packages.contains("PACKAGE BODY"));
+    assert!(types.contains("object_type in ('TYPE')"));
+    assert!(!types.contains("TYPE BODY"));
+    assert!(json.contains("group by owner, table_name"));
+}
+
+#[test]
+fn oracle_native_paging_adds_a_bounded_offset_window_to_metadata_queries() {
+    let paging = OracleExplorerPaging::new(&ExplorerRequest {
+        connection_id: "conn-oracle".into(),
+        environment_id: "env".into(),
+        limit: Some(25),
+        scope: Some("oracle:category:schema:APP:tables".into()),
+        cursor: None,
+    })
+    .expect("Oracle paging request");
+
+    assert_eq!(
+        paging.query("select owner, table_name from all_tables order by table_name"),
+        "select owner, table_name from all_tables order by table_name offset 0 rows fetch next 26 rows only"
+    );
 }
 
 #[tokio::test]

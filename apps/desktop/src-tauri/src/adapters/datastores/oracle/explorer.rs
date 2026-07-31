@@ -2,6 +2,8 @@ use std::collections::HashSet;
 
 use serde_json::json;
 
+use crate::domain::models::ExplorerPageInfo;
+
 use super::super::super::*;
 use super::catalog::oracle_execution_capabilities;
 use super::connection::{oracle_service_name, oracle_sqlplus_path};
@@ -54,35 +56,186 @@ const ORACLE_OBJECT_CATEGORIES: [(&str, &str, &str); 12] = [
     ),
 ];
 
+const ORACLE_EXPLORER_CURSOR_VERSION: &str = "oracle-explorer-v1";
+
+struct OracleExplorerPaging {
+    request_cursor: Option<String>,
+    offset: usize,
+    limit: usize,
+    scope_hash: u64,
+}
+
+impl OracleExplorerPaging {
+    fn new(request: &ExplorerRequest) -> Result<Self, CommandError> {
+        let limit = usize::try_from(request.limit.unwrap_or(100).clamp(1, 100)).unwrap_or(100);
+        let scope_hash = stable_explorer_scope_hash(
+            &request.environment_id,
+            request.scope.as_deref().unwrap_or_default(),
+        );
+        let offset = match request.cursor.as_deref() {
+            Some(cursor) => parse_explorer_cursor(cursor, scope_hash)?,
+            None => 0,
+        };
+
+        Ok(Self {
+            request_cursor: request.cursor.clone(),
+            offset,
+            limit,
+            scope_hash,
+        })
+    }
+
+    fn query_limit(&self) -> u32 {
+        u32::try_from(self.limit.saturating_add(1)).unwrap_or(101)
+    }
+
+    fn query(&self, query: &str) -> String {
+        format!(
+            "{query} offset {} rows fetch next {} rows only",
+            self.offset,
+            self.query_limit()
+        )
+    }
+
+    fn finish_window(&self, mut nodes: Vec<ExplorerNode>) -> (Vec<ExplorerNode>, ExplorerPageInfo) {
+        let has_more = nodes.len() > self.limit;
+        nodes.truncate(self.limit);
+        let next_offset = self.offset.saturating_add(nodes.len());
+        let known_total = (!has_more).then(|| u32::try_from(next_offset).unwrap_or(u32::MAX));
+
+        (
+            nodes,
+            ExplorerPageInfo {
+                cursor: self.request_cursor.clone(),
+                next_cursor: has_more.then(|| self.encode_cursor(next_offset)),
+                returned_count: u32::try_from(next_offset.saturating_sub(self.offset))
+                    .unwrap_or(u32::MAX),
+                known_total,
+                has_more,
+            },
+        )
+    }
+
+    fn finish_known(&self, nodes: Vec<ExplorerNode>) -> (Vec<ExplorerNode>, ExplorerPageInfo) {
+        let known_total = nodes.len();
+        let page = nodes
+            .into_iter()
+            .skip(self.offset)
+            .take(self.limit)
+            .collect::<Vec<_>>();
+        let next_offset = self.offset.saturating_add(page.len());
+        let has_more = next_offset < known_total;
+
+        (
+            page,
+            ExplorerPageInfo {
+                cursor: self.request_cursor.clone(),
+                next_cursor: has_more.then(|| self.encode_cursor(next_offset)),
+                returned_count: u32::try_from(next_offset.saturating_sub(self.offset))
+                    .unwrap_or(u32::MAX),
+                known_total: Some(u32::try_from(known_total).unwrap_or(u32::MAX)),
+                has_more,
+            },
+        )
+    }
+
+    fn finish_terminal(&self, nodes: Vec<ExplorerNode>) -> (Vec<ExplorerNode>, ExplorerPageInfo) {
+        let returned_count = u32::try_from(nodes.len()).unwrap_or(u32::MAX);
+        (
+            nodes,
+            ExplorerPageInfo {
+                cursor: self.request_cursor.clone(),
+                next_cursor: None,
+                returned_count,
+                known_total: Some(
+                    u32::try_from(self.offset)
+                        .unwrap_or(u32::MAX)
+                        .saturating_add(returned_count),
+                ),
+                has_more: false,
+            },
+        )
+    }
+
+    fn encode_cursor(&self, offset: usize) -> String {
+        format!(
+            "{ORACLE_EXPLORER_CURSOR_VERSION}:{:016x}:{offset}",
+            self.scope_hash
+        )
+    }
+}
+
+fn parse_explorer_cursor(cursor: &str, expected_scope_hash: u64) -> Result<usize, CommandError> {
+    let mut parts = cursor.split(':');
+    let valid_version = parts.next() == Some(ORACLE_EXPLORER_CURSOR_VERSION);
+    let scope_hash = parts
+        .next()
+        .and_then(|value| u64::from_str_radix(value, 16).ok());
+    let offset = parts.next().and_then(|value| value.parse::<usize>().ok());
+
+    if !valid_version
+        || scope_hash != Some(expected_scope_hash)
+        || offset.is_none()
+        || parts.next().is_some()
+    {
+        return Err(CommandError::new(
+            "invalid-explorer-cursor",
+            "The Oracle Explorer cursor is malformed or belongs to another environment or scope.",
+        ));
+    }
+
+    Ok(offset.unwrap_or_default())
+}
+
+fn stable_explorer_scope_hash(environment_id: &str, scope: &str) -> u64 {
+    ["oracle", environment_id, scope]
+        .join("\u{1f}")
+        .as_bytes()
+        .iter()
+        .fold(0xcbf29ce484222325, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+        })
+}
+
 pub(super) async fn list_oracle_explorer_nodes(
     connection: &ResolvedConnectionProfile,
     request: &ExplorerRequest,
 ) -> Result<ExplorerResponse, CommandError> {
-    let nodes = match request.scope.as_deref() {
-        Some("oracle:containers") => container_nodes(connection).await,
+    let (nodes, page_info) = match request.scope.as_deref() {
+        Some("oracle:containers") => (container_nodes(connection).await, None),
         Some(scope) if scope.starts_with("oracle:container:") => {
-            container_child_nodes(connection, scope).await
+            (container_child_nodes(connection, scope).await, None)
         }
-        Some("oracle:schemas") => schema_nodes(connection, request.limit.unwrap_or(250)).await,
-        Some(scope) if scope.starts_with("oracle:schema:") => schema_child_nodes(connection, scope),
+        Some("oracle:schemas") => {
+            let paging = OracleExplorerPaging::new(request)?;
+            let (nodes, page_info) = schema_nodes(connection, &paging).await;
+            (nodes, Some(page_info))
+        }
+        Some(scope) if scope.starts_with("oracle:schema:") => {
+            (schema_child_nodes(connection, scope), None)
+        }
         Some(scope) if scope.starts_with("oracle:category:") => {
-            category_object_nodes(connection, scope, request.limit.unwrap_or(100)).await
+            let paging = OracleExplorerPaging::new(request)?;
+            let (nodes, page_info) = category_object_nodes(connection, scope, &paging).await;
+            (nodes, Some(page_info))
         }
         Some(scope) if scope.starts_with("oracle:object:") => {
-            object_child_nodes(connection, scope, request.limit.unwrap_or(250)).await
+            let paging = OracleExplorerPaging::new(request)?;
+            let (nodes, page_info) = object_child_nodes(connection, scope, &paging).await;
+            (nodes, Some(page_info))
         }
-        Some("oracle:security") => security_nodes(connection),
-        Some("oracle:storage") => storage_nodes(connection),
-        Some("oracle:performance") => performance_nodes(connection),
-        Some("oracle:scheduler") => scheduler_nodes(connection),
-        Some("oracle:queues") => queue_nodes(connection),
-        Some("oracle:replication") => replication_nodes(connection),
-        Some("oracle:data-guard") => data_guard_nodes(connection),
-        Some("oracle:rac") => rac_nodes(connection),
-        Some("oracle:flashback") => flashback_nodes(connection),
-        Some("oracle:diagnostics") => diagnostics_nodes(connection),
-        Some(_) => Vec::new(),
-        None => root_nodes(connection).await,
+        Some("oracle:security") => (security_nodes(connection), None),
+        Some("oracle:storage") => (storage_nodes(connection), None),
+        Some("oracle:performance") => (performance_nodes(connection), None),
+        Some("oracle:scheduler") => (scheduler_nodes(connection), None),
+        Some("oracle:queues") => (queue_nodes(connection), None),
+        Some("oracle:replication") => (replication_nodes(connection), None),
+        Some("oracle:data-guard") => (data_guard_nodes(connection), None),
+        Some("oracle:rac") => (rac_nodes(connection), None),
+        Some("oracle:flashback") => (flashback_nodes(connection), None),
+        Some("oracle:diagnostics") => (diagnostics_nodes(connection), None),
+        Some(_) => (Vec::new(), None),
+        None => (root_nodes(connection).await, None),
     };
 
     Ok(ExplorerResponse {
@@ -96,7 +249,7 @@ pub(super) async fn list_oracle_explorer_nodes(
         ),
         capabilities: oracle_execution_capabilities(),
         nodes,
-        page_info: None,
+        page_info,
     })
 }
 
@@ -194,16 +347,20 @@ async fn container_child_nodes(
     }
 }
 
-async fn schema_nodes(connection: &ResolvedConnectionProfile, limit: u32) -> Vec<ExplorerNode> {
+async fn schema_nodes(
+    connection: &ResolvedConnectionProfile,
+    paging: &OracleExplorerPaging,
+) -> (Vec<ExplorerNode>, ExplorerPageInfo) {
     let query = oracle_schema_discovery_query();
+    let paged_query = paging.query(&query);
     let runtime = oracle_execution_runtime(connection);
     let loaded = match runtime {
-        "managed" => execute_oracle_managed_read(connection, &query, limit)
+        "managed" => execute_oracle_managed_read(connection, &paged_query, paging.query_limit())
             .await
             .and_then(|response| oracle_managed_response_rows(&response)),
         "sqlplus" => {
             let path = oracle_sqlplus_path(connection).unwrap_or_else(|| "sqlplus".into());
-            load_oracle_category_rows(connection, &path, &query, limit).await
+            load_oracle_category_rows(connection, &path, &paged_query, paging.query_limit()).await
         }
         "contract" => Ok(vec![vec![
             OracleSessionContext::contract(connection).current_schema,
@@ -216,7 +373,8 @@ async fn schema_nodes(connection: &ResolvedConnectionProfile, limit: u32) -> Vec
     };
 
     match loaded {
-        Ok(rows) => rows
+        Ok(rows) => {
+            let nodes = rows
             .into_iter()
             .filter_map(|row| {
                 let schema = row.first()?.trim();
@@ -245,8 +403,14 @@ async fn schema_nodes(connection: &ResolvedConnectionProfile, limit: u32) -> Vec
                     expandable: Some(true),
                 })
             })
-            .collect(),
-        Err(error) => vec![ExplorerNode {
+            .collect();
+            if runtime == "contract" {
+                paging.finish_known(nodes)
+            } else {
+                paging.finish_window(nodes)
+            }
+        }
+        Err(error) => paging.finish_terminal(vec![ExplorerNode {
             id: "oracle-schemas-metadata-unavailable".into(),
             family: "sql".into(),
             label: "Schema metadata unavailable".into(),
@@ -256,7 +420,7 @@ async fn schema_nodes(connection: &ResolvedConnectionProfile, limit: u32) -> Vec
             path: Some(vec![connection.name.clone(), "Schemas".into()]),
             query_template: None,
             expandable: Some(false),
-        }],
+        }]),
     }
 }
 
@@ -447,28 +611,35 @@ pub(super) fn oracle_schema_from_scope(
 async fn category_object_nodes(
     connection: &ResolvedConnectionProfile,
     scope: &str,
-    limit: u32,
-) -> Vec<ExplorerNode> {
+    paging: &OracleExplorerPaging,
+) -> (Vec<ExplorerNode>, ExplorerPageInfo) {
     let Some((context, category)) = OracleObjectContext::from_category_scope(connection, scope)
     else {
-        return Vec::new();
+        return paging.finish_terminal(Vec::new());
     };
     let Some((_, label, _)) = ORACLE_OBJECT_CATEGORIES
         .iter()
         .find(|(kind, _, _)| *kind == category)
     else {
-        return Vec::new();
+        return paging.finish_terminal(Vec::new());
     };
 
     let query = oracle_category_query(&category, &context.schema);
+    let paged_query = paging.query(&query);
     let runtime = oracle_execution_runtime(connection);
     let loaded = match runtime {
-        "managed" => execute_oracle_managed_read(connection, &query, limit)
+        "managed" => execute_oracle_managed_read(connection, &paged_query, paging.query_limit())
             .await
             .and_then(|response| oracle_managed_response_rows(&response)),
         "sqlplus" => {
             let sqlplus_path = oracle_sqlplus_path(connection).unwrap_or_else(|| "sqlplus".into());
-            load_oracle_category_rows(connection, &sqlplus_path, &query, limit).await
+            load_oracle_category_rows(
+                connection,
+                &sqlplus_path,
+                &paged_query,
+                paging.query_limit(),
+            )
+            .await
         }
         "contract" => Ok(oracle_contract_category_rows(&category, &context.schema)),
         unsupported => Err(CommandError::new(
@@ -478,17 +649,28 @@ async fn category_object_nodes(
     };
     let rows = match loaded {
         Ok(rows) => rows,
-        Err(error) => return vec![oracle_metadata_notice_node(&context, label, &query, &error)],
+        Err(error) => {
+            return paging.finish_terminal(vec![oracle_metadata_notice_node(
+                &context, label, &query, &error,
+            )])
+        }
     };
 
     let nodes =
         oracle_object_nodes_from_rows(&context, &category, label, rows, runtime == "contract");
     if nodes.is_empty() {
-        vec![oracle_empty_category_node(
-            &context, &category, label, &query,
-        )]
+        let nodes = if paging.offset == 0 {
+            vec![oracle_empty_category_node(
+                &context, &category, label, &query,
+            )]
+        } else {
+            Vec::new()
+        };
+        paging.finish_terminal(nodes)
+    } else if runtime == "contract" {
+        paging.finish_known(nodes)
     } else {
-        nodes
+        paging.finish_window(nodes)
     }
 }
 
@@ -559,25 +741,26 @@ fn oracle_object_expandable(kind: &str) -> bool {
 async fn object_child_nodes(
     connection: &ResolvedConnectionProfile,
     scope: &str,
-    limit: u32,
-) -> Vec<ExplorerNode> {
+    paging: &OracleExplorerPaging,
+) -> (Vec<ExplorerNode>, ExplorerPageInfo) {
     let Some((context, kind, object_name)) =
         OracleObjectContext::from_object_scope(connection, scope)
     else {
-        return Vec::new();
+        return paging.finish_terminal(Vec::new());
     };
     let schema = context.schema.as_str();
     let Some(query) = oracle_object_children_query(&kind, schema, &object_name) else {
-        return Vec::new();
+        return paging.finish_terminal(Vec::new());
     };
+    let paged_query = paging.query(&query);
     let runtime = oracle_execution_runtime(connection);
     let loaded = match runtime {
-        "managed" => execute_oracle_managed_read(connection, &query, limit)
+        "managed" => execute_oracle_managed_read(connection, &paged_query, paging.query_limit())
             .await
             .and_then(|response| oracle_managed_response_rows(&response)),
         "sqlplus" => {
             let path = oracle_sqlplus_path(connection).unwrap_or_else(|| "sqlplus".into());
-            load_oracle_category_rows(connection, &path, &query, limit).await
+            load_oracle_category_rows(connection, &path, &paged_query, paging.query_limit()).await
         }
         "contract" => Ok(Vec::new()),
         unsupported => Err(CommandError::new(
@@ -588,7 +771,7 @@ async fn object_child_nodes(
     let rows = match loaded {
         Ok(rows) => rows,
         Err(error) => {
-            return vec![ExplorerNode {
+            return paging.finish_terminal(vec![ExplorerNode {
                 id: format!(
                     "oracle-object-metadata-unavailable:{}:{}",
                     context.key,
@@ -602,11 +785,12 @@ async fn object_child_nodes(
                 path: Some(context.object_path(&kind, &object_name)),
                 query_template: None,
                 expandable: Some(false),
-            }]
+            }])
         }
     };
 
-    rows.into_iter()
+    let nodes = rows
+        .into_iter()
         .filter_map(|row| {
             let name = row.first()?.trim();
             if name.is_empty() {
@@ -641,7 +825,12 @@ async fn object_child_nodes(
                 expandable: Some(false),
             })
         })
-        .collect()
+        .collect();
+    if runtime == "contract" {
+        paging.finish_known(nodes)
+    } else {
+        paging.finish_window(nodes)
+    }
 }
 
 fn oracle_object_children_query(kind: &str, schema: &str, object_name: &str) -> Option<String> {
@@ -752,8 +941,8 @@ fn oracle_category_query(category: &str, schema: &str) -> String {
         ),
         "functions" => oracle_objects_query(schema, &["FUNCTION"]),
         "procedures" => oracle_objects_query(schema, &["PROCEDURE"]),
-        "packages" => oracle_objects_query(schema, &["PACKAGE", "PACKAGE BODY"]),
-        "types" => oracle_objects_query(schema, &["TYPE", "TYPE BODY"]),
+        "packages" => oracle_objects_query(schema, &["PACKAGE"]),
+        "types" => oracle_objects_query(schema, &["TYPE"]),
         "json-collections" => oracle_json_query(schema),
         "external-tables" => format!(
             "select owner, table_name, type_name from all_external_tables where owner = '{}' order by table_name",
@@ -1804,7 +1993,7 @@ fn oracle_objects_query(schema: &str, object_types: &[&str]) -> String {
 
 fn oracle_json_query(schema: &str) -> String {
     format!(
-        "select owner, table_name, column_name from all_json_columns where owner = '{}' order by table_name, column_name",
+        "select owner, table_name, min(column_name) column_name from all_json_columns where owner = '{}' group by owner, table_name order by table_name",
         sql_literal(schema)
     )
 }

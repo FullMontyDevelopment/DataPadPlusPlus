@@ -213,6 +213,28 @@ describe('LibraryPane', () => {
     }
   })
 
+  it('allows a folder containing the active script to collapse and expand', () => {
+    renderLibraryPane(vi.fn(), {
+      activeLibraryNodeId: 'script-cleanup',
+      libraryNodes: [
+        folder('folder-automation', 'Automation'),
+        script('script-cleanup', 'Cleanup script', 'folder-automation'),
+      ],
+    })
+
+    expect(treeItemForLabel('Cleanup script')).toHaveAttribute('aria-selected', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Automation' }))
+
+    expect(treeItemForLabel('Automation')).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('Cleanup script')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Automation' }))
+
+    expect(treeItemForLabel('Automation')).toHaveAttribute('aria-expanded', 'true')
+    expect(treeItemForLabel('Cleanup script')).toHaveAttribute('aria-selected', 'true')
+  })
+
   it('highlights only the active query rather than its connection', () => {
     renderLibraryPane(vi.fn(), {
       activeLibraryNodeId: 'query-products',
@@ -1133,6 +1155,20 @@ function item(id: string, name: string, parentId?: string): LibraryNode {
     updatedAt: '2026-05-14T00:00:00.000Z',
     queryText: 'select 1;',
     language: 'sql',
+  }
+}
+
+function script(id: string, name: string, parentId?: string): LibraryNode {
+  return {
+    id,
+    kind: 'script',
+    parentId,
+    name,
+    tags: [],
+    createdAt: '2026-05-14T00:00:00.000Z',
+    updatedAt: '2026-05-14T00:00:00.000Z',
+    scriptText: 'print("cleanup")',
+    language: 'python',
   }
 }
 

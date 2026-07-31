@@ -5,6 +5,7 @@ import { createSeedSnapshot } from '../../../../fixtures/seed-workspace'
 import {
   QUERY_TARGET_REGISTRY,
   queryTargetOptions,
+  queryTargetValues,
 } from '../../../../../src/app/components/workbench/query-targets/query-target-registry'
 import {
   buildQueryTargetChangePlan,
@@ -196,6 +197,65 @@ describe('query target registry', () => {
       target('prefix', 'orders:', ['Session Redis', 'DB 4', 'Hashes'], 'prefix:orders:'),
     )
     expect(redisNext).toMatchObject({ databaseIndex: 4, pattern: 'orders:*', typeFilter: 'hash', cursor: '0', filters: redis.filters })
+  })
+
+  it('decodes current Oracle database object scopes into the database, schema, and table', () => {
+    const snapshot = createSeedSnapshot()
+    const base = required(snapshot.connections.find((item) => item.id === 'conn-analytics'))
+    const connection = {
+      ...engineConnection(base, 'oracle', 'sql'),
+      database: 'FREEPDB1',
+    }
+    const oracleTarget = target(
+      'table',
+      'Order:Lines',
+      [connection.name, 'Databases', 'FREEPDB1', 'Tables'],
+      'oracle:object:table:database:FREEPDB1:Mixed%3AOwner:Order%3ALines',
+    )
+    const builder: QueryBuilderState = {
+      kind: 'sql-select',
+      schema: 'OLD_OWNER',
+      table: 'OLD_TABLE',
+      projectionFields: [],
+      filters: [],
+      filterLogic: 'and',
+      sort: [],
+      limit: 20,
+    }
+
+    expect(queryTargetValues(connection, oracleTarget)).toEqual([
+      'FREEPDB1',
+      'Mixed:Owner',
+      'Order:Lines',
+    ])
+    expect(builderStateForQueryTarget(builder, connection, oracleTarget)).toMatchObject({
+      schema: 'Mixed:Owner',
+      table: 'Order:Lines',
+    })
+  })
+
+  it('supports schema-origin and legacy Oracle object scopes', () => {
+    const snapshot = createSeedSnapshot()
+    const base = required(snapshot.connections.find((item) => item.id === 'conn-analytics'))
+    const connection = engineConnection(base, 'oracle', 'sql')
+
+    expect(
+      queryTargetValues(
+        connection,
+        target(
+          'table',
+          'ACCOUNTS',
+          [connection.name, 'Schemas', 'APP', 'Tables'],
+          'oracle:object:table:schema:APP:ACCOUNTS',
+        ),
+      ),
+    ).toEqual(['', 'APP', 'ACCOUNTS'])
+    expect(
+      queryTargetValues(
+        connection,
+        target('table', 'ACCOUNTS', [connection.name, 'Schemas', 'APP', 'Tables'], 'oracle:object:table:APP:ACCOUNTS'),
+      ),
+    ).toEqual(['', 'APP', 'ACCOUNTS'])
   })
 
   it('requires confirmation before replacing custom raw and script representations', () => {

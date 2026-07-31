@@ -216,9 +216,18 @@ function ExplorerTreeRow({
           onClick={() => {
             if (!node) {
               onToggle(item, isExpanded)
-            } else if (selectedNodeId === node.id && hasChildren) {
-              onToggle(item, isExpanded)
-            } else {
+              return
+            }
+            if (!hasChildren) {
+              onSelectNode(node)
+              return
+            }
+
+            const selectionIsInBranch = Boolean(
+              selectedNodeId && branchContainsNode(item, selectedNodeId),
+            )
+            onToggle(item, isExpanded)
+            if (!selectionIsInBranch) {
               onSelectNode(node)
             }
           }}
@@ -278,6 +287,11 @@ function ExplorerTreeRow({
 }
 
 const EMPTY_EXPANSION_OVERRIDES: ReadonlyMap<string, boolean> = new Map()
+
+function branchContainsNode(item: DatastoreExplorerTreeItem, nodeId: string): boolean {
+  return item.node?.id === nodeId
+    || item.children.some((child) => branchContainsNode(child, nodeId))
+}
 
 function ExplorerNavigationState({
   title,

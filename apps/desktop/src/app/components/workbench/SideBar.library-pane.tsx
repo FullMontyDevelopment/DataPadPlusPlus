@@ -1762,10 +1762,12 @@ function LibraryTreeItem({
   const sectionId = sidebarSectionId('library', 'node', node.id)
   const [optimisticExpanded, setOptimisticExpanded] = useState<boolean>()
   const forceCollapsed = forcedCollapsedSectionIds.has(sectionId)
+  const storedExpanded = sectionStates[sectionId] ?? (isFolder && depth === 0)
   const expanded =
-    activeAncestorNodeIds.has(node.id) ||
-    (!forceCollapsed &&
-      (optimisticExpanded ?? sectionStates[sectionId] ?? (isFolder && depth === 0)))
+    optimisticExpanded === false
+      ? false
+      : activeAncestorNodeIds.has(node.id) ||
+        (!forceCollapsed && (optimisticExpanded ?? storedExpanded))
   const environmentState = effectiveEnvironmentForNode(
     node,
     libraryNodes,

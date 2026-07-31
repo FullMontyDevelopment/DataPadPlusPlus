@@ -43,7 +43,7 @@ describe('DatastoreExplorerNavigator', () => {
     },
   )
 
-  it('selects an unselected branch without changing its expansion', () => {
+  it('collapses an expanded unselected branch and selects it', () => {
     const onSelectNode = vi.fn()
     render(<Navigator onSelectNode={onSelectNode} />)
 
@@ -52,9 +52,105 @@ describe('DatastoreExplorerNavigator', () => {
     expect(onSelectNode).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'databases' }),
     )
-    expect(screen.getByText('catalog')).toBeInTheDocument()
-    expect(treeItem('Databases')).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.queryByText('catalog')).not.toBeInTheDocument()
+    expect(treeItem('Databases')).toHaveAttribute('aria-expanded', 'false')
   })
+
+  it.each([false, true])(
+    'expands, collapses, and re-expands a branch selected on first click (compact: %s)',
+    (compact) => {
+      const onSelectNode = vi.fn()
+      const { rerender } = render(
+        <Navigator compact={compact} onSelectNode={onSelectNode} />,
+      )
+
+      expect(treeItem('catalog')).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.queryByText('products')).not.toBeInTheDocument()
+
+      fireEvent.click(nodeButton('catalog'))
+
+      expect(onSelectNode).toHaveBeenCalledTimes(1)
+      expect(onSelectNode).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'database:catalog' }),
+      )
+      expect(treeItem('catalog')).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByText('products')).toBeInTheDocument()
+
+      rerender(
+        <Navigator
+          compact={compact}
+          selectedNodeId="database:catalog"
+          onSelectNode={onSelectNode}
+        />,
+      )
+      fireEvent.click(nodeButton('catalog'))
+
+      expect(treeItem('catalog')).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.queryByText('products')).not.toBeInTheDocument()
+      expect(onSelectNode).toHaveBeenCalledTimes(1)
+
+      fireEvent.click(nodeButton('catalog'))
+
+      expect(treeItem('catalog')).toHaveAttribute('aria-expanded', 'true')
+      expect(treeItem('products')).toBeInTheDocument()
+      expect(onSelectNode).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('keeps chevron toggles separate from selection', () => {
+    const onSelectNode = vi.fn()
+    render(<Navigator onSelectNode={onSelectNode} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand catalog' }))
+    expect(screen.getByText('products')).toBeInTheDocument()
+    expect(onSelectNode).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse catalog' }))
+    expect(screen.queryByText('products')).not.toBeInTheDocument()
+    expect(onSelectNode).not.toHaveBeenCalled()
+  })
+
+  it('selects leaf nodes without toggling their expanded ancestor', () => {
+    const onSelectNode = vi.fn()
+    render(<Navigator onSelectNode={onSelectNode} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand catalog' }))
+    fireEvent.click(nodeButton('products'))
+
+    expect(onSelectNode).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'table:catalog:products' }),
+    )
+    expect(treeItem('catalog')).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it.each([false, true])(
+    'collapses and re-expands an ancestor of the selected node (compact: %s)',
+    (compact) => {
+      const onSelectNode = vi.fn()
+      render(
+        <Navigator
+          compact={compact}
+          selectedNodeId="table:catalog:products"
+          onSelectNode={onSelectNode}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'Expand catalog' }))
+      expect(treeItem('products')).toHaveAttribute('aria-selected', 'true')
+
+      fireEvent.click(nodeButton('Databases'))
+
+      expect(screen.queryByText('products')).not.toBeInTheDocument()
+      expect(treeItem('Databases')).toHaveAttribute('aria-expanded', 'false')
+      expect(onSelectNode).not.toHaveBeenCalled()
+
+      fireEvent.click(nodeButton('Databases'))
+
+      expect(treeItem('products')).toHaveAttribute('aria-selected', 'true')
+      expect(treeItem('Databases')).toHaveAttribute('aria-expanded', 'true')
+      expect(onSelectNode).not.toHaveBeenCalled()
+    },
+  )
 
   it('honors search-specific collapse and restores normal expansion after search', () => {
     const onSelectNode = vi.fn()

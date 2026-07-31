@@ -19,6 +19,7 @@ import {
   queryTargetRegistryForEngine,
   queryTargetValues,
 } from './query-target-registry'
+import { parseOracleObjectTarget } from './oracle-query-target'
 
 export interface QueryTargetChangePlan {
   request: UpdateQueryTabTargetRequest
@@ -201,7 +202,7 @@ function scopedObjectName(target: ScopedQueryTarget, connection?: ConnectionProf
     return target.scope.slice('table:'.length).split('.').at(-1) ?? target.label
   }
   if (connection?.engine === 'oracle' && scopeParts[0] === 'oracle' && scopeParts[1] === 'object') {
-    return scopeParts.at(-1) ?? target.label
+    return parseOracleObjectTarget(target.scope)?.object ?? target.label
   }
   if (
     ['postgresql', 'cockroachdb', 'timescaledb', 'sqlite', 'duckdb', 'clickhouse', 'snowflake', 'bigquery']

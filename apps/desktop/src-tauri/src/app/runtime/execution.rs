@@ -521,11 +521,16 @@ fn sql_database_from_target(
     if let Some(database) = direct_target_value(target, &["database", "catalog"]) {
         return Some(database);
     }
+    let scope = target.scope.as_deref().unwrap_or_default();
+    if connection.engine == "oracle" {
+        if let Some(database) = oracle_object_target(scope).and_then(|target| target.database) {
+            return Some(database);
+        }
+    }
     if let Some(database) = target_path_value_after(target, &["databases", "catalogs"]) {
         return Some(database);
     }
 
-    let scope = target.scope.as_deref().unwrap_or_default();
     let parts = scope.split(':').collect::<Vec<_>>();
     if connection.engine == "sqlserver" && parts.len() >= 4 && parts[0] == "table" {
         return Some(parts[1].to_string());
@@ -546,18 +551,18 @@ fn sql_schema_from_target(target: &ScopedQueryTarget) -> Option<String> {
     if let Some(schema) = direct_target_value(target, &["schema", "dataset"]) {
         return Some(schema);
     }
+    let scope = target.scope.as_deref()?;
+    if let Some(target) = oracle_object_target(scope) {
+        return Some(target.schema);
+    }
     if let Some(schema) = target_path_value_after(target, &["schemas", "user-schemas", "datasets"])
     {
         return Some(schema);
     }
 
-    let scope = target.scope.as_deref()?;
     let parts = scope.split(':').collect::<Vec<_>>();
     if parts.first() == Some(&"table") && parts.len() >= 4 {
         return Some(parts[2].to_string());
-    }
-    if parts.first() == Some(&"oracle") && parts.get(1) == Some(&"object") {
-        return parts.get(3).map(|value| (*value).to_string());
     }
     let identity = scope.split_once(':')?.1;
     identity
@@ -566,6 +571,48 @@ fn sql_schema_from_target(target: &ScopedQueryTarget) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+struct OracleObjectTarget {
+    database: Option<String>,
+    schema: String,
+}
+
+fn oracle_object_target(scope: &str) -> Option<OracleObjectTarget> {
+    let parts = scope.split(':').collect::<Vec<_>>();
+    if parts.first() != Some(&"oracle") || parts.get(1) != Some(&"object") {
+        return None;
+    }
+
+    let (database, schema) = match parts.as_slice() {
+        [_, _, _, "database", database, schema, _] => (
+            Some(decode_scope_component(database)?),
+            decode_scope_component(schema)?,
+        ),
+        [_, _, _, "schema", schema, _] | [_, _, _, schema, _] => {
+            (None, decode_scope_component(schema)?)
+        }
+        _ => return None,
+    };
+    Some(OracleObjectTarget { database, schema })
+}
+
+fn decode_scope_component(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != b'%' {
+            decoded.push(bytes[index]);
+            index += 1;
+            continue;
+        }
+        let hex = bytes.get(index + 1..index + 3)?;
+        let hex = std::str::from_utf8(hex).ok()?;
+        decoded.push(u8::from_str_radix(hex, 16).ok()?);
+        index += 3;
+    }
+    String::from_utf8(decoded).ok()
 }
 
 fn target_path_values(

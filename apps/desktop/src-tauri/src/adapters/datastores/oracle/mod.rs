@@ -26,6 +26,10 @@ impl DatastoreAdapter for OracleAdapter {
         true
     }
 
+    fn handles_explorer_paging(&self) -> bool {
+        true
+    }
+
     fn manifest(&self) -> AdapterManifest {
         oracle_manifest()
     }

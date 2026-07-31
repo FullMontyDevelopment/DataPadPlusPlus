@@ -98,13 +98,13 @@ export function parseSqlSelectQueryText(
   engine: ConnectionProfile['engine'] = 'postgresql',
 ): SqlSelectBuilderState | undefined {
   const normalized = stripSqlComments(queryText)
-  const target = parseSqlTableReference(normalized)
+  const target = parseSqlTableReference(normalized, engine)
 
   if (!target?.table) {
     return undefined
   }
 
-  const projectionFields = projectionFromQuery(normalized).map((field) => ({
+  const projectionFields = projectionFromQuery(normalized, engine).map((field) => ({
     id: sqlBuilderRowId('projection'),
     field,
   }))
@@ -115,7 +115,7 @@ export function parseSqlSelectQueryText(
     projectionFields,
     filters: [],
     filterLogic: 'and',
-    sort: sortFromQuery(normalized),
+    sort: sortFromQuery(normalized, engine),
     limit: limitFromQuery(normalized, engine) ?? 20,
   }
 
@@ -230,6 +230,10 @@ function quoteSqlIdentifier(identifier: string, engine: ConnectionProfile['engin
     return `\`${identifier.replaceAll('`', '``')}\``
   }
 
+  if (engine === 'oracle' && /^[A-Za-z][A-Za-z0-9_$#]*$/.test(identifier)) {
+    return `"${identifier.toUpperCase()}"`
+  }
+
   return `"${identifier.replaceAll('"', '""')}"`
 }
 
@@ -286,7 +290,10 @@ function stripSqlComments(queryText: string) {
   return queryText.replace(/--.*$/gm, ' ')
 }
 
-function parseSqlTableReference(queryText: string) {
+function parseSqlTableReference(
+  queryText: string,
+  engine: ConnectionProfile['engine'],
+) {
   const fromMatch = /\bfrom\s+(.+?)(?:\s+where\b|\s+order\s+by\b|\s+limit\b|\s+offset\b|\s+fetch\b|;|$)/i.exec(
     queryText,
   )
@@ -296,7 +303,10 @@ function parseSqlTableReference(queryText: string) {
   }
 
   const reference = tableReferenceFromFromClause(fromMatch[1])
-  const identifiers = reference?.match(identifierPattern)?.map(unquoteIdentifier).filter(Boolean)
+  const identifiers = reference
+    ?.match(identifierPattern)
+    ?.map((identifier) => unquoteIdentifier(identifier, engine))
+    .filter(Boolean)
 
   if (!identifiers?.length) {
     return undefined
@@ -322,7 +332,7 @@ function tableReferenceFromFromClause(fromClause: string) {
   )?.[0]
 }
 
-function projectionFromQuery(queryText: string) {
+function projectionFromQuery(queryText: string, engine: ConnectionProfile['engine']) {
   const match = /^\s*select\s+(?:top\s+\d+\s+)?(.+?)\s+from\s+/is.exec(queryText)
   const selection = match?.[1]?.trim()
 
@@ -332,11 +342,14 @@ function projectionFromQuery(queryText: string) {
 
   return selection
     .split(',')
-    .map((part) => unquotePath(part.trim()))
+    .map((part) => unquotePath(part.trim(), engine))
     .filter(Boolean)
 }
 
-function sortFromQuery(queryText: string): SqlSelectBuilderState['sort'] {
+function sortFromQuery(
+  queryText: string,
+  engine: ConnectionProfile['engine'],
+): SqlSelectBuilderState['sort'] {
   const match = /\border\s+by\s+(.+?)(?:\s+limit\b|\s+offset\b|\s+fetch\b|;|$)/i.exec(queryText)
 
   if (!match?.[1]) {
@@ -349,7 +362,7 @@ function sortFromQuery(queryText: string): SqlSelectBuilderState['sort'] {
       const [field = '', direction = 'asc'] = part.trim().split(/\s+/)
       return {
         id: sqlBuilderRowId('sort'),
-        field: unquotePath(field),
+        field: unquotePath(field, engine),
         direction: direction.toLowerCase() === 'desc' ? 'desc' as const : 'asc' as const,
       }
     })
@@ -367,16 +380,20 @@ function limitFromQuery(queryText: string, engine: ConnectionProfile['engine']) 
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : undefined
 }
 
-function unquotePath(path: string) {
+function unquotePath(path: string, engine: ConnectionProfile['engine']) {
   return path
     .split('.')
-    .map((part) => unquoteIdentifier(part.trim()))
+    .map((part) => unquoteIdentifier(part.trim(), engine))
     .join('.')
 }
 
-function unquoteIdentifier(identifier: string) {
+function unquoteIdentifier(identifier: string, engine: ConnectionProfile['engine']) {
   if (identifier.startsWith('"') && identifier.endsWith('"')) {
-    return identifier.slice(1, -1).replace(/""/g, '"')
+    const unquoted = identifier.slice(1, -1).replace(/""/g, '"')
+    if (engine === 'oracle') {
+      return /^[A-Z][A-Z0-9_$#]*$/.test(unquoted) ? unquoted : identifier
+    }
+    return unquoted
   }
 
   if (identifier.startsWith('`') && identifier.endsWith('`')) {
