@@ -31,7 +31,7 @@ fn json_merge_rejects_malformed_config() {
 fn toml_merge_preserves_existing_settings_and_upserts_codex_server() {
     let existing = "model = \"gpt-5\"\n\n[mcp_servers.other]\ncommand = \"node\"\n";
     let (content, snippet) = merge_toml_config(existing, ENDPOINT).unwrap();
-    let value = content.parse::<toml::Value>().unwrap();
+    let value = content.parse::<toml::Table>().unwrap();
 
     assert_eq!(value["model"].as_str(), Some("gpt-5"));
     assert_eq!(

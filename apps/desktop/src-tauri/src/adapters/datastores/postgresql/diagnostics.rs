@@ -517,7 +517,10 @@ async fn append_pg_statements_profile(
         quote_pg_identifier(&extension_schema)
     );
 
-    match sqlx::query(&query).fetch_all(pool).await {
+    match sqlx::query(sqlx::AssertSqlSafe(query.as_str()))
+        .fetch_all(pool)
+        .await
+    {
         Ok(rows) => {
             let stages = rows
                 .iter()

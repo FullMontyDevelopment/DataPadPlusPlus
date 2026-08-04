@@ -651,7 +651,7 @@ fn authorize_tool(
 }
 
 fn json_tool_result(value: Value) -> Result<CallToolResult, McpError> {
-    Ok(CallToolResult::success(vec![Content::json(value)?]))
+    Ok(CallToolResult::success(vec![ContentBlock::json(value)?]))
 }
 
 fn command_to_mcp(error: CommandError) -> McpError {

@@ -418,21 +418,15 @@ fn gemini_server(endpoint: &str) -> Value {
 }
 
 fn merge_toml_config(existing: &str, endpoint: &str) -> Result<(String, String), CommandError> {
-    let mut value = if existing.trim().is_empty() {
-        toml::Value::Table(toml::map::Map::new())
+    let mut root = if existing.trim().is_empty() {
+        toml::map::Map::new()
     } else {
-        existing.parse::<toml::Value>().map_err(|error| {
+        existing.parse::<toml::Table>().map_err(|error| {
             CommandError::new(
                 "mcp-client-setup-config-invalid",
                 format!("The existing Codex TOML config is invalid: {error}"),
             )
         })?
-    };
-    let Some(root) = value.as_table_mut() else {
-        return Err(CommandError::new(
-            "mcp-client-setup-config-invalid",
-            "The existing Codex TOML config must be a TOML table.",
-        ));
     };
     let servers = root
         .entry("mcp_servers")
@@ -456,7 +450,7 @@ fn merge_toml_config(existing: &str, endpoint: &str) -> Result<(String, String),
     server.insert("tool_timeout_sec".into(), toml::Value::Integer(30));
     servers.insert(SERVER_NAME.into(), toml::Value::Table(server));
 
-    let content = toml::to_string_pretty(&value).map_err(|error| {
+    let content = toml::to_string_pretty(&root).map_err(|error| {
         CommandError::new(
             "mcp-client-setup-config-invalid",
             format!("DataPad++ could not render the Codex TOML config: {error}"),

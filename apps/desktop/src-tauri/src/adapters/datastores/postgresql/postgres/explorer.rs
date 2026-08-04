@@ -367,7 +367,7 @@ async fn view_nodes(
         "view"
     };
 
-    sqlx::query(query)
+    sqlx::query(sqlx::AssertSqlSafe(query))
         .bind(schema)
         .fetch_all(pool)
         .await
@@ -1008,7 +1008,7 @@ async fn table_rows(pool: &PgPool, schema: &str, table_filter: Option<&str>) -> 
     }
     query.push_str(" order by c.relname limit 200");
 
-    let mut sql = sqlx::query(&query).bind(schema);
+    let mut sql = sqlx::query(sqlx::AssertSqlSafe(query)).bind(schema);
     if let Some(table) = table_filter {
         sql = sql.bind(table);
     }
@@ -1058,7 +1058,7 @@ async fn view_rows(
     }
     query.push_str(" order by name limit 200");
 
-    let mut sql = sqlx::query(&query).bind(schema);
+    let mut sql = sqlx::query(sqlx::AssertSqlSafe(query)).bind(schema);
     if let Some(view) = view_filter {
         sql = sql.bind(view);
     }
@@ -1148,7 +1148,7 @@ async fn index_rows(
     }
     query.push_str(" order by ci.relname limit 200");
 
-    let mut sql = sqlx::query(&query).bind(schema);
+    let mut sql = sqlx::query(sqlx::AssertSqlSafe(query)).bind(schema);
     if let Some(table) = table_filter {
         sql = sql.bind(table);
     }
@@ -1345,7 +1345,9 @@ async fn routine_rows(
     }
     query.push_str(" order by p.proname limit 200");
 
-    let mut sql = sqlx::query(&query).bind(schema).bind(prokind);
+    let mut sql = sqlx::query(sqlx::AssertSqlSafe(query))
+        .bind(schema)
+        .bind(prokind);
     if let Some(routine) = routine_filter {
         sql = sql.bind(routine);
     }
@@ -1388,7 +1390,7 @@ async fn sequence_rows(pool: &PgPool, schema: &str, sequence_filter: Option<&str
     }
     query.push_str(" order by sequence_name limit 200");
 
-    let mut sql = sqlx::query(&query).bind(schema);
+    let mut sql = sqlx::query(sqlx::AssertSqlSafe(query)).bind(schema);
     if let Some(sequence) = sequence_filter {
         sql = sql.bind(sequence);
     }
@@ -1431,7 +1433,7 @@ async fn type_rows(pool: &PgPool, schema: &str, type_filter: Option<&str>) -> Ve
     }
     query.push_str(" order by t.typname limit 200");
 
-    let mut sql = sqlx::query(&query).bind(schema);
+    let mut sql = sqlx::query(sqlx::AssertSqlSafe(query)).bind(schema);
     if let Some(type_name) = type_filter {
         sql = sql.bind(type_name);
     }
@@ -1473,7 +1475,7 @@ async fn extension_rows(pool: &PgPool, schema: &str, extension_filter: Option<&s
     }
     query.push_str(" order by e.extname");
 
-    let mut sql = sqlx::query(&query).bind(schema);
+    let mut sql = sqlx::query(sqlx::AssertSqlSafe(query)).bind(schema);
     if let Some(extension) = extension_filter {
         sql = sql.bind(extension);
     }
@@ -1522,7 +1524,7 @@ async fn extension_object_rows(
     }
     query.push_str(" order by e.extname, object limit 300");
 
-    let mut sql = sqlx::query(&query).bind(schema);
+    let mut sql = sqlx::query(sqlx::AssertSqlSafe(query)).bind(schema);
     if let Some(extension) = extension_filter {
         sql = sql.bind(extension);
     }
@@ -1563,7 +1565,7 @@ async fn relation_statistics(
     }
     query.push_str(" order by relname limit 200");
 
-    let mut sql = sqlx::query(&query).bind(schema);
+    let mut sql = sqlx::query(sqlx::AssertSqlSafe(query)).bind(schema);
     if let Some(relation) = relation_filter {
         sql = sql.bind(relation);
     }
@@ -1619,7 +1621,7 @@ async fn table_permission_rows(
     }
     query.push_str(" order by table_name, grantee, privilege_type limit 200");
 
-    let mut sql = sqlx::query(&query).bind(schema);
+    let mut sql = sqlx::query(sqlx::AssertSqlSafe(query)).bind(schema);
     if let Some(object) = object_filter {
         sql = sql.bind(object);
     }
@@ -1663,7 +1665,7 @@ async fn routine_permission_rows(
     }
     query.push_str(" order by routine_name, grantee, privilege_type limit 200");
 
-    let mut sql = sqlx::query(&query).bind(schema);
+    let mut sql = sqlx::query(sqlx::AssertSqlSafe(query)).bind(schema);
     if let Some(object) = object_filter {
         sql = sql.bind(object);
     }
@@ -1707,7 +1709,7 @@ async fn sequence_permission_rows(
     }
     query.push_str(" order by object_name, grantee, privilege_type limit 200");
 
-    let mut sql = sqlx::query(&query).bind(schema);
+    let mut sql = sqlx::query(sqlx::AssertSqlSafe(query)).bind(schema);
     if let Some(object) = object_filter {
         sql = sql.bind(object);
     }
@@ -1981,7 +1983,7 @@ async fn schema_counts(pool: &PgPool, schema: &str) -> SchemaCounts {
 }
 
 async fn count_for_schema(pool: &PgPool, query: &str, schema: &str) -> i64 {
-    sqlx::query_scalar::<_, i64>(query)
+    sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(query))
         .bind(schema)
         .fetch_one(pool)
         .await

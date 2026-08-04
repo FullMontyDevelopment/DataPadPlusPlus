@@ -15,7 +15,9 @@ pub(crate) async fn fetch_postgres_page(
         .max_connections(1)
         .connect(&postgres_dsn(connection))
         .await?;
-    let rows = sqlx::query(&query).fetch_all(&pool).await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query))
+        .fetch_all(&pool)
+        .await?;
     let columns = rows
         .first()
         .map(|row| {

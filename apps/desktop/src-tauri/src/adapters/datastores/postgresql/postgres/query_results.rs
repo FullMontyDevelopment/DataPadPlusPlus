@@ -17,7 +17,7 @@ pub(super) async fn query_postgres_rows(
     sql: &str,
     row_limit: u32,
 ) -> Result<PostgresQueryRows, CommandError> {
-    let mut stream = sqlx::query(sql).fetch(pool);
+    let mut stream = sqlx::query(sqlx::AssertSqlSafe(sql)).fetch(pool);
     let mut columns = Vec::new();
     let mut rows = Vec::new();
     let mut total_rows = 0_u32;

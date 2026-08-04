@@ -11,7 +11,9 @@ pub(crate) async fn fetch_sqlite_page(
     let page_index = request.page_index.unwrap_or(1);
     let query = paged_sql(selected_page_query(request), page_size, page_index)?;
     let pool = sqlite_pool(connection).await?;
-    let rows = sqlx::query(&query).fetch_all(&pool).await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query))
+        .fetch_all(&pool)
+        .await?;
     let columns = rows
         .first()
         .map(|row| {

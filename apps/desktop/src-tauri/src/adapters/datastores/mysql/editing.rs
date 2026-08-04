@@ -59,7 +59,7 @@ pub(super) async fn execute_mysql_data_edit(
     };
 
     let pool = mysql_pool(connection, 1).await?;
-    let mut query = sqlx::query(&statement.sql);
+    let mut query = sqlx::query(sqlx::AssertSqlSafe(statement.sql.as_str()));
     for value in &statement.values {
         query = bind_mysql_value(query, value);
     }

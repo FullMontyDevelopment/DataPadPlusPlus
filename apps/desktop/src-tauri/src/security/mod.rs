@@ -7,7 +7,6 @@ use aes_gcm::{
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use keyring::Entry;
 use pbkdf2::pbkdf2_hmac;
-use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -214,11 +213,11 @@ fn encrypt_file_secret(
     let cipher = Aes256Gcm::new_from_slice(&key)
         .map_err(|error| CommandError::new("file-secret-encryption", error.to_string()))?;
     let mut nonce_bytes = [0_u8; 12];
-    OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    rand::fill(&mut nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
     let ciphertext = cipher
         .encrypt(
-            nonce,
+            &nonce,
             Payload {
                 msg: secret.as_bytes(),
                 aad: storage_key.as_bytes(),
@@ -259,10 +258,10 @@ fn decrypt_file_secret(
     let ciphertext = BASE64
         .decode(&encrypted.ciphertext)
         .map_err(|error| CommandError::new("file-secret-decryption", error.to_string()))?;
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
     let plaintext = cipher
         .decrypt(
-            nonce,
+            &nonce,
             Payload {
                 msg: ciphertext.as_ref(),
                 aad: storage_key.as_bytes(),
@@ -282,7 +281,7 @@ fn file_secret_master_key() -> Result<[u8; 32], CommandError> {
         static TEST_FILE_SECRET_KEY: OnceLock<[u8; 32]> = OnceLock::new();
         Ok(*TEST_FILE_SECRET_KEY.get_or_init(|| {
             let mut key = [0_u8; 32];
-            OsRng.fill_bytes(&mut key);
+            rand::fill(&mut key);
             key
         }))
     }
@@ -301,7 +300,7 @@ fn file_secret_master_key() -> Result<[u8; 32], CommandError> {
             Ok(encoded) => decode_file_secret_master_key(&encoded),
             Err(_) => {
                 let mut key = [0_u8; 32];
-                OsRng.fill_bytes(&mut key);
+                rand::fill(&mut key);
                 let encoded = BASE64.encode(key);
                 KeyringSecretStore
                     .store_secret(&secret_ref, &encoded)
@@ -881,15 +880,15 @@ fn derive_export_key(passphrase: &str, salt: &[u8], iterations: u32) -> [u8; 32]
 
 pub fn encrypt_export_payload(passphrase: &str, payload: &str) -> Result<String, CommandError> {
     let mut salt = [0_u8; 16];
-    OsRng.fill_bytes(&mut salt);
+    rand::fill(&mut salt);
     let key = derive_export_key(passphrase, &salt, EXPORT_KDF_ITERATIONS);
     let cipher = Aes256Gcm::new_from_slice(&key)
         .map_err(|error| CommandError::new("export-encryption", error.to_string()))?;
     let mut nonce_bytes = [0_u8; 12];
-    OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    rand::fill(&mut nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
     let ciphertext = cipher
-        .encrypt(nonce, payload.as_bytes())
+        .encrypt(&nonce, payload.as_bytes())
         .map_err(|error| CommandError::new("export-encryption", error.to_string()))?;
 
     Ok(BASE64.encode(
@@ -942,9 +941,15 @@ pub fn decrypt_export_payload(
     };
     let cipher = Aes256Gcm::new_from_slice(&key)
         .map_err(|error| CommandError::new("export-decryption", error.to_string()))?;
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce_bytes: [u8; 12] = nonce_bytes.try_into().map_err(|_| {
+        CommandError::new(
+            "export-decryption",
+            "Encrypted export contains an invalid nonce.",
+        )
+    })?;
+    let nonce = Nonce::from(nonce_bytes);
     let plaintext = cipher
-        .decrypt(nonce, ciphertext.as_ref())
+        .decrypt(&nonce, ciphertext.as_ref())
         .map_err(|error| CommandError::new("export-decryption", error.to_string()))?;
 
     String::from_utf8(plaintext)

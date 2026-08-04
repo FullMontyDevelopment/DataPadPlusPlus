@@ -18,10 +18,10 @@ pub(crate) async fn load_sqlite_structure(
     } else {
         "and name not like 'sqlite_%'"
     };
-    let objects = sqlx::query(&format!(
+    let objects = sqlx::query(sqlx::AssertSqlSafe(format!(
         "select name, type from sqlite_master where type in ('table', 'view') {system_filter} order by name limit {}",
         node_limit + 1
-    ))
+    )))
     .fetch_all(&pool)
     .await?;
     let mut nodes = BTreeMap::<String, StructureNode>::new();
@@ -29,30 +29,33 @@ pub(crate) async fn load_sqlite_structure(
     for row in objects.iter().take(node_limit as usize) {
         let name = row.get::<String, _>("name");
         let object_type = row.get::<String, _>("type");
-        let columns = sqlx::query(&format!("pragma table_info('{}')", sql_literal(&name)))
-            .fetch_all(&pool)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|column| {
-                structure_field_with_flags(
-                    column.get::<String, _>("name"),
-                    column.get::<String, _>("type"),
-                    None,
-                    Some(column.try_get::<i64, _>("notnull").unwrap_or_default() == 0),
-                    Some(column.try_get::<i64, _>("pk").unwrap_or_default() > 0),
-                    column
-                        .try_get::<i64, _>("cid")
-                        .ok()
-                        .map(|value| value.max(0) as u32),
-                    Some(column.try_get::<i64, _>("pk").unwrap_or_default() > 0),
-                )
-            })
-            .collect::<Vec<StructureField>>();
-        for fk in sqlx::query(&format!(
+        let columns = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "pragma table_info('{}')",
+            sql_literal(&name)
+        )))
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|column| {
+            structure_field_with_flags(
+                column.get::<String, _>("name"),
+                column.get::<String, _>("type"),
+                None,
+                Some(column.try_get::<i64, _>("notnull").unwrap_or_default() == 0),
+                Some(column.try_get::<i64, _>("pk").unwrap_or_default() > 0),
+                column
+                    .try_get::<i64, _>("cid")
+                    .ok()
+                    .map(|value| value.max(0) as u32),
+                Some(column.try_get::<i64, _>("pk").unwrap_or_default() > 0),
+            )
+        })
+        .collect::<Vec<StructureField>>();
+        for fk in sqlx::query(sqlx::AssertSqlSafe(format!(
             "pragma foreign_key_list('{}')",
             sql_literal(&name)
-        ))
+        )))
         .fetch_all(&pool)
         .await
         .unwrap_or_default()

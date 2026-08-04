@@ -393,9 +393,9 @@ fn export_decryption_accepts_legacy_sha256_bundles() {
     let key = derive_legacy_key("legacy");
     let cipher = Aes256Gcm::new_from_slice(&key).expect("legacy key should initialize");
     let nonce_bytes = [7_u8; 12];
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
     let ciphertext = cipher
-        .encrypt(nonce, b"{\"legacy\":true}".as_slice())
+        .encrypt(&nonce, b"{\"legacy\":true}".as_slice())
         .expect("legacy payload should encrypt");
     let encrypted = BASE64.encode(
         json!({

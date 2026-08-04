@@ -21,14 +21,14 @@ pub(crate) async fn load_postgres_structure(
     } else {
         "where t.table_schema not in ('information_schema', 'pg_catalog', 'pg_toast')"
     };
-    let table_rows = sqlx::query(&format!(
+    let table_rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "select t.table_schema, t.table_name, t.table_type
          from information_schema.tables t
          {system_filter}
          order by t.table_schema, t.table_name
          limit {}",
         node_limit + 1
-    ))
+    )))
     .fetch_all(&pool)
     .await?;
     let table_pairs = table_rows
@@ -45,13 +45,13 @@ pub(crate) async fn load_postgres_structure(
     let rows = if table_pairs.is_empty() {
         Vec::new()
     } else {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "select c.table_schema, c.table_name, t.table_type, c.column_name, c.data_type, c.is_nullable, c.ordinal_position
              from information_schema.columns c
              join information_schema.tables t on t.table_schema = c.table_schema and t.table_name = c.table_name
              where {table_filter}
              order by c.table_schema, c.table_name, c.ordinal_position",
-        ))
+        )))
         .fetch_all(&pool)
         .await?
     };
@@ -69,7 +69,7 @@ pub(crate) async fn load_postgres_structure(
     let fk_rows = if table_pairs.is_empty() {
         Vec::new()
     } else {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "select tc.constraint_name,
                     kcu.table_schema,
                     kcu.table_name,
@@ -91,7 +91,7 @@ pub(crate) async fn load_postgres_structure(
                on c.table_schema = kcu.table_schema and c.table_name = kcu.table_name and c.column_name = kcu.column_name
              where tc.constraint_type = 'FOREIGN KEY' and ({fk_filter})
              limit {edge_limit}",
-        ))
+        )))
         .fetch_all(&pool)
         .await
         .unwrap_or_default()

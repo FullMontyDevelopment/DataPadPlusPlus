@@ -197,7 +197,7 @@ async fn fetch_mysql_rows(
     query: &str,
     row_limit: u32,
 ) -> Result<Vec<MySqlRow>, sqlx::Error> {
-    let mut stream = sqlx::query(query).fetch(pool);
+    let mut stream = sqlx::query(sqlx::AssertSqlSafe(query)).fetch(pool);
     let mut rows = Vec::new();
     while let Some(row) = stream.try_next().await? {
         rows.push(row);

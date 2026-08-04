@@ -347,7 +347,7 @@ fn token_verifier(token: &str) -> String {
 
 fn generate_raw_token() -> String {
     let mut bytes = [0_u8; 32];
-    OsRng.fill_bytes(&mut bytes);
+    rand::fill(&mut bytes);
     format!("dpp_mcp_{}", URL_SAFE_NO_PAD.encode(bytes))
 }
 

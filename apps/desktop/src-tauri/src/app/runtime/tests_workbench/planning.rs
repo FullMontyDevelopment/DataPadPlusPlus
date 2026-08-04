@@ -367,7 +367,10 @@ fn fingerprint(
         "safeModeEnabled": runtime.snapshot.preferences.safe_mode_enabled,
     });
     let bytes = serde_json::to_vec(&binding)?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
+    Ok(Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
 }
 
 fn test_tab<'a>(

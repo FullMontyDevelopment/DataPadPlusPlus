@@ -14,10 +14,9 @@ use axum::{
     Json, Router,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use rand::{rngs::OsRng, RngCore};
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
+    model::{CallToolResult, ContentBlock, ServerCapabilities, ServerInfo},
     schemars, tool, tool_handler, tool_router, ErrorData as McpError, RoleServer, ServerHandler,
 };
 use serde::Deserialize;

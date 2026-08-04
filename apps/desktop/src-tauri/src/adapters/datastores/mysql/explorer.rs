@@ -573,7 +573,9 @@ async fn list_table_like_nodes(
         sql_literal(table_type),
         limit,
     );
-    let rows = sqlx::query(&query).fetch_all(pool).await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query))
+        .fetch_all(pool)
+        .await?;
     rows.into_iter()
         .map(|row| {
             let table_name = required_string(&row, "table_name")?;
@@ -650,7 +652,9 @@ async fn list_named_nodes(
     limit: Option<u32>,
 ) -> Result<Vec<ExplorerNode>, CommandError> {
     let limit = bounded_page_size(limit.or(Some(100))) as usize;
-    let rows = sqlx::query(&query).fetch_all(pool).await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query))
+        .fetch_all(pool)
+        .await?;
     rows.into_iter()
         .take(limit)
         .map(|row| {
@@ -764,7 +768,9 @@ async fn list_column_nodes(
         column_rows_query(database, Some(table_name)).trim_end_matches(';'),
         limit
     );
-    let rows = sqlx::query(&query).fetch_all(pool).await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query))
+        .fetch_all(pool)
+        .await?;
     rows.into_iter()
         .map(|row| {
             let name = required_string(&row, "name")?;
@@ -1887,7 +1893,10 @@ async fn database_size(pool: &MySqlPool, database: &str) -> i64 {
 }
 
 async fn optional_rows(pool: &MySqlPool, query: &str) -> Vec<MySqlRow> {
-    sqlx::query(query).fetch_all(pool).await.unwrap_or_default()
+    sqlx::query(sqlx::AssertSqlSafe(query))
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
 }
 
 fn column_rows_query(database: &str, table: Option<&str>) -> String {

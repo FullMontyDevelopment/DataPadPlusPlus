@@ -436,7 +436,7 @@ async fn execute_postgres_table_import(
     let mut transaction = pool.begin().await?;
     let mut inserted = 0u64;
     for record in &records {
-        let mut query = sqlx::query(&insert_sql);
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()));
         for column in &columns {
             query = bind_pg_import_value(
                 query,
@@ -692,7 +692,9 @@ async fn fetch_pg_table_rows(
         qualified_pg_name(schema, table),
         row_limit + 1,
     );
-    let rows = sqlx::query(&query).fetch_all(pool).await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query))
+        .fetch_all(pool)
+        .await?;
     let truncated = rows.len() as u64 > row_limit;
     let rows = rows
         .into_iter()

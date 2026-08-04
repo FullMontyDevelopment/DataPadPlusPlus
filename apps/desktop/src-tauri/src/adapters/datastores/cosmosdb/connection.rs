@@ -6,7 +6,7 @@ use std::{
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use futures_util::StreamExt;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use reqwest::{redirect::Policy, Client, Method, RequestBuilder, Response, Url};
 use serde::Serialize;
 use serde_json::{Map, Value};

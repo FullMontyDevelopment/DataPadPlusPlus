@@ -15,7 +15,7 @@ pub(crate) async fn load_mysql_structure(
     let schema = connection.database.clone().unwrap_or_default();
     let pool = mysql_pool(connection, 1).await?;
     let schema_filter = mysql_schema_filter("t.table_schema", &schema, include_system);
-    let table_rows = sqlx::query(&format!(
+    let table_rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "select t.table_schema,
                 t.table_name,
                 t.table_type,
@@ -31,7 +31,7 @@ pub(crate) async fn load_mysql_structure(
          order by t.table_schema, t.table_name
          limit {}",
         node_limit + 1
-    ))
+    )))
     .fetch_all(&pool)
     .await?;
     let table_pairs = table_rows
@@ -48,7 +48,7 @@ pub(crate) async fn load_mysql_structure(
     let rows = if table_pairs.is_empty() {
         Vec::new()
     } else {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "select c.table_schema,
                     c.table_name,
                     t.table_type,
@@ -64,7 +64,7 @@ pub(crate) async fn load_mysql_structure(
              where {table_filter}
              group by c.table_schema, c.table_name, t.table_type, c.column_name, c.data_type, c.is_nullable, c.column_key, c.ordinal_position
              order by c.table_schema, c.table_name, c.ordinal_position",
-        ))
+        )))
         .fetch_all(&pool)
         .await?
     };
@@ -72,7 +72,7 @@ pub(crate) async fn load_mysql_structure(
     let fk_rows = if table_pairs.is_empty() {
         Vec::new()
     } else {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "select kcu.constraint_name,
                     kcu.table_schema,
                     kcu.table_name,
@@ -90,7 +90,7 @@ pub(crate) async fn load_mysql_structure(
                on rc.constraint_schema = kcu.table_schema and rc.constraint_name = kcu.constraint_name
              where kcu.referenced_table_name is not null and ({fk_filter})
              limit {edge_limit}",
-        ))
+        )))
         .fetch_all(&pool)
         .await
         .unwrap_or_default()

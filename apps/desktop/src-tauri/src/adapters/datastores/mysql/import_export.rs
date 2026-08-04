@@ -447,7 +447,7 @@ async fn execute_mysql_table_import(
     let mut transaction = pool.begin().await?;
     let mut inserted = 0u64;
     for record in &records {
-        let mut query = sqlx::query(&insert_sql);
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()));
         for column in &columns {
             query = bind_mysql_import_value(
                 query,
@@ -810,7 +810,9 @@ async fn fetch_mysql_table_rows(
         qualified_mysql_name(database, table),
         row_limit + 1,
     );
-    let rows = sqlx::query(&query).fetch_all(pool).await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query))
+        .fetch_all(pool)
+        .await?;
     let truncated = rows.len() as u64 > row_limit;
     let rows = rows
         .into_iter()
@@ -889,7 +891,7 @@ async fn mysql_backup_tables(
     database: Option<&str>,
     limit: u64,
 ) -> Result<Vec<(String, String)>, CommandError> {
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "select table_schema, table_name
          from information_schema.tables
          where table_type = 'BASE TABLE'
@@ -898,7 +900,7 @@ async fn mysql_backup_tables(
          order by table_schema, table_name
          limit {}",
         limit
-    ))
+    )))
     .bind(database.map(str::to_string))
     .bind(database.map(str::to_string))
     .fetch_all(pool)
@@ -924,7 +926,10 @@ async fn mysql_create_table(
         "show create table {}",
         qualified_mysql_name(database, table)
     );
-    let Some(row) = sqlx::query(&query).fetch_optional(pool).await? else {
+    let Some(row) = sqlx::query(sqlx::AssertSqlSafe(query))
+        .fetch_optional(pool)
+        .await?
+    else {
         return Ok(None);
     };
     Ok(row

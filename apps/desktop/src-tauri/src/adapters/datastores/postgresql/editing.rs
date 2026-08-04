@@ -396,7 +396,7 @@ async fn fetch_pg_edit_rows(
     pool: &sqlx::postgres::PgPool,
     statement: &PgEditStatement,
 ) -> Result<Vec<Value>, CommandError> {
-    let mut query = sqlx::query(&statement.sql);
+    let mut query = sqlx::query(sqlx::AssertSqlSafe(statement.sql.as_str()));
     for value in &statement.values {
         query = bind_pg_value(query, value);
     }

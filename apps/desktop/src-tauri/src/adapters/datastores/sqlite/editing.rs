@@ -60,7 +60,7 @@ pub(super) async fn execute_sqlite_data_edit(
     };
 
     let pool = sqlite_pool(connection).await?;
-    let mut query = sqlx::query(&statement.sql);
+    let mut query = sqlx::query(sqlx::AssertSqlSafe(statement.sql.as_str()));
     for value in &statement.values {
         query = bind_sqlite_value(query, value);
     }
@@ -275,9 +275,9 @@ fn quote_sqlite_identifier(identifier: &str) -> String {
 }
 
 fn bind_sqlite_value<'q>(
-    query: Query<'q, Sqlite, SqliteArguments<'q>>,
+    query: Query<'q, Sqlite, SqliteArguments>,
     value: &Value,
-) -> Query<'q, Sqlite, SqliteArguments<'q>> {
+) -> Query<'q, Sqlite, SqliteArguments> {
     match value {
         Value::Null => query.bind(Option::<String>::None),
         Value::Bool(value) => query.bind(*value),

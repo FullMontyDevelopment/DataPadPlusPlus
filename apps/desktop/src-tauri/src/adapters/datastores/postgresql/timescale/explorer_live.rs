@@ -632,7 +632,7 @@ async fn optional_records(
 }
 
 async fn query_records(pool: &PgPool, query: &str, limit: usize) -> Result<Vec<Value>, String> {
-    let rows = sqlx::query(query)
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query))
         .fetch_all(pool)
         .await
         .map_err(|error| compact_error(&error.to_string()))?;

@@ -646,7 +646,9 @@ async fn sqlite_objects(
         sql_literal(object_type),
         limit + 1
     );
-    let rows = sqlx::query(&query).fetch_all(pool).await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query))
+        .fetch_all(pool)
+        .await?;
     let mut nodes = Vec::new();
 
     for row in rows.into_iter().take(limit as usize) {
@@ -694,7 +696,9 @@ async fn sqlite_has_objects(
         sqlite_quote_identifier(schema),
         sql_literal(object_type),
     );
-    let rows = sqlx::query(&query).fetch_all(pool).await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query))
+        .fetch_all(pool)
+        .await?;
 
     Ok(rows.into_iter().any(|row| {
         let name = row.get::<String, _>("name");
@@ -770,9 +774,13 @@ async fn column_nodes(
     schema: &str,
     table: &str,
 ) -> Result<Vec<ExplorerNode>, CommandError> {
-    let rows = sqlx::query(&pragma_query(schema, "table_xinfo", Some(table)))
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(pragma_query(
+        schema,
+        "table_xinfo",
+        Some(table),
+    )))
+    .fetch_all(pool)
+    .await?;
     Ok(rows
         .into_iter()
         .map(|row| {
@@ -825,9 +833,13 @@ async fn table_index_nodes(
     schema: &str,
     table: &str,
 ) -> Result<Vec<ExplorerNode>, CommandError> {
-    let rows = sqlx::query(&pragma_query(schema, "index_list", Some(table)))
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(pragma_query(
+        schema,
+        "index_list",
+        Some(table),
+    )))
+    .fetch_all(pool)
+    .await?;
     Ok(rows
         .into_iter()
         .map(|row| {
@@ -866,7 +878,9 @@ async fn table_trigger_nodes(
         sqlite_quote_identifier(schema),
         sql_literal(table),
     );
-    let rows = sqlx::query(&query).fetch_all(pool).await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query))
+        .fetch_all(pool)
+        .await?;
     Ok(rows
         .into_iter()
         .map(|row| {
@@ -892,9 +906,13 @@ async fn foreign_key_nodes(
     schema: &str,
     table: &str,
 ) -> Result<Vec<ExplorerNode>, CommandError> {
-    let rows = sqlx::query(&pragma_query(schema, "foreign_key_list", Some(table)))
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(pragma_query(
+        schema,
+        "foreign_key_list",
+        Some(table),
+    )))
+    .fetch_all(pool)
+    .await?;
     Ok(rows
         .into_iter()
         .map(|row| {
@@ -979,7 +997,7 @@ async fn table_statistics_nodes(
         sqlite_quote_identifier(schema),
         sqlite_quote_identifier(table)
     );
-    let row_count = sqlx::query_scalar::<_, i64>(&count_query)
+    let row_count = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_query.as_str()))
         .fetch_one(pool)
         .await
         .unwrap_or_default();
@@ -1009,7 +1027,7 @@ async fn ddl_node(
         sql_literal(object_type),
         sql_literal(object_name),
     );
-    let ddl = sqlx::query_scalar::<_, String>(&query)
+    let ddl = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(query.as_str()))
         .fetch_optional(pool)
         .await?
         .unwrap_or_default();
@@ -1041,7 +1059,7 @@ async fn dependencies_nodes(
         sqlite_quote_identifier(schema),
         sql_literal(view),
     );
-    let ddl = sqlx::query_scalar::<_, String>(&query)
+    let ddl = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(query.as_str()))
         .fetch_optional(pool)
         .await?
         .unwrap_or_default();
@@ -1109,7 +1127,9 @@ async fn schema_definition_nodes(
         sqlite_quote_identifier(schema),
         limit + 1,
     );
-    let rows = sqlx::query(&query).fetch_all(pool).await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query.as_str()))
+        .fetch_all(pool)
+        .await?;
     Ok(rows
         .into_iter()
         .take(limit as usize)
@@ -1181,7 +1201,9 @@ async fn schema_object_record(
         sql_literal(object_type),
         sql_literal(name),
     );
-    let row = sqlx::query(&query).fetch_optional(pool).await?;
+    let row = sqlx::query(sqlx::AssertSqlSafe(query))
+        .fetch_optional(pool)
+        .await?;
     Ok(row.map(|row| {
         let object_type = row.get::<String, _>("type");
         let name = row.get::<String, _>("name");
@@ -1201,9 +1223,13 @@ async fn column_records(
     schema: &str,
     table: &str,
 ) -> Result<Vec<Value>, CommandError> {
-    let rows = sqlx::query(&pragma_query(schema, "table_xinfo", Some(table)))
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(pragma_query(
+        schema,
+        "table_xinfo",
+        Some(table),
+    )))
+    .fetch_all(pool)
+    .await?;
     Ok(rows
         .into_iter()
         .map(|row| {
@@ -1226,9 +1252,13 @@ async fn index_records_for_table(
     schema: &str,
     table: &str,
 ) -> Result<Vec<Value>, CommandError> {
-    let rows = sqlx::query(&pragma_query(schema, "index_list", Some(table)))
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(pragma_query(
+        schema,
+        "index_list",
+        Some(table),
+    )))
+    .fetch_all(pool)
+    .await?;
     let mut indexes = Vec::new();
     for row in rows {
         let name = row.get::<String, _>("name");
@@ -1256,9 +1286,13 @@ async fn index_column_names(
     schema: &str,
     index: &str,
 ) -> Result<Vec<String>, CommandError> {
-    let rows = sqlx::query(&pragma_query(schema, "index_info", Some(index)))
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(pragma_query(
+        schema,
+        "index_info",
+        Some(index),
+    )))
+    .fetch_all(pool)
+    .await?;
     Ok(rows
         .into_iter()
         .filter_map(|row| row.try_get::<String, _>("name").ok())
@@ -1270,9 +1304,13 @@ async fn foreign_key_records(
     schema: &str,
     table: &str,
 ) -> Result<Vec<Value>, CommandError> {
-    let rows = sqlx::query(&pragma_query(schema, "foreign_key_list", Some(table)))
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(pragma_query(
+        schema,
+        "foreign_key_list",
+        Some(table),
+    )))
+    .fetch_all(pool)
+    .await?;
     let mut groups = BTreeMap::<i64, SqliteForeignKeyGroup>::new();
 
     for row in rows {
@@ -1391,7 +1429,9 @@ async fn trigger_records_for_table(
         sqlite_quote_identifier(schema),
         sql_literal(table),
     );
-    let rows = sqlx::query(&query).fetch_all(pool).await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query))
+        .fetch_all(pool)
+        .await?;
     Ok(rows
         .into_iter()
         .map(|row| {
@@ -1416,7 +1456,9 @@ async fn table_row_count(
         sqlite_quote_identifier(schema),
         sqlite_quote_identifier(table)
     );
-    Ok(sqlx::query_scalar::<_, i64>(&query).fetch_one(pool).await?)
+    Ok(sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(query))
+        .fetch_one(pool)
+        .await?)
 }
 
 fn pragma_nodes(connection: &ResolvedConnectionProfile, schema: &str) -> Vec<ExplorerNode> {

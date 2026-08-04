@@ -115,7 +115,9 @@ async fn execute_sqlite_database_backup(
         quote_sqlite_identifier(&schema),
         sqlite_string_literal(&target_path.display().to_string()),
     );
-    sqlx::query(&statement).execute(&pool).await?;
+    sqlx::query(sqlx::AssertSqlSafe(statement.as_str()))
+        .execute(&pool)
+        .await?;
     pool.close().await;
 
     let bytes_written = fs::metadata(&target_path)
@@ -221,7 +223,9 @@ async fn execute_sqlite_table_export(
         qualified_sqlite_name(&schema, &table),
         row_limit + 1,
     );
-    let rows = sqlx::query(&query).fetch_all(&pool).await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query))
+        .fetch_all(&pool)
+        .await?;
     let truncated = rows.len() as u64 > row_limit;
     let rows = rows
         .into_iter()
@@ -438,7 +442,7 @@ async fn execute_sqlite_table_import(
     let pool = sqlite_pool(connection).await?;
     let mut inserted = 0u64;
     for record in &records {
-        let mut query = sqlx::query(&insert_sql);
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()));
         for column in &columns {
             query = bind_sqlite_value(query, record.get(column).unwrap_or(&Value::Null));
         }
@@ -516,7 +520,7 @@ async fn sqlite_export_columns(
         quote_sqlite_identifier(schema),
         sqlite_string_literal(table),
     );
-    Ok(sqlx::query(&pragma)
+    Ok(sqlx::query(sqlx::AssertSqlSafe(pragma))
         .fetch_all(pool)
         .await?
         .into_iter()
@@ -778,9 +782,9 @@ fn sqlite_insert_statement(schema: &str, table: &str, columns: &[String]) -> Str
 }
 
 fn bind_sqlite_value<'q>(
-    query: sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>>,
+    query: sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments>,
     value: &Value,
-) -> sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>> {
+) -> sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments> {
     match value {
         Value::Null => query.bind(Option::<String>::None),
         Value::Bool(value) => query.bind(*value),
