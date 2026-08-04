@@ -34,8 +34,8 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
   requireMatch(text, /^\s*contents:\s*write\s*$/m, 'release workflow must grant contents: write')
   requireMatch(
     text,
-    /tauri-apps\/tauri-action@v0/,
-    'release workflow must use tauri-apps/tauri-action@v0'
+    /tauri-apps\/tauri-action@action-v1\.0\.0/,
+    'release workflow must use tauri-apps/tauri-action@action-v1.0.0'
   )
   requireMatch(text, /projectPath:\s*apps\/desktop/, 'release workflow must set projectPath')
   requireMatch(
@@ -181,8 +181,8 @@ export function validateReleaseWorkflow(repoRoot = process.cwd()) {
   )
   requireMatch(
     text,
-    /actions\/setup-dotnet@v4[\s\S]*dotnet-version:\s*['"]8\.0\.x['"]/,
-    'release workflow must install .NET 8 for the bundled Oracle runtime'
+    /actions\/setup-dotnet@v6\.0\.0[\s\S]*dotnet-version:\s*['"]10\.0\.x['"]/,
+    'release workflow must install .NET 10 for the bundled Oracle runtime'
   )
   requireMatch(
     text,

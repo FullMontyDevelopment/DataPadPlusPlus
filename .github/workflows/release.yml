@@ -35,12 +35,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -208,7 +208,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.validate.outputs.release-sha }}
           fetch-depth: 0
@@ -220,15 +220,15 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7.0.0
         with:
           node-version: 24
           cache: npm
 
       - name: Setup .NET for bundled Oracle runtime
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6.0.0
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
       - name: Install Rust
         if: matrix.rust-targets == ''
@@ -241,7 +241,7 @@ jobs:
           targets: ${{ matrix.rust-targets }}
 
       - name: Cache Rust artifacts
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@v2.9.1
         with:
           workspaces: './apps/desktop/src-tauri -> target'
 
@@ -403,7 +403,7 @@ jobs:
 
       - name: Build and publish Tauri release
         if: runner.os != 'macOS' || steps.mac_signing.outputs.enabled != 'true'
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DATAPADPLUSPLUS_REQUIRE_UPDATER_SIGNING: "true"
@@ -427,7 +427,7 @@ jobs:
 
       - name: Build and publish signed macOS Tauri release
         if: runner.os == 'macOS' && steps.mac_signing.outputs.enabled == 'true'
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DATAPADPLUSPLUS_REQUIRE_UPDATER_SIGNING: "true"
@@ -694,13 +694,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.validate.outputs.release-sha }}
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7.0.0
         with:
           node-version: 24
 
