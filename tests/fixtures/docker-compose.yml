@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16
+    image: postgres:18.4
     container_name: datapadplusplus-postgres
     environment:
       POSTGRES_DB: datapadplusplus
@@ -17,7 +17,7 @@ services:
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
 
   mysql:
-    image: mysql:8.4
+    image: mysql:9.7.2
     container_name: datapadplusplus-mysql
     environment:
       MYSQL_DATABASE: commerce
@@ -35,7 +35,7 @@ services:
       - ./mysql/init:/docker-entrypoint-initdb.d:ro
 
   sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: mcr.microsoft.com/mssql/server:2025-CU7-ubuntu-24.04
     container_name: datapadplusplus-sqlserver
     environment:
       ACCEPT_EULA: 'Y'
@@ -55,7 +55,7 @@ services:
       - ./sqlserver/init:/work:ro
 
   mongodb:
-    image: mongo:7
+    image: mongo:8.3.7
     container_name: datapadplusplus-mongodb
     environment:
       MONGO_INITDB_ROOT_USERNAME: datapadplusplus
@@ -87,7 +87,7 @@ services:
       - ./mongodb/init:/docker-entrypoint-initdb.d:ro
 
   redis:
-    image: redis:7
+    image: redis:8.10.0
     container_name: datapadplusplus-redis
     ports:
       - '${DATAPADPLUSPLUS_REDIS_PORT:-6380}:6379'
@@ -110,7 +110,7 @@ services:
       retries: 20
 
   valkey:
-    image: valkey/valkey:8
+    image: valkey/valkey:9.1.1
     container_name: datapadplusplus-valkey
     profiles: ['cache']
     ports:
@@ -122,7 +122,7 @@ services:
       retries: 20
 
   memcached:
-    image: memcached:1.6
+    image: memcached:1.6.45
     container_name: datapadplusplus-memcached
     profiles: ['cache']
     command: ['memcached', '-m', '64', '-vv']
@@ -130,7 +130,7 @@ services:
       - '${DATAPADPLUSPLUS_MEMCACHED_PORT:-11212}:11211'
 
   mariadb:
-    image: mariadb:11
+    image: mariadb:12.3.2
     container_name: datapadplusplus-mariadb
     profiles: ['sqlplus']
     environment:
@@ -149,7 +149,7 @@ services:
       - ./mariadb/init:/docker-entrypoint-initdb.d:ro
 
   cockroachdb:
-    image: cockroachdb/cockroach:v24.3.3
+    image: cockroachdb/cockroach:v26.2.5
     container_name: datapadplusplus-cockroachdb
     profiles: ['sqlplus']
     command: ['start-single-node', '--insecure', '--store=type=mem,size=1GiB']
@@ -165,7 +165,7 @@ services:
       - ./cockroach/init:/docker-entrypoint-initdb.d:ro
 
   timescaledb:
-    image: timescale/timescaledb:latest-pg16
+    image: timescale/timescaledb:2.29.0-pg18
     container_name: datapadplusplus-timescaledb
     profiles: ['sqlplus']
     environment:
@@ -183,7 +183,7 @@ services:
       - ./timescaledb/init:/docker-entrypoint-initdb.d:ro
 
   clickhouse:
-    image: clickhouse/clickhouse-server:24.8
+    image: clickhouse/clickhouse-server:26.7.2.59
     container_name: datapadplusplus-clickhouse
     profiles: ['analytics']
     environment:
@@ -203,7 +203,7 @@ services:
       - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
 
   influxdb:
-    image: influxdb:1.8
+    image: influxdb:1.12.4
     container_name: datapadplusplus-influxdb
     profiles: ['analytics']
     environment:
@@ -220,7 +220,7 @@ services:
       - ./influxdb/init:/docker-entrypoint-initdb.d:ro
 
   prometheus:
-    image: prom/prometheus:v2.55.1
+    image: prom/prometheus:v3.13.2
     container_name: datapadplusplus-prometheus
     profiles: ['analytics']
     command:
@@ -242,7 +242,7 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
 
   opensearch:
-    image: opensearchproject/opensearch:2.17.1
+    image: opensearchproject/opensearch:3.7.0
     container_name: datapadplusplus-opensearch
     profiles: ['search']
     environment:
@@ -259,7 +259,7 @@ services:
       retries: 40
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.4.3
     container_name: datapadplusplus-elasticsearch
     profiles: ['search']
     environment:
@@ -275,7 +275,7 @@ services:
       retries: 40
 
   neo4j:
-    image: neo4j:5
+    image: neo4j:2026.06.0
     container_name: datapadplusplus-neo4j
     profiles: ['graph']
     environment:
@@ -292,7 +292,7 @@ services:
       retries: 40
 
   arangodb:
-    image: arangodb:3.12
+    image: arangodb:3.12.9.4
     container_name: datapadplusplus-arangodb
     profiles: ['graph']
     environment:
@@ -324,7 +324,7 @@ services:
       start_period: 15s
 
   cassandra:
-    image: cassandra:5
+    image: cassandra:5.0.8
     container_name: datapadplusplus-cassandra
     profiles: ['widecolumn']
     environment:
@@ -344,7 +344,7 @@ services:
       - ./cassandra/init:/work:ro
 
   oracle:
-    image: gvenzl/oracle-free:23-slim
+    image: gvenzl/oracle-free:23.26.2-slim
     container_name: datapadplusplus-oracle
     profiles: ['oracle']
     environment:
@@ -362,7 +362,7 @@ services:
       - ./oracle/init:/container-entrypoint-initdb.d:ro
 
   dynamodb:
-    image: amazon/dynamodb-local:2.5.2
+    image: amazon/dynamodb-local:3.3.1
     container_name: datapadplusplus-dynamodb
     profiles: ['cloud-contract']
     command: ['-jar', 'DynamoDBLocal.jar', '-sharedDb', '-inMemory']
@@ -370,7 +370,7 @@ services:
       - '${DATAPADPLUSPLUS_DYNAMODB_PORT:-8001}:8000'
 
   cosmosdb:
-    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-latest
+    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-EN20260706
     container_name: datapadplusplus-cosmosdb
     profiles: ['cosmosdb']
     environment:
@@ -391,7 +391,7 @@ services:
       - ./cosmosdb/init:/init:ro
 
   cloud-contract:
-    image: node:24-alpine
+    image: node:24.19.0-alpine3.24
     container_name: datapadplusplus-cloud-contract
     profiles: ['cloud-contract']
     working_dir: /work

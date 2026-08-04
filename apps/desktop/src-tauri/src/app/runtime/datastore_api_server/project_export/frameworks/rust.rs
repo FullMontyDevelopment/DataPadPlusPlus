@@ -377,7 +377,10 @@ async fn main() {{
     let app = Router::new()
 {routes}        .route("/health", get(health))
         .with_state(state);
-    let address = SocketAddr::from(([0, 0, 0, 0], 8080));
+    let address = std::env::var("API_BIND_ADDRESS")
+        .unwrap_or_else(|_| "0.0.0.0:8080".into())
+        .parse::<SocketAddr>()
+        .expect("parse API_BIND_ADDRESS");
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .expect("bind API listener");
@@ -618,7 +621,9 @@ async fn main() {{
         .route_service("/graphql", GraphQL::new(schema))
         .route("/health", get(health))
         .with_state(repository);
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080")
+    let address = std::env::var("API_BIND_ADDRESS")
+        .unwrap_or_else(|_| "0.0.0.0:8080".into());
+    let listener = tokio::net::TcpListener::bind(address)
         .await
         .expect("bind API listener");
     axum::serve(listener, app).await.expect("serve API");
@@ -701,8 +706,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {{
         .init();
     let repository = Arc::new(DatastoreRepository::from_env().await?);
     repository.ping().await?;
+    let address = std::env::var("API_BIND_ADDRESS")
+        .unwrap_or_else(|_| "0.0.0.0:8080".into())
+        .parse()?;
     tonic::transport::Server::builder()
-{add_services}        .serve("0.0.0.0:8080".parse()?)
+{add_services}        .serve(address)
         .await?;
     Ok(())
 }}

@@ -19,6 +19,12 @@ const fullMatrix = process.argv.includes('--full')
 const liveSqlite = process.argv.includes('--live-sqlite')
 const liveMongoDb = process.argv.includes('--live-mongodb')
 const liveDynamoDb = process.argv.includes('--live-dynamodb')
+const generatedApiPort = fixturePort('DATAPADPLUSPLUS_GENERATED_API_PORT', 8080)
+const generatedApiBaseUrl = `http://127.0.0.1:${generatedApiPort}`
+const generatedApiEnvironment = {
+  API_BIND_ADDRESS: `127.0.0.1:${generatedApiPort}`,
+  ASPNETCORE_URLS: generatedApiBaseUrl,
+}
 const requestedMatrix = fullMatrix
   ? [
       ...combinations('rust'),
@@ -177,7 +183,7 @@ async function validateLiveSqliteProjects(outputRoot) {
     dotnetProject,
     {
       ConnectionStrings__Datastore: `Data Source=${databasePath}`,
-      ASPNETCORE_URLS: 'http://127.0.0.1:8080',
+      ASPNETCORE_URLS: generatedApiBaseUrl,
     },
   )
 
@@ -230,7 +236,7 @@ async function validateLiveMongoDbProjects(outputRoot) {
       })
       assert(patched.status === 'patched', `${label} patch did not persist changes`)
       await requestJson(`/users/${identity}`, { method: 'DELETE' })
-      const missing = await fetch(`http://127.0.0.1:8080/users/${identity}`)
+      const missing = await fetch(`${generatedApiBaseUrl}/users/${identity}`)
       assert(missing.status === 404, `${label} missing document was not distinguished`)
     } catch (error) {
       throw serviceError(error, running)
@@ -263,7 +269,7 @@ async function validateLiveDynamoDbProjects(outputRoot) {
     )
     const running = startService(executable, project, {
       ...environment,
-      ASPNETCORE_URLS: 'http://127.0.0.1:8080',
+      ASPNETCORE_URLS: generatedApiBaseUrl,
     })
     const label = `${framework}/DynamoDB/REST`
     console.log(`Running live fixture checks for generated ${label} project`)
@@ -286,12 +292,16 @@ async function validateLiveDynamoDbProjects(outputRoot) {
         }),
       })
       assert(created.amount?.$number === '1234567890.123456789', `${label} lost number precision`)
-      const duplicate = await fetch('http://127.0.0.1:8080/users', {
+      const duplicate = await fetch(`${generatedApiBaseUrl}/users`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ values: { ...key, status: 'duplicate' } }),
       })
-      assert(duplicate.status === 400, `${label} duplicate create was not rejected`)
+      const duplicateBody = await duplicate.text()
+      assert(
+        duplicate.status === 400,
+        `${label} duplicate create returned ${duplicate.status}: ${duplicateBody}`,
+      )
       const fetched = await requestJson(`/users/${identity}`)
       assert(fetched.pk === key.pk && fetched.sk === key.sk, `${label} get returned the wrong key`)
       const patched = await requestJson(`/users/${identity}`, {
@@ -325,7 +335,7 @@ async function validateLiveDocumentProtocols(outputRoot, engine, environment) {
   )
   const graphql = startService(graphqlExecutable, graphqlProject, {
     ...environment,
-    ASPNETCORE_URLS: 'http://127.0.0.1:8080',
+    ASPNETCORE_URLS: generatedApiBaseUrl,
   })
   try {
     await waitForHealth(graphql.process)
@@ -537,7 +547,11 @@ async function validateLiveGrpcProject(outputRoot, databasePath) {
 function startService(executable, cwd, extraEnvironment) {
   const process = spawn(executable, [], {
     cwd,
-    env: { ...globalThis.process.env, ...extraEnvironment },
+    env: {
+      ...globalThis.process.env,
+      ...generatedApiEnvironment,
+      ...extraEnvironment,
+    },
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -607,7 +621,7 @@ async function waitForGrpcRows(service) {
 
 function grpcSearch() {
   return new Promise((resolveRows, rejectRows) => {
-    const client = connectHttp2('http://127.0.0.1:8080')
+    const client = connectHttp2(generatedApiBaseUrl)
     let settled = false
     const finish = (error, rows) => {
       if (settled) return
@@ -674,7 +688,7 @@ function readVarint(buffer, start) {
 }
 
 async function requestJson(path, options) {
-  const response = await fetch(`http://127.0.0.1:8080${path}`, options)
+  const response = await fetch(`${generatedApiBaseUrl}${path}`, options)
   const textBody = await response.text()
   const body = textBody ? JSON.parse(textBody) : null
   if (!response.ok) {

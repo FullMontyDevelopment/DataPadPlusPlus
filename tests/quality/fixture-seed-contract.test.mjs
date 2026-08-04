@@ -118,6 +118,28 @@ test('JanusGraph fixture startup is restart-safe and readiness-gated', async () 
   assert.match(composeSource, /start_period: 15s/)
 })
 
+test('fixture images use exact stable tags', async () => {
+  const composeSource = await read('tests/fixtures/docker-compose.yml')
+  const imageTags = composeSource
+    .split(/\r?\n/u)
+    .map((line) => line.match(/^\s*image:\s*(\S+)\s*$/u)?.[1])
+    .filter(Boolean)
+
+  assert.ok(imageTags.length > 0)
+  for (const image of imageTags) {
+    const tag = image.slice(image.lastIndexOf(':') + 1)
+    assert.doesNotMatch(tag, /(?:^|-)latest(?:$|-)/iu, `${image} must not float on latest`)
+    if (!image.startsWith('postgres:')) {
+      assert.doesNotMatch(tag, /^v?\d+(?:\.\d+)?$/u, `${image} must include an exact patch or build`)
+    }
+    assert.doesNotMatch(
+      tag,
+      /^v?\d+(?:\.\d+)?-(?:alpine|bookworm|bullseye|slim|ubuntu)/iu,
+      `${image} must include an exact patch before its distro variant`,
+    )
+  }
+})
+
 test('Cassandra fixture query targets the seeded partitioned table', async () => {
   const [catalogSource, seedSource] = await Promise.all([
     read('apps/desktop/src-tauri/src/app/runtime/fixtures/catalog/extended.rs'),
@@ -515,7 +537,7 @@ test('Cosmos DB emulator optional fixtures cover setup, seed, and validation pat
   ])
 
   assert.match(packageSource, /"fixtures:validate:cosmosdb": "node tests\/fixtures\/validate-cosmosdb-fixtures\.mjs"/)
-  assert.match(composeSource, /mcr\.microsoft\.com\/cosmosdb\/linux\/azure-cosmos-emulator:vnext-latest/)
+  assert.match(composeSource, /mcr\.microsoft\.com\/cosmosdb\/linux\/azure-cosmos-emulator:vnext-EN20260706/)
   assert.match(composeSource, /profiles: \['cosmosdb'\]/)
   assert.match(composeSource, /ENABLE_INIT_DATA: 'true'/)
   assert.match(composeSource, /DATAPADPLUSPLUS_COSMOSDB_EMULATOR_PORT/)

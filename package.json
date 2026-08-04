@@ -61,7 +61,7 @@
     "fixtures:up": "node tests/fixtures/compose.mjs up",
     "fixtures:up:profile": "node tests/fixtures/compose.mjs up-profile",
     "fixtures:up:all": "node tests/fixtures/compose.mjs up-all",
-    "fixtures:down": "docker compose -f tests/fixtures/docker-compose.yml down -v",
+    "fixtures:down": "docker compose -f tests/fixtures/docker-compose.yml --profile cache --profile redis-stack --profile sqlplus --profile analytics --profile search --profile graph --profile widecolumn --profile oracle --profile cosmosdb --profile cloud-contract down -v",
     "fixtures:seed": "node tests/fixtures/seed.mjs",
     "fixtures:seed:all": "node tests/fixtures/seed.mjs all",
     "fixtures:screenshot-seed": "node tests/fixtures/launch-screenshot-seed.mjs",

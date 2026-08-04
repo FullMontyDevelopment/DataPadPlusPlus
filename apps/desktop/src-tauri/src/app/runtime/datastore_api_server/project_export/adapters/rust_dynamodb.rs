@@ -87,14 +87,6 @@ impl RepositoryError {{
     fn datastore(error: impl std::fmt::Display) -> Self {{
         Self {{ kind: "datastore", message: format!("DynamoDB operation failed: {{error}}") }}
     }}
-    fn conditional(error: impl std::fmt::Display, message: &'static str) -> Self {{
-        let rendered = error.to_string();
-        if rendered.contains("ConditionalCheckFailed") {{
-            Self::not_found(message)
-        }} else {{
-            Self::datastore(rendered)
-        }}
-    }}
 }}
 
 impl std::fmt::Display for RepositoryError {{
@@ -339,7 +331,8 @@ fn resource_methods(resource: &ProjectResourceModel, protocol: &str) -> String {
             .send()
             .await
             .map_err(|error| {{
-                if error.to_string().contains("ConditionalCheckFailed") {{
+                if error.as_service_error()
+                    .is_some_and(|service| service.is_conditional_check_failed_exception()) {{
                     RepositoryError::invalid("A DynamoDB item with this key already exists.")
                 }} else {{
                     RepositoryError::datastore(error)
@@ -384,7 +377,14 @@ fn resource_methods(resource: &ProjectResourceModel, protocol: &str) -> String {
             .return_values(ReturnValue::AllNew)
             .send()
             .await
-            .map_err(|error| RepositoryError::conditional(error, "DynamoDB item was not found."))?;
+            .map_err(|error| {{
+                if error.as_service_error()
+                    .is_some_and(|service| service.is_conditional_check_failed_exception()) {{
+                    RepositoryError::not_found("DynamoDB item was not found.")
+                }} else {{
+                    RepositoryError::datastore(error)
+                }}
+            }})?;
         let document = response.attributes
             .ok_or_else(|| RepositoryError::not_found("DynamoDB item was not found."))?;
         Ok({convert})
@@ -400,7 +400,14 @@ fn resource_methods(resource: &ProjectResourceModel, protocol: &str) -> String {
             .return_values(ReturnValue::AllOld)
             .send()
             .await
-            .map_err(|error| RepositoryError::conditional(error, "DynamoDB item was not found."))?;
+            .map_err(|error| {{
+                if error.as_service_error()
+                    .is_some_and(|service| service.is_conditional_check_failed_exception()) {{
+                    RepositoryError::not_found("DynamoDB item was not found.")
+                }} else {{
+                    RepositoryError::datastore(error)
+                }}
+            }})?;
         response.attributes
             .map(document_to_json)
             .ok_or_else(|| RepositoryError::not_found("DynamoDB item was not found."))
