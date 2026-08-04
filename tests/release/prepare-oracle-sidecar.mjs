@@ -25,7 +25,7 @@ try {
 } catch (error) {
   if (error?.code === 'ENOENT') {
     throw new Error(
-      'Oracle sidecar preparation requires the .NET 8 SDK. Install it and make dotnet available on PATH.',
+      'Oracle sidecar preparation requires the .NET 10 SDK. Install it and make dotnet available on PATH.',
     )
   }
   throw error

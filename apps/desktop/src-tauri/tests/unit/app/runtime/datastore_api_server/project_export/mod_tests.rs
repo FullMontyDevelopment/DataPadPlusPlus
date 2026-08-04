@@ -180,7 +180,7 @@ fn spec(framework: &str, engine: &str, protocol: &str) -> ProjectExportSpec {
             .map(|(key, value)| ((*key).into(), (*value).into()))
             .collect(),
         safety_note: adapter.safety_note.into(),
-        rust_version: adapter.rust_version.into(),
+        rust_version: adapter.minimum_rust_version(protocol).into(),
         resources: vec![match engine {
             "mongodb" => mongodb_resource(),
             "dynamodb" => dynamodb_resource(),
@@ -323,6 +323,26 @@ fn dynamodb_exports_share_lossless_tags_and_conditional_mutations() {
         assert!(environment.contains("DYNAMODB_ENDPOINT_URL=http://127.0.0.1:8000"));
         assert!(!environment.contains("AWS_SECRET_ACCESS_KEY"));
         assert!(!environment.contains("AWS_SESSION_TOKEN"));
+    }
+}
+
+#[test]
+fn rust_exports_emit_the_highest_dependency_msrv_for_each_project() {
+    let cases = [
+        ("sqlite", "rest", "1.94.0"),
+        ("postgresql", "grpc", "1.94.0"),
+        ("mongodb", "rest", "1.88"),
+        ("mongodb", "graphql", "1.89"),
+        ("dynamodb", "rest", "1.94.1"),
+    ];
+
+    for (engine, protocol, expected) in cases {
+        let files = rendered_files("rust", engine, protocol);
+        let manifest = file_contents(&files, "UsersApi/Cargo.toml");
+        assert!(
+            manifest.contains(&format!("rust-version = \"{expected}\"")),
+            "{engine}/{protocol} must use Rust {expected}"
+        );
     }
 }
 
@@ -477,12 +497,11 @@ fn rust_grpc_export_vendors_protoc_for_reproducible_builds() {
 }
 
 #[test]
-fn dotnet_graphql_export_pins_the_patched_parser_line() {
+fn dotnet_graphql_export_pins_the_current_stable_framework() {
     let files = rendered_files("dotnet", "sqlite", "graphql");
     let packages = file_contents(&files, "UsersApi/Directory.Packages.props");
 
-    assert!(packages.contains("HotChocolate.AspNetCore\" Version=\"15.1.14\""));
-    assert!(!packages.contains("HotChocolate.AspNetCore\" Version=\"15.1.11\""));
+    assert!(packages.contains("HotChocolate.AspNetCore\" Version=\"16.5.1\""));
 }
 
 #[test]

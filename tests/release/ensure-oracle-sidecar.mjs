@@ -61,7 +61,7 @@ function runPrepare(context, env) {
   } catch (error) {
     if (error?.code === 'ENOENT') {
       throw new Error(
-        'Oracle sidecar preparation requires the .NET 8 SDK. Install it or restore a current generated sidecar binary before debugging.',
+        'Oracle sidecar preparation requires the .NET 10 SDK. Install it or restore a current generated sidecar binary before debugging.',
       )
     }
     throw error

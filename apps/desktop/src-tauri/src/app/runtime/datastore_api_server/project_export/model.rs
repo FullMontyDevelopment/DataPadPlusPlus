@@ -151,6 +151,17 @@ pub(crate) struct ProjectExportClientAdapter {
         fn(&ProjectExportSpec, &ProjectExportClientAdapter) -> Vec<ProjectFile>,
 }
 
+impl ProjectExportClientAdapter {
+    pub(crate) fn minimum_rust_version(&self, protocol: &str) -> &'static str {
+        if self.framework == "rust" && self.engine == "mongodb" && protocol == "graphql" {
+            // async-graphql 7.2.1 requires Rust 1.89; the MongoDB 3.8 driver itself requires 1.88.
+            "1.89"
+        } else {
+            self.rust_version
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct ProjectExportSqlClientHooks {
     pub(crate) supports_schema: bool,

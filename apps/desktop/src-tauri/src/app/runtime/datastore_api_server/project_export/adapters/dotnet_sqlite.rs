@@ -37,7 +37,7 @@ fn dependencies(_spec: &ProjectExportSpec) -> Vec<ProjectDependency> {
         },
         ProjectDependency {
             package: "SQLitePCLRaw.lib.e_sqlite3".into(),
-            version: "2.1.12".into(),
+            version: "3.53.3".into(),
             declaration: "<PackageReference Include=\"SQLitePCLRaw.lib.e_sqlite3\" />".into(),
             build: false,
         },

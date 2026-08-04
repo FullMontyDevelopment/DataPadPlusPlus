@@ -9,7 +9,7 @@ pub(crate) static ADAPTER: ProjectExportClientAdapter = ProjectExportClientAdapt
     configuration_example: "sqlite://data/app.sqlite?mode=rwc",
     additional_configuration: &[],
     safety_note: "SQL identifiers are generated from validated resource metadata and all request values are bound parameters. Custom endpoints contain one read-only statement and keep their configured row limit.",
-    rust_version: "1.89",
+    rust_version: "1.94.0",
     sql: Some(ProjectExportSqlClientHooks {
         supports_schema: false,
         batch_dialect: crate::adapters::SqlBatchDialect::Standard,

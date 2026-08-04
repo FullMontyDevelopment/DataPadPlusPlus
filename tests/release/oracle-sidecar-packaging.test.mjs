@@ -25,7 +25,7 @@ test('Oracle sidecar pins the managed driver and all release targets', () => {
   const sidecarConfig = readFileSync(resolve(root, 'tests/release/oracle-sidecar-config.mjs'), 'utf8')
   const smoke = readFileSync(resolve(root, 'tests/release/smoke-oracle-sidecar.mjs'), 'utf8')
 
-  assert.match(project, /Oracle\.ManagedDataAccess\.Core" Version="23\.26\.200"/)
+  assert.match(project, /Oracle\.ManagedDataAccess\.Core" Version="23\.26\.300"/)
   assert.match(project, /<OutputType>Exe<\/OutputType>/)
   assert.doesNotMatch(project, /<OutputType>WinExe<\/OutputType>/)
   assert.match(sidecarConfig, /win-x64/)

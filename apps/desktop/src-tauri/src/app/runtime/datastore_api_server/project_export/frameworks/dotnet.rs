@@ -25,19 +25,19 @@ fn dependencies(spec: &ProjectExportSpec) -> Vec<ProjectDependency> {
     if spec.protocol == "graphql" {
         dependencies.push(dependency(
             "HotChocolate.AspNetCore",
-            "15.1.14",
+            "16.5.1",
             "<PackageReference Include=\"HotChocolate.AspNetCore\" />",
         ));
     }
     if spec.protocol == "grpc" {
         dependencies.push(dependency(
             "Grpc.AspNetCore",
-            "2.67.0",
+            "2.83.0",
             "<PackageReference Include=\"Grpc.AspNetCore\" />",
         ));
         dependencies.push(dependency(
             "Grpc.Tools",
-            "2.67.0",
+            "2.83.0",
             "<PackageReference Include=\"Grpc.Tools\" PrivateAssets=\"All\" />",
         ));
     }

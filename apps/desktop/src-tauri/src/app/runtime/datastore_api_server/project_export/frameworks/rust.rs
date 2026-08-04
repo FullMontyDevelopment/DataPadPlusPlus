@@ -13,35 +13,35 @@ fn dependencies(spec: &ProjectExportSpec) -> Vec<ProjectDependency> {
         dependency("axum", "0.8.9", "axum = \"=0.8.9\""),
         dependency(
             "base64",
-            "0.22.1",
-            "base64 = \"=0.22.1\"",
+            "0.23.0",
+            "base64 = \"=0.23.0\"",
         ),
         dependency(
             "chrono",
-            "0.4.44",
-            "chrono = { version = \"=0.4.44\", features = [\"serde\"] }",
+            "0.4.45",
+            "chrono = { version = \"=0.4.45\", features = [\"serde\"] }",
         ),
         dependency(
             "serde",
-            "1.0.228",
-            "serde = { version = \"=1.0.228\", features = [\"derive\"] }",
+            "1.0.229",
+            "serde = { version = \"=1.0.229\", features = [\"derive\"] }",
         ),
-        dependency("serde_json", "1.0.149", "serde_json = \"=1.0.149\""),
+        dependency("serde_json", "1.0.151", "serde_json = \"=1.0.151\""),
         dependency(
             "tokio",
-            "1.52.1",
-            "tokio = { version = \"=1.52.1\", features = [\"macros\", \"rt-multi-thread\", \"net\"] }",
+            "1.53.1",
+            "tokio = { version = \"=1.53.1\", features = [\"macros\", \"rt-multi-thread\", \"net\"] }",
         ),
         dependency("tracing", "0.1.44", "tracing = \"=0.1.44\""),
         dependency(
             "tracing-subscriber",
-            "0.3.22",
-            "tracing-subscriber = { version = \"=0.3.22\", features = [\"env-filter\"] }",
+            "0.3.23",
+            "tracing-subscriber = { version = \"=0.3.23\", features = [\"env-filter\"] }",
         ),
         dependency(
             "uuid",
-            "1.23.1",
-            "uuid = { version = \"=1.23.1\", features = [\"serde\"] }",
+            "1.24.0",
+            "uuid = { version = \"=1.24.0\", features = [\"serde\"] }",
         ),
     ];
     if spec.protocol == "graphql" {
@@ -57,12 +57,17 @@ fn dependencies(spec: &ProjectExportSpec) -> Vec<ProjectDependency> {
         ));
     }
     if spec.protocol == "grpc" {
-        dependencies.push(dependency("prost", "0.13.5", "prost = \"=0.13.5\""));
-        dependencies.push(dependency("tonic", "0.12.3", "tonic = \"=0.12.3\""));
+        dependencies.push(dependency("prost", "0.14.4", "prost = \"=0.14.4\""));
+        dependencies.push(dependency("tonic", "0.14.6", "tonic = \"=0.14.6\""));
+        dependencies.push(dependency(
+            "tonic-prost",
+            "0.14.6",
+            "tonic-prost = \"=0.14.6\"",
+        ));
         dependencies.push(ProjectDependency {
-            package: "tonic-build".into(),
-            version: "0.12.3".into(),
-            declaration: "tonic-build = \"=0.12.3\"".into(),
+            package: "tonic-prost-build".into(),
+            version: "0.14.6".into(),
+            declaration: "tonic-prost-build = \"=0.14.6\"".into(),
             build: true,
         });
         dependencies.push(ProjectDependency {
@@ -708,5 +713,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {{
 }
 
 fn grpc_build() -> String {
-    "fn main() -> Result<(), Box<dyn std::error::Error>> {\n    let protoc = protoc_bin_vendored::protoc_bin_path()?;\n    std::env::set_var(\"PROTOC\", protoc);\n    tonic_build::compile_protos(\"proto/datapad_api.proto\")?;\n    Ok(())\n}\n".into()
+    "fn main() -> Result<(), Box<dyn std::error::Error>> {\n    let protoc = protoc_bin_vendored::protoc_bin_path()?;\n    std::env::set_var(\"PROTOC\", protoc);\n    tonic_prost_build::compile_protos(\"proto/datapad_api.proto\")?;\n    Ok(())\n}\n".into()
 }

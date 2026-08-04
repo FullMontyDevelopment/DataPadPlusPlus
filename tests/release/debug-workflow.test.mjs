@@ -186,7 +186,7 @@ test('Oracle sidecar ensure waits for a concurrent preparation result', () => {
   }
 })
 
-test('Oracle preparation explains the missing .NET 8 prerequisite', () => {
+test('Oracle preparation explains the missing .NET 10 prerequisite', () => {
   const fixtureRoot = mkdtempSync(join(tmpdir(), 'datapad-oracle-missing-dotnet-'))
   try {
     const result = spawnSync(process.execPath, [join(root, 'tests', 'release', 'prepare-oracle-sidecar.mjs')], {
@@ -199,7 +199,7 @@ test('Oracle preparation explains the missing .NET 8 prerequisite', () => {
       },
     })
     assert.notEqual(result.status, 0)
-    assert.match(result.stderr, /requires the \.NET 8 SDK/)
+    assert.match(result.stderr, /requires the \.NET 10 SDK/)
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true })
   }

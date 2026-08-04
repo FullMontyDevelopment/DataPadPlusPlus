@@ -11,7 +11,7 @@ pub(crate) static ADAPTER: ProjectExportClientAdapter = ProjectExportClientAdapt
     configuration_example: "mongodb://localhost:27017",
     additional_configuration: &[],
     safety_note: "MongoDB identities are restricted to one exact _id value. Patches use $set with validated top-level field names and cannot change _id.",
-    rust_version: "1.89",
+    rust_version: "1.88",
     sql: None,
     dependencies,
     render_client_files,
@@ -27,8 +27,8 @@ fn dependencies(_spec: &ProjectExportSpec) -> Vec<ProjectDependency> {
         },
         ProjectDependency {
             package: "futures-util".into(),
-            version: "0.3.31".into(),
-            declaration: "futures-util = \"=0.3.31\"".into(),
+            version: "0.3.33".into(),
+            declaration: "futures-util = \"=0.3.33\"".into(),
             build: false,
         },
     ]

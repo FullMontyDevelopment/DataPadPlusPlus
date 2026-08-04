@@ -21,14 +21,14 @@ fn dependencies(_spec: &ProjectExportSpec) -> Vec<ProjectDependency> {
     vec![
         ProjectDependency {
             package: "aws-sdk-dynamodb".into(),
-            version: "1.118.0".into(),
-            declaration: "aws-sdk-dynamodb = \"=1.118.0\"".into(),
+            version: "1.119.0".into(),
+            declaration: "aws-sdk-dynamodb = \"=1.119.0\"".into(),
             build: false,
         },
         ProjectDependency {
             package: "aws-config".into(),
-            version: "1.10.0".into(),
-            declaration: "aws-config = \"=1.10.0\"".into(),
+            version: "1.10.1".into(),
+            declaration: "aws-config = \"=1.10.1\"".into(),
             build: false,
         },
     ]

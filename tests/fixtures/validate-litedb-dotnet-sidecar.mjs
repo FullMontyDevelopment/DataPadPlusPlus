@@ -18,7 +18,7 @@ const assemblyPath = path.join(
   path.dirname(projectPath),
   'bin',
   'Debug',
-  'net8.0',
+  'net10.0',
   'datapadplusplus-litedb-sidecar.dll',
 )
 

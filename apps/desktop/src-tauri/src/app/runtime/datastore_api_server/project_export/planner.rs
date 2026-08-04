@@ -222,12 +222,13 @@ pub(crate) async fn build_project_export_spec(
         .map(|endpoint| provider.plan_custom_endpoint(server, endpoint, adapter))
         .collect::<Result<Vec<_>, _>>()?;
 
+    let protocol = normalize_protocol(&server.protocol);
     let mut spec = ProjectExportSpec {
         framework,
         project_name,
         namespace,
         package_name,
-        protocol: normalize_protocol(&server.protocol),
+        protocol: protocol.clone(),
         base_path: normalize_base_path(&server.base_path),
         connection_engine: connection.engine.clone(),
         connection_family: connection.family.clone(),
@@ -241,7 +242,7 @@ pub(crate) async fn build_project_export_spec(
             .map(|(key, value)| ((*key).into(), (*value).into()))
             .collect(),
         safety_note: adapter.safety_note.into(),
-        rust_version: adapter.rust_version.into(),
+        rust_version: adapter.minimum_rust_version(&protocol).into(),
         resources: resource_models,
         custom_endpoints,
         dependencies: Vec::new(),

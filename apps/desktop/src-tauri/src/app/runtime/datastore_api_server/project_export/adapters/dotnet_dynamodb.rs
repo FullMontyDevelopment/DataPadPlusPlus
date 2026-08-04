@@ -20,7 +20,7 @@ pub(crate) static ADAPTER: ProjectExportClientAdapter = ProjectExportClientAdapt
 fn dependencies(_spec: &ProjectExportSpec) -> Vec<ProjectDependency> {
     vec![ProjectDependency {
         package: "AWSSDK.DynamoDBv2".into(),
-        version: "4.0.101.3".into(),
+        version: "4.0.102.1".into(),
         declaration: "<PackageReference Include=\"AWSSDK.DynamoDBv2\" />".into(),
         build: false,
     }]

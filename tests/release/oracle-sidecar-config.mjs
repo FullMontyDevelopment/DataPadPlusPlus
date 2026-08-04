@@ -64,7 +64,7 @@ export function resolveOracleSidecarContext({
     licenseSource: join(
       env.NUGET_PACKAGES || join(homedir(), '.nuget', 'packages'),
       'oracle.manageddataaccess.core',
-      '23.26.200',
+      '23.26.300',
       'LICENSE.txt',
     ),
     prepareScript: join(root, 'tests', 'release', 'prepare-oracle-sidecar.mjs'),
