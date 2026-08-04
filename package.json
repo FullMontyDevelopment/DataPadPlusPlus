@@ -17,7 +17,7 @@
     "packages/*"
   ],
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.15.0 <25"
   },
   "scripts": {
     "dev:preflight": "node .vscode/ensure-workspace-path.mjs",
