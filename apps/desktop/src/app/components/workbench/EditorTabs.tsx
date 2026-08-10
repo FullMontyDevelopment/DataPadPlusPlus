@@ -58,6 +58,9 @@ export function EditorTabs({
   const stripRef = useRef<HTMLDivElement>(null)
   const tabRefs = useRef(new Map<string, HTMLDivElement>())
   const { scrollState, scrollTabs, scrollTabsOnWheel } = useTabStripScroll(stripRef, tabs.length)
+  const environmentsById = new Map(
+    environments.map((environment) => [environment.id, environment]),
+  )
 
   useEffect(() => {
     if (!contextMenu) {
@@ -252,7 +255,7 @@ export function EditorTabs({
       >
         {tabs.map((tab) => {
           const connection = connections.find((item) => item.id === tab.connectionId)
-          const environment = environments.find((item) => item.id === tab.environmentId)
+          const environment = environmentsById.get(tab.environmentId)
 
           return (
             <EditorTabItem

@@ -10,7 +10,18 @@ import type {
   QueryTabState,
 } from '@datapadplusplus/shared-types'
 import { DatastoreIcon } from '../DatastoreIcon'
-import { CloseIcon, DatabaseIcon, EnvironmentsIcon, ObjectSecurityIcon, ObjectServerIcon, SearchIcon, SettingsIcon, TestSuiteIcon, WarningIcon } from '../icons'
+import {
+  CloseIcon,
+  DatabaseIcon,
+  EnvironmentsIcon,
+  ObjectSecurityIcon,
+  ObjectServerIcon,
+  PinIcon,
+  SearchIcon,
+  SettingsIcon,
+  TestSuiteIcon,
+  WarningIcon,
+} from '../icons'
 import { normalizeTabDisplayTitle } from './tab-title'
 
 export interface EditorTabDropTarget {
@@ -67,10 +78,11 @@ export function EditorTabItem({
   onKeyDown,
   onSelectTab,
 }: EditorTabItemProps) {
-  const environmentColor = environment?.color ?? '#3794ff'
-  const tabStyle = {
-    '--tab-env-color': environmentColor,
-  } as CSSProperties
+  const environmentColor = environment?.color.trim()
+  const hasEnvironmentColor = Boolean(environmentColor)
+  const tabStyle = hasEnvironmentColor
+    ? ({ '--tab-env-color': environmentColor } as CSSProperties)
+    : undefined
   const tabCanBeSaved =
     tab.tabKind !== 'explorer' &&
     tab.tabKind !== 'metrics' &&
@@ -125,7 +137,8 @@ export function EditorTabItem({
       tabIndex={0}
       aria-selected={active}
       draggable={!editing}
-      className={`editor-tab${active ? ' is-active' : ''}${active && environment ? ' has-environment-color' : ''}${draggingTabId === tab.id ? ' is-dragging' : ''}${dropBefore ? ' is-drop-before' : ''}${dropAfter ? ' is-drop-after' : ''}${tabRunning ? ' is-running' : ''}${tabFailed ? ' is-error' : ''}`}
+      className={`editor-tab${active ? ' is-active' : ''}${hasEnvironmentColor ? ' has-environment-color' : ''}${draggingTabId === tab.id ? ' is-dragging' : ''}${dropBefore ? ' is-drop-before' : ''}${dropAfter ? ' is-drop-after' : ''}${tabRunning ? ' is-running' : ''}${tabFailed ? ' is-error' : ''}`}
+      data-environment-id={environment?.id}
       style={tabStyle}
       title={tooltip}
       onClick={() => onSelectTab(tab.id)}
@@ -225,8 +238,13 @@ export function EditorTabItem({
       ) : null}
       <EditorTabStatusIcon tab={tab} running={tabRunning} />
       {tab.pinned ? (
-        <span className="editor-tab-pin" title="Pinned tab" aria-label="Pinned tab">
-          Pinned
+        <span
+          className="editor-tab-pin"
+          title="Pinned tab"
+          aria-label="Pinned tab"
+          role="img"
+        >
+          <PinIcon className="editor-tab-pin-icon" />
         </span>
       ) : null}
       <button

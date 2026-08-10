@@ -379,21 +379,15 @@ function DesktopWorkspace() {
   const snapshotConnections = snapshot?.connections
   const snapshotEnvironments = snapshot?.environments
   const snapshotTabs = snapshot?.tabs
+  const activeTabFromSelection = snapshot?.tabs.find(
+    (item) => item.id === snapshot.ui.activeTabId,
+  )
   const activeConnection =
+    snapshot?.connections.find(
+      (item) => item.id === activeTabFromSelection?.connectionId,
+    ) ??
     snapshot?.connections.find((item) => item.id === snapshot.ui.activeConnectionId) ??
     snapshot?.connections[0]
-  const activeTabFromSelection = snapshot?.tabs.find(
-    (item) =>
-      item.id === snapshot.ui.activeTabId &&
-      (item.tabKind === 'environment' ||
-        item.tabKind === 'api-server' ||
-        item.tabKind === 'mcp-server' ||
-        item.tabKind === 'workspace-search' ||
-        item.tabKind === 'security-checks' ||
-        item.tabKind === 'settings' ||
-        !activeConnection ||
-        item.connectionId === activeConnection.id),
-  )
   const activeTab =
     activeTabFromSelection ??
     (activeConnection

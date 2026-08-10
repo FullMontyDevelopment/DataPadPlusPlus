@@ -120,30 +120,42 @@ describe('EditorTabItem', () => {
       expect.stringContaining('Unsaved changes'),
     )
   })
+
+  it('renders a compact accessible pin icon without visible pinned text', () => {
+    renderEditorTabItem({ tab: { ...tab, pinned: true } })
+
+    const pin = screen.getByRole('img', { name: 'Pinned tab' })
+    expect(pin).toHaveAttribute('title', 'Pinned tab')
+    expect(pin.querySelector('svg')).toHaveClass('editor-tab-pin-icon')
+    expect(screen.queryByText('Pinned')).not.toBeInTheDocument()
+  })
+
+  it('keeps the environment accent on inactive tabs and removes it when unresolved', () => {
+    const { rerender } = renderEditorTabItem({ active: false })
+    const renderedTab = screen.getByRole('tab')
+
+    expect(renderedTab).toHaveClass('has-environment-color')
+    expect(renderedTab).not.toHaveClass('is-active')
+    expect(renderedTab.style.getPropertyValue('--tab-env-color')).toBe('#3794ff')
+    expect(renderedTab).toHaveAttribute('data-environment-id', 'env-1')
+
+    rerender(
+      <EditorTabItem
+        {...defaultEditorTabItemProps}
+        active={false}
+        environment={undefined}
+      />,
+    )
+
+    expect(screen.getByRole('tab')).not.toHaveClass('has-environment-color')
+    expect(screen.getByRole('tab').style.getPropertyValue('--tab-env-color')).toBe('')
+    expect(screen.getByRole('tab')).not.toHaveAttribute('data-environment-id')
+  })
 })
 
 function renderEditorTabItem(overrides: Partial<Parameters<typeof EditorTabItem>[0]> = {}) {
   const props: Parameters<typeof EditorTabItem>[0] = {
-    active: true,
-    connection,
-    draftTitle: '',
-    editing: false,
-    environment,
-    tab,
-    tabRef: vi.fn(),
-    onBeginRename: vi.fn(),
-    onCancelRename: vi.fn(),
-    onCloseTab: vi.fn(),
-    onCommitRename: vi.fn(),
-    onContextMenu: vi.fn(),
-    onDraftTitleChange: vi.fn(),
-    onDragEnd: vi.fn(),
-    onDragLeave: vi.fn(),
-    onDragOver: vi.fn(),
-    onDragStart: vi.fn(),
-    onDrop: vi.fn(),
-    onKeyDown: vi.fn(),
-    onSelectTab: vi.fn(),
+    ...defaultEditorTabItemProps,
     ...overrides,
   }
 
@@ -194,4 +206,27 @@ const environment: EnvironmentProfile = {
   exportable: true,
   createdAt: '2026-05-14T00:00:00.000Z',
   updatedAt: '2026-05-14T00:00:00.000Z',
+}
+
+const defaultEditorTabItemProps: Parameters<typeof EditorTabItem>[0] = {
+  active: true,
+  connection,
+  draftTitle: '',
+  editing: false,
+  environment,
+  tab,
+  tabRef: vi.fn(),
+  onBeginRename: vi.fn(),
+  onCancelRename: vi.fn(),
+  onCloseTab: vi.fn(),
+  onCommitRename: vi.fn(),
+  onContextMenu: vi.fn(),
+  onDraftTitleChange: vi.fn(),
+  onDragEnd: vi.fn(),
+  onDragLeave: vi.fn(),
+  onDragOver: vi.fn(),
+  onDragStart: vi.fn(),
+  onDrop: vi.fn(),
+  onKeyDown: vi.fn(),
+  onSelectTab: vi.fn(),
 }

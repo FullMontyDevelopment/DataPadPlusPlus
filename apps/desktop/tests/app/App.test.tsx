@@ -6,6 +6,7 @@ import type {
   ConnectionProfile,
   ConnectionTestResult,
   EnvironmentProfile,
+  QueryTabState,
 } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../src/services/runtime/client'
 import { loadBrowserSnapshot, saveBrowserSnapshot } from '../../src/services/runtime/browser-store'
@@ -481,6 +482,72 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Add Folder' })).toBeInTheDocument()
     expect(screen.queryByText('Analytics Postgres')).not.toBeInTheDocument()
     expect(screen.queryByText('Ops dashboard')).not.toBeInTheDocument()
+  })
+
+  it('uses the selected tab when the active connection temporarily disagrees', async () => {
+    const snapshot = createBlankBootstrapPayload().snapshot
+    const developmentEnvironment = {
+      ...testEnvironment('env-development', 'Development'),
+      color: '#ef4444',
+    }
+    const productionEnvironment = {
+      ...testEnvironment('env-production', 'Production'),
+      color: '#22c55e',
+    }
+    const developmentConnection = {
+      ...startupConnection('conn-development', 'Development SQL'),
+      environmentIds: [developmentEnvironment.id],
+    }
+    const productionConnection = {
+      ...startupConnection('conn-production', 'Production SQL'),
+      environmentIds: [productionEnvironment.id],
+    }
+    const developmentTab: QueryTabState = {
+      id: 'tab-development',
+      title: 'Development.sql',
+      connectionId: developmentConnection.id,
+      environmentId: developmentEnvironment.id,
+      family: 'sql',
+      language: 'sql',
+      editorLabel: 'SQL editor',
+      queryText: 'select 1;',
+      status: 'idle',
+      dirty: false,
+      history: [],
+    }
+    const productionTab: QueryTabState = {
+      ...developmentTab,
+      id: 'tab-production',
+      title: 'Production.sql',
+      connectionId: productionConnection.id,
+      environmentId: productionEnvironment.id,
+      queryText: 'select 2;',
+    }
+
+    snapshot.environments = [developmentEnvironment, productionEnvironment]
+    snapshot.connections = [developmentConnection, productionConnection]
+    snapshot.tabs = [developmentTab, productionTab]
+    snapshot.ui.activeTabId = productionTab.id
+    snapshot.ui.activeConnectionId = developmentConnection.id
+    snapshot.ui.activeEnvironmentId = developmentEnvironment.id
+    snapshot.preferences.firstInstallGuide = {
+      status: 'skipped',
+      updatedAt: '2026-08-10T00:00:00.000Z',
+    }
+    saveBrowserSnapshot(snapshot)
+    vi.spyOn(desktopClient, 'testConnection').mockImplementation(async ({ profile }) =>
+      resolvedConnectionTestResult(profile.engine),
+    )
+
+    render(<App />)
+
+    const selectedTab = await screen.findByRole('tab', { name: /Production/ })
+    const staleConnectionTab = screen.getByRole('tab', { name: /Development/ })
+    expect(selectedTab).toHaveAttribute('aria-selected', 'true')
+    expect(selectedTab).toHaveAttribute('data-environment-id', productionEnvironment.id)
+    expect(selectedTab.style.getPropertyValue('--tab-env-color')).toBe('#22c55e')
+    expect(staleConnectionTab).toHaveAttribute('aria-selected', 'false')
+    expect(screen.getByLabelText('Query editor')).toHaveValue('select 2;')
   })
 
   it('opens Updates settings from the pre-release status indicator', async () => {

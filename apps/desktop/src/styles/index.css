@@ -3331,10 +3331,12 @@ button:disabled:hover {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-gutter: stable;
+  scrollbar-color: color-mix(in srgb, var(--muted) 30%, transparent) transparent;
+  scrollbar-width: thin;
 }
 
 .editor-tabs::-webkit-scrollbar {
-  height: 6px;
+  height: 4px;
 }
 
 .editor-tabs::-webkit-scrollbar-track {
@@ -3342,11 +3344,16 @@ button:disabled:hover {
 }
 
 .editor-tabs::-webkit-scrollbar-thumb {
-  border-radius: 0;
-  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 30%, transparent);
 }
 
 .editor-tabs::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted) 48%, transparent);
+}
+
+.editor-tabs::-webkit-scrollbar-thumb:active {
   background: color-mix(in srgb, var(--muted) 62%, transparent);
 }
 
@@ -3399,6 +3406,10 @@ button:disabled:hover {
   color: var(--heading);
 }
 
+.editor-tab.has-environment-color {
+  border-top-color: color-mix(in srgb, var(--tab-env-color) 48%, transparent);
+}
+
 .editor-tab.is-active.has-environment-color {
   border-top-color: var(--tab-env-color);
 }
@@ -3410,10 +3421,6 @@ button:disabled:hover {
   width: 2px;
   background: var(--tab-env-color);
   opacity: 0.75;
-}
-
-.editor-tab.is-active.has-environment-color {
-  background: var(--editor-bg);
 }
 
 .editor-tab.is-dragging {
@@ -3530,9 +3537,19 @@ button:disabled:hover {
 }
 
 .editor-tab-pin {
-  flex: 0 0 auto;
+  display: inline-flex;
+  flex: 0 0 14px;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
   color: var(--muted);
-  font-size: 11px;
+  opacity: 0.72;
+}
+
+.editor-tab-pin-icon {
+  width: 13px;
+  height: 13px;
 }
 
 .editor-tab-context-menu,

@@ -57,6 +57,7 @@ import {
   PanelBottom,
   PanelRight,
   PencilLine,
+  Pin,
   Play,
   RefreshCw,
   Route,
@@ -119,6 +120,7 @@ export const PanelIcon = adapt(PanelBottom)
 export const PanelBottomIcon = adapt(PanelBottom)
 export const PanelRightIcon = adapt(PanelRight)
 export const RenameIcon = adapt(PencilLine)
+export const PinIcon = adapt(Pin)
 export const PlayIcon = adapt(Play)
 export const StopIcon = adapt(CircleStop)
 export const RefreshIcon = adapt(RefreshCw)
