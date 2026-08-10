@@ -4,6 +4,7 @@ import type {
   DatastoreMcpServerSettingsRequest,
   DatastoreSecurityChecksSettingsRequest,
   DatastoreTestsSettingsRequest,
+  MultiWindowTabsSettingsRequest,
   WorkspaceSearchSettingsRequest,
   WorkspaceSnapshot,
   WorkspaceSwitcherSettingsRequest,
@@ -12,6 +13,7 @@ import type {
 import {
   ObjectSecurityIcon,
   ObjectServerIcon,
+  PanelRightIcon,
   SavedWorkIcon,
   SearchIcon,
   TestSuiteIcon,
@@ -38,6 +40,8 @@ export function SettingsExperimentalPanel({
   onUpdateWorkspaceSearchSettings,
   onUpdateDatastoreTestsSettings,
   onUpdateSecurityCheckSettings,
+  onUpdateMultiWindowTabsSettings,
+  desktopAvailable,
 }: {
   preferences: WorkspaceSnapshot['preferences']
   onOpenApiServer(): void
@@ -63,6 +67,10 @@ export function SettingsExperimentalPanel({
   onUpdateSecurityCheckSettings(
     request: DatastoreSecurityChecksSettingsRequest,
   ): Promise<boolean>
+  onUpdateMultiWindowTabsSettings(
+    request: MultiWindowTabsSettingsRequest,
+  ): Promise<boolean>
+  desktopAvailable: boolean
 }) {
   const apiServer = preferences.datastoreApiServer ?? {
     enabled: false,
@@ -78,6 +86,7 @@ export function SettingsExperimentalPanel({
   }
   const workspaceSearch = preferences.workspaceSearch ?? { enabled: false }
   const datastoreTests = preferences.datastoreTests ?? { enabled: false }
+  const multiWindowTabs = preferences.multiWindowTabs ?? { enabled: false }
   const securityChecks = preferences.datastoreSecurityChecks ?? {
     enabled: false,
     refreshIntervalDays: 7,
@@ -89,12 +98,31 @@ export function SettingsExperimentalPanel({
   const [searchNotice, setSearchNotice] = useState<SettingsNoticeMessage>()
   const [testsNotice, setTestsNotice] = useState<SettingsNoticeMessage>()
   const [securityNotice, setSecurityNotice] = useState<SettingsNoticeMessage>()
+  const [multiWindowNotice, setMultiWindowNotice] = useState<SettingsNoticeMessage>()
   const [saving, setSaving] = useState(false)
   const [mcpSaving, setMcpSaving] = useState(false)
   const [workspaceSaving, setWorkspaceSaving] = useState(false)
   const [searchSaving, setSearchSaving] = useState(false)
   const [testsSaving, setTestsSaving] = useState(false)
   const [securitySaving, setSecuritySaving] = useState(false)
+  const [multiWindowSaving, setMultiWindowSaving] = useState(false)
+
+  const saveMultiWindowSettings = async (enabled: boolean) => {
+    setMultiWindowSaving(true)
+    setMultiWindowNotice(undefined)
+    const ok = await onUpdateMultiWindowTabsSettings({ enabled })
+    setMultiWindowSaving(false)
+    setMultiWindowNotice(
+      ok
+        ? {
+            text: enabled
+              ? 'Multi-window Tabs plugin enabled.'
+              : 'Tabs returned to the main window and the plugin was disabled.',
+            tone: 'success',
+          }
+        : { text: 'Unable to save Multi-window Tabs settings.', tone: 'error' },
+    )
+  }
 
   const saveSettings = async (enabled: boolean) => {
     setSaving(true)
@@ -230,6 +258,50 @@ export function SettingsExperimentalPanel({
           </header>
 
           <div className="settings-plugin-grid">
+            <section
+              className="settings-plugin-card"
+              aria-labelledby="settings-multi-window-tabs-title"
+            >
+              <header className="settings-plugin-card-header">
+                <span className="settings-plugin-icon">
+                  <PanelRightIcon className="panel-inline-icon" />
+                </span>
+                <div className="settings-plugin-title-block">
+                  <h4 id="settings-multi-window-tabs-title">Multi-window Tabs</h4>
+                  <p>Move working tabs into native editor windows while sharing one DataPad++ workspace and backend.</p>
+                </div>
+                <span className="settings-plugin-badge settings-plugin-badge--experimental">Experimental</span>
+              </header>
+
+              <ul className="settings-plugin-capabilities">
+                <li>Desktop only; unavailable in browser preview</li>
+                <li>Move commands work on Windows, Linux, and macOS</li>
+                <li>Cross-window dragging is enabled only on validated platforms</li>
+              </ul>
+
+              <div className="settings-form-grid settings-form-grid--compact">
+                <label className="settings-check-row settings-check-row--card">
+                  <input
+                    type="checkbox"
+                    checked={multiWindowTabs.enabled}
+                    disabled={!desktopAvailable || multiWindowSaving}
+                    onChange={(event) =>
+                      void saveMultiWindowSettings(event.target.checked)
+                    }
+                  />
+                  <span>Multi-window Tabs</span>
+                </label>
+                {!desktopAvailable ? (
+                  <SettingsNotice notice={{
+                    text: 'Open DataPad++ as a desktop application to use native windows.',
+                    tone: 'info',
+                  }} />
+                ) : (
+                  <SettingsNotice notice={multiWindowNotice} />
+                )}
+              </div>
+            </section>
+
             <section
               className="settings-plugin-card"
               aria-labelledby="settings-workspace-search-title"

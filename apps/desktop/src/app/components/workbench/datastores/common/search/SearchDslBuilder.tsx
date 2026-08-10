@@ -14,6 +14,7 @@ import {
   searchDslBuilderRowId,
 } from '../../../query-builder/search-dsl'
 import { QueryBuilderValueInput } from '../../../query-builder/QueryBuilderValueInput'
+import { QueryBuilderIconButton } from '../../../query-builder/QueryBuilderIconButton'
 import {
   queryBuilderOperatorArity,
   queryBuilderValueTypeLabel,
@@ -235,14 +236,11 @@ function FilterRow({
         valueType={row.valueType}
         onChange={(value) => onChange({ value })}
       /> : null}
-      <button
-        type="button"
-        className="query-builder-remove"
-        aria-label={`Remove filter ${row.field || 'empty'}`}
+      <QueryBuilderIconButton
+        action="remove"
+        label={`Remove filter ${row.field || 'empty'}`}
         onClick={onRemove}
-      >
-        Remove
-      </button>
+      />
     </div>
   )
 }
@@ -295,14 +293,11 @@ function SearchSimpleFieldSection({
               ))
             }
           />
-          <button
-            type="button"
-            className="query-builder-remove"
-            aria-label={`Remove ${title.toLowerCase()} ${item.field || 'empty'}`}
+          <QueryBuilderIconButton
+            action="remove"
+            label={`Remove ${title.toLowerCase()} ${item.field || 'empty'}`}
             onClick={() => updateFields(fields.filter((field) => field.id !== item.id))}
-          >
-            Remove
-          </button>
+          />
         </div>
       ))}
     </BuilderSection>
@@ -347,14 +342,11 @@ function SearchSortSection({
             <option value="asc">Ascending</option>
             <option value="desc">Descending</option>
           </select>
-          <button
-            type="button"
-            className="query-builder-remove"
-            aria-label={`Remove sort ${sort.field || 'empty'}`}
+          <QueryBuilderIconButton
+            action="remove"
+            label={`Remove sort ${sort.field || 'empty'}`}
             onClick={() => updateDraft({ sort: draft.sort.filter((item) => item.id !== sort.id) })}
-          >
-            Remove
-          </button>
+          />
         </div>
       ))}
     </BuilderSection>

@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useCallback, useContext, useEffect, useReducer, useRef } from 'react'
+import { createContext, useCallback, useContext, useEffect, useReducer, useRef, useState } from 'react'
 import type { Dispatch, ReactNode } from 'react'
 import type { BootstrapPayload, ConnectionProfile } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
@@ -109,6 +109,7 @@ const defaultActions: Actions = {
   importWorkspaceFile: noop,
   getWorkspaceSwitcherStatus: async () => undefined,
   setWorkspaceSwitcherEnabled: noopFalse,
+  updateMultiWindowTabsSettings: noopFalse,
   createWorkspace: noopFalse,
   renameWorkspace: noopFalse,
   switchWorkspace: noopFalse,
@@ -184,6 +185,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const stateRef = useRef<StateShape>(state)
   const startupConnectionHealthKeysRef = useRef<Set<string>>(new Set())
   const providerMountedRef = useRef(true)
+  const [windowRole, setWindowRole] = useState<'main' | 'editor' | undefined>(undefined)
+  const workspaceRefreshTimerRef = useRef<number | undefined>(undefined)
 
   useEffect(() => {
     stateRef.current = state
@@ -199,6 +202,16 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true
+
+    void desktopClient.getWorkspaceWindowContext().then((context) => {
+      if (mounted) {
+        setWindowRole(context.role)
+      }
+    }).catch(() => {
+      if (mounted) {
+        setWindowRole('main')
+      }
+    })
 
     void desktopClient
       .bootstrapApp()
@@ -235,6 +248,46 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     dispatchBootstrapPayload(dispatch, payload)
   }, [])
 
+  useEffect(() => {
+    let disposed = false
+    let unlisten: (() => void) | undefined
+
+    void desktopClient.listenForWorkspaceChanges(({ revision }) => {
+      if (disposed || revision <= (stateRef.current.payload?.snapshot.workspaceRevision ?? 0)) {
+        return
+      }
+      if (workspaceRefreshTimerRef.current !== undefined) {
+        window.clearTimeout(workspaceRefreshTimerRef.current)
+      }
+      workspaceRefreshTimerRef.current = window.setTimeout(() => {
+        workspaceRefreshTimerRef.current = undefined
+        void desktopClient.bootstrapApp().then((nextPayload) => {
+          if (providerMountedRef.current) {
+            dispatchBootstrapPayload(dispatch, nextPayload)
+          }
+        }).catch(() => {
+          // A command response may already carry the authoritative revision.
+        })
+      }, 40)
+    }).then((stopListening) => {
+      if (disposed) {
+        stopListening()
+      } else {
+        unlisten = stopListening
+      }
+    }).catch(() => {
+      // Browser preview and unit-test hosts do not expose native window events.
+    })
+
+    return () => {
+      disposed = true
+      unlisten?.()
+      if (workspaceRefreshTimerRef.current !== undefined) {
+        window.clearTimeout(workspaceRefreshTimerRef.current)
+      }
+    }
+  }, [])
+
   const handleError = useCallback((error: unknown, options?: AppErrorOptions) => {
     if (!shouldDispatchCommandError(options)) {
       return
@@ -256,6 +309,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   useStartupUpdateCheck({
     actions,
+    enabled: windowRole === 'main',
     providerMountedRef,
     runtime: state.payload?.health.runtime,
     status: state.status,
@@ -263,7 +317,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const payload = state.payload
-    if (!payload || payload.snapshot.lockState.isLocked) {
+    if (windowRole !== 'main' || !payload || payload.snapshot.lockState.isLocked) {
       return
     }
 
@@ -331,7 +385,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         })
       }
     })
-  }, [state.payload, stateRef])
+  }, [state.payload, stateRef, windowRole])
 
   const value: AppContextValue = {
     ...state,

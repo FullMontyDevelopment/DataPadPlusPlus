@@ -1383,6 +1383,7 @@ export interface DiagnosticsReport {
   appVersion: string
   logPath?: string
   breadcrumbPath?: string
+  windowLifecyclePath?: string
   counts: {
     connections: number
     environments: number

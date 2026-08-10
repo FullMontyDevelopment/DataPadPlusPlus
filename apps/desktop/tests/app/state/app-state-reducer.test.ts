@@ -11,6 +11,24 @@ import { shouldDispatchCommandError } from '../../../src/app/state/app-state'
 import type { StateShape } from '../../../src/app/state/app-state-types'
 import { connectionHealthKey } from '../../../src/app/state/connection-health'
 
+describe('workspace revision ordering', () => {
+  it('ignores stale command and bootstrap payloads from another window', () => {
+    const current = createSeedBootstrapPayload()
+    current.snapshot.workspaceRevision = 12
+    const stale = structuredClone(current)
+    stale.snapshot.workspaceRevision = 11
+    stale.snapshot.ui.activeTabId = 'stale-tab'
+    const state: StateShape = {
+      ...initialState,
+      status: 'ready',
+      payload: current,
+    }
+
+    expect(reducer(state, { type: 'COMMAND_SUCCESS', payload: stale })).toBe(state)
+    expect(reducer(state, { type: 'BOOTSTRAP_SUCCESS', payload: stale })).toBe(state)
+  })
+})
+
 describe('app-state command error routing', () => {
   it('lets scoped actions suppress generic Desktop command messages', () => {
     expect(shouldDispatchCommandError({ suppressWorkbenchMessage: true })).toBe(false)

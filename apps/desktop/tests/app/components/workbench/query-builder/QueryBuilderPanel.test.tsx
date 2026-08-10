@@ -105,6 +105,12 @@ describe('QueryBuilderPanel', () => {
     expect(within(screen.getByLabelText('Filter operator')).getByRole('option', { name: 'Has Items' })).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Filter field'), { target: { value: 'status' } })
     fireEvent.change(screen.getByLabelText('Filter value'), { target: { value: 'active' } })
+    expectCompactIconButton(
+      screen.getByRole('button', { name: 'Remove field profile.name' }),
+    )
+    expectCompactIconButton(
+      screen.getByRole('button', { name: 'Remove filter status' }),
+    )
     fireEvent.click(screen.getByLabelText('Route to partition key'))
     fireEvent.change(screen.getByLabelText('Partition key value'), {
       target: { value: 'tenant-1' },
@@ -316,6 +322,15 @@ describe('QueryBuilderPanel', () => {
 
     dropField(section('Sort'), 'createdAt')
     expect(screen.getByLabelText('Sort field')).toHaveValue('createdAt')
+    expectCompactIconButton(
+      screen.getByRole('button', { name: 'Remove filter profile.status' }),
+    )
+    expectCompactIconButton(
+      screen.getByRole('button', { name: 'Remove projection field profile.name' }),
+    )
+    expectCompactIconButton(
+      screen.getByRole('button', { name: 'Remove sort createdAt' }),
+    )
     expect(onBuilderStateChange).toHaveBeenCalled()
   })
 
@@ -588,6 +603,29 @@ describe('QueryBuilderPanel', () => {
 
     const stages = screen.getAllByLabelText('Aggregation stage')
     expect(stages.at(-1)).toHaveValue('$match')
+    const moveUp = screen.getByRole('button', { name: 'Move stage 2 up' })
+    const moveDown = screen.getByRole('button', { name: 'Move stage 2 down' })
+    const remove = screen.getByRole('button', { name: 'Remove stage 2' })
+    expectCompactIconButton(moveUp)
+    expectCompactIconButton(moveDown)
+    expectCompactIconButton(remove)
+
+    fireEvent.change(stages[1] as HTMLElement, { target: { value: '$sort' } })
+    fireEvent.click(moveUp)
+    expect(
+      (lastBuilderState(onBuilderStateChange) as Extract<
+        QueryBuilderState,
+        { kind: 'mongo-aggregation' }
+      >).stages.map((stage) => stage.stage),
+    ).toEqual(['$sort', '$match'])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove stage 1' }))
+    expect(
+      (lastBuilderState(onBuilderStateChange) as Extract<
+        QueryBuilderState,
+        { kind: 'mongo-aggregation' }
+      >).stages.map((stage) => stage.stage),
+    ).toEqual(['$match'])
     expect(onBuilderStateChange).toHaveBeenCalled()
   })
 
@@ -976,6 +1014,12 @@ describe('QueryBuilderPanel', () => {
 
     dropField(section('Sort'), 'created_at')
     expect(screen.getByLabelText('Sort field')).toHaveValue('created_at')
+    const removeColumn = screen.getByRole('button', { name: 'Remove column email' })
+    expectCompactIconButton(removeColumn)
+    expectCompactIconButton(screen.getByRole('button', { name: 'Remove filter status' }))
+    expectCompactIconButton(screen.getByRole('button', { name: 'Remove sort created_at' }))
+    fireEvent.click(removeColumn)
+    expect(screen.queryByLabelText('Selected column')).not.toBeInTheDocument()
     expect(onBuilderStateChange).toHaveBeenCalled()
   })
 
@@ -1000,6 +1044,11 @@ describe('QueryBuilderPanel', () => {
 
     dropField(section('Projection'), 'total')
     expect(screen.getByLabelText('Projection field')).toHaveValue('total')
+    expectCompactIconButton(screen.getByRole('button', { name: 'Remove filter status' }))
+    const removeProjection = screen.getByRole('button', { name: 'Remove projection total' })
+    expectCompactIconButton(removeProjection)
+    fireEvent.click(removeProjection)
+    expect(screen.queryByLabelText('Projection field')).not.toBeInTheDocument()
     expect(onBuilderStateChange).toHaveBeenCalled()
   })
 
@@ -1024,6 +1073,11 @@ describe('QueryBuilderPanel', () => {
 
     dropField(section('Columns'), 'event_id')
     expect(screen.getByLabelText('Selected column')).toHaveValue('event_id')
+    expectCompactIconButton(screen.getByRole('button', { name: 'Remove condition status' }))
+    const removeColumn = screen.getByRole('button', { name: 'Remove column event_id' })
+    expectCompactIconButton(removeColumn)
+    fireEvent.click(removeColumn)
+    expect(screen.queryByLabelText('Selected column')).not.toBeInTheDocument()
     expect(onBuilderStateChange).toHaveBeenCalled()
   })
 
@@ -1060,6 +1114,20 @@ describe('QueryBuilderPanel', () => {
     dropField(section('Aggregations'), 'status.keyword')
     expect(screen.getByLabelText('Aggregation field')).toHaveValue('status.keyword')
     expect(screen.getByLabelText('Aggregation type')).toHaveValue('terms')
+    dropField(section('Sort'), 'created_at')
+    expectCompactIconButton(
+      screen.getByRole('button', { name: 'Remove filter status.keyword' }),
+    )
+    expectCompactIconButton(
+      screen.getByRole('button', { name: 'Remove source fields sku' }),
+    )
+    expectCompactIconButton(
+      screen.getByRole('button', { name: 'Remove aggregation status.keyword' }),
+    )
+    const removeSort = screen.getByRole('button', { name: 'Remove sort created_at' })
+    expectCompactIconButton(removeSort)
+    fireEvent.click(removeSort)
+    expect(screen.queryByLabelText('Sort field')).not.toBeInTheDocument()
     expect(onBuilderStateChange).toHaveBeenCalled()
   })
 
@@ -1407,6 +1475,13 @@ function dropField(target: HTMLElement, field: string) {
 
   fireEvent.dragOver(target, { dataTransfer })
   fireEvent.drop(target, { dataTransfer })
+}
+
+function expectCompactIconButton(button: HTMLElement) {
+  expect(button).toHaveClass('query-builder-icon-button')
+  expect(button).toHaveAttribute('title', button.getAttribute('aria-label'))
+  expect(button).toHaveTextContent('')
+  expect(button.querySelector('svg')).toHaveClass('query-builder-icon-button__icon')
 }
 
 function dragBuilderRow(source: HTMLElement, target: HTMLElement) {

@@ -556,6 +556,7 @@ pub struct CancelExecutionResult {
 #[serde(rename_all = "camelCase")]
 pub struct QueryTabReorderRequest {
     pub ordered_tab_ids: Vec<String>,
+    pub window_id: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]

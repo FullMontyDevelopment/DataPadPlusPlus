@@ -712,6 +712,72 @@ export interface DatastoreTestsSettingsRequest {
   enabled: boolean
 }
 
+export interface MultiWindowTabsSettingsRequest {
+  enabled: boolean
+}
+
+export interface WorkspaceWindowContext {
+  windowId: string
+  role: 'main' | 'editor'
+  multiWindowEnabled: boolean
+  dragSupported: boolean
+}
+
+export interface WorkspaceWindowTarget {
+  windowId: string
+  role: 'main' | 'editor'
+  title: string
+  activeTabId: string
+  tabCount: number
+}
+
+export interface WorkspaceWindowListResponse {
+  windows: WorkspaceWindowTarget[]
+}
+
+export interface WorkspaceTabTransferRequest {
+  tabId: string
+  sourceWindowId: string
+  correlationId?: string
+  destinationWindowId?: string
+  beforeTabId?: string
+  createWindow?: boolean
+  x?: number
+  y?: number
+}
+
+export interface WorkspaceTabTransferResponse {
+  payload: BootstrapPayload
+  sourceWindowId: string
+  destinationWindowId: string
+  createdWindow: boolean
+}
+
+export interface WorkspaceWindowGeometryRequest {
+  windowId: string
+  x: number
+  y: number
+  width: number
+  height: number
+  monitorName?: string
+  maximized?: boolean
+}
+
+export interface WorkspaceWindowCloseRequest {
+  windowId: string
+}
+
+export interface WorkspaceTabDragSessionRequest {
+  tabId: string
+  sourceWindowId: string
+}
+
+export interface WorkspaceTabDragSession {
+  token: string
+  tabId: string
+  sourceWindowId: string
+}
+
 export type DataEditKind =
   | 'insert-row'
   | 'update-row'
@@ -1151,6 +1217,7 @@ export interface CancelExecutionResult {
 
 export interface QueryTabReorderRequest {
   orderedTabIds: string[]
+  windowId?: string
 }
 
 export interface CloseQueryTabsRequest {

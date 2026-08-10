@@ -40,6 +40,13 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
 
   switch (action.type) {
     case 'BOOTSTRAP_SUCCESS':
+      if (
+        state.payload
+        && (action.payload.snapshot.workspaceRevision ?? 0)
+          < (state.payload.snapshot.workspaceRevision ?? 0)
+      ) {
+        return state
+      }
       return {
         ...state,
         status: 'ready',
@@ -49,6 +56,13 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
       }
     case 'COMMAND_SUCCESS':
     {
+      if (
+        state.payload
+        && (action.payload.snapshot.workspaceRevision ?? 0)
+          < (state.payload.snapshot.workspaceRevision ?? 0)
+      ) {
+        return state
+      }
       const payload = preserveActiveExecutionsOnPayload(
         action.payload,
         state.payload,

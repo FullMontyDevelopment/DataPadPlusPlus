@@ -10,7 +10,7 @@ import { DATAPADPLUSPLUS_ADAPTER_MANIFESTS } from '@datapadplusplus/shared-types
 import { buildDiagnosticsReport, resolveEnvironment } from '../state/helpers'
 import { defaultKeyboardShortcuts } from '../keyboard-shortcuts'
 
-export const EMPTY_WORKSPACE_SCHEMA_VERSION = 10
+export const EMPTY_WORKSPACE_SCHEMA_VERSION = 11
 
 export const adapterManifests: AdapterManifest[] = DATAPADPLUSPLUS_ADAPTER_MANIFESTS
 
@@ -54,6 +54,9 @@ export function createDefaultPreferences(): AppPreferences {
     datastoreTests: {
       enabled: false,
     },
+    multiWindowTabs: {
+      enabled: false,
+    },
     firstInstallGuide: {
       status: 'unseen',
     },
@@ -68,6 +71,7 @@ export function createBlankSnapshot(): WorkspaceSnapshot {
 
   return {
     schemaVersion: EMPTY_WORKSPACE_SCHEMA_VERSION,
+    workspaceRevision: 0,
     connections: [],
     environments: [],
     tabs: [],
@@ -102,6 +106,12 @@ export function createBlankSnapshot(): WorkspaceSnapshot {
       mongoScriptGuideWidth: 360,
       rightDrawer: 'none',
       rightDrawerWidth: 360,
+      workspaceWindows: [{
+        id: 'main',
+        role: 'main',
+        tabIds: [],
+        activeTabId: '',
+      }],
     },
     updatedAt: timestamp,
   }

@@ -47,6 +47,7 @@ mod workspace_backups;
 mod workspace_bundle;
 mod workspace_bundle_integrity;
 mod workspace_fixture_migrations;
+pub mod workspace_windows;
 
 use crate::domain::models::WorkspaceSnapshot;
 
@@ -115,6 +116,8 @@ impl ActiveTestRunRegistry {
 
 pub type SharedTestRunRegistry = Mutex<ActiveTestRunRegistry>;
 
+pub type SharedWorkspaceWindowCoordinator = Mutex<workspace_windows::WorkspaceWindowCoordinator>;
+
 #[cfg(test)]
 #[path = "../../tests/unit/app/runtime/active_execution_registry_tests.rs"]
 mod active_execution_registry_tests;
@@ -139,3 +142,6 @@ mod sql_hint_tests;
 #[cfg(test)]
 #[path = "../../tests/unit/app/runtime/workspace_tests.rs"]
 mod workspace_tests;
+#[cfg(test)]
+#[path = "../../tests/unit/app/runtime/workspace_windows_tests.rs"]
+mod workspace_windows_tests;

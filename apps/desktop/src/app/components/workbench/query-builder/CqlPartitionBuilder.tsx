@@ -12,6 +12,7 @@ import {
   newCqlCondition,
 } from './cql-partition'
 import { QueryBuilderValueInput } from './QueryBuilderValueInput'
+import { QueryBuilderIconButton } from './QueryBuilderIconButton'
 import { queryBuilderValueTypeLabel } from './query-value-codec'
 import { builderStateWithCompiledQueryText } from '../../../controllers/query-builder-routing'
 
@@ -152,18 +153,15 @@ export function CqlPartitionBuilder({
                   })
                 }
               />
-              <button
-                type="button"
-                className="query-builder-remove"
-                aria-label={`Remove column ${field.field || 'empty'}`}
+              <QueryBuilderIconButton
+                action="remove"
+                label={`Remove column ${field.field || 'empty'}`}
                 onClick={() =>
                   updateDraft({
                     projectionFields: draft.projectionFields.filter((item) => item.id !== field.id),
                   })
                 }
-              >
-                Remove
-              </button>
+              />
             </div>
           ))
         )}
@@ -262,14 +260,11 @@ function ConditionRow({
         valueType={row.valueType}
         onChange={(value) => onChange({ value })}
       />
-      <button
-        type="button"
-        className="query-builder-remove"
-        aria-label={`Remove condition ${row.field || 'empty'}`}
+      <QueryBuilderIconButton
+        action="remove"
+        label={`Remove condition ${row.field || 'empty'}`}
         onClick={onRemove}
-      >
-        Remove
-      </button>
+      />
     </div>
   )
 }

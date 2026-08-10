@@ -324,6 +324,10 @@ export function DiagnosticsBlade({
               label="Breadcrumbs"
               value={diagnostics?.breadcrumbPath ?? 'Not available'}
             />
+            <DrawerDetailRow
+              label="Window lifecycle"
+              value={diagnostics?.windowLifecyclePath ?? 'Not available'}
+            />
             <DrawerDetailRow label="Connections" value={String(diagnostics?.counts.connections ?? 0)} />
             <DrawerDetailRow label="Library items" value={String(diagnostics?.counts.library ?? 0)} />
             <DrawerDetailRow label="Environments" value={String(diagnostics?.counts.environments ?? 0)} />

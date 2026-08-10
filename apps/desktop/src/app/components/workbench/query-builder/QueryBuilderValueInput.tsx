@@ -6,6 +6,7 @@ import {
   utcIsoToDateTimeLocal,
   validateQueryBuilderValue,
 } from './query-value-codec'
+import { QueryBuilderIconButton } from './QueryBuilderIconButton'
 import { QueryBuilderJsonValueDialog } from './QueryBuilderJsonValueDialog'
 
 interface QueryBuilderValueInputProps {
@@ -76,14 +77,12 @@ export function QueryBuilderValueInput({
         />
       ) : null}
       {valueType === 'json' ? (
-        <button
-          type="button"
-          className="query-builder-json-open"
+        <QueryBuilderIconButton
+          action="json"
+          label="Open JSON editor"
           disabled={disabled}
           onClick={() => setJsonEditorOpen(true)}
-        >
-          Open JSON editor
-        </button>
+        />
       ) : null}
       {error ? <span className="query-builder-value-error" role="alert">{error}</span> : null}
       {jsonEditorOpen ? (

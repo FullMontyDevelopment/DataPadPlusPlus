@@ -12,6 +12,7 @@ import {
   newDynamoDbCondition,
 } from '../../query-builder/dynamodb-key-condition'
 import { QueryBuilderValueInput } from '../../query-builder/QueryBuilderValueInput'
+import { QueryBuilderIconButton } from '../../query-builder/QueryBuilderIconButton'
 import {
   queryBuilderOperatorArity,
   queryBuilderValueTypeLabel,
@@ -219,18 +220,15 @@ export function DynamoDbKeyConditionBuilder({
                   })
                 }
               />
-              <button
-                type="button"
-                className="query-builder-remove"
-                aria-label={`Remove projection ${field.field || 'empty'}`}
+              <QueryBuilderIconButton
+                action="remove"
+                label={`Remove projection ${field.field || 'empty'}`}
                 onClick={() =>
                   updateDraft({
                     projectionFields: draft.projectionFields.filter((item) => item.id !== field.id),
                   })
                 }
-              >
-                Remove
-              </button>
+              />
             </div>
           ))
         )}
@@ -312,14 +310,11 @@ function ConditionRow({
         />
       ) : null}
       {removable ? (
-        <button
-          type="button"
-          className="query-builder-remove"
-          aria-label={`Remove ${label.toLowerCase()} ${row.field || 'empty'}`}
+        <QueryBuilderIconButton
+          action="remove"
+          label={`Remove ${label.toLowerCase()} ${row.field || 'empty'}`}
           onClick={onRemove}
-        >
-          Remove
-        </button>
+        />
       ) : null}
     </div>
   )

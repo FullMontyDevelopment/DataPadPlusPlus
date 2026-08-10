@@ -11,6 +11,7 @@ mod library;
 mod mcp_server;
 mod security;
 mod ui_state;
+mod windows;
 mod workspace;
 
 pub use adapter::*;
@@ -21,4 +22,5 @@ pub use library::*;
 pub use mcp_server::*;
 pub use security::*;
 pub use ui_state::*;
+pub use windows::*;
 pub use workspace::*;

@@ -5,7 +5,6 @@ import type {
   QueryBuilderState,
   QueryTabState,
 } from '@datapadplusplus/shared-types'
-import { Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   FIELD_POINTER_DRAG_CANCEL_EVENT,
@@ -14,6 +13,7 @@ import {
   type FieldPointerDragDetail,
 } from '../results/field-drag'
 import { BuilderSection } from './BuilderSection'
+import { QueryBuilderIconButton } from './QueryBuilderIconButton'
 import {
   buildCosmosSqlRequest,
   cosmosSqlBuilderRowId,
@@ -479,15 +479,7 @@ function formatGeneratedValue(value: unknown) {
 
 function RemoveButton({ label, onClick }: { label: string; onClick(): void }) {
   return (
-    <button
-      type="button"
-      className="query-builder-remove query-builder-remove--icon"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-    >
-      <Trash2 size={13} aria-hidden="true" />
-    </button>
+    <QueryBuilderIconButton action="remove" label={label} onClick={onClick} />
   )
 }
 

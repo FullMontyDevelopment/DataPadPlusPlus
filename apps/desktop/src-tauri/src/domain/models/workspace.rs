@@ -204,6 +204,8 @@ pub struct DatastoreTestsPreferences {
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSnapshot {
     pub schema_version: u32,
+    #[serde(default)]
+    pub workspace_revision: u64,
     pub connections: Vec<ConnectionProfile>,
     pub environments: Vec<EnvironmentProfile>,
     pub tabs: Vec<QueryTabState>,

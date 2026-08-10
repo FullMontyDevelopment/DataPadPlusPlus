@@ -7,11 +7,13 @@ const STARTUP_UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 export function useStartupUpdateCheck({
   actions,
+  enabled = true,
   providerMountedRef,
   runtime,
   status,
 }: {
   actions: Actions
+  enabled?: boolean
   providerMountedRef: MutableRefObject<boolean>
   runtime: BootstrapPayload['health']['runtime'] | undefined
   status: StateShape['status']
@@ -19,7 +21,7 @@ export function useStartupUpdateCheck({
   const startedRef = useRef(false)
 
   useEffect(() => {
-    if (startedRef.current || status !== 'ready' || runtime !== 'tauri') {
+    if (!enabled || startedRef.current || status !== 'ready' || runtime !== 'tauri') {
       return
     }
     startedRef.current = true
@@ -35,7 +37,7 @@ export function useStartupUpdateCheck({
 
       return actions.checkAppUpdate()
     })
-  }, [actions, providerMountedRef, runtime, status])
+  }, [actions, enabled, providerMountedRef, runtime, status])
 }
 
 export function shouldRunStartupUpdateCheck(

@@ -1,4 +1,5 @@
-import type { QueryTabState } from '@datapadplusplus/shared-types'
+import type { QueryTabState, WorkspaceWindowTarget } from '@datapadplusplus/shared-types'
+import { tabCanDetach } from '../../../state/workspace-migration'
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -14,6 +15,9 @@ interface EditorTabContextMenuProps {
   contextTabIndex: number
   orderedTabIds: string[]
   lockedTabIds?: string[]
+  currentWindowId?: string
+  multiWindowEnabled?: boolean
+  windowTargets?: WorkspaceWindowTarget[]
   tabsLength: number
   x: number
   y: number
@@ -23,6 +27,7 @@ interface EditorTabContextMenuProps {
   onCloseTabs(tabIds: string[]): void
   onMoveTabRelative(tabId: string, direction: 'left' | 'right'): void
   onMoveTabToEdge(tabId: string, edge: 'first' | 'last'): void
+  onMoveTabToWindow?(tabId: string, destinationWindowId?: string): void
   onSaveTab(tabId: string): void
 }
 
@@ -31,6 +36,9 @@ export function EditorTabContextMenu({
   contextTabIndex,
   orderedTabIds,
   lockedTabIds = [],
+  currentWindowId = 'main',
+  multiWindowEnabled = false,
+  windowTargets = [],
   tabsLength,
   x,
   y,
@@ -40,6 +48,7 @@ export function EditorTabContextMenu({
   onCloseTabs,
   onMoveTabRelative,
   onMoveTabToEdge,
+  onMoveTabToWindow,
   onSaveTab,
 }: EditorTabContextMenuProps) {
   const run = (action: () => void) => {
@@ -52,6 +61,14 @@ export function EditorTabContextMenu({
     contextTab.tabKind !== 'object-view'
   const lockedTabs = new Set(lockedTabIds)
   const contextTabLocked = lockedTabs.has(contextTab.id)
+  const canMoveAcrossWindows = multiWindowEnabled && tabCanDetach(contextTab)
+  const moveDisabledReason = contextTabLocked
+    ? 'Cancel the running query or wait for it to finish before moving this tab.'
+    : !tabCanDetach(contextTab)
+      ? 'Administrative tabs stay in the main DataPad++ window.'
+      : !multiWindowEnabled
+        ? 'Enable the experimental Multi-window Tabs plugin in Settings.'
+        : undefined
   const closeOtherTabIds = orderedTabIds.filter(
     (tabId) => tabId !== contextTab.id,
   )
@@ -186,6 +203,54 @@ export function EditorTabContextMenu({
         <MoveLastIcon className="editor-tab-context-menu-icon" />
         <span>Move Last</span>
       </button>
+      {onMoveTabToWindow ? (
+        <>
+          <div className="editor-tab-context-menu-separator" role="separator" />
+          <button
+            type="button"
+            role="menuitem"
+            className="editor-tab-context-menu-item"
+            aria-label={`Move tab ${contextTab.title} to a new window`}
+            disabled={!canMoveAcrossWindows || contextTabLocked}
+            title={moveDisabledReason}
+            onClick={() => run(() => onMoveTabToWindow(contextTab.id))}
+          >
+            <ArrowRightIcon className="editor-tab-context-menu-icon" />
+            <span>Move to New Window</span>
+          </button>
+          {currentWindowId !== 'main' ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="editor-tab-context-menu-item"
+              aria-label={`Move tab ${contextTab.title} to the main window`}
+              disabled={!canMoveAcrossWindows || contextTabLocked}
+              title={moveDisabledReason}
+              onClick={() => run(() => onMoveTabToWindow(contextTab.id, 'main'))}
+            >
+              <ArrowLeftIcon className="editor-tab-context-menu-icon" />
+              <span>Move to Main Window</span>
+            </button>
+          ) : null}
+          {windowTargets
+            .filter((target) => target.windowId !== currentWindowId && target.windowId !== 'main')
+            .map((target) => (
+              <button
+                key={target.windowId}
+                type="button"
+                role="menuitem"
+                className="editor-tab-context-menu-item"
+                aria-label={`Move tab ${contextTab.title} to window ${target.title}`}
+                disabled={!canMoveAcrossWindows || contextTabLocked}
+                title={moveDisabledReason}
+                onClick={() => run(() => onMoveTabToWindow(contextTab.id, target.windowId))}
+              >
+                <ArrowRightIcon className="editor-tab-context-menu-icon" />
+                <span>{`Move to Window: ${target.title}`}</span>
+              </button>
+            ))}
+        </>
+      ) : null}
     </div>
   )
 }

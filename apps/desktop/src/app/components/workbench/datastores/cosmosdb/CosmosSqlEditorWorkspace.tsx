@@ -2,7 +2,7 @@ import type {
   CosmosSqlBuilderValueType,
   CosmosSqlQueryEditorState,
 } from '@datapadplusplus/shared-types'
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { DesktopCodeEditor } from '../../DesktopCodeEditor'
 import type { DatastoreQueryEditorWorkspaceProps } from '../types'
@@ -13,6 +13,7 @@ import {
 } from '../../query-builder/cosmos-sql'
 import { cosmosSqlCompletionProvider } from './cosmos-sql-provider'
 import { QueryBuilderValueInput } from '../../query-builder/QueryBuilderValueInput'
+import { QueryBuilderIconButton } from '../../query-builder/QueryBuilderIconButton'
 import { queryBuilderValueTypeLabel } from '../../query-builder/query-value-codec'
 
 const VALUE_TYPES: CosmosSqlBuilderValueType[] = [
@@ -163,17 +164,14 @@ export function CosmosSqlEditorWorkspace({
                       item.id === parameter.id ? { ...item, value } : item),
                   })}
                 />
-                <button
-                  type="button"
-                  className="query-builder-remove query-builder-remove--icon"
-                  aria-label={`Remove ${parameter.name || 'parameter'}`}
+                <QueryBuilderIconButton
+                  action="remove"
+                  label={`Remove ${parameter.name || 'parameter'}`}
                   disabled={readOnly}
                   onClick={() => update({
                     parameters: state.parameters.filter((item) => item.id !== parameter.id),
                   })}
-                >
-                  <Trash2 size={13} aria-hidden="true" />
-                </button>
+                />
               </div>
             ))}
           </section>

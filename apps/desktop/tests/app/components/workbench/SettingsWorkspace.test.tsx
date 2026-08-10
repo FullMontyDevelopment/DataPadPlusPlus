@@ -53,7 +53,7 @@ const workspaceSwitcherStatus: WorkspaceSwitcherStatus = {
   ],
 }
 
-function renderSettings(overrides: Partial<ComponentProps<typeof SettingsWorkspace>> = {}) {
+function renderSettingsProps(overrides: Partial<ComponentProps<typeof SettingsWorkspace>> = {}) {
   const preferences = createSeedSnapshot().preferences
   const props: ComponentProps<typeof SettingsWorkspace> = {
     diagnostics,
@@ -117,9 +117,15 @@ function renderSettings(overrides: Partial<ComponentProps<typeof SettingsWorkspa
     onUpdateWorkspaceSearchSettings: vi.fn().mockResolvedValue(true),
     onUpdateDatastoreTestsSettings: vi.fn().mockResolvedValue(true),
     onUpdateSecurityCheckSettings: vi.fn().mockResolvedValue(true),
+    onUpdateMultiWindowTabsSettings: vi.fn().mockResolvedValue(true),
     ...overrides,
   }
 
+  return props
+}
+
+function renderSettings(overrides: Partial<ComponentProps<typeof SettingsWorkspace>> = {}) {
+  const props = renderSettingsProps(overrides)
   render(<SettingsWorkspace {...props} />)
   return props
 }
@@ -313,6 +319,38 @@ describe('SettingsWorkspace', () => {
     expect(
       within(datastoreTestsGroup).getByText('Datastore Tests plugin enabled.'),
     ).toBeInTheDocument()
+  })
+
+  it('shows Multi-window Tabs as a desktop-only opt-in plugin', async () => {
+    const onUpdateMultiWindowTabsSettings = vi.fn().mockResolvedValue(true)
+    const { rerender } = render(
+      <SettingsWorkspace
+        {...(renderSettingsProps({
+          initialSection: 'experimental',
+          onUpdateMultiWindowTabsSettings,
+        }))}
+      />,
+    )
+    const plugin = screen.getByRole('region', { name: 'Multi-window Tabs' })
+    const toggle = within(plugin).getByLabelText('Multi-window Tabs')
+    expect(within(plugin).getByText('Experimental')).toBeInTheDocument()
+    expect(toggle).toBeEnabled()
+    fireEvent.click(toggle)
+    await waitFor(() => {
+      expect(onUpdateMultiWindowTabsSettings).toHaveBeenCalledWith({ enabled: true })
+    })
+
+    rerender(
+      <SettingsWorkspace
+        {...renderSettingsProps({
+          initialSection: 'experimental',
+          health: { ...health, runtime: 'browser-preview' },
+        })}
+      />,
+    )
+    expect(within(screen.getByRole('region', { name: 'Multi-window Tabs' }))
+      .getByLabelText('Multi-window Tabs')).toBeDisabled()
+    expect(screen.getByText(/Open DataPad\+\+ as a desktop application/)).toBeInTheDocument()
   })
 
   it('opens Workspace Search when enabled', () => {

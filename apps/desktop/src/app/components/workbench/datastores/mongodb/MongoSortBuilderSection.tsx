@@ -1,6 +1,6 @@
 import type { DragEvent, PointerEvent } from 'react'
 import { BuilderSection } from '../../query-builder/BuilderSection'
-import { TrashIcon } from '../../icons'
+import { QueryBuilderIconButton } from '../../query-builder/QueryBuilderIconButton'
 import type { MongoFindSectionProps } from './MongoBuilderSection.types'
 import { rowId } from './MongoBuilderSection.types'
 import {
@@ -141,20 +141,16 @@ export function MongoSortBuilderSection({
             <option value="asc">Ascending</option>
             <option value="desc">Descending</option>
           </select>
-          <button
-            type="button"
-            className="query-builder-remove query-builder-remove--icon"
-            aria-label="Remove sort"
-            title="Remove sort"
+          <QueryBuilderIconButton
+            action="remove"
+            label={`Remove sort ${row.field || 'empty'}`}
             onClick={() =>
               updateDraft({
                 filterGroups,
                 sort: draft.sort.filter((item) => item.id !== row.id),
               })
             }
-          >
-            <TrashIcon className="toolbar-icon" />
-          </button>
+          />
         </div>
       ))}
     </BuilderSection>

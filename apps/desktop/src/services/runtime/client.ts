@@ -11,9 +11,11 @@ import { clientTabs } from './client-tabs'
 import { clientTests } from './client-tests'
 import { clientUpdates } from './client-updates'
 import { clientWorkspace } from './client-workspace'
+import { clientWorkspaceWindows } from './client-workspace-windows'
 
 export const desktopClient = {
   ...clientWorkspace,
+  ...clientWorkspaceWindows,
   ...clientApiServer,
   ...clientMcpServer,
   ...clientConnections,

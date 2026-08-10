@@ -44,7 +44,12 @@ describe('CosmosSqlEditorWorkspace', () => {
         editorState={{
           kind: 'cosmos-sql',
           sql: 'SELECT * FROM c WHERE c.status = @status',
-          parameters: [],
+          parameters: [{
+            id: 'status',
+            name: '@status',
+            valueType: 'string',
+            value: 'open',
+          }],
           source: 'custom',
         }}
         value={'{"operation":"QueryDocuments"}'}
@@ -58,12 +63,22 @@ describe('CosmosSqlEditorWorkspace', () => {
       'SELECT * FROM c WHERE c.status = @status',
     )
     expect(screen.queryByDisplayValue('{"operation":"QueryDocuments"}')).not.toBeInTheDocument()
-    expect(screen.getByText('Query parameter @status does not have a binding.')).toBeInTheDocument()
+    expect(screen.queryByText('Query parameter @status does not have a binding.')).not.toBeInTheDocument()
+
+    const removeParameter = screen.getByRole('button', { name: 'Remove @status' })
+    expect(removeParameter).toHaveClass('query-builder-icon-button')
+    expect(removeParameter).toHaveAttribute('title', 'Remove @status')
+    expect(removeParameter).toHaveTextContent('')
+    fireEvent.click(removeParameter)
+    expect(onEditorStateChange).toHaveBeenCalledWith(expect.objectContaining({ parameters: [] }))
+    onEditorStateChange.mockClear()
 
     fireEvent.click(screen.getByRole('button', { name: 'Add' }))
     expect(onEditorStateChange).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'cosmos-sql',
-      parameters: [expect.objectContaining({ name: '@parameter', valueType: 'string' })],
+      parameters: expect.arrayContaining([
+        expect.objectContaining({ name: '@parameter', valueType: 'string' }),
+      ]),
     }))
   })
 

@@ -35,6 +35,19 @@ pub struct DatastoreTestsSettingsRequest {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MultiWindowTabsSettingsRequest {
+    pub enabled: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct MultiWindowTabsPreferences {
+    pub enabled: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppPreferences {
     pub theme: String,
     pub telemetry: String,
@@ -56,9 +69,50 @@ pub struct AppPreferences {
     #[serde(default)]
     pub datastore_tests: DatastoreTestsPreferences,
     #[serde(default)]
+    pub multi_window_tabs: MultiWindowTabsPreferences,
+    #[serde(default)]
     pub first_install_guide: FirstInstallGuidePreferences,
     #[serde(default)]
     pub explorer_folder_orders: HashMap<String, Vec<String>>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct WorkspaceWindowBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct WorkspaceWindowState {
+    pub id: String,
+    pub role: String,
+    pub tab_ids: Vec<String>,
+    pub active_tab_id: String,
+    pub bounds: Option<WorkspaceWindowBounds>,
+    pub monitor_name: Option<String>,
+    pub maximized: bool,
+    pub last_focused_at: Option<String>,
+}
+
+impl Default for WorkspaceWindowState {
+    fn default() -> Self {
+        Self {
+            id: "main".into(),
+            role: "main".into(),
+            tab_ids: Vec::new(),
+            active_tab_id: String::new(),
+            bounds: None,
+            monitor_name: None,
+            maximized: false,
+            last_focused_at: None,
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -87,6 +141,12 @@ pub struct UiState {
     pub mongo_script_guide_width: u32,
     pub right_drawer: String,
     pub right_drawer_width: u32,
+    #[serde(default = "default_workspace_windows")]
+    pub workspace_windows: Vec<WorkspaceWindowState>,
+}
+
+fn default_workspace_windows() -> Vec<WorkspaceWindowState> {
+    vec![WorkspaceWindowState::default()]
 }
 
 fn default_connection_group_mode() -> String {
@@ -116,6 +176,7 @@ impl Default for UiState {
             mongo_script_guide_width: 360,
             right_drawer: "none".into(),
             right_drawer_width: 360,
+            workspace_windows: default_workspace_windows(),
         }
     }
 }
@@ -141,6 +202,8 @@ pub struct DiagnosticsReport {
     pub log_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub breadcrumb_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_lifecycle_path: Option<String>,
     pub counts: DiagnosticsCounts,
     pub warnings: Vec<String>,
 }

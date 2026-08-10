@@ -11,11 +11,12 @@ pub fn set_active_connection(
 
 #[tauri::command]
 pub fn set_active_tab(
+    window: tauri::WebviewWindow,
     state: State<'_, SharedAppState>,
     tab_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(&state)?;
-    state.set_active_tab(&tab_id)
+    state.set_active_tab_for_window(window.label(), &tab_id)
 }
 
 #[tauri::command]

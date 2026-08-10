@@ -31,19 +31,7 @@ use crate::infrastructure;
 impl ManagedAppState {
     pub fn set_active_tab(&mut self, tab_id: &str) -> Result<BootstrapPayload, CommandError> {
         validate_required_tab_id(tab_id)?;
-        let tab = self
-            .snapshot
-            .tabs
-            .iter()
-            .find(|item| item.id == tab_id)
-            .cloned()
-            .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
-        self.snapshot.ui.active_tab_id = tab.id;
-        self.snapshot.ui.active_connection_id = tab.connection_id;
-        self.snapshot.ui.active_environment_id = tab.environment_id;
-        self.snapshot.updated_at = timestamp_now();
-        self.persist()?;
-        Ok(self.bootstrap_payload())
+        self.set_active_tab_for_window("main", tab_id)
     }
 
     pub fn set_tab_environment(
@@ -437,10 +425,10 @@ impl ManagedAppState {
         request: QueryTabReorderRequest,
     ) -> Result<BootstrapPayload, CommandError> {
         validate_query_tab_reorder_request(&request)?;
-        reorder_query_tabs_in_place(&mut self.snapshot.tabs, request.ordered_tab_ids)?;
-        self.snapshot.updated_at = timestamp_now();
-        self.persist()?;
-        Ok(self.bootstrap_payload())
+        self.reorder_tabs_for_window(
+            request.window_id.as_deref().unwrap_or("main"),
+            request.ordered_tab_ids,
+        )
     }
 
     pub fn update_query_tab(
@@ -809,6 +797,16 @@ pub(super) fn close_query_tabs_in_snapshot(
         snapshot.ui.bottom_panel_visible = false;
     }
 
+    for window in &mut snapshot.ui.workspace_windows {
+        let active_was_closed = closed_tab_id_set.contains(&window.active_tab_id);
+        window
+            .tab_ids
+            .retain(|tab_id| !closed_tab_id_set.contains(tab_id));
+        if active_was_closed || !window.tab_ids.contains(&window.active_tab_id) {
+            window.active_tab_id = window.tab_ids.first().cloned().unwrap_or_default();
+        }
+    }
+
     snapshot.updated_at = timestamp_now();
     outcome
 }
@@ -865,6 +863,7 @@ pub(super) fn tab_close_persistence_warning(
     })
 }
 
+#[cfg(test)]
 pub(super) fn reorder_query_tabs_in_place(
     tabs: &mut Vec<QueryTabState>,
     ordered_tab_ids: Vec<String>,

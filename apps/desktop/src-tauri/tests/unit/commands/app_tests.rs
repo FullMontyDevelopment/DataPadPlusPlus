@@ -27,3 +27,16 @@ fn active_query_activity_uses_the_platform_progress_state() {
         assert_eq!(state.progress, Some(50));
     }
 }
+
+#[test]
+fn frontend_diagnostic_fields_are_bounded_and_log_safe() {
+    assert_eq!(normalized_frontend_level(Some("warning")), "WARN");
+    assert_eq!(normalized_frontend_level(Some("anything")), "INFO");
+    assert_eq!(
+        diagnostic_token("window ready\r\n", "unknown"),
+        "windowready"
+    );
+    assert_eq!(diagnostic_token("***", "unknown"), "unknown");
+    assert_eq!(diagnostic_text("first\r\nsecond", 128), "first  second");
+    assert_eq!(diagnostic_text("12345", 3), "123");
+}

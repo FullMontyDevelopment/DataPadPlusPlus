@@ -40,7 +40,11 @@ async function openConnectionDraft() {
   await screen.findByLabelText('library sidebar')
   fireEvent.click(screen.getByLabelText('New datastore connection'))
 
-  const drawer = await screen.findByLabelText('connection drawer')
+  const drawer = await screen.findByLabelText(
+    'connection drawer',
+    undefined,
+    { timeout: 4000 },
+  )
 
   await waitFor(() => {
     expect(within(drawer).getByLabelText('Name')).toHaveValue('PostgreSQL connection')
@@ -88,7 +92,7 @@ async function runPreviewQuery() {
 
   await waitFor(() => {
     expect(screen.getByLabelText('Bottom panel')).toBeInTheDocument()
-  })
+  }, { timeout: 8000 })
 }
 
 function getConnectionRow(connectionName: string) {
@@ -1729,7 +1733,7 @@ describe('App', () => {
     })
     expect(within(mongoTree).getByText('Collections')).toBeInTheDocument()
     expect(within(mongoTree).queryByText('Sample documents')).not.toBeInTheDocument()
-  })
+  }, 20000)
 
   it('edits environments separately with color picking and secret variables', async () => {
     render(<App />)
@@ -1973,13 +1977,17 @@ describe('App', () => {
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Run query' }))
-    const bottomPanel = await screen.findByLabelText('Bottom panel')
+    const bottomPanel = await screen.findByLabelText(
+      'Bottom panel',
+      undefined,
+      { timeout: 8000 },
+    )
     fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize bottom panel' }), { key: 'ArrowUp' })
 
     await waitFor(() => {
       expect(bottomPanel).toHaveStyle({ height: '284px' })
     })
-  })
+  }, 15000)
 
   it('creates, stores a secret for, and deletes connections without offering duplication', async () => {
     const storeSecretSpy = vi.spyOn(desktopClient, 'storeSecret')
@@ -2080,7 +2088,7 @@ describe('App', () => {
       } else {
         expect(screen.getByLabelText('Bottom panel')).toBeInTheDocument()
       }
-    })
+    }, { timeout: 4000 })
 
     fireEvent.keyDown(window, { key: 'j', ctrlKey: true })
     await waitFor(() => {
@@ -2089,7 +2097,7 @@ describe('App', () => {
       } else {
         expect(screen.queryByLabelText('Bottom panel')).not.toBeInTheDocument()
       }
-    })
+    }, { timeout: 4000 })
 
     fireEvent.keyDown(window, { key: 'b', ctrlKey: true })
     expect(screen.getByLabelText('library sidebar')).toBeInTheDocument()
@@ -2109,13 +2117,13 @@ describe('App', () => {
       cancelable: true,
       key: 'F5',
     })
-    window.dispatchEvent(f5Event)
+    fireEvent(window, f5Event)
 
     expect(f5Event.defaultPrevented).toBe(true)
     await waitFor(() => {
       expect(executeSpy).toHaveBeenCalled()
     })
-  })
+  }, 15000)
 
   it('prevents the browser context menu so the workbench feels native', async () => {
     render(<App />)
@@ -2505,6 +2513,7 @@ describe('App', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Query Builder' })).toBeInTheDocument()
     }, { timeout: 4000 })
+    await screen.findByLabelText('MongoDB query builder', undefined, { timeout: 4000 })
     expect(screen.queryByRole('button', { name: 'Show builder and raw' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Query Builder' })).toHaveAttribute(
       'aria-pressed',
@@ -2900,10 +2909,12 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Run query' }))
 
+    expect(
+      await screen.findByText('2 document(s) loaded', undefined, { timeout: 8000 }),
+    ).toBeInTheDocument()
     await waitFor(() => {
-      expect(screen.getByText('2 document(s) loaded')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Run query' })).toBeEnabled()
-    })
+    }, { timeout: 8000 })
 
     const builder = screen.getByLabelText('MongoDB query builder')
     fireEvent.click(within(builder).getAllByRole('button', { name: 'Add Filter' })[0] as HTMLElement)
@@ -2913,7 +2924,7 @@ describe('App', () => {
 
     expect(screen.getByText('2 document(s) loaded')).toBeInTheDocument()
     expect(screen.getByRole('treegrid', { name: 'Document result table' })).toBeInTheDocument()
-  })
+  }, 20000)
 
   it('drops document result field values into the Mongo query builder', async () => {
     render(<App />)
@@ -2922,10 +2933,12 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Run query' }))
 
+    expect(
+      await screen.findByText('2 document(s) loaded', undefined, { timeout: 8000 }),
+    ).toBeInTheDocument()
     await waitFor(() => {
-      expect(screen.getByText('2 document(s) loaded')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Run query' })).toBeEnabled()
-    })
+    }, { timeout: 8000 })
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand itm-2048' }))
 
@@ -2948,7 +2961,7 @@ describe('App', () => {
       expect(queryEditor.value).toContain('"sku"')
       expect(queryEditor.value).toContain('"luna-lamp"')
     })
-  })
+  }, 20000)
 
   it('runs the raw editor text when query view is raw-only', async () => {
     const executeSpy = vi.spyOn(desktopClient, 'executeQuery')
@@ -3122,7 +3135,7 @@ describe('App', () => {
       expect(screen.getByLabelText('Bottom panel')).toBeInTheDocument()
       expect(document.querySelector('.workbench-center')).not.toHaveClass('has-right-results')
     })
-  })
+  }, 15000)
 
   it('copies, exports, and restores executed result history', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)

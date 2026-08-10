@@ -6,6 +6,7 @@ import { redactForEnvironment } from './browser-response-redaction'
 import { buildBrowserPayload, cloneSnapshot, findConnection, findTab, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
 import { redactErrorMessage } from '../../app/state/security-redaction'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
+import { currentWorkspaceWindowId } from './client-workspace-windows'
 import {
   validateCreateObjectViewTabRequest,
   validateCreateScopedQueryTabRequest,
@@ -312,7 +313,10 @@ export const clientTabs = {
   },
 
   async reorderQueryTabs(orderedTabIds: string[]): Promise<BootstrapPayload> {
-    const request: QueryTabReorderRequest = validateQueryTabReorderRequest({ orderedTabIds })
+    const request: QueryTabReorderRequest = validateQueryTabReorderRequest({
+      orderedTabIds,
+      windowId: await currentWorkspaceWindowId(),
+    })
 
     if (isTauriRuntime()) {
       return invokeDesktop<BootstrapPayload>('reorder_query_tabs', { request })

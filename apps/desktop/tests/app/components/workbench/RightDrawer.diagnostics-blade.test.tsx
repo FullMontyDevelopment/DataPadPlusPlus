@@ -61,6 +61,8 @@ describe('DiagnosticsBlade', () => {
     expect(screen.getByText('Use system setting')).toBeInTheDocument()
     expect(screen.getByText('Credential storage')).toBeInTheDocument()
     expect(screen.getByText('Preview mode')).toBeInTheDocument()
+    expect(screen.getByText('Window lifecycle')).toBeInTheDocument()
+    expect(screen.getByText('C:\\logs\\datapadplusplus-window-lifecycle.log')).toBeInTheDocument()
     expect(screen.queryByText('planned')).not.toBeInTheDocument()
   })
 
@@ -193,6 +195,7 @@ const diagnostics: DiagnosticsReport = {
     tabs: 0,
   },
   warnings: [],
+  windowLifecyclePath: 'C:\\logs\\datapadplusplus-window-lifecycle.log',
   createdAt: '2026-05-22T00:00:00.000Z',
 }
 

@@ -46,7 +46,18 @@ describe('QueryBuilderValueInput', () => {
         onChange={onChange}
       />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Open JSON editor' }))
+    const openEditor = screen.getByRole('button', { name: 'Open JSON editor' })
+    expect(openEditor).toHaveClass(
+      'query-builder-icon-button',
+      'query-builder-icon-button--json',
+    )
+    expect(openEditor).toHaveAttribute('title', 'Open JSON editor')
+    expect(openEditor).toHaveTextContent('')
+    expect(openEditor.querySelector('svg')).toHaveClass(
+      'lucide-braces',
+      'query-builder-icon-button__icon',
+    )
+    fireEvent.click(openEditor)
     const editor = screen.getByLabelText('JSON value JSON editor')
     const apply = screen.getByRole('button', { name: 'Apply' })
     expect(apply).toBeDisabled()
@@ -61,6 +72,24 @@ describe('QueryBuilderValueInput', () => {
     expect(apply).not.toBeDisabled()
     fireEvent.click(apply)
     expect(onChange).toHaveBeenCalledWith('{"answer":42}')
+  })
+
+  it('disables the compact JSON editor launcher with the value input', () => {
+    render(
+      <QueryBuilderValueInput
+        ariaLabel="JSON value"
+        disabled
+        theme="dark"
+        value="{}"
+        valueType="json"
+        onChange={vi.fn()}
+      />,
+    )
+
+    const openEditor = screen.getByRole('button', { name: 'Open JSON editor' })
+    expect(openEditor).toBeDisabled()
+    fireEvent.click(openEditor)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('renders no value control for unary operators', () => {

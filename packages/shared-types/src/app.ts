@@ -66,6 +66,26 @@ export type RightDrawerView =
 
 export type ConnectionGroupMode = 'environment' | 'database-type' | 'none'
 
+export type WorkspaceWindowRole = 'main' | 'editor'
+
+export interface WorkspaceWindowBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface WorkspaceWindowState {
+  id: string
+  role: WorkspaceWindowRole
+  tabIds: string[]
+  activeTabId: string
+  bounds?: WorkspaceWindowBounds
+  monitorName?: string
+  maximized?: boolean
+  lastFocusedAt?: string
+}
+
 export interface UiState {
   activeConnectionId: string
   activeEnvironmentId: string
@@ -87,10 +107,13 @@ export interface UiState {
   mongoScriptGuideWidth: number
   rightDrawer: RightDrawerView
   rightDrawerWidth: number
+  /** Window-local tab ownership. Older snapshots are normalized to one main window. */
+  workspaceWindows?: WorkspaceWindowState[]
 }
 
 export interface WorkspaceSnapshot {
   schemaVersion: number
+  workspaceRevision?: number
   connections: ConnectionProfile[]
   environments: EnvironmentProfile[]
   tabs: QueryTabState[]

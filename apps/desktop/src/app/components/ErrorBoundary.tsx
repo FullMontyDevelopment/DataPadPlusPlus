@@ -1,5 +1,6 @@
 import { Component } from 'react'
-import type { ReactNode } from 'react'
+import type { ErrorInfo, ReactNode } from 'react'
+import { reportFrontendDiagnostic } from '../../services/runtime/frontend-diagnostics'
 
 interface Props {
   children: ReactNode
@@ -18,6 +19,17 @@ export class ErrorBoundary extends Component<Props, State> {
     return {
       hasError: true,
     }
+  }
+
+  public override componentDidCatch(error: Error, info: ErrorInfo) {
+    void reportFrontendDiagnostic('react-error-boundary', {
+      level: 'error',
+      message: error.message,
+      stack: error.stack,
+      context: {
+        componentStack: info.componentStack ?? '',
+      },
+    })
   }
 
   public override render() {

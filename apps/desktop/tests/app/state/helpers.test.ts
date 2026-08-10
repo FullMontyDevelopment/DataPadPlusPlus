@@ -4,6 +4,7 @@ import { createBlankBootstrapPayload } from '../../../src/app/data/workspace-fac
 import {
   evaluateGuardrails,
   migrateWorkspaceSnapshot,
+  normalizeWorkspaceWindows,
   normalizeUiState,
   resolveEnvironment,
 } from '../../../src/app/state/helpers'
@@ -349,7 +350,7 @@ describe('migrateWorkspaceSnapshot', () => {
 
     const migrated = migrateWorkspaceSnapshot(legacy)
 
-    expect(migrated.schemaVersion).toBe(10)
+    expect(migrated.schemaVersion).toBe(11)
     expect(migrated.ui.activeActivity).toBe('library')
     expect(migrated.ui.activeSidebarPane).toBe('library')
     expect(migrated.ui.sidebarWidth).toBe(280)
@@ -731,16 +732,69 @@ describe('migrateWorkspaceSnapshot', () => {
     expect(migrated.lockState).toEqual({ isLocked: false, lockedAt: undefined })
   })
 
-  it('normalizes missing Datastore Tests preferences to disabled without a schema bump', () => {
+  it('normalizes missing Datastore Tests preferences while advancing the workspace schema', () => {
     const snapshot = createSeedSnapshot()
     snapshot.schemaVersion = 10
     delete snapshot.preferences.datastoreTests
-    const schemaVersion = snapshot.schemaVersion
-
     const migrated = migrateWorkspaceSnapshot(snapshot)
 
     expect(migrated.preferences.datastoreTests).toEqual({ enabled: false })
-    expect(migrated.schemaVersion).toBe(schemaVersion)
+    expect(migrated.schemaVersion).toBe(11)
+  })
+
+  it('migrates legacy tabs into one synthetic main window with the plugin disabled', () => {
+    const snapshot = createSeedSnapshot()
+    delete snapshot.ui.workspaceWindows
+    delete snapshot.preferences.multiWindowTabs
+
+    const migrated = migrateWorkspaceSnapshot(snapshot)
+
+    expect(migrated.preferences.multiWindowTabs).toEqual({ enabled: false })
+    expect(migrated.ui.workspaceWindows).toEqual([{
+      id: 'main',
+      role: 'main',
+      tabIds: [],
+      activeTabId: '',
+    }])
+  })
+
+  it('normalizes duplicate and ineligible tab ownership back to main', () => {
+    const snapshot = createSeedSnapshot()
+    const queryTab = snapshot.tabs[0]!
+    const settingsTab = {
+      ...queryTab,
+      id: 'settings-tab',
+      title: 'Settings',
+      tabKind: 'settings' as const,
+    }
+    snapshot.tabs = [queryTab, settingsTab]
+    snapshot.preferences.multiWindowTabs = { enabled: true }
+    snapshot.ui.activeTabId = settingsTab.id
+    snapshot.ui.workspaceWindows = [
+      {
+        id: 'editor-one',
+        role: 'editor',
+        tabIds: [queryTab.id, settingsTab.id],
+        activeTabId: settingsTab.id,
+      },
+      {
+        id: 'editor-two',
+        role: 'editor',
+        tabIds: [queryTab.id],
+        activeTabId: queryTab.id,
+      },
+    ]
+
+    const windows = normalizeWorkspaceWindows(snapshot)
+
+    expect(windows).toHaveLength(2)
+    expect(windows.find((window) => window.id === 'editor-one')?.tabIds).toEqual([
+      queryTab.id,
+    ])
+    expect(windows.find((window) => window.id === 'main')).toMatchObject({
+      tabIds: [settingsTab.id],
+      activeTabId: settingsTab.id,
+    })
   })
 
   it('strips known demo records from untouched seeded snapshots', () => {

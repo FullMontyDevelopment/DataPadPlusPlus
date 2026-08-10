@@ -8,6 +8,7 @@ import type {
 import type { DragEvent, PointerEvent, ReactNode } from 'react'
 import { useRef } from 'react'
 import { BuilderSection } from '../../query-builder/BuilderSection'
+import { QueryBuilderIconButton } from '../../query-builder/QueryBuilderIconButton'
 import { buildMongoAggregationQueryText } from '../../query-builder/mongo-aggregation'
 import { mongoQueryScopeForTab } from '../../query-builder/mongo-query-scope'
 import {
@@ -224,15 +225,21 @@ export function MongoAggregationBuilder({
                   onChange={(event) => updateStage(stage.id, { body: event.target.value })}
                 />
                 <div className="query-builder-row-actions">
-                  <button type="button" className="drawer-button" onClick={() => moveStage(stage.id, -1)}>
-                    Up
-                  </button>
-                  <button type="button" className="drawer-button" onClick={() => moveStage(stage.id, 1)}>
-                    Down
-                  </button>
-                  <button type="button" className="drawer-button" onClick={() => removeStage(stage.id)}>
-                    Remove
-                  </button>
+                  <QueryBuilderIconButton
+                    action="move-up"
+                    label={`Move stage ${index + 1} up`}
+                    onClick={() => moveStage(stage.id, -1)}
+                  />
+                  <QueryBuilderIconButton
+                    action="move-down"
+                    label={`Move stage ${index + 1} down`}
+                    onClick={() => moveStage(stage.id, 1)}
+                  />
+                  <QueryBuilderIconButton
+                    action="remove"
+                    label={`Remove stage ${index + 1}`}
+                    onClick={() => removeStage(stage.id)}
+                  />
                 </div>
               </div>
             ))}

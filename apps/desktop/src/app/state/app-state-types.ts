@@ -62,6 +62,7 @@ import type {
   DatastoreSecurityChecksSettingsRequest,
   DatastoreSecurityChecksStatus,
   DatastoreTestsSettingsRequest,
+  MultiWindowTabsSettingsRequest,
   DatastoreTestRunPlanRequest,
   DatastoreTestRunPlanResponse,
   DiagnosticsReport,
@@ -411,6 +412,7 @@ export interface Actions {
   importWorkspaceFile(request: WorkspaceBundleFileImportRequest): Promise<void>
   getWorkspaceSwitcherStatus(): Promise<WorkspaceSwitcherStatus | undefined>
   setWorkspaceSwitcherEnabled(request: WorkspaceSwitcherSettingsRequest): Promise<boolean>
+  updateMultiWindowTabsSettings(request: MultiWindowTabsSettingsRequest): Promise<boolean>
   createWorkspace(request: WorkspaceCreateRequest): Promise<boolean>
   renameWorkspace(request: WorkspaceRenameRequest): Promise<boolean>
   switchWorkspace(request: WorkspaceSwitchRequest): Promise<boolean>

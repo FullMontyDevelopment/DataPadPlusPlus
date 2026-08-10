@@ -28,6 +28,7 @@ type WorkspaceActions = Pick<
   | 'importWorkspaceFile'
   | 'getWorkspaceSwitcherStatus'
   | 'setWorkspaceSwitcherEnabled'
+  | 'updateMultiWindowTabsSettings'
   | 'createWorkspace'
   | 'renameWorkspace'
   | 'switchWorkspace'
@@ -344,6 +345,20 @@ export function useWorkspaceActions({
       }
     },
     [dispatch, handleError],
+  )
+
+  const updateMultiWindowTabsSettings = useCallback<Actions['updateMultiWindowTabsSettings']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        applyPayload(await desktopClient.updateMultiWindowTabsSettings(request))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError, state.payload],
   )
 
   const createWorkspace = useCallback<Actions['createWorkspace']>(
@@ -959,6 +974,7 @@ export function useWorkspaceActions({
       importWorkspaceFile,
       getWorkspaceSwitcherStatus,
       setWorkspaceSwitcherEnabled,
+      updateMultiWindowTabsSettings,
       createWorkspace,
       renameWorkspace,
       switchWorkspace,
@@ -1068,6 +1084,7 @@ export function useWorkspaceActions({
       setFirstInstallGuideStatus,
       setExplorerFolderOrder,
       setWorkspaceSwitcherEnabled,
+      updateMultiWindowTabsSettings,
       setTheme,
       switchWorkspace,
       updateUiState,

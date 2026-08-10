@@ -1,7 +1,7 @@
 import type { MongoBuilderValueType, MongoFindFilterGroup, MongoFindFilterRow, MongoFilterOperator } from '@datapadplusplus/shared-types'
 import type { DragEvent, PointerEvent } from 'react'
 import { BuilderSection } from '../../query-builder/BuilderSection'
-import { TrashIcon } from '../../icons'
+import { QueryBuilderIconButton } from '../../query-builder/QueryBuilderIconButton'
 import type { MongoFindSectionProps } from './MongoBuilderSection.types'
 import { rowId } from './MongoBuilderSection.types'
 import { defaultFilterGroup } from '../../query-builder/mongo-find-defaults'
@@ -308,20 +308,16 @@ function FilterGroup({
         >
           Add Filter
         </button>
-        <button
-          type="button"
-          className="query-builder-remove query-builder-remove--icon"
-          aria-label={filterGroups.length === 1 ? `Clear ${group.label}` : `Remove ${group.label}`}
-          title={filterGroups.length === 1 ? `Clear ${group.label}` : `Remove ${group.label}`}
+        <QueryBuilderIconButton
+          action="remove"
+          label={filterGroups.length === 1 ? `Clear ${group.label}` : `Remove ${group.label}`}
           onClick={() =>
             updateDraft({
               filterGroups: filterGroups.filter((item) => item.id !== group.id),
               filters: draft.filters.filter((row) => row.groupId !== group.id),
             })
           }
-        >
-          <TrashIcon className="toolbar-icon" />
-        </button>
+        />
       </div>
       {rows.length === 0 ? <p className="query-builder-empty">No filters in this group.</p> : null}
       <FilterRows
@@ -491,20 +487,16 @@ function FilterRows({
               }
             />
           ) : null}
-          <button
-            type="button"
-            className="query-builder-remove query-builder-remove--icon"
-            aria-label="Remove filter"
-            title="Remove filter"
+          <QueryBuilderIconButton
+            action="remove"
+            label={`Remove filter ${row.field || 'empty'}`}
             onClick={() =>
               updateDraft({
                 filterGroups,
                 filters: draft.filters.filter((item) => item.id !== row.id),
               })
             }
-          >
-            <TrashIcon className="toolbar-icon" />
-          </button>
+          />
         </div>
         )
       })}

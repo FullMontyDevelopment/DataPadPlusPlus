@@ -45,7 +45,7 @@ interface EditorTabItemProps {
   onCommitRename(tab: QueryTabState): void
   onContextMenu(event: MouseEvent<HTMLDivElement>, tab: QueryTabState): void
   onDraftTitleChange(title: string): void
-  onDragEnd(): void
+  onDragEnd(event: DragEvent<HTMLDivElement>, tab: QueryTabState): void
   onDragLeave(tabId: string): void
   onDragOver(event: DragEvent<HTMLDivElement>, tab: QueryTabState): void
   onDragStart(event: DragEvent<HTMLDivElement>, tab: QueryTabState): void
@@ -148,7 +148,7 @@ export function EditorTabItem({
       onDragOver={(event) => onDragOver(event, tab)}
       onDragLeave={() => onDragLeave(tab.id)}
       onDrop={(event) => onDrop(event, tab)}
-      onDragEnd={onDragEnd}
+      onDragEnd={(event) => onDragEnd(event, tab)}
       onKeyDown={(event) => onKeyDown(event, tab)}
     >
       {tab.tabKind === 'settings' ? (

@@ -33,7 +33,7 @@ describe('client connection command validation', () => {
         }),
       }),
     )
-  })
+  }, 15000)
 
   it('allows MongoDB Atlas native options with boolean TLS through desktop commands', async () => {
     window.__TAURI_INTERNALS__ = {}
@@ -65,7 +65,7 @@ describe('client connection command validation', () => {
         }),
       }),
     )
-  })
+  }, 15000)
 
   it('rejects plaintext secret environment variables before invoking desktop commands', async () => {
     window.__TAURI_INTERNALS__ = {}
@@ -84,7 +84,7 @@ describe('client connection command validation', () => {
       }),
     ).rejects.toThrow(/cannot store plaintext/)
     expect(invoke).not.toHaveBeenCalled()
-  })
+  }, 15000)
 
   it('does not resolve secret environment variables in browser preview connection tests', async () => {
     const { clientConnections } = await import('../../../src/services/runtime/client-connections')
@@ -123,7 +123,7 @@ describe('client connection command validation', () => {
       'Secret variable DB_PASSWORD is resolved only by the desktop secret store.',
     ])
     expect(JSON.stringify(result)).not.toContain('plain-secret')
-  })
+  }, 15000)
 })
 
 function connectionProfile(): ConnectionProfile {

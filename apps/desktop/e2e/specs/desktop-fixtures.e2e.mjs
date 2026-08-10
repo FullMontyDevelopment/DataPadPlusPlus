@@ -485,6 +485,55 @@ async function editorTabCount() {
   )
 }
 
+async function setMultiWindowTabsEnabled(enabled) {
+  const changed = await browser.execute((nextEnabled) => {
+    const card = [...document.querySelectorAll('.settings-plugin-card')].find(
+      (candidate) => candidate.querySelector('h4')?.textContent?.trim() === 'Multi-window Tabs',
+    )
+    const checkbox = card?.querySelector('input[type="checkbox"]')
+    if (!(checkbox instanceof HTMLInputElement)) {
+      return false
+    }
+    if (checkbox.checked !== nextEnabled) {
+      checkbox.click()
+    }
+    return true
+  }, enabled)
+
+  assert.equal(changed, true, 'Unable to change the Multi-window Tabs setting.')
+  await browser.waitUntil(
+    async () => browser.execute((nextEnabled) => {
+      const card = [...document.querySelectorAll('.settings-plugin-card')].find(
+        (candidate) => candidate.querySelector('h4')?.textContent?.trim() === 'Multi-window Tabs',
+      )
+      const checkbox = card?.querySelector('input[type="checkbox"]')
+      return checkbox instanceof HTMLInputElement && checkbox.checked === nextEnabled
+    }, enabled),
+    {
+      timeout: 20000,
+      timeoutMsg: `Expected Multi-window Tabs to become ${enabled ? 'enabled' : 'disabled'}.`,
+    },
+  )
+}
+
+async function openActiveTabContextMenu() {
+  const opened = await browser.execute(() => {
+    const selectedTab = document.querySelector(
+      '[role="tablist"][aria-label="Editor tabs"] [role="tab"][aria-selected="true"]',
+    )
+    if (!selectedTab) {
+      return false
+    }
+    selectedTab.dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true,
+      clientX: 240,
+      clientY: 100,
+    }))
+    return true
+  })
+  assert.equal(opened, true, 'Unable to open the active tab context menu.')
+}
+
 describe('DataPad++ Tauri desktop fixtures', () => {
   it('starts with a fixture-seeded workspace instead of demo seed data', async () => {
     for (const connection of CORE_CONNECTIONS) {
@@ -538,6 +587,66 @@ describe('DataPad++ Tauri desktop fixtures', () => {
     )
     assert.ok(iconLabels.includes('Test Suite icon'))
     assert.ok(iconLabels.includes('Test Case icon'))
+  })
+
+  it('moves a working tab into a native editor window and returns it to main', async () => {
+    const mainHandle = await browser.getWindowHandle()
+    const selectedTabTitle = await browser.execute(() =>
+      document.querySelector(
+        '[role="tablist"][aria-label="Editor tabs"] [role="tab"][aria-selected="true"]',
+      )?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+    )
+    assert.ok(selectedTabTitle, 'Expected a selected working tab before moving it.')
+
+    await clickControl('Open settings')
+    await waitForText('Settings')
+    await clickControl('Experimental')
+    await waitForText('Multi-window Tabs')
+    await setMultiWindowTabsEnabled(true)
+    await clickControl('Close tab Settings')
+
+    await openActiveTabContextMenu()
+    await clickControl('Move to New Window')
+    await browser.waitUntil(async () => (await browser.getWindowHandles()).length === 2, {
+      timeout: 30000,
+      timeoutMsg: 'Expected a detached DataPad++ editor window.',
+    })
+
+    const editorHandle = (await browser.getWindowHandles()).find((handle) => handle !== mainHandle)
+    assert.ok(editorHandle, 'Unable to identify the detached editor window.')
+    await browser.switchToWindow(editorHandle)
+    await browser.waitUntil(
+      async () => browser.execute((title) => document.body.innerText.includes(title), selectedTabTitle),
+      {
+        timeout: 30000,
+        timeoutMsg: 'Expected the moved tab to render in the detached editor window.',
+      },
+    )
+    assert.equal(
+      await browser.execute(() => Boolean(document.querySelector('.workbench-sidebar'))),
+      false,
+      'Detached editor windows must not render the main Explorer shell.',
+    )
+
+    await openActiveTabContextMenu()
+    await clickControl('Move to Main Window')
+    await browser.waitUntil(async () => (await browser.getWindowHandles()).length === 1, {
+      timeout: 30000,
+      timeoutMsg: 'Expected the empty editor window to close after returning its last tab.',
+    })
+    await browser.switchToWindow(mainHandle)
+    await browser.waitUntil(
+      async () => browser.execute((title) => document.body.innerText.includes(title), selectedTabTitle),
+      {
+        timeout: 30000,
+        timeoutMsg: 'Expected the returned tab to be visible in the main window.',
+      },
+    )
+
+    await clickControl('Open settings')
+    await clickControl('Experimental')
+    await setMultiWindowTabsEnabled(false)
+    await clickControl('Close tab Settings')
   })
 
   it('closes eligible tabs in one transition while a running tab remains usable', async () => {

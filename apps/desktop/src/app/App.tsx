@@ -22,6 +22,8 @@ import type {
   ScopedQueryTarget,
   SqlQueryScope,
   WorkspaceSnapshot,
+  WorkspaceWindowContext,
+  WorkspaceWindowTarget,
 } from '@datapadplusplus/shared-types'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import {
@@ -85,6 +87,11 @@ import {
 } from './state/connection-health'
 import { ConnectionHealthChip } from './components/workbench/ConnectionHealthBadge'
 import { desktopClient } from '../services/runtime/client'
+import {
+  createFrontendCorrelationId,
+  describeUnknownError,
+  reportFrontendDiagnostic,
+} from '../services/runtime/frontend-diagnostics'
 import { connectionLibraryNodeId } from '../services/runtime/library-connection-helpers'
 import { projectDeferredResultPayload } from '../services/runtime/result-materialization'
 import { runtimeSliceForEngine } from '../services/runtime/datastores/registry'
@@ -225,6 +232,14 @@ function WorkbenchPaneFallback() {
   )
 }
 
+function QueryBuilderPaneFallback() {
+  return (
+    <div className="query-builder-panel query-builder-panel--loading" role="status">
+      Loading Query Builder...
+    </div>
+  )
+}
+
 function SidebarFallback() {
   return (
     <aside className="workbench-sidebar" aria-label="Loading Library">
@@ -267,7 +282,9 @@ function DesktopWorkspace() {
     workspaceSwitcherStatus,
     actions,
   } = useAppState()
-  useTaskbarQueryActivity(executionsByTab)
+  const [workspaceWindowContext, setWorkspaceWindowContext] = useState<WorkspaceWindowContext>()
+  const [workspaceWindowTargets, setWorkspaceWindowTargets] = useState<WorkspaceWindowTarget[]>([])
+  useTaskbarQueryActivity(executionsByTab, workspaceWindowContext?.role === 'main')
   const [exportPassphrase, setExportPassphrase] = useState('')
   const [importPayload, setImportPayload] = useState('')
   const [rendererPreference, setRendererPreference] = useState<{
@@ -282,7 +299,10 @@ function DesktopWorkspace() {
     tabId: string
   }>()
   const [materializeRequestRevision, setMaterializeRequestRevision] = useState(0)
-  const [queryWindowMode, setQueryWindowMode] = useState<QueryViewMode>('raw')
+  const [queryWindowModeState, setQueryWindowModeState] = useState<{
+    mode: QueryViewMode
+    tabId?: string
+  }>({ mode: 'raw' })
   const [settingsInitialSectionRequest, setSettingsInitialSectionRequest] = useState<{
     revision: number
     section: SettingsSection
@@ -341,7 +361,123 @@ function DesktopWorkspace() {
   >()
   const bottomPanelVisibleRef = useRef(false)
   const promptedGuardrailRef = useRef<string | undefined>(undefined)
+  const readyEditorWindowIdRef = useRef<string | undefined>(undefined)
   const { confirmReview, reviewConfirmationDialog } = useReviewConfirmation()
+  useEffect(() => {
+    let mounted = true
+    void desktopClient.getWorkspaceWindowContext().then((context) => {
+      if (mounted) {
+        setWorkspaceWindowContext(context)
+        void reportFrontendDiagnostic('window-context-resolved', {
+          message: 'The native workspace window context was resolved.',
+          context: {
+            dragSupported: context.dragSupported,
+            multiWindowEnabled: context.multiWindowEnabled,
+            role: context.role,
+            windowId: context.windowId,
+          },
+        })
+      }
+    }).catch((error) => {
+      const diagnostic = describeUnknownError(error)
+      void reportFrontendDiagnostic('window-context-failed', {
+        level: 'error',
+        message: diagnostic.message,
+        stack: diagnostic.stack,
+      })
+      if (mounted) {
+        setWorkspaceWindowContext({
+          windowId: 'main',
+          role: 'main',
+          multiWindowEnabled: false,
+          dragSupported: false,
+        })
+      }
+    })
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!payload || !workspaceWindowContext) {
+      return
+    }
+    let mounted = true
+    void Promise.all([
+      desktopClient.getWorkspaceWindowContext(),
+      desktopClient.listWorkspaceWindows(),
+    ]).then(([context, response]) => {
+      if (mounted) {
+        setWorkspaceWindowContext((current) =>
+          current
+          && current.windowId === context.windowId
+          && current.role === context.role
+          && current.multiWindowEnabled === context.multiWindowEnabled
+          && current.dragSupported === context.dragSupported
+            ? current
+            : context,
+        )
+        setWorkspaceWindowTargets(response.windows)
+      }
+    }).catch(() => {
+      // The current snapshot remains usable if window discovery races shutdown.
+    })
+    return () => {
+      mounted = false
+    }
+  }, [payload, workspaceWindowContext])
+
+  useEffect(() => {
+    if (!workspaceWindowContext) {
+      return
+    }
+    if (workspaceWindowContext.role === 'editor') {
+      if (readyEditorWindowIdRef.current === workspaceWindowContext.windowId) {
+        return
+      }
+      readyEditorWindowIdRef.current = workspaceWindowContext.windowId
+      void (async () => {
+        await reportFrontendDiagnostic('window-ready-request', {
+          message: 'The detached editor renderer is announcing readiness.',
+          context: {
+            windowId: workspaceWindowContext.windowId,
+          },
+        })
+        await desktopClient.markWorkspaceEditorWindowReady()
+        await reportFrontendDiagnostic('window-ready-confirmed', {
+          message: 'The native runtime accepted editor-window readiness.',
+          context: {
+            windowId: workspaceWindowContext.windowId,
+          },
+        })
+      })().catch((error) => {
+        if (readyEditorWindowIdRef.current === workspaceWindowContext.windowId) {
+          readyEditorWindowIdRef.current = undefined
+        }
+        const diagnostic = describeUnknownError(error)
+        void reportFrontendDiagnostic('window-ready-failed', {
+          level: 'error',
+          message: diagnostic.message,
+          stack: diagnostic.stack,
+          context: {
+            windowId: workspaceWindowContext.windowId,
+          },
+        }).finally(() => {
+          void import('@tauri-apps/api/webviewWindow').then(({ getCurrentWebviewWindow }) =>
+            getCurrentWebviewWindow().close(),
+          )
+        })
+      })
+      return
+    }
+    readyEditorWindowIdRef.current = undefined
+    if (payload?.snapshot.preferences.multiWindowTabs?.enabled) {
+      void desktopClient.restoreWorkspaceEditorWindows().catch(() => {
+        // A failed restore leaves the authoritative layout intact for the next startup.
+      })
+    }
+  }, [payload, workspaceWindowContext])
   useEffect(() => {
     if (!payload) {
       return
@@ -379,8 +515,16 @@ function DesktopWorkspace() {
   const snapshotConnections = snapshot?.connections
   const snapshotEnvironments = snapshot?.environments
   const snapshotTabs = snapshot?.tabs
+  const workspaceWindowState = snapshot && workspaceWindowContext
+    ? snapshot.ui.workspaceWindows?.find((item) => item.id === workspaceWindowContext.windowId)
+      ?? (workspaceWindowContext.role === 'main'
+        ? snapshot.ui.workspaceWindows?.find((item) => item.id === 'main')
+        : undefined)
+    : undefined
+  const selectedWindowTabId = workspaceWindowState?.activeTabId
+    ?? (workspaceWindowContext?.role === 'main' ? snapshot?.ui.activeTabId : undefined)
   const activeTabFromSelection = snapshot?.tabs.find(
-    (item) => item.id === snapshot.ui.activeTabId,
+    (item) => item.id === selectedWindowTabId,
   )
   const activeConnection =
     snapshot?.connections.find(
@@ -390,10 +534,105 @@ function DesktopWorkspace() {
     snapshot?.connections[0]
   const activeTab =
     activeTabFromSelection ??
-    (activeConnection
-      ? snapshot?.tabs.find((item) => item.connectionId === activeConnection.id)
-      : undefined)
+    workspaceWindowState?.tabIds
+      .map((tabId) => snapshot?.tabs.find((item) => item.id === tabId))
+      .find((item): item is QueryTabState => Boolean(item))
   const activeTabId = activeTab?.id
+  const activeTabTitle = activeTab?.title
+  useEffect(() => {
+    if (
+      workspaceWindowContext?.role === 'editor'
+      && snapshot
+      && !workspaceWindowState
+    ) {
+      void reportFrontendDiagnostic('window-layout-missing', {
+        level: 'error',
+        message: 'The detached renderer snapshot did not contain its owning window layout.',
+        context: {
+          revision: snapshot.workspaceRevision,
+          windowId: workspaceWindowContext.windowId,
+        },
+      }).finally(() => {
+        void import('@tauri-apps/api/webviewWindow').then(({ getCurrentWebviewWindow }) =>
+          getCurrentWebviewWindow().close(),
+        )
+      })
+    }
+  }, [snapshot, workspaceWindowContext, workspaceWindowState])
+  useEffect(() => {
+    if (!workspaceWindowContext || workspaceWindowContext.role !== 'editor') {
+      return
+    }
+    void import('@tauri-apps/api/webviewWindow').then(({ getCurrentWebviewWindow }) =>
+      getCurrentWebviewWindow().setTitle(
+        activeTabTitle ? `DataPad++ — ${activeTabTitle}` : 'DataPad++',
+      ),
+    ).catch((error) => {
+      const diagnostic = describeUnknownError(error)
+      void reportFrontendDiagnostic('window-title-update-failed', {
+        level: 'warning',
+        message: diagnostic.message,
+        stack: diagnostic.stack,
+        context: {
+          windowId: workspaceWindowContext.windowId,
+        },
+      })
+    })
+  }, [activeTabTitle, workspaceWindowContext])
+
+  useEffect(() => {
+    if (!workspaceWindowContext || workspaceWindowContext.role !== 'editor') {
+      return
+    }
+    let disposed = false
+    let geometryTimer: number | undefined
+    const unlisteners: Array<() => void> = []
+
+    const persistGeometry = () => {
+      if (geometryTimer !== undefined) {
+        window.clearTimeout(geometryTimer)
+      }
+      geometryTimer = window.setTimeout(() => {
+        void import('@tauri-apps/api/webviewWindow').then(async ({ getCurrentWebviewWindow }) => {
+          if (disposed) {
+            return
+          }
+          const currentWindow = getCurrentWebviewWindow()
+          const [position, size, maximized] = await Promise.all([
+            currentWindow.outerPosition(),
+            currentWindow.innerSize(),
+            currentWindow.isMaximized(),
+          ])
+          await desktopClient.updateWorkspaceWindowGeometry({
+            windowId: workspaceWindowContext.windowId,
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+            maximized,
+          })
+        }).catch(() => {
+          // Window movement can race a native close.
+        })
+      }, 350)
+    }
+
+    void import('@tauri-apps/api/webviewWindow').then(async ({ getCurrentWebviewWindow }) => {
+      const currentWindow = getCurrentWebviewWindow()
+      unlisteners.push(await currentWindow.onMoved(persistGeometry))
+      unlisteners.push(await currentWindow.onResized(persistGeometry))
+    })
+
+    return () => {
+      disposed = true
+      if (geometryTimer !== undefined) {
+        window.clearTimeout(geometryTimer)
+      }
+      for (const unlisten of unlisteners) {
+        unlisten()
+      }
+    }
+  }, [workspaceWindowContext])
   const activeResult = activeTab?.result
   const activeRenderer =
     activeTab &&
@@ -566,7 +805,7 @@ function DesktopWorkspace() {
       setApiServerStatus(nextStatus)
     }
     return nextStatus
-  }, [actions, apiServerPreferences?.enabled])
+  }, [actions, apiServerPreferences?.enabled, setApiServerStatus])
   useEffect(() => {
     if (!apiServerPreferences?.enabled) {
       return undefined
@@ -694,7 +933,7 @@ function DesktopWorkspace() {
       }
       return nextStatus
     },
-    [actions],
+    [actions, setApiServerStatus],
   )
   const stopApiServer = useCallback(
     async (request: Parameters<Actions['stopDatastoreApiServer']>[0] = {}) => {
@@ -704,7 +943,7 @@ function DesktopWorkspace() {
       }
       return nextStatus
     },
-    [actions],
+    [actions, setApiServerStatus],
   )
   const mcpServerPreferences = snapshot?.preferences.datastoreMcpServer
   const mcpServerPreferenceKey = useMemo(
@@ -966,13 +1205,15 @@ function DesktopWorkspace() {
     : undefined
   const ActiveDatastoreExplorerWorkspace = activeWorkbenchSlice?.explorer.Workspace
   const activeTabSupportsScripting = Boolean(activeWorkbenchSlice?.query?.supportsScripting)
-  const activeQueryWindowMode: QueryViewMode = hasBuilderQuery
-    ? queryWindowMode === 'script' && !activeTabSupportsScripting
-      ? 'builder'
-      : queryWindowMode
-    : queryWindowMode === 'script' && activeTabSupportsScripting
-      ? 'script'
-      : 'raw'
+  const requestedQueryWindowMode =
+    activeTabId && queryWindowModeState.tabId === activeTabId
+      ? queryWindowModeState.mode
+      : activeTab?.queryViewMode
+  const activeQueryWindowMode = normalizeQueryWindowMode(
+    requestedQueryWindowMode,
+    activeBuilderKind,
+    activeConnection,
+  )
   const activeBuilderCompilation = activeBuilderState && activeQueryWindowMode === 'builder'
     ? compileQueryBuilderState(activeBuilderState, activeConnection, activeTab)
     : undefined
@@ -1134,7 +1375,7 @@ function DesktopWorkspace() {
             [tabId]: selectedText,
           },
     )
-  }, [])
+  }, [setEditorSelectionDrafts])
   const rememberActiveEditorSelection = useCallback((selectedText: string) => {
     if (activeTabId) {
       rememberEditorSelection(activeTabId, selectedText)
@@ -1149,7 +1390,7 @@ function DesktopWorkspace() {
             [tabId]: queryText,
           },
     )
-  }, [])
+  }, [setQueryTextDrafts])
 
   const mirrorScriptTextDraft = useCallback((tabId: string, scriptText: string) => {
     setScriptTextDrafts((current) =>
@@ -1160,7 +1401,7 @@ function DesktopWorkspace() {
             [tabId]: scriptText,
           },
     )
-  }, [])
+  }, [setScriptTextDrafts])
 
   const rememberQueryTextDraft = useCallback((tabId: string, queryText: string) => {
     queryTextDraftRef.current[tabId] = queryText
@@ -1175,7 +1416,7 @@ function DesktopWorkspace() {
       ...current,
       [tabId]: (current[tabId] ?? 0) + 1,
     }))
-  }, [])
+  }, [setEditorResetRevisions])
 
   const scheduleQueryTextDraftSync = useCallback((tabId: string, queryText: string) => {
     rememberQueryTextDraft(tabId, queryText)
@@ -1456,6 +1697,7 @@ function DesktopWorkspace() {
     rememberScriptTextDraft,
     requestIntellisenseRefresh,
     resolveQueryText,
+    setBuilderStateDrafts,
     snapshot,
   ])
 
@@ -1515,7 +1757,7 @@ function DesktopWorkspace() {
       ...current,
       [tabId]: nextBuilderState,
     }))
-  }, [])
+  }, [setBuilderStateDrafts])
 
   const setRedisConsolePipelineMode = useCallback((
     tabId: string,
@@ -1536,7 +1778,7 @@ function DesktopWorkspace() {
       ...current,
       [tabId]: nextBuilderState,
     }))
-  }, [])
+  }, [setBuilderStateDrafts])
 
   const runCurrentTabQuery = useCallback((mode?: ExecutionRequest['mode'], guardrailId?: string) => {
     if (activeExecutionLocked || !activeTab || activeTab.tabKind === 'explorer') {
@@ -1716,6 +1958,7 @@ function DesktopWorkspace() {
     rememberRedisConsoleCommand,
     resolveBuilderQueryText,
     resolveQueryText,
+    setRedisBrowserRefreshSignals,
   ])
 
   const confirmExecutionGuardrail = useCallback(async (
@@ -1940,6 +2183,197 @@ function DesktopWorkspace() {
     [actions, snapshotConnections, snapshotTabs],
   )
 
+  const updateMultiWindowTabsSettings = useCallback(
+    async (request: { enabled: boolean }) => {
+      if (
+        !request.enabled
+        && !(snapshotTabs ?? []).some((tab) =>
+          tab.activeExecution || tab.status === 'running' || tab.status === 'queued')
+      ) {
+        await Promise.all(
+          (snapshotTabs ?? []).map((tab) => flushQueryTabDrafts(tab.id)),
+        )
+      }
+      return actions.updateMultiWindowTabsSettings(request)
+    },
+    [actions, flushQueryTabDrafts, snapshotTabs],
+  )
+
+  const moveWorkspaceTab = useCallback(
+    async (tabId: string, destinationWindowId?: string, beforeTabId?: string) => {
+      if (!workspaceWindowContext) {
+        return
+      }
+      const correlationId = createFrontendCorrelationId('window-transfer')
+      try {
+        await reportFrontendDiagnostic('tab-transfer-start', {
+          message: 'A workspace tab transfer was requested.',
+          context: {
+            beforeTabId,
+            correlationId,
+            destinationWindowId: destinationWindowId ?? 'new-window',
+            sourceWindowId: workspaceWindowContext.windowId,
+            tabId,
+          },
+        })
+        await flushQueryTabDrafts(tabId)
+        await reportFrontendDiagnostic('tab-transfer-drafts-flushed', {
+          message: 'Local tab drafts were flushed before native transfer.',
+          context: { correlationId, tabId },
+        })
+        const response = await desktopClient.transferWorkspaceTab({
+          tabId,
+          sourceWindowId: workspaceWindowContext.windowId,
+          correlationId,
+          destinationWindowId,
+          beforeTabId,
+          createWindow: !destinationWindowId,
+        })
+        await reportFrontendDiagnostic('tab-transfer-complete', {
+          message: 'The native runtime completed the tab transfer command.',
+          context: {
+            correlationId,
+            createdWindow: response.createdWindow,
+            destinationWindowId: response.destinationWindowId,
+            sourceWindowId: response.sourceWindowId,
+            tabId,
+          },
+        })
+      } catch (error) {
+        const diagnostic = describeUnknownError(error)
+        void reportFrontendDiagnostic('tab-transfer-failed', {
+          level: 'error',
+          message: diagnostic.message,
+          stack: diagnostic.stack,
+          context: {
+            correlationId,
+            destinationWindowId: destinationWindowId ?? 'new-window',
+            sourceWindowId: workspaceWindowContext.windowId,
+            tabId,
+          },
+        })
+        actions.addWorkbenchMessage({
+          severity: 'error',
+          message: diagnostic.message || 'Unable to move the tab.',
+          source: 'Multi-window tabs',
+        })
+      }
+    },
+    [actions, flushQueryTabDrafts, workspaceWindowContext],
+  )
+
+  const startWorkspaceTabDrag = useCallback((tabId: string) => {
+    if (!workspaceWindowContext?.dragSupported) {
+      return
+    }
+    void (async () => {
+      await flushQueryTabDrafts(tabId)
+      await desktopClient.startWorkspaceTabDrag({
+        tabId,
+        sourceWindowId: workspaceWindowContext.windowId,
+      })
+    })().catch(() => {
+      // The context-menu move actions remain available when native dragging fails.
+    })
+  }, [flushQueryTabDrafts, workspaceWindowContext])
+
+  const dropWorkspaceTab = useCallback((beforeTabId?: string) => {
+    if (!workspaceWindowContext?.dragSupported) {
+      return
+    }
+    void (async () => {
+      const session = await desktopClient.getWorkspaceTabDrag()
+      if (!session || session.sourceWindowId === workspaceWindowContext.windowId) {
+        return
+      }
+      await desktopClient.transferWorkspaceTab({
+        tabId: session.tabId,
+        sourceWindowId: session.sourceWindowId,
+        destinationWindowId: workspaceWindowContext.windowId,
+        beforeTabId,
+      })
+      await desktopClient.cancelWorkspaceTabDrag(session.token)
+    })().catch((error) => {
+      actions.addWorkbenchMessage({
+        severity: 'error',
+        message: error instanceof Error ? error.message : 'Unable to complete the tab drop.',
+        source: 'Multi-window tabs',
+      })
+    })
+  }, [actions, workspaceWindowContext])
+
+  const endWorkspaceTabDrag = useCallback((
+    tabId: string,
+    x: number,
+    y: number,
+    dropped: boolean,
+  ) => {
+    if (!workspaceWindowContext?.dragSupported) {
+      return
+    }
+    const outsideWindow =
+      x < window.screenX || x > window.screenX + window.outerWidth
+      || y < window.screenY || y > window.screenY + window.outerHeight
+    void (async () => {
+      const session = await desktopClient.getWorkspaceTabDrag()
+      if (!session || session.tabId !== tabId) {
+        return
+      }
+      if (!dropped && outsideWindow) {
+        await desktopClient.transferWorkspaceTab({
+          tabId,
+          sourceWindowId: workspaceWindowContext.windowId,
+          createWindow: true,
+          x,
+          y,
+        })
+      }
+      await desktopClient.cancelWorkspaceTabDrag(session.token)
+    })().catch(() => {
+      void desktopClient.cancelWorkspaceTabDrag()
+    })
+  }, [workspaceWindowContext])
+
+  useEffect(() => {
+    if (workspaceWindowContext?.role !== 'main') {
+      return
+    }
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    void import('@tauri-apps/api/event').then(async ({ listen }) => {
+      unlisten = await listen<{ reason: string }>('datapad://close-blocked', (event) => {
+        if (event.payload.reason === 'running-work') {
+          actions.addWorkbenchMessage({
+            severity: 'info',
+            message: 'Wait for running work to finish or cancel it before closing DataPad++.',
+            source: 'Application shutdown',
+          })
+          return
+        }
+        if (
+          event.payload.reason === 'dirty-tabs'
+          && window.confirm('Some tabs contain unsaved changes. Close DataPad++ and keep their workspace drafts for the next launch?')
+        ) {
+          void (async () => {
+            await Promise.all(
+              (workspaceWindowState?.tabIds ?? []).map((tabId) => flushQueryTabDrafts(tabId)),
+            )
+            await desktopClient.shutdownDatapadApplication()
+          })()
+        }
+      })
+      if (disposed) {
+        unlisten()
+      }
+    }).catch(() => {
+      // Browser preview and unit-test hosts do not expose native window events.
+    })
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [actions, flushQueryTabDrafts, workspaceWindowContext, workspaceWindowState])
+
   const saveEnvironmentTabDraft = useCallback(
     async (tabId: string) => {
       const tab = snapshotTabs?.find((item) => item.id === tabId)
@@ -2016,7 +2450,13 @@ function DesktopWorkspace() {
         setPendingSaveTabId(tabId)
       })()
     },
-    [actions, flushQueryTabDrafts, saveEnvironmentTabDraft, snapshotTabs],
+    [
+      actions,
+      flushQueryTabDrafts,
+      saveEnvironmentTabDraft,
+      setPendingSaveTabId,
+      snapshotTabs,
+    ],
   )
 
   const disposeClosedTabState = useCallback((tabIds: string[]) => {
@@ -2160,7 +2600,7 @@ function DesktopWorkspace() {
       activeConnection,
     )
     queryWindowModeByTabRef.current[activeTabId] = nextMode
-    setQueryWindowMode(nextMode)
+    setQueryWindowModeState({ mode: nextMode, tabId: activeTabId })
   }, [
     activeBuilderKind,
     activeConnection,
@@ -2353,7 +2793,7 @@ function DesktopWorkspace() {
     ActiveDatastoreExplorerWorkspace,
   ])
 
-  if (status === 'booting' || !payload || !snapshot) {
+  if (status === 'booting' || !payload || !snapshot || !workspaceWindowContext) {
     return (
       <BootSurface
         title="Loading DataPad++ workspace..."
@@ -2418,7 +2858,12 @@ function DesktopWorkspace() {
       (scriptDraft !== undefined && scriptDraft !== (tab.scriptText ?? ''))
     )
   }
-  const displayTabs = snapshot.tabs.map((tab) => {
+  const visibleTabIds = workspaceWindowState?.tabIds
+    ?? (workspaceWindowContext.role === 'main' ? snapshot.tabs.map((tab) => tab.id) : [])
+  const displayTabs = visibleTabIds
+    .map((tabId) => snapshot.tabs.find((tab) => tab.id === tabId))
+    .filter((tab): tab is QueryTabState => Boolean(tab))
+    .map((tab) => {
     if (tab.tabKind !== 'environment') {
       return tabHasMirroredTextDraftChanges(tab)
         ? {
@@ -2444,7 +2889,7 @@ function DesktopWorkspace() {
       dirty,
       title,
     }
-  })
+    })
   const canCancelExecution = Boolean(runtimeCapabilities.canCancel && activeExecutionId)
   const showingExplorerWorkspace = activeTabIsExplorer
   const showingMetricsWorkspace = activeTabIsMetrics
@@ -2680,7 +3125,7 @@ function DesktopWorkspace() {
 
     persistDatastoreQueryEditorState(activeTab.id, nextEditorState, 'raw')
     queryWindowModeByTabRef.current[activeTab.id] = 'raw'
-    setQueryWindowMode('raw')
+    setQueryWindowModeState({ mode: 'raw', tabId: activeTab.id })
   }
 
   const requestGuideFolderDialog = () => {
@@ -3259,7 +3704,7 @@ function DesktopWorkspace() {
       ) : null}
 
       <div
-        className={`ads-workbench${snapshot.ui.sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
+        className={`ads-workbench${workspaceWindowContext.role === 'editor' ? ' is-editor-window' : snapshot.ui.sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
         data-tour-id="workbench"
         style={
           {
@@ -3269,7 +3714,7 @@ function DesktopWorkspace() {
           } as CSSProperties
         }
       >
-        {!snapshot.ui.sidebarCollapsed ? (
+        {workspaceWindowContext.role === 'main' && !snapshot.ui.sidebarCollapsed ? (
           <Suspense fallback={<SidebarFallback />}>
             <SideBar
               ui={snapshot.ui}
@@ -3426,7 +3871,7 @@ function DesktopWorkspace() {
           </Suspense>
         ) : null}
 
-        {snapshot.ui.sidebarCollapsed ? (
+        {workspaceWindowContext.role === 'main' && snapshot.ui.sidebarCollapsed ? (
           <div className="collapsed-library-rail" aria-label="Collapsed Library">
             <button
               type="button"
@@ -3465,6 +3910,24 @@ function DesktopWorkspace() {
                   onReorderTabs={(orderedTabIds) =>
                     void actions.reorderTabs(orderedTabIds)
                   }
+                  currentWindowId={workspaceWindowContext.windowId}
+                  multiWindowEnabled={Boolean(
+                    snapshot.preferences.multiWindowTabs?.enabled,
+                  )}
+                  windowTargets={workspaceWindowTargets}
+                  onMoveTabToWindow={payload.health.runtime === 'tauri'
+                    ? (tabId, destinationWindowId) =>
+                        void moveWorkspaceTab(tabId, destinationWindowId)
+                    : undefined}
+                  onStartCrossWindowDrag={payload.health.runtime === 'tauri'
+                    ? startWorkspaceTabDrag
+                    : undefined}
+                  onDropCrossWindowTab={payload.health.runtime === 'tauri'
+                    ? dropWorkspaceTab
+                    : undefined}
+                  onEndCrossWindowDrag={payload.health.runtime === 'tauri'
+                    ? endWorkspaceTabDrag
+                    : undefined}
                 />
 
               <Suspense fallback={<WorkbenchPaneFallback />}>
@@ -3523,6 +3986,7 @@ function DesktopWorkspace() {
                     onUpdateWorkspaceSearchSettings={actions.updateWorkspaceSearchSettings}
                     onUpdateDatastoreTestsSettings={actions.updateDatastoreTestsSettings}
                     onUpdateSecurityCheckSettings={actions.updateDatastoreSecurityCheckSettings}
+                    onUpdateMultiWindowTabsSettings={updateMultiWindowTabsSettings}
                   />
                 ) : activeTabIsApiServer && activeTab ? (
                   <ApiServerWorkspace
@@ -3822,8 +4286,8 @@ function DesktopWorkspace() {
                         if (activeExecutionLocked) {
                           return
                         }
-                        setQueryWindowMode(mode)
                         if (activeTab) {
+                          setQueryWindowModeState({ mode, tabId: activeTab.id })
                           queryWindowModeByTabRef.current[activeTab.id] = mode
                           const queryTimer = queryTextDraftSyncTimersRef.current[activeTab.id]
                           const scriptTimer = scriptTextDraftSyncTimersRef.current[activeTab.id]
@@ -3944,24 +4408,26 @@ function DesktopWorkspace() {
                         role="presentation"
                       >
                         {hasBuilderQuery && activeQueryWindowMode === 'builder' ? (
-                          <QueryBuilderPanel
-                            connection={activeConnection}
-                            tab={activeTab}
-                            builderState={activeBuilderState}
-                            collectionOptions={queryBuilderOptions}
-                            tableOptions={queryBuilderOptions}
-                            onBuilderStateChange={persistBuilderState}
-                            onUseBuilderInEditor={(builderState) => {
-                              void copyBuilderDraftToQueryEditor(builderState)
-                            }}
-                            onExecuteDataEdit={actions.executeDataEdit}
-                            onScanRedisKeys={actions.scanRedisKeys}
-                            onInspectRedisKey={actions.inspectRedisKey}
-                            onCount={countQueryBuilderResults}
-                            redisRefreshSignal={redisBrowserRefreshSignals[activeTab.id] ?? 0}
-                            executionLocked={activeExecutionLocked}
-                            theme={resolvedTheme}
-                          />
+                          <Suspense fallback={<QueryBuilderPaneFallback />}>
+                            <QueryBuilderPanel
+                              connection={activeConnection}
+                              tab={activeTab}
+                              builderState={activeBuilderState}
+                              collectionOptions={queryBuilderOptions}
+                              tableOptions={queryBuilderOptions}
+                              onBuilderStateChange={persistBuilderState}
+                              onUseBuilderInEditor={(builderState) => {
+                                void copyBuilderDraftToQueryEditor(builderState)
+                              }}
+                              onExecuteDataEdit={actions.executeDataEdit}
+                              onScanRedisKeys={actions.scanRedisKeys}
+                              onInspectRedisKey={actions.inspectRedisKey}
+                              onCount={countQueryBuilderResults}
+                              redisRefreshSignal={redisBrowserRefreshSignals[activeTab.id] ?? 0}
+                              executionLocked={activeExecutionLocked}
+                              theme={resolvedTheme}
+                            />
+                          </Suspense>
                         ) : null}
                         <DatastoreQueryEditor
                           mode={activeQueryWindowMode}
@@ -4141,7 +4607,7 @@ function DesktopWorkspace() {
           ) : null}
         </div>
 
-        {snapshot.ui.rightDrawer !== 'none' ? (
+        {workspaceWindowContext.role === 'main' && snapshot.ui.rightDrawer !== 'none' ? (
           <Suspense fallback={null}>
             <RightDrawer
               key={[
@@ -4199,7 +4665,7 @@ function DesktopWorkspace() {
         ) : null}
       </div>
 
-      {apiServerWizard ? (
+      {workspaceWindowContext.role === 'main' && apiServerWizard ? (
         <ApiServerCreateWizard
           key={`${apiServerWizard.connectionId ?? 'none'}:${apiServerWizard.resource?.id ?? 'new'}`}
           connections={snapshot.connections}
@@ -4220,7 +4686,7 @@ function DesktopWorkspace() {
         />
       ) : null}
 
-      <FirstInstallGuide
+      {workspaceWindowContext.role === 'main' ? <FirstInstallGuide
         snapshot={snapshot}
         connectionDraftOpen={Boolean(connectionDraft)}
         startRequestRevision={guideStartRequestRevision}
@@ -4246,7 +4712,7 @@ function DesktopWorkspace() {
         onSelectTab={(tabId) => void actions.selectTab(tabId)}
         onCloseTab={(tabId) => void actions.closeTab(tabId)}
         onRestoreUiState={(patch) => void actions.updateUiState(patch)}
-      />
+      /> : null}
 
       <StatusBar
         apiServerIndicator={{

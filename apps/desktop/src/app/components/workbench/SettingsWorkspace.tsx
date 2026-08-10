@@ -9,6 +9,7 @@ import type {
   DatastoreMcpServerSettingsRequest,
   DatastoreSecurityChecksSettingsRequest,
   DatastoreTestsSettingsRequest,
+  MultiWindowTabsSettingsRequest,
   DiagnosticsReport,
   WorkspaceBackupRunResponse,
   WorkspaceBackupSummary,
@@ -72,6 +73,7 @@ export function SettingsWorkspace({
   onUpdateWorkspaceSearchSettings,
   onUpdateDatastoreTestsSettings,
   onUpdateSecurityCheckSettings,
+  onUpdateMultiWindowTabsSettings,
 }: {
   diagnostics?: DiagnosticsReport
   health: AppHealth
@@ -119,6 +121,9 @@ export function SettingsWorkspace({
   ): Promise<boolean>
   onUpdateSecurityCheckSettings(
     request: DatastoreSecurityChecksSettingsRequest,
+  ): Promise<boolean>
+  onUpdateMultiWindowTabsSettings(
+    request: MultiWindowTabsSettingsRequest,
   ): Promise<boolean>
 } & SettingsUpdatesProps) {
   const [section, setSection] = useState<SettingsSection>(
@@ -213,6 +218,7 @@ export function SettingsWorkspace({
         {section === 'experimental' ? (
           <SettingsExperimentalPanel
             preferences={preferences}
+            desktopAvailable={health.runtime === 'tauri'}
             onOpenApiServer={onOpenApiServer}
             onOpenMcpServer={onOpenMcpServer}
             onOpenWorkspaceSearch={onOpenWorkspaceSearch}
@@ -224,6 +230,7 @@ export function SettingsWorkspace({
             onUpdateWorkspaceSearchSettings={onUpdateWorkspaceSearchSettings}
             onUpdateDatastoreTestsSettings={onUpdateDatastoreTestsSettings}
             onUpdateSecurityCheckSettings={onUpdateSecurityCheckSettings}
+            onUpdateMultiWindowTabsSettings={onUpdateMultiWindowTabsSettings}
           />
         ) : null}
 

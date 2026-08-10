@@ -10,6 +10,7 @@ import type {
   ConnectionProfile,
   EnvironmentProfile,
   QueryTabState,
+  WorkspaceWindowTarget,
 } from '@datapadplusplus/shared-types'
 import { EditorTabContextMenu } from './editor-tabs/EditorTabContextMenu'
 import { EditorTabItem, type EditorTabDropTarget } from './editor-tabs/EditorTabItem'
@@ -36,6 +37,13 @@ interface EditorTabsProps {
   onSaveTab(tabId: string): void
   onReorderTabs(orderedTabIds: string[]): void
   onCloseTabs(tabIds: string[]): void
+  currentWindowId?: string
+  multiWindowEnabled?: boolean
+  windowTargets?: WorkspaceWindowTarget[]
+  onMoveTabToWindow?(tabId: string, destinationWindowId?: string): void
+  onStartCrossWindowDrag?(tabId: string): void
+  onDropCrossWindowTab?(beforeTabId?: string): void
+  onEndCrossWindowDrag?(tabId: string, x: number, y: number, dropped: boolean): void
 }
 
 export function EditorTabs({
@@ -49,6 +57,13 @@ export function EditorTabs({
   onSaveTab,
   onReorderTabs,
   onCloseTabs,
+  currentWindowId = 'main',
+  multiWindowEnabled = false,
+  windowTargets = [],
+  onMoveTabToWindow,
+  onStartCrossWindowDrag,
+  onDropCrossWindowTab,
+  onEndCrossWindowDrag,
 }: EditorTabsProps) {
   const [editingTabId, setEditingTabId] = useState<string>()
   const [draftTitle, setDraftTitle] = useState('')
@@ -124,7 +139,8 @@ export function EditorTabs({
 
   const orderedTabIds = tabs.map((tab) => tab.id)
   const lockedTabIds = tabs
-    .filter((tab) => Boolean(tab.activeExecution) || tab.status === 'queued')
+    .filter((tab) =>
+      Boolean(tab.activeExecution) || tab.status === 'running' || tab.status === 'queued')
     .map((tab) => tab.id)
 
   const moveTab = (tabId: string, targetIndex: number) => {
@@ -186,7 +202,15 @@ export function EditorTabs({
     const sourceIndex = orderedTabIds.indexOf(sourceTabId)
     const targetIndex = orderedTabIds.indexOf(targetTab.id)
 
-    if (sourceIndex < 0 || targetIndex < 0) {
+    if (sourceIndex < 0) {
+      const placement = dropPlacement(event)
+      onDropCrossWindowTab?.(
+        placement === 'before' ? targetTab.id : orderedTabIds[targetIndex + 1],
+      )
+      return
+    }
+
+    if (targetIndex < 0) {
       return
     }
 
@@ -207,6 +231,17 @@ export function EditorTabs({
     event: ReactKeyboardEvent<HTMLDivElement>,
     tab: QueryTabState,
   ) => {
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      event.preventDefault()
+      const bounds = tabRefs.current.get(tab.id)?.getBoundingClientRect()
+      setContextMenu({
+        tabId: tab.id,
+        x: bounds?.left ?? 0,
+        y: bounds?.bottom ?? 0,
+      })
+      return
+    }
+
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
       onSelectTab(tab.id)
@@ -252,6 +287,22 @@ export function EditorTabs({
         role="tablist"
         aria-label="Editor tabs"
         onWheel={scrollTabsOnWheel}
+        onDragOver={(event) => {
+          if (multiWindowEnabled) {
+            event.preventDefault()
+          }
+        }}
+        onDrop={(event) => {
+          if (event.target !== event.currentTarget) {
+            return
+          }
+          event.preventDefault()
+          if (draggingTabId) {
+            moveTab(draggingTabId, orderedTabIds.length - 1)
+          } else {
+            onDropCrossWindowTab?.()
+          }
+        }}
       >
         {tabs.map((tab) => {
           const connection = connections.find((item) => item.id === tab.connectionId)
@@ -281,9 +332,15 @@ export function EditorTabs({
               onCommitRename={commitRename}
               onContextMenu={openContextMenu}
               onDraftTitleChange={setDraftTitle}
-              onDragEnd={() => {
+              onDragEnd={(event) => {
                 setDraggingTabId(undefined)
                 setDropTarget(undefined)
+                onEndCrossWindowDrag?.(
+                  tab.id,
+                  event.screenX,
+                  event.screenY,
+                  event.dataTransfer.dropEffect !== 'none',
+                )
               }}
               onDragLeave={(tabId) => {
                 if (dropTarget?.tabId === tabId) {
@@ -291,7 +348,7 @@ export function EditorTabs({
                 }
               }}
               onDragOver={(event, targetTab) => {
-                if (!draggingTabId || draggingTabId === targetTab.id) {
+                if ((!draggingTabId && !multiWindowEnabled) || draggingTabId === targetTab.id) {
                   return
                 }
 
@@ -305,6 +362,7 @@ export function EditorTabs({
                 setDraggingTabId(tab.id)
                 event.dataTransfer.effectAllowed = 'move'
                 event.dataTransfer.setData('application/x-datapadplusplus-tab-id', tab.id)
+                onStartCrossWindowDrag?.(tab.id)
               }}
               onDrop={dropTab}
               onKeyDown={tabKeyDown}
@@ -331,6 +389,9 @@ export function EditorTabs({
           contextTabIndex={contextTabIndex}
           orderedTabIds={orderedTabIds}
           lockedTabIds={lockedTabIds}
+          currentWindowId={currentWindowId}
+          multiWindowEnabled={multiWindowEnabled}
+          windowTargets={windowTargets}
           tabsLength={tabs.length}
           x={contextMenu.x}
           y={contextMenu.y}
@@ -340,6 +401,7 @@ export function EditorTabs({
           onCloseTabs={onCloseTabs}
           onMoveTabRelative={moveTabRelative}
           onMoveTabToEdge={moveTabToEdge}
+          onMoveTabToWindow={onMoveTabToWindow}
           onSaveTab={onSaveTab}
         />
       ) : null}

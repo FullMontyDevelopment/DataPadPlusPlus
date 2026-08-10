@@ -1,4 +1,8 @@
-use crate::domain::models::{QueryTabState, UiState, WorkspaceSnapshot};
+use std::collections::HashSet;
+
+use crate::domain::models::{
+    QueryTabState, UiState, WorkspaceSnapshot, WorkspaceWindowBounds, WorkspaceWindowState,
+};
 
 pub(super) fn is_activity(value: &str) -> bool {
     matches!(
@@ -71,7 +75,103 @@ pub(super) fn focus_query_tab(ui: &mut UiState, tab: &QueryTabState) {
     ui.right_drawer = "none".into();
 }
 
+pub(super) fn tab_can_detach(tab: &QueryTabState) -> bool {
+    matches!(
+        tab.tab_kind.as_deref().unwrap_or("query"),
+        "query" | "explorer" | "test-suite" | "metrics" | "object-view" | "workspace-search"
+    )
+}
+
+pub(super) fn normalize_workspace_windows(
+    snapshot: &WorkspaceSnapshot,
+) -> Vec<WorkspaceWindowState> {
+    let all_tab_ids = snapshot
+        .tabs
+        .iter()
+        .map(|tab| tab.id.clone())
+        .collect::<Vec<_>>();
+    let valid_tab_ids = all_tab_ids.iter().cloned().collect::<HashSet<_>>();
+
+    if !snapshot.preferences.multi_window_tabs.enabled {
+        return vec![WorkspaceWindowState {
+            tab_ids: all_tab_ids,
+            active_tab_id: snapshot.ui.active_tab_id.clone(),
+            ..WorkspaceWindowState::default()
+        }];
+    }
+
+    let mut seen_window_ids = HashSet::new();
+    let mut seen_tab_ids = HashSet::new();
+    let mut windows = Vec::new();
+
+    for existing in &snapshot.ui.workspace_windows {
+        let is_main = existing.id == "main";
+        if existing.id.trim().is_empty()
+            || !seen_window_ids.insert(existing.id.clone())
+            || (!is_main && existing.role != "editor")
+        {
+            continue;
+        }
+
+        let mut window = existing.clone();
+        window.role = if is_main {
+            "main".into()
+        } else {
+            "editor".into()
+        };
+        window.bounds = window.bounds.map(normalize_window_bounds);
+        window.tab_ids.retain(|tab_id| {
+            if !valid_tab_ids.contains(tab_id) || seen_tab_ids.contains(tab_id) {
+                return false;
+            }
+            let Some(tab) = snapshot.tabs.iter().find(|tab| tab.id == *tab_id) else {
+                return false;
+            };
+            if !is_main && !tab_can_detach(tab) {
+                return false;
+            }
+            seen_tab_ids.insert(tab_id.clone())
+        });
+        if !window.tab_ids.contains(&window.active_tab_id) {
+            window.active_tab_id = window.tab_ids.first().cloned().unwrap_or_default();
+        }
+        if is_main || !window.tab_ids.is_empty() {
+            windows.push(window);
+        }
+    }
+
+    if !windows.iter().any(|window| window.id == "main") {
+        windows.insert(0, WorkspaceWindowState::default());
+    }
+
+    let unassigned = all_tab_ids
+        .into_iter()
+        .filter(|tab_id| !seen_tab_ids.contains(tab_id))
+        .collect::<Vec<_>>();
+    let main = windows
+        .iter_mut()
+        .find(|window| window.id == "main")
+        .expect("main workspace window is present");
+    main.tab_ids.extend(unassigned);
+    if main.tab_ids.contains(&snapshot.ui.active_tab_id) {
+        main.active_tab_id = snapshot.ui.active_tab_id.clone();
+    } else if !main.tab_ids.contains(&main.active_tab_id) {
+        main.active_tab_id = main.tab_ids.first().cloned().unwrap_or_default();
+    }
+
+    windows
+}
+
+fn normalize_window_bounds(bounds: WorkspaceWindowBounds) -> WorkspaceWindowBounds {
+    WorkspaceWindowBounds {
+        width: bounds.width.clamp(720, 7680),
+        height: bounds.height.clamp(480, 4320),
+        ..bounds
+    }
+}
+
 pub(super) fn normalize_ui_state(snapshot: &WorkspaceSnapshot) -> UiState {
+    let workspace_windows = normalize_workspace_windows(snapshot);
     let active_tab = snapshot
         .tabs
         .iter()
@@ -185,6 +285,7 @@ pub(super) fn normalize_ui_state(snapshot: &WorkspaceSnapshot) -> UiState {
             "none".into()
         },
         right_drawer_width: clamp_right_drawer_width(snapshot.ui.right_drawer_width),
+        workspace_windows,
     }
 }
 

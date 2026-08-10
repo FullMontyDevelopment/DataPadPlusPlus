@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type {
   ConnectionProfile,
@@ -58,6 +58,89 @@ describe('EditorTabs environment accents', () => {
     expect(unresolvedTab).not.toHaveClass('has-environment-color')
     expect(unresolvedTab.style.getPropertyValue('--tab-env-color')).toBe('')
     expect(unresolvedTab).not.toHaveAttribute('data-environment-id')
+  })
+})
+
+describe('EditorTabs multi-window movement', () => {
+  it('offers accessible new, main, and existing-window move commands', () => {
+    const onMoveTabToWindow = vi.fn()
+    renderEditorTabs({
+      tabs: [tabOne],
+      activeTabId: tabOne.id,
+      currentWindowId: 'editor-source',
+      multiWindowEnabled: true,
+      windowTargets: [
+        { windowId: 'main', role: 'main', title: 'DataPad++', activeTabId: '', tabCount: 0 },
+        { windowId: 'editor-target', role: 'editor', title: 'Orders', activeTabId: 'orders', tabCount: 1 },
+      ],
+      onMoveTabToWindow,
+    })
+
+    fireEvent.contextMenu(screen.getByRole('tab', { name: /Query 1/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /to the main window/i }))
+    expect(onMoveTabToWindow).toHaveBeenCalledWith(tabOne.id, 'main')
+
+    fireEvent.contextMenu(screen.getByRole('tab', { name: /Query 1/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /to window Orders/i }))
+    expect(onMoveTabToWindow).toHaveBeenCalledWith(tabOne.id, 'editor-target')
+
+    fireEvent.contextMenu(screen.getByRole('tab', { name: /Query 1/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /to a new window/i }))
+    expect(onMoveTabToWindow).toHaveBeenCalledWith(tabOne.id)
+  })
+
+  it('keeps administrative and running tabs from moving', () => {
+    const settingsTab: QueryTabState = {
+      ...tabOne,
+      id: 'settings',
+      title: 'Settings',
+      tabKind: 'settings',
+    }
+    const { rerender } = renderEditorTabs({
+      tabs: [settingsTab],
+      activeTabId: settingsTab.id,
+      multiWindowEnabled: true,
+      onMoveTabToWindow: vi.fn(),
+    })
+
+    fireEvent.contextMenu(screen.getByRole('tab', { name: /Settings/ }))
+    expect(screen.getByRole('menuitem', { name: /to a new window/i })).toBeDisabled()
+    expect(screen.getByRole('menuitem', { name: /to a new window/i })).toHaveAttribute(
+      'title',
+      'Administrative tabs stay in the main DataPad++ window.',
+    )
+
+    rerender(
+      <EditorTabs
+        {...defaultEditorTabsProps}
+        tabs={[{ ...tabOne, status: 'queued' }]}
+        activeTabId={tabOne.id}
+        multiWindowEnabled
+        onMoveTabToWindow={vi.fn()}
+      />,
+    )
+    fireEvent.contextMenu(screen.getByRole('tab', { name: /Query 1/ }))
+    expect(screen.getByRole('menuitem', { name: /to a new window/i })).toBeDisabled()
+    expect(screen.getByRole('menuitem', { name: /to a new window/i })).toHaveAttribute(
+      'title',
+      'Cancel the running query or wait for it to finish before moving this tab.',
+    )
+  })
+
+  it('opens the move commands from the keyboard context-menu shortcut', () => {
+    renderEditorTabs({
+      tabs: [tabOne],
+      activeTabId: tabOne.id,
+      multiWindowEnabled: true,
+      onMoveTabToWindow: vi.fn(),
+    })
+
+    fireEvent.keyDown(screen.getByRole('tab', { name: /Query 1/ }), {
+      key: 'F10',
+      shiftKey: true,
+    })
+
+    expect(screen.getByRole('menuitem', { name: /to a new window/i })).toBeEnabled()
   })
 })
 

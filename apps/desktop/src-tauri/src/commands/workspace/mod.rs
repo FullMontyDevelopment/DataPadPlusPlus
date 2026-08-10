@@ -17,7 +17,7 @@ use crate::{
         datastore_api_server, datastore_mcp_client_setup, datastore_mcp_server,
         datastore_security_checks, generate_id, timestamp_now, ActiveExecutionRegistry,
         ActiveTestRunRegistry, ManagedAppState, SharedAppState, SharedExecutionRegistry,
-        SharedTestRunRegistry,
+        SharedTestRunRegistry, SharedWorkspaceWindowCoordinator,
     },
     domain::{
         error::CommandError,
@@ -62,22 +62,26 @@ use crate::{
             LibraryRenameNodeRequest, LibrarySetEnvironmentRequest, LocalDatabaseCreateRequest,
             LocalDatabaseCreateResult, LocalDatabasePickRequest, LocalDatabasePickResult,
             MaterializeResultRendererRequest, MaterializeResultRendererResponse,
-            OpenTestSuiteCaseRequest, OpenTestSuiteTemplateRequest, OperationExecutionRequest,
-            OperationExecutionResponse, OperationManifestRequest, OperationManifestResponse,
-            OperationPlanRequest, OperationPlanResponse, PermissionInspectionRequest,
-            PermissionInspectionResponse, QueryHistoryEntry, QueryTabActiveExecution,
-            QueryTabReorderRequest, RedisKeyInspectRequest, RedisKeyScanRequest,
-            RedisKeyScanResponse, ResultExportReference, ResultPageRequest, ResultPageResponse,
-            SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest, SavedWorkItem,
-            StructureRequest, StructureResponse, UpdateDatastoreQueryEditorStateRequest,
-            UpdateQueryBuilderStateRequest, UpdateQueryTabSqlScopeRequest,
-            UpdateQueryTabTargetRequest, UpdateTestSuiteTabRequest, UpdateUiStateRequest,
-            UserFacingError, WorkspaceBackupDeleteRequest, WorkspaceBackupRestoreRequest,
-            WorkspaceBackupRunRequest, WorkspaceBackupRunResponse, WorkspaceBackupSettingsRequest,
-            WorkspaceBackupSummary, WorkspaceBundleFileExportRequest,
-            WorkspaceBundleFileExportResponse, WorkspaceBundleFileImportRequest,
-            WorkspaceCreateRequest, WorkspaceRenameRequest, WorkspaceSearchSettingsRequest,
-            WorkspaceSwitchRequest, WorkspaceSwitcherSettingsRequest, WorkspaceSwitcherStatus,
+            MultiWindowTabsSettingsRequest, OpenTestSuiteCaseRequest, OpenTestSuiteTemplateRequest,
+            OperationExecutionRequest, OperationExecutionResponse, OperationManifestRequest,
+            OperationManifestResponse, OperationPlanRequest, OperationPlanResponse,
+            PermissionInspectionRequest, PermissionInspectionResponse, QueryHistoryEntry,
+            QueryTabActiveExecution, QueryTabReorderRequest, RedisKeyInspectRequest,
+            RedisKeyScanRequest, RedisKeyScanResponse, ResultExportReference, ResultPageRequest,
+            ResultPageResponse, SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest,
+            SavedWorkItem, StructureRequest, StructureResponse,
+            UpdateDatastoreQueryEditorStateRequest, UpdateQueryBuilderStateRequest,
+            UpdateQueryTabSqlScopeRequest, UpdateQueryTabTargetRequest, UpdateTestSuiteTabRequest,
+            UpdateUiStateRequest, UserFacingError, WorkspaceBackupDeleteRequest,
+            WorkspaceBackupRestoreRequest, WorkspaceBackupRunRequest, WorkspaceBackupRunResponse,
+            WorkspaceBackupSettingsRequest, WorkspaceBackupSummary,
+            WorkspaceBundleFileExportRequest, WorkspaceBundleFileExportResponse,
+            WorkspaceBundleFileImportRequest, WorkspaceCreateRequest, WorkspaceRenameRequest,
+            WorkspaceSearchSettingsRequest, WorkspaceSwitchRequest,
+            WorkspaceSwitcherSettingsRequest, WorkspaceSwitcherStatus, WorkspaceTabDragSession,
+            WorkspaceTabDragSessionRequest, WorkspaceTabTransferRequest,
+            WorkspaceTabTransferResponse, WorkspaceWindowCloseRequest, WorkspaceWindowContext,
+            WorkspaceWindowGeometryRequest, WorkspaceWindowListResponse,
         },
     },
     infrastructure,
@@ -389,6 +393,7 @@ mod security;
 mod tabs;
 mod ui_state;
 mod workspace_management;
+mod workspace_windows;
 
 pub use api_server::*;
 pub use connections::*;
@@ -400,6 +405,7 @@ pub use security::*;
 pub use tabs::*;
 pub use ui_state::*;
 pub use workspace_management::*;
+pub use workspace_windows::*;
 
 fn dialog_path_to_string(path: FilePath) -> Result<String, CommandError> {
     path.into_path()

@@ -184,6 +184,7 @@ fn fixture_workspace_seed_for_profile_options(
 
     let mut snapshot = WorkspaceSnapshot {
         schema_version: persistence::SCHEMA_VERSION,
+        workspace_revision: 0,
         connections,
         environments,
         tabs,
@@ -216,6 +217,7 @@ fn fixture_workspace_seed_for_profile_options(
             datastore_tests: crate::domain::models::DatastoreTestsPreferences {
                 enabled: screenshot_seed,
             },
+            multi_window_tabs: Default::default(),
             first_install_guide: Default::default(),
             explorer_folder_orders: HashMap::new(),
         },
@@ -250,6 +252,7 @@ fn fixture_workspace_seed_for_profile_options(
             mongo_script_guide_width: 360,
             right_drawer: "none".into(),
             right_drawer_width: 380,
+            workspace_windows: vec![Default::default()],
         },
         updated_at: created_at,
     };

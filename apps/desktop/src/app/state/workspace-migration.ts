@@ -7,6 +7,7 @@ import type {
   SavedWorkItem,
   UiState,
   WorkspaceSnapshot,
+  WorkspaceWindowState,
 } from '@datapadplusplus/shared-types'
 import {
   DATAPADPLUSPLUS_ADAPTER_MANIFESTS,
@@ -41,7 +42,7 @@ const MAX_RESULTS_SIDE_WIDTH = 2400
 const MIN_MONGO_SCRIPT_GUIDE_WIDTH = 280
 const DEFAULT_MONGO_SCRIPT_GUIDE_WIDTH = 360
 const MAX_MONGO_SCRIPT_GUIDE_WIDTH = 520
-const WORKSPACE_SCHEMA_VERSION = 10
+const WORKSPACE_SCHEMA_VERSION = 11
 const FIRST_INSTALL_GUIDE_STEP_IDS: FirstInstallGuideStepId[] = [
   'welcome',
   'folder',
@@ -243,6 +244,81 @@ export function normalizeUiState(snapshot: WorkspaceSnapshot): UiState {
     mongoScriptGuideWidth: clampMongoScriptGuideWidth(legacyUi?.mongoScriptGuideWidth),
     rightDrawer,
     rightDrawerWidth: clampRightDrawerWidth(legacyUi?.rightDrawerWidth),
+    workspaceWindows: normalizeWorkspaceWindows(snapshot),
+  }
+}
+
+export function tabCanDetach(tab: QueryTabState) {
+  return ['query', 'explorer', 'test-suite', 'metrics', 'object-view', 'workspace-search']
+    .includes(tab.tabKind ?? 'query')
+}
+
+export function normalizeWorkspaceWindows(snapshot: WorkspaceSnapshot): WorkspaceWindowState[] {
+  const allTabIds = snapshot.tabs.map((tab) => tab.id)
+  if (!snapshot.preferences.multiWindowTabs?.enabled) {
+    return [{
+      id: 'main',
+      role: 'main',
+      tabIds: allTabIds,
+      activeTabId: allTabIds.includes(snapshot.ui?.activeTabId)
+        ? snapshot.ui.activeTabId
+        : (allTabIds[0] ?? ''),
+    }]
+  }
+
+  const validTabs = new Map(snapshot.tabs.map((tab) => [tab.id, tab]))
+  const seenWindows = new Set<string>()
+  const seenTabs = new Set<string>()
+  const windows: WorkspaceWindowState[] = []
+  for (const candidate of snapshot.ui?.workspaceWindows ?? []) {
+    const isMain = candidate.id === 'main'
+    if (!candidate.id?.trim() || seenWindows.has(candidate.id) || (!isMain && candidate.role !== 'editor')) {
+      continue
+    }
+    seenWindows.add(candidate.id)
+    const tabIds = (candidate.tabIds ?? []).filter((tabId) => {
+      const tab = validTabs.get(tabId)
+      if (!tab || seenTabs.has(tabId) || (!isMain && !tabCanDetach(tab))) return false
+      seenTabs.add(tabId)
+      return true
+    })
+    if (!isMain && tabIds.length === 0) continue
+    windows.push({
+      id: candidate.id,
+      role: isMain ? 'main' : 'editor',
+      tabIds,
+      activeTabId: tabIds.includes(candidate.activeTabId)
+        ? candidate.activeTabId
+        : (tabIds[0] ?? ''),
+      bounds: normalizeWindowBounds(candidate.bounds),
+      monitorName: candidate.monitorName,
+      maximized: Boolean(candidate.maximized),
+      lastFocusedAt: candidate.lastFocusedAt,
+    })
+  }
+  let main = windows.find((window) => window.id === 'main')
+  if (!main) {
+    main = { id: 'main', role: 'main', tabIds: [], activeTabId: '' }
+    windows.unshift(main)
+  }
+  main.tabIds.push(...allTabIds.filter((tabId) => !seenTabs.has(tabId)))
+  main.activeTabId = main.tabIds.includes(snapshot.ui?.activeTabId)
+    ? snapshot.ui.activeTabId
+    : main.tabIds.includes(main.activeTabId)
+      ? main.activeTabId
+      : (main.tabIds[0] ?? '')
+  return windows
+}
+
+function normalizeWindowBounds(bounds: WorkspaceWindowState['bounds']) {
+  if (!bounds || ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite)) {
+    return undefined
+  }
+  return {
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y),
+    width: Math.min(7680, Math.max(720, Math.round(bounds.width))),
+    height: Math.min(4320, Math.max(480, Math.round(bounds.height))),
   }
 }
 
@@ -277,6 +353,7 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   migrateTabSaveTargets(next.tabs)
   migrateTabSaveTargets(next.closedTabs)
   next.schemaVersion = WORKSPACE_SCHEMA_VERSION
+  next.workspaceRevision ??= 0
   next.ui = normalizeUiState(next)
 
   for (const tab of next.tabs) {
@@ -397,6 +474,9 @@ function normalizePreferences(
     },
     datastoreTests: {
       enabled: Boolean(preferences?.datastoreTests?.enabled),
+    },
+    multiWindowTabs: {
+      enabled: Boolean(preferences?.multiWindowTabs?.enabled),
     },
     firstInstallGuide: normalizeFirstInstallGuidePreferences(preferences?.firstInstallGuide),
     explorerFolderOrders: normalizeExplorerFolderOrders(preferences?.explorerFolderOrders),

@@ -11,6 +11,7 @@ import {
   sqlBuilderRowId,
 } from './sql-select'
 import { QueryBuilderValueInput } from './QueryBuilderValueInput'
+import { QueryBuilderIconButton } from './QueryBuilderIconButton'
 import {
   queryBuilderOperatorArity,
   queryBuilderValueTypeLabel,
@@ -151,18 +152,15 @@ export function SqlSelectBuilder({
                   })
                 }
               />
-              <button
-                type="button"
-                className="query-builder-remove"
-                aria-label={`Remove column ${field.field || 'empty'}`}
+              <QueryBuilderIconButton
+                action="remove"
+                label={`Remove column ${field.field || 'empty'}`}
                 onClick={() =>
                   updateDraft({
                     projectionFields: draft.projectionFields.filter((item) => item.id !== field.id),
                   })
                 }
-              >
-                Remove
-              </button>
+              />
             </div>
           ))
         )}
@@ -268,18 +266,15 @@ export function SqlSelectBuilder({
                   updateFilter(draft, updateDraft, filter.id, { value })
                 }
               /> : null}
-              <button
-                type="button"
-                className="query-builder-remove"
-                aria-label={`Remove filter ${filter.field || 'empty'}`}
+              <QueryBuilderIconButton
+                action="remove"
+                label={`Remove filter ${filter.field || 'empty'}`}
                 onClick={() =>
                   updateDraft({
                     filters: draft.filters.filter((item) => item.id !== filter.id),
                   })
                 }
-              >
-                Remove
-              </button>
+              />
             </div>
             )
           })
@@ -327,16 +322,13 @@ export function SqlSelectBuilder({
                 <option value="asc">Ascending</option>
                 <option value="desc">Descending</option>
               </select>
-              <button
-                type="button"
-                className="query-builder-remove"
-                aria-label={`Remove sort ${sort.field || 'empty'}`}
+              <QueryBuilderIconButton
+                action="remove"
+                label={`Remove sort ${sort.field || 'empty'}`}
                 onClick={() =>
                   updateDraft({ sort: draft.sort.filter((item) => item.id !== sort.id) })
                 }
-              >
-                Remove
-              </button>
+              />
             </div>
           ))
         )}

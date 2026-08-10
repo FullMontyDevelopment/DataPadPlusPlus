@@ -17,7 +17,7 @@ mod durable_write;
 pub const SNAPSHOT_FORMAT: &str = "datapadplusplus-pack-v1";
 pub const LEGACY_DATANAUT_SNAPSHOT_FORMAT: &str = "datanaut-pack-v1";
 pub const LEGACY_SNAPSHOT_FORMAT: &str = "universality-pack-v1";
-pub const SCHEMA_VERSION: u32 = 7;
+pub const SCHEMA_VERSION: u32 = 8;
 const DEFAULT_WORKSPACE_ID: &str = "default";
 const DEFAULT_WORKSPACE_NAME: &str = "Default Workspace";
 

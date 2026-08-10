@@ -162,11 +162,19 @@ pub fn reopen_closed_query_tab(
 
 #[tauri::command]
 pub fn reorder_query_tabs(
+    window: tauri::WebviewWindow,
     state: State<'_, SharedAppState>,
     request: QueryTabReorderRequest,
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(&state)?;
-    state.reorder_query_tabs(request)
+    let window_id = request.window_id.as_deref().unwrap_or(window.label());
+    if window_id != window.label() {
+        return Err(CommandError::new(
+            "tab-reorder-window-mismatch",
+            "Tabs can only be reordered by their owning window.",
+        ));
+    }
+    state.reorder_tabs_for_window(window_id, request.ordered_tab_ids)
 }
 
 #[tauri::command]

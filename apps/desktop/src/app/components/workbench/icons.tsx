@@ -2,9 +2,11 @@ import type { ComponentType, SVGProps } from 'react'
 import {
   AlertTriangle,
   Activity,
+  ArrowDown,
   ArrowDownToLine,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
   ArrowUpToLine,
   Archive,
   Asterisk,
@@ -175,6 +177,8 @@ export const ConnectionUnknownIcon = adapt(Circle)
 export const ConnectionConnectedIcon = adapt(CircleCheck)
 export const ArrowLeftIcon = adapt(ArrowLeft)
 export const ArrowRightIcon = adapt(ArrowRight)
+export const MoveUpIcon = adapt(ArrowUp)
+export const MoveDownIcon = adapt(ArrowDown)
 export const MoveFirstIcon = adapt(ArrowUpToLine)
 export const MoveLastIcon = adapt(ArrowDownToLine)
 export const ExplainIcon = adapt(Gauge)

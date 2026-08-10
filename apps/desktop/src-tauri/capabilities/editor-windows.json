@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "editor-window-capability",
+  "description": "Least-privilege capability for detached DataPad++ editor windows.",
+  "windows": ["editor-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-title",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://datapad-plus-plus.org" },
+        { "url": "https://datapad-plus-plus.org/*" },
+        { "url": "https://github.com/FullMontyDevelopment/DataPadPlusPlus" },
+        { "url": "https://github.com/FullMontyDevelopment/DataPadPlusPlus/*" }
+      ]
+    }
+  ]
+}

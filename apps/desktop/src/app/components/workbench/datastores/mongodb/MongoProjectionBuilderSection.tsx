@@ -1,7 +1,7 @@
 import type { MongoFindBuilderState } from '@datapadplusplus/shared-types'
 import type { DragEvent, PointerEvent } from 'react'
 import { BuilderSection } from '../../query-builder/BuilderSection'
-import { TrashIcon } from '../../icons'
+import { QueryBuilderIconButton } from '../../query-builder/QueryBuilderIconButton'
 import type { MongoFindSectionProps } from './MongoBuilderSection.types'
 import { rowId } from './MongoBuilderSection.types'
 import {
@@ -157,20 +157,16 @@ export function MongoProjectionBuilderSection({
             <option value="include">Include</option>
             <option value="exclude">Exclude</option>
           </select>
-          <button
-            type="button"
-            className="query-builder-remove query-builder-remove--icon"
-            aria-label="Remove projection field"
-            title="Remove projection field"
+          <QueryBuilderIconButton
+            action="remove"
+            label={`Remove projection field ${field.field || 'empty'}`}
             onClick={() =>
               updateDraft({
                 filterGroups,
                 projectionFields: draft.projectionFields.filter((item) => item.id !== field.id),
               })
             }
-          >
-            <TrashIcon className="toolbar-icon" />
-          </button>
+          />
         </div>
       ))}
     </BuilderSection>

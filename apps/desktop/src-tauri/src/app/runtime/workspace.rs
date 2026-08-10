@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 use super::{
     environments::{
@@ -11,7 +11,7 @@ use super::{
         fixture_debug_enabled, fixture_workspace_seed, seed_fixture_secrets, workspace_is_empty,
     },
     library::ensure_library_nodes,
-    ui::normalize_ui_state,
+    ui::{normalize_ui_state, normalize_workspace_windows},
     workspace_bundle::{
         collect_workspace_bundle_secrets, parse_workspace_bundle_payload,
         validate_bundle_passphrase, validate_bundle_payload_size,
@@ -106,6 +106,11 @@ impl ManagedAppState {
                     .display()
                     .to_string(),
             ),
+            window_lifecycle_path: Some(
+                infrastructure::diagnostics_window_lifecycle_path()
+                    .display()
+                    .to_string(),
+            ),
             counts: DiagnosticsCounts {
                 connections: self.snapshot.connections.len(),
                 environments: self.snapshot.environments.len(),
@@ -123,6 +128,7 @@ impl ManagedAppState {
 
     pub fn bootstrap_payload(&self) -> BootstrapPayload {
         let mut snapshot = self.snapshot.clone();
+        snapshot.ui.workspace_windows = normalize_workspace_windows(&snapshot);
         let transient_result_ids = snapshot
             .tabs
             .iter_mut()
@@ -146,8 +152,15 @@ impl ManagedAppState {
         }
     }
 
-    pub fn persist(&self) -> Result<(), CommandError> {
-        persistence::save_snapshot(&self.app, &sanitize_snapshot(&self.snapshot, true))
+    pub fn persist(&mut self) -> Result<(), CommandError> {
+        self.snapshot.workspace_revision = self.snapshot.workspace_revision.saturating_add(1);
+        self.snapshot.ui.workspace_windows = normalize_workspace_windows(&self.snapshot);
+        persistence::save_snapshot(&self.app, &sanitize_snapshot(&self.snapshot, true))?;
+        let _ = self.app.emit(
+            "datapad://workspace-changed",
+            serde_json::json!({ "revision": self.snapshot.workspace_revision }),
+        );
+        Ok(())
     }
 
     pub fn ensure_unlocked(&self) -> Result<(), CommandError> {
@@ -1150,6 +1163,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
 
     WorkspaceSnapshot {
         schema_version: persistence::SCHEMA_VERSION,
+        workspace_revision: 0,
         connections: Vec::new(),
         environments: Vec::new(),
         tabs: Vec::new(),
@@ -1157,6 +1171,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
         library_nodes: {
             let mut snapshot = WorkspaceSnapshot {
                 schema_version: persistence::SCHEMA_VERSION,
+                workspace_revision: 0,
                 connections: Vec::new(),
                 environments: Vec::new(),
                 tabs: Vec::new(),
@@ -1177,6 +1192,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
                     datastore_security_checks: Default::default(),
                     workspace_search: Default::default(),
                     datastore_tests: Default::default(),
+                    multi_window_tabs: Default::default(),
                     first_install_guide: Default::default(),
                     explorer_folder_orders: HashMap::new(),
                 },
@@ -1211,6 +1227,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
             datastore_security_checks: Default::default(),
             workspace_search: Default::default(),
             datastore_tests: Default::default(),
+            multi_window_tabs: Default::default(),
             first_install_guide: Default::default(),
             explorer_folder_orders: HashMap::new(),
         },

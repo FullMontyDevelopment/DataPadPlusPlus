@@ -1,7 +1,9 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, Runtime,
+    webview::PageLoadEvent,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Runtime, WebviewUrl,
+    WebviewWindowBuilder, WindowEvent,
 };
 
 pub mod adapters;
@@ -79,10 +81,247 @@ fn configure_system_tray(app: &mut tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+fn restore_editor_windows(app: &tauri::App) -> tauri::Result<()> {
+    use app::runtime::workspace_windows::{clamp_restored_window_bounds, WorkspaceMonitorBounds};
+
+    let main_window = app.get_webview_window("main");
+    let monitors = main_window
+        .as_ref()
+        .and_then(|window| window.available_monitors().ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|monitor| WorkspaceMonitorBounds {
+            name: monitor.name().cloned(),
+            x: monitor.position().x,
+            y: monitor.position().y,
+            width: monitor.size().width,
+            height: monitor.size().height,
+        })
+        .collect::<Vec<_>>();
+    let primary_monitor_name = main_window
+        .as_ref()
+        .and_then(|window| window.primary_monitor().ok().flatten())
+        .and_then(|monitor| monitor.name().cloned());
+    let layouts = {
+        let state = app.state::<app::runtime::SharedAppState>();
+        let Ok(state) = state.lock() else {
+            return Ok(());
+        };
+        if !state.snapshot.preferences.multi_window_tabs.enabled {
+            return Ok(());
+        }
+        state
+            .snapshot
+            .ui
+            .workspace_windows
+            .iter()
+            .filter(|window| window.id != "main" && !window.tab_ids.is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+
+    for layout in layouts {
+        if app.get_webview_window(&layout.id).is_some() {
+            continue;
+        }
+        let title = {
+            let state = app.state::<app::runtime::SharedAppState>();
+            state
+                .lock()
+                .ok()
+                .and_then(|state| {
+                    state
+                        .snapshot
+                        .tabs
+                        .iter()
+                        .find(|tab| tab.id == layout.active_tab_id)
+                        .map(|tab| format!("DataPad++ — {}", tab.title))
+                })
+                .unwrap_or_else(|| "DataPad++ — Editor".into())
+        };
+        let bounds = clamp_restored_window_bounds(
+            layout.bounds.as_ref(),
+            layout.monitor_name.as_deref(),
+            &monitors,
+            primary_monitor_name.as_deref(),
+        );
+        let builder =
+            WebviewWindowBuilder::new(app, &layout.id, WebviewUrl::App("index.html".into()))
+                .title(title)
+                .min_inner_size(720.0, 480.0)
+                .resizable(true)
+                .visible(false)
+                .inner_size(bounds.width as f64, bounds.height as f64);
+        let restored = builder.build()?;
+        let _ = restored.set_position(PhysicalPosition::new(bounds.x, bounds.y));
+        let _ = restored.set_size(PhysicalSize::new(bounds.width, bounds.height));
+        if layout.maximized {
+            let _ = restored.maximize();
+        }
+    }
+    Ok(())
+}
+
+fn coordinate_window_close(window: &tauri::Window, event: &WindowEvent) {
+    match event {
+        WindowEvent::CloseRequested { .. } => infrastructure::log_window_lifecycle(
+            "INFO",
+            "native-window-close-requested",
+            format!("window={}", window.label()),
+        ),
+        WindowEvent::Destroyed => infrastructure::log_window_lifecycle(
+            "INFO",
+            "native-window-destroyed",
+            format!("window={}", window.label()),
+        ),
+        WindowEvent::Focused(focused) => infrastructure::log_window_lifecycle(
+            "INFO",
+            "native-window-focus-changed",
+            format!("window={} focused={focused}", window.label()),
+        ),
+        WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+            infrastructure::log_window_lifecycle(
+                "INFO",
+                "native-window-scale-factor-changed",
+                format!("window={} scaleFactor={scale_factor}", window.label()),
+            )
+        }
+        _ => {}
+    }
+
+    let WindowEvent::CloseRequested { api, .. } = event else {
+        return;
+    };
+    let window_id = window.label();
+    let state = window.state::<app::runtime::SharedAppState>();
+    let Ok(mut state) = state.lock() else {
+        infrastructure::log_window_lifecycle(
+            "ERROR",
+            "native-window-close-state-lock-failed",
+            format!("window={window_id}"),
+        );
+        api.prevent_close();
+        return;
+    };
+
+    if window_id == "main" {
+        let running = state.snapshot.tabs.iter().any(|tab| {
+            tab.active_execution.is_some() || matches!(tab.status.as_str(), "running" | "queued")
+        });
+        if running {
+            infrastructure::log_window_lifecycle(
+                "WARN",
+                "main-window-close-blocked-running",
+                "window=main",
+            );
+            api.prevent_close();
+            let _ = window.emit(
+                "datapad://close-blocked",
+                serde_json::json!({ "reason": "running-work" }),
+            );
+            return;
+        }
+        if state.snapshot.tabs.iter().any(|tab| tab.dirty) {
+            infrastructure::log_window_lifecycle(
+                "WARN",
+                "main-window-close-blocked-dirty",
+                "window=main",
+            );
+            api.prevent_close();
+            let _ = window.emit(
+                "datapad://close-blocked",
+                serde_json::json!({ "reason": "dirty-tabs" }),
+            );
+            return;
+        }
+        drop(state);
+        if let Ok(mut coordinator) = window
+            .state::<app::runtime::SharedWorkspaceWindowCoordinator>()
+            .lock()
+        {
+            coordinator.shutting_down = true;
+        }
+        infrastructure::log_window_lifecycle(
+            "INFO",
+            "application-shutdown-editor-close-start",
+            format!(
+                "editorWindowCount={}",
+                window
+                    .app_handle()
+                    .webview_windows()
+                    .keys()
+                    .filter(|label| label.as_str() != "main")
+                    .count()
+            ),
+        );
+        for (label, editor) in window.app_handle().webview_windows() {
+            if label != "main" {
+                let _ = editor.close();
+            }
+        }
+        infrastructure::log_window_lifecycle(
+            "INFO",
+            "application-shutdown-main-close-allowed",
+            "window=main",
+        );
+        return;
+    }
+
+    if window
+        .state::<app::runtime::SharedWorkspaceWindowCoordinator>()
+        .lock()
+        .is_ok_and(|coordinator| coordinator.shutting_down)
+    {
+        infrastructure::log_window_lifecycle(
+            "INFO",
+            "editor-window-close-allowed-during-shutdown",
+            format!("window={window_id}"),
+        );
+        return;
+    }
+
+    let is_tracked = state
+        .snapshot
+        .ui
+        .workspace_windows
+        .iter()
+        .any(|workspace_window| workspace_window.id == window_id);
+    if !is_tracked {
+        infrastructure::log_window_lifecycle(
+            "WARN",
+            "editor-window-close-untracked",
+            format!("window={window_id}"),
+        );
+        return;
+    }
+    match state.reattach_workspace_window(window_id) {
+        Ok(_) => infrastructure::log_window_lifecycle(
+            "INFO",
+            "editor-window-close-reattach-complete",
+            format!("window={window_id}"),
+        ),
+        Err(error) => {
+            infrastructure::log_window_lifecycle(
+                "ERROR",
+                "editor-window-close-reattach-failed",
+                format!(
+                    "window={window_id} code={} message={}",
+                    error.code, error.message
+                ),
+            );
+            api.prevent_close();
+            let _ = window.emit(
+                "datapad://close-blocked",
+                serde_json::json!({ "reason": error.code, "message": error.message }),
+            );
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     infrastructure::initialize_app_logging();
-    tauri::Builder::default()
+    let run_result = tauri::Builder::default()
         .setup(|app| {
             infrastructure::log_info("app", "Tauri setup started.");
             app.manage(std::sync::Mutex::new(app::runtime::ManagedAppState::load(
@@ -93,6 +332,9 @@ pub fn run() {
             ));
             app.manage(std::sync::Mutex::new(
                 app::runtime::ActiveTestRunRegistry::default(),
+            ));
+            app.manage(std::sync::Mutex::new(
+                app::runtime::workspace_windows::WorkspaceWindowCoordinator::default(),
             ));
             app.manage(std::sync::Mutex::new(
                 app::runtime::datastore_api_server::DatastoreApiServerManager::default(),
@@ -170,17 +412,48 @@ pub fn run() {
             app.manage(app::runtime::app_updates::PendingAppUpdate::default());
             configure_main_window_icon(app)?;
             configure_system_tray(app)?;
+            restore_editor_windows(app)?;
+            infrastructure::log_window_lifecycle(
+                "INFO",
+                "tauri-setup-window-inventory",
+                format!(
+                    "windows={}",
+                    app.webview_windows()
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(",")
+                ),
+            );
             infrastructure::log_info("app", "Tauri setup completed.");
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(app::runtime::app_updates::updater_plugin())
+        .on_page_load(|webview, payload| {
+            let event = match payload.event() {
+                PageLoadEvent::Started => "native-webview-page-load-started",
+                PageLoadEvent::Finished => "native-webview-page-load-finished",
+            };
+            infrastructure::log_window_lifecycle(
+                "INFO",
+                event,
+                format!(
+                    "window={} urlScheme={} urlPath={}",
+                    webview.label(),
+                    payload.url().scheme(),
+                    payload.url().path(),
+                ),
+            );
+        })
+        .on_window_event(coordinate_window_close)
         .invoke_handler(tauri::generate_handler![
             commands::app::bootstrap_app,
             commands::app::check_app_update,
             commands::app::clear_app_log_file,
             commands::app::create_diagnostics_report,
+            commands::app::record_frontend_diagnostic,
             commands::app::delete_app_log_file,
             commands::app::get_app_update_settings,
             commands::app::get_app_health,
@@ -318,8 +591,39 @@ pub fn run() {
             commands::workspace::update_datastore_tests_settings,
             commands::workspace::upsert_connection_profile,
             commands::workspace::upsert_environment_profile,
-            commands::workspace::upsert_saved_work_item
+            commands::workspace::upsert_saved_work_item,
+            commands::workspace::get_workspace_window_context,
+            commands::workspace::list_workspace_windows,
+            commands::workspace::transfer_workspace_tab,
+            commands::workspace::update_workspace_window_geometry,
+            commands::workspace::close_workspace_editor_window,
+            commands::workspace::update_multi_window_tabs_settings,
+            commands::workspace::start_workspace_tab_drag,
+            commands::workspace::get_workspace_tab_drag,
+            commands::workspace::cancel_workspace_tab_drag,
+            commands::workspace::workspace_editor_window_ready,
+            commands::workspace::restore_workspace_editor_windows,
+            commands::workspace::shutdown_datapad_application,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running DataPad++");
+        .run(tauri::generate_context!());
+
+    match run_result {
+        Ok(()) => {
+            infrastructure::log_window_lifecycle(
+                "INFO",
+                "process-exit-normal",
+                "Tauri event loop returned successfully.",
+            );
+            infrastructure::log_breadcrumb("app", "process-exit-normal");
+        }
+        Err(error) => {
+            infrastructure::log_window_lifecycle(
+                "ERROR",
+                "process-exit-error",
+                format!("Tauri event loop returned an error: {error}"),
+            );
+            infrastructure::log_error("app", format!("Tauri event loop failed: {error}"));
+            panic!("error while running DataPad++: {error}");
+        }
+    }
 }

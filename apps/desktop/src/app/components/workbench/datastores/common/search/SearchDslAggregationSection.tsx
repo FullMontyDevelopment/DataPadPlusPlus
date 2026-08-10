@@ -3,6 +3,7 @@ import type {
   SearchDslBuilderState,
 } from '@datapadplusplus/shared-types'
 import { BuilderSection } from '../../../query-builder/BuilderSection'
+import { QueryBuilderIconButton } from '../../../query-builder/QueryBuilderIconButton'
 import { searchDslBuilderRowId } from '../../../query-builder/search-dsl'
 
 interface SearchAggregationSectionProps {
@@ -122,17 +123,14 @@ export function SearchAggregationSection({
               }
             />
           ) : null}
-          <button
-            type="button"
-            className="query-builder-remove"
-            aria-label={`Remove aggregation ${agg.field || 'empty'}`}
+          <QueryBuilderIconButton
+            action="remove"
+            label={`Remove aggregation ${agg.field || 'empty'}`}
             onClick={() =>
               updateDraft({
                 aggregations: draft.aggregations.filter((item) => item.id !== agg.id),
               })}
-          >
-            Remove
-          </button>
+          />
         </div>
       ))}
     </BuilderSection>

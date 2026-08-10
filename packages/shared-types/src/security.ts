@@ -177,6 +177,10 @@ export interface DatastoreTestsPreferences {
   enabled: boolean
 }
 
+export interface MultiWindowTabsPreferences {
+  enabled: boolean
+}
+
 export interface DatastoreSecurityChecksPreferences {
   enabled: boolean
   refreshIntervalDays: number
@@ -413,6 +417,7 @@ export interface AppPreferences {
   datastoreSecurityChecks?: DatastoreSecurityChecksPreferences
   workspaceSearch?: WorkspaceSearchPreferences
   datastoreTests?: DatastoreTestsPreferences
+  multiWindowTabs?: MultiWindowTabsPreferences
   firstInstallGuide?: FirstInstallGuidePreferences
   explorerFolderOrders?: Record<string, string[]>
 }
