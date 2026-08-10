@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use sqlx::Row;
 
 use super::super::super::*;
-use super::connection::postgres_dsn;
+use super::connection::postgres_connect_options;
 
 pub(crate) async fn load_postgres_structure(
     connection: &ResolvedConnectionProfile,
@@ -14,7 +14,7 @@ pub(crate) async fn load_postgres_structure(
     let include_system = request.include_system_objects.unwrap_or(false);
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
-        .connect(&postgres_dsn(connection))
+        .connect_with(postgres_connect_options(connection)?)
         .await?;
     let system_filter = if include_system {
         ""

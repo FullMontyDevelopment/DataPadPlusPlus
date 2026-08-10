@@ -5,8 +5,9 @@ import type {
   SqlSelectBuilderState,
   SqlSelectFilterOperator,
 } from '@datapadplusplus/shared-types'
+import { parseQueryBuilderValue, QueryBuilderValueError } from './query-value-codec'
 
-const SQL_OPERATORS: Record<Exclude<SqlSelectFilterOperator, 'is-null' | 'is-not-null'>, string> = {
+const SQL_OPERATORS: Record<Exclude<SqlSelectFilterOperator, 'is-null' | 'is-not-null' | 'has-items' | 'has-no-items' | 'has-length'>, string> = {
   eq: '=',
   ne: '<>',
   gt: '>',
@@ -98,6 +99,9 @@ export function parseSqlSelectQueryText(
   engine: ConnectionProfile['engine'] = 'postgresql',
 ): SqlSelectBuilderState | undefined {
   const normalized = stripSqlComments(queryText)
+  if (!isRepresentableSqlSelect(normalized, engine)) {
+    return undefined
+  }
   const target = parseSqlTableReference(normalized, engine)
 
   if (!target?.table) {
@@ -160,20 +164,28 @@ function sqlPredicate(
     return `${identifier} is not null`
   }
 
+  if (row.operator === 'has-items' || row.operator === 'has-no-items' || row.operator === 'has-length') {
+    return sqlArrayPredicate(identifier, row.operator, row.value, engine)
+  }
+
   if (row.operator === 'contains') {
-    return `${identifier} like ${sqlStringLiteral(`%${escapeSqlLikeValue(row.value)}%`)} escape '\\'`
+    const value = String(parseQueryBuilderValue(row.value, row.valueType))
+    return `${identifier} like ${sqlStringLiteral(`%${escapeSqlLikeValue(value)}%`)} escape '\\'`
   }
 
   if (row.operator === 'not-contains') {
-    return `${identifier} not like ${sqlStringLiteral(`%${escapeSqlLikeValue(row.value)}%`)} escape '\\'`
+    const value = String(parseQueryBuilderValue(row.value, row.valueType))
+    return `${identifier} not like ${sqlStringLiteral(`%${escapeSqlLikeValue(value)}%`)} escape '\\'`
   }
 
   if (row.operator === 'starts-with' || row.operator === 'not-starts-with') {
-    return `${identifier} ${SQL_OPERATORS[row.operator]} ${sqlStringLiteral(`${escapeSqlLikeValue(row.value)}%`)} escape '\\'`
+    const value = String(parseQueryBuilderValue(row.value, row.valueType))
+    return `${identifier} ${SQL_OPERATORS[row.operator]} ${sqlStringLiteral(`${escapeSqlLikeValue(value)}%`)} escape '\\'`
   }
 
   if (row.operator === 'ends-with' || row.operator === 'not-ends-with') {
-    return `${identifier} ${SQL_OPERATORS[row.operator]} ${sqlStringLiteral(`%${escapeSqlLikeValue(row.value)}`)} escape '\\'`
+    const value = String(parseQueryBuilderValue(row.value, row.valueType))
+    return `${identifier} ${SQL_OPERATORS[row.operator]} ${sqlStringLiteral(`%${escapeSqlLikeValue(value)}`)} escape '\\'`
   }
 
   const value = sqlLiteral(row.value, row.valueType, row.operator, engine)
@@ -243,27 +255,18 @@ function sqlLiteral(
   operator: SqlSelectFilterOperator,
   engine: ConnectionProfile['engine'],
 ): string {
-  if (operator === 'in' || operator === 'not-in') {
-    const values: string[] = value
-      .split(',')
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .map((part) => sqlLiteral(part, valueType, 'eq', engine))
-
-    return `(${values.join(', ') || 'null'})`
+  const parsed = parseQueryBuilderValue(value, valueType, { operator })
+  if (Array.isArray(parsed)) {
+    return `(${parsed.map((item) => sqlParsedLiteral(item, valueType, engine)).join(', ')})`
   }
+  return sqlParsedLiteral(parsed, valueType, engine)
+}
 
-  if (valueType === 'null') {
-    return 'null'
-  }
-
-  if (valueType === 'number') {
-    const parsed = Number(value)
-    return Number.isFinite(parsed) ? String(parsed) : 'null'
-  }
-
+function sqlParsedLiteral(value: unknown, valueType: SqlBuilderValueType, engine: ConnectionProfile['engine']) {
+  if (value === null) return 'null'
+  if (valueType === 'number') return String(value)
   if (valueType === 'boolean') {
-    const truthy = ['true', '1', 'yes'].includes(value.trim().toLowerCase())
+    const truthy = value === true
 
     if (engine === 'mysql' || engine === 'mariadb' || engine === 'oracle') {
       return truthy ? '1' : '0'
@@ -272,7 +275,37 @@ function sqlLiteral(
     return truthy ? 'true' : 'false'
   }
 
-  return `'${value.replaceAll("'", "''")}'`
+  return sqlStringLiteral(String(value))
+}
+
+function sqlArrayPredicate(
+  identifier: string,
+  operator: Extract<SqlSelectFilterOperator, 'has-items' | 'has-no-items' | 'has-length'>,
+  rawLength: string,
+  engine: ConnectionProfile['engine'],
+) {
+  const comparison = operator === 'has-items' ? '> 0' : operator === 'has-no-items'
+    ? '= 0'
+    : `= ${parseQueryBuilderValue(rawLength, 'number', { operator })}`
+  if (engine === 'postgresql') return `cardinality(${identifier}) ${comparison}`
+  if (engine === 'cockroachdb') {
+    return `${identifier} is not null and coalesce(array_length(${identifier}, 1), 0) ${comparison}`
+  }
+  if (engine === 'mysql' || engine === 'mariadb') {
+    const length = `case when json_valid(${identifier}) then case when json_type(${identifier}) = 'ARRAY' then json_length(${identifier}) end end`
+    return `${length} ${comparison}`
+  }
+  if (engine === 'sqlite') {
+    const length = `case when json_valid(${identifier}) then case when json_type(${identifier}) = 'array' then json_array_length(${identifier}) end end`
+    return `${length} ${comparison}`
+  }
+  if (engine === 'sqlserver') {
+    const text = `cast(${identifier} as nvarchar(max))`
+    const isArray = `isjson(${text}) = 1 and left(ltrim(${text}), 1) = '['`
+    const length = `case when ${isArray} then (select count_big(*) from openjson(${text})) end`
+    return `${length} ${comparison}`
+  }
+  throw new QueryBuilderValueError('Array predicates are not available for this SQL datastore.')
 }
 
 function sqlStringLiteral(value: string) {
@@ -288,6 +321,26 @@ function escapeSqlLikeValue(value: string) {
 
 function stripSqlComments(queryText: string) {
   return queryText.replace(/--.*$/gm, ' ')
+}
+
+function isRepresentableSqlSelect(
+  queryText: string,
+  engine: ConnectionProfile['engine'],
+) {
+  if (
+    /\b(?:distinct|join|group\s+by|having|union|intersect|except|offset)\b/i.test(queryText)
+  ) {
+    return false
+  }
+
+  const where = /\bwhere\s+(.+?)(?:\border\s+by\b|\blimit\b|\boffset\b|\bfetch\b|;|$)/is
+    .exec(queryText)?.[1]
+    ?.trim()
+  if (!where) {
+    return true
+  }
+
+  return engine === 'oracle' && /^\(?\s*rownum\s*<=\s*\d+\s*\)?$/i.test(where)
 }
 
 function parseSqlTableReference(

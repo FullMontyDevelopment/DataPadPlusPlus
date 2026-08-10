@@ -83,7 +83,16 @@ describe('browser datastore platform contracts', () => {
     expect(valkey?.editableScopes[0]?.editKinds).not.toContain('vector-add-member')
     expect(litedb?.editableScopes[0]).toMatchObject({
       scope: 'collection',
-      editKinds: ['insert-document', 'update-document', 'delete-document'],
+      editKinds: [
+        'insert-document',
+        'add-field',
+        'set-field',
+        'unset-field',
+        'rename-field',
+        'change-field-type',
+        'update-document',
+        'delete-document',
+      ],
       liveExecution: false,
     })
     expect(redis?.tree?.roots.map((item) => item.label)).toContain('Databases')
@@ -184,7 +193,6 @@ describe('browser datastore platform contracts', () => {
       ['influxdb', 'timeseries-query'],
       ['opentsdb', 'timeseries-query'],
       ['neo4j', 'graph-query'],
-      ['arango', 'graph-query'],
       ['janusgraph', 'graph-query'],
       ['neptune', 'graph-query'],
     ] as const
@@ -201,6 +209,26 @@ describe('browser datastore platform contracts', () => {
       )
       expect(experience?.editableScopes, `${engine} edit scopes`).toEqual([])
     }
+
+    const arango = experiences.find((item) => item.engine === 'arango')
+    expect(arango?.queryBuilders).toContainEqual(expect.objectContaining({
+      kind: 'graph-query',
+      scope: 'query',
+      defaultMode: 'split',
+    }))
+    expect(arango?.editableScopes[0]).toMatchObject({
+      scope: 'collection',
+      editKinds: [
+        'add-field',
+        'set-field',
+        'unset-field',
+        'rename-field',
+        'change-field-type',
+        'update-document',
+        'delete-document',
+      ],
+      liveExecution: false,
+    })
   })
 
   it('keeps every datastore experience native, scoped, and free of fake sample placeholders', () => {
@@ -266,6 +294,10 @@ describe('browser datastore platform contracts', () => {
         path: ['products', 'item-1'],
         collection: 'products',
         documentId: { $oid: '507f1f77bcf86cd799439011' },
+        expectedDocument: {
+          _id: { $oid: '507f1f77bcf86cd799439011' },
+          metadata: { legacyFlag: true },
+        },
       },
       changes: [{ path: ['metadata', 'legacyFlag'] }],
     }
@@ -274,6 +306,8 @@ describe('browser datastore platform contracts', () => {
     const generated = JSON.parse(plan.plan.generatedRequest)
 
     expect(generated.filter._id).toEqual({ $oid: '507f1f77bcf86cd799439011' })
+    expect(generated.filter.$expr.$eq[0]).toBe('$$ROOT')
+    expect(generated.filter.$expr.$eq[1].$literal.metadata).toEqual({ legacyFlag: true })
     expect(generated.update.$unset).toEqual({ 'metadata.legacyFlag': '' })
     expect(plan.plan.warnings.join(' ')).not.toContain('stable document id')
   })
@@ -289,6 +323,7 @@ describe('browser datastore platform contracts', () => {
         path: ['products', '42'],
         collection: 'products',
         documentId: 42,
+        expectedDocument: { _id: 42, sku: 'tea-042', category: 'pantry-old' },
       },
       changes: [{ value: { _id: 42, sku: 'tea-042', category: 'pantry' } }],
     }
@@ -301,6 +336,11 @@ describe('browser datastore platform contracts', () => {
     expect(plan.plan.confirmationText).toBe('CONFIRM LITEDB UPDATE-DOCUMENT')
     expect(generated.operation).toBe('UpdateDocument')
     expect(generated.collection).toBe('products')
+    expect(generated.previousDocument).toEqual({
+      _id: 42,
+      sku: 'tea-042',
+      category: 'pantry-old',
+    })
     expect(generated.evidenceRequests.before).toMatchObject({
       operation: 'FindById',
       collection: 'products',

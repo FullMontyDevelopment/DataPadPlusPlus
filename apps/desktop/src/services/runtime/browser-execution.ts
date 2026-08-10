@@ -58,6 +58,7 @@ export function applyExecutionRequestLocally(
       queryText: queryTemplate,
       executedAt: tab.lastRunAt,
       status: tab.status,
+      sqlScope: request.sqlScope,
     })
     tab.error = {
       code: 'secret-variable-preview-blocked',
@@ -71,6 +72,7 @@ export function applyExecutionRequestLocally(
         environment.id,
         request.mode ?? 'full',
         queryTemplate,
+        request.sqlScope,
       ),
       reasons: [
         `Secret variable ${referencedSecrets[0]} cannot be resolved in browser preview.`,
@@ -114,6 +116,7 @@ export function applyExecutionRequestLocally(
       environment.id,
       request.mode ?? 'full',
       queryText,
+      request.sqlScope,
     )
     guardrail.id = guardrailId
     guardrail.requiredConfirmationText = `CONFIRM ${environment.label}`
@@ -137,6 +140,7 @@ export function applyExecutionRequestLocally(
         queryText: queryTemplate,
         executedAt: tab.lastRunAt,
         status: tab.status,
+        sqlScope: request.sqlScope,
       })
       tab.error = {
         code: 'guardrail-confirmation-required',
@@ -281,6 +285,7 @@ export function applyExecutionRequestLocally(
       queryText: queryTemplate,
       executedAt: tab.lastRunAt,
       status: tab.status,
+      sqlScope: request.sqlScope,
     })
   tab.error =
     guardrail.status === 'block'

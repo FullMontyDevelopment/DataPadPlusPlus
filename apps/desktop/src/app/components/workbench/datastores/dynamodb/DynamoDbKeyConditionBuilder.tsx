@@ -8,16 +8,22 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { BuilderSection } from '../../query-builder/BuilderSection'
 import {
-  buildDynamoDbKeyConditionQueryText,
   dynamoDbBuilderRowId,
   newDynamoDbCondition,
 } from '../../query-builder/dynamodb-key-condition'
+import { QueryBuilderValueInput } from '../../query-builder/QueryBuilderValueInput'
+import {
+  queryBuilderOperatorArity,
+  queryBuilderValueTypeLabel,
+} from '../../query-builder/query-value-codec'
+import { builderStateWithCompiledQueryText } from '../../../../controllers/query-builder-routing'
 
 interface DynamoDbKeyConditionBuilderProps {
   tab: QueryTabState
   builderState: DynamoDbKeyConditionBuilderState
   tableOptions?: string[]
   onBuilderStateChange?(tabId: string, builderState: QueryBuilderState): void
+  theme: string
 }
 
 const KEY_OPERATORS: Array<{ value: DynamoDbConditionOperator; label: string }> = [
@@ -37,24 +43,25 @@ const FILTER_OPERATORS: Array<{ value: DynamoDbConditionOperator; label: string 
   { value: 'not-contains', label: 'NOT CONTAINS' },
   { value: 'exists', label: 'EXISTS' },
   { value: 'does-not-exist', label: 'DOES NOT EXIST' },
+  { value: 'has-items', label: 'HAS ITEMS' },
+  { value: 'has-no-items', label: 'HAS NO ITEMS' },
+  { value: 'has-length', label: 'HAS LENGTH' },
 ]
 
-const VALUE_TYPES: DynamoDbBuilderValueType[] = ['string', 'number', 'boolean', 'null', 'json']
+const VALUE_TYPES: DynamoDbBuilderValueType[] = ['string', 'number', 'boolean', 'null', 'json', 'date', 'uuid']
 
 export function DynamoDbKeyConditionBuilder({
   tab,
   builderState,
   tableOptions = [],
   onBuilderStateChange,
+  theme,
 }: DynamoDbKeyConditionBuilderProps) {
   const draft = builderState
   const resolvedTableOptions = uniqueValues([draft.table, ...tableOptions])
   const updateDraft = (patch: Partial<DynamoDbKeyConditionBuilderState>) => {
     const nextDraft = { ...draft, ...patch }
-    const next = {
-      ...nextDraft,
-      lastAppliedQueryText: buildDynamoDbKeyConditionQueryText(nextDraft),
-    }
+    const next = builderStateWithCompiledQueryText(nextDraft, undefined, tab)
 
     onBuilderStateChange?.(tab.id, next)
   }
@@ -126,6 +133,7 @@ export function DynamoDbKeyConditionBuilder({
           label="Partition key"
           row={{ ...draft.partitionKey, operator: 'eq' }}
           operatorOptions={[{ value: 'eq', label: '=' }]}
+          theme={theme}
           onChange={(patch) => updateDraft({ partitionKey: { ...draft.partitionKey, ...patch, operator: 'eq' } })}
         />
         {draft.sortKey ? (
@@ -133,6 +141,7 @@ export function DynamoDbKeyConditionBuilder({
             label="Sort key"
             row={draft.sortKey}
             operatorOptions={KEY_OPERATORS}
+            theme={theme}
             onChange={(patch) => updateDraft({ sortKey: { ...draft.sortKey!, ...patch } })}
           />
         ) : null}
@@ -157,6 +166,7 @@ export function DynamoDbKeyConditionBuilder({
               row={filter}
               operatorOptions={FILTER_OPERATORS}
               removable
+              theme={theme}
               onChange={(patch) =>
                 updateDraft({
                   filters: draft.filters.map((item) =>
@@ -236,6 +246,7 @@ function ConditionRow({
   row,
   onChange,
   onRemove,
+  theme,
 }: {
   label: string
   operatorOptions: Array<{ value: DynamoDbConditionOperator; label: string }>
@@ -243,9 +254,11 @@ function ConditionRow({
   row: DynamoDbConditionRow
   onChange(patch: Partial<DynamoDbConditionRow>): void
   onRemove?(): void
+  theme: string
 }) {
+  const arity = queryBuilderOperatorArity(row.operator)
   return (
-    <div className={`query-builder-row query-builder-row--filter${row.enabled === false ? ' is-disabled' : ''}`}>
+    <div className={`query-builder-row query-builder-row--filter is-${arity}${row.enabled === false ? ' is-disabled' : ''}`}>
       {removable ? (
         <label className="query-builder-toggle">
           <input
@@ -265,6 +278,7 @@ function ConditionRow({
       />
       <select
         aria-label={`${label} operator`}
+        title={row.operator.startsWith('has-') ? 'Native DynamoDB filter; evaluated after items are read.' : undefined}
         value={row.operator}
         onChange={(event) => onChange({ operator: event.target.value as DynamoDbConditionOperator })}
       >
@@ -272,24 +286,29 @@ function ConditionRow({
           <option key={operator.value} value={operator.value}>{operator.label}</option>
         ))}
       </select>
-      <select
+      {arity !== 'none' && arity !== 'length' ? <select
         aria-label={`${label} value type`}
+        className="query-builder-value-type"
         value={row.valueType}
         onChange={(event) => onChange({ valueType: event.target.value as DynamoDbBuilderValueType })}
       >
-        {VALUE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
-      </select>
-      <input
-        aria-label={`${label} value`}
+        {VALUE_TYPES.map((type) => <option key={type} value={type}>{queryBuilderValueTypeLabel(type)}</option>)}
+      </select> : null}
+      {arity !== 'none' ? <QueryBuilderValueInput
+        ariaLabel={`${label} value`}
+        operator={row.operator}
+        theme={theme}
         value={row.value}
-        disabled={row.operator === 'exists' || row.operator === 'does-not-exist'}
-        onChange={(event) => onChange({ value: event.target.value })}
-      />
+        valueType={arity === 'length' ? 'number' : row.valueType}
+        onChange={(value) => onChange({ value })}
+      /> : null}
       {row.operator === 'between' ? (
-        <input
-          aria-label={`${label} second value`}
+        <QueryBuilderValueInput
+          ariaLabel={`${label} second value`}
+          theme={theme}
           value={row.secondValue ?? ''}
-          onChange={(event) => onChange({ secondValue: event.target.value })}
+          valueType={row.valueType}
+          onChange={(value) => onChange({ secondValue: value })}
         />
       ) : null}
       {removable ? (

@@ -20,6 +20,7 @@ import type {
   QueryTabState,
   ResultPayload,
   ResultRenderer,
+  SqlQueryScope,
 } from '@datapadplusplus/shared-types'
 import type { WorkbenchMessage } from '../../state/app-state'
 import { DetailsView } from './bottom-panel/DetailsView'
@@ -56,6 +57,7 @@ interface BottomPanelProps {
   lastExecutionRequest?: ExecutionRequest
   capabilities: ExecutionCapabilities
   workbenchMessages: WorkbenchMessage[]
+  theme?: string
   onSelectPanelTab(tab: BottomPanelTab): void
   onSelectRenderer(renderer: ResultRenderer): void
   onLoadNextPage(): void
@@ -71,7 +73,7 @@ interface BottomPanelProps {
   onClose(): void
   onConfirmExecution(guardrailId: string, mode: ExecutionRequest['mode']): void
   onApplyInspectionTemplate(queryTemplate?: string): void
-  onRestoreHistory(queryText: string): void
+  onRestoreHistory(queryText: string, sqlScope?: SqlQueryScope): void
   onExecuteDataEdit(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
@@ -104,6 +106,7 @@ export function BottomPanel({
   lastExecutionRequest,
   capabilities,
   workbenchMessages,
+  theme = 'dark',
   onSelectPanelTab,
   onSelectRenderer,
   onLoadNextPage,
@@ -348,6 +351,7 @@ export function BottomPanel({
             documentResetToken={documentResetToken}
             executionLocked={executionLocked}
             result={activeTab?.result}
+            theme={theme}
             onSelectRenderer={onSelectRenderer}
             onLoadNextPage={onLoadNextPage}
             onResultRendered={onResultRendered}

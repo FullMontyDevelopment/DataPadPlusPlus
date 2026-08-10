@@ -47,6 +47,8 @@ pub struct QueryHistoryEntry {
     pub query_text: String,
     pub executed_at: String,
     pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sql_scope: Option<SqlQueryScope>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -99,6 +101,8 @@ pub struct QueryTabState {
     pub document_efficiency_mode: Option<bool>,
     #[serde(default)]
     pub scoped_target: Option<ScopedQueryTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sql_scope: Option<SqlQueryScope>,
     #[serde(default)]
     pub builder_state: Option<Value>,
     #[serde(default)]
@@ -269,6 +273,12 @@ pub struct DataEditTarget {
     pub collection: Option<String>,
     pub key: Option<String>,
     pub document_id: Option<Value>,
+    #[serde(default)]
+    pub expected_document: Option<Value>,
+    #[serde(default)]
+    pub partition_key: Option<Value>,
+    #[serde(default)]
+    pub concurrency_token: Option<String>,
     pub item_key: Option<HashMap<String, Value>>,
     pub primary_key: Option<HashMap<String, Value>>,
 }
@@ -367,6 +377,8 @@ pub struct ExecutionRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scoped_target: Option<ScopedQueryTarget>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sql_scope: Option<SqlQueryScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub datastore_execution_input: Option<Value>,
 }
 
@@ -388,6 +400,8 @@ pub struct ResultPageRequest {
     pub document_efficiency_mode: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scoped_target: Option<ScopedQueryTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sql_scope: Option<SqlQueryScope>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -427,6 +441,8 @@ pub struct DocumentNodeChildrenRequest {
     pub collection: String,
     pub document_id: Value,
     pub path: Vec<Value>,
+    #[serde(default)]
+    pub mode: Option<String>,
     pub query_text: Option<String>,
 }
 
@@ -570,6 +586,17 @@ pub struct ScopedQueryTarget {
     pub preferred_builder: Option<String>,
 }
 
+#[derive(Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SqlQueryScope {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalog: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
+}
+
 fn deserialize_string_vec_or_default<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -618,6 +645,14 @@ pub struct UpdateQueryTabTargetRequest {
     pub builder_state: Option<Value>,
     #[serde(default)]
     pub title: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateQueryTabSqlScopeRequest {
+    pub tab_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sql_scope: Option<SqlQueryScope>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

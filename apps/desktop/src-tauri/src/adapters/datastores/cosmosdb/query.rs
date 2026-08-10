@@ -3,8 +3,9 @@ use serde_json::{json, Map, Value};
 use super::super::super::*;
 use super::cancellation;
 use super::connection::{
-    cosmosdb_connection_string_value, cosmosdb_default_database, cosmosdb_get_with_cancellation,
-    cosmosdb_post_query, CosmosDbQueryRequestOptions, CosmosDbResponse,
+    cosmosdb_connection_string_value, cosmosdb_default_database, cosmosdb_get,
+    cosmosdb_get_with_cancellation, cosmosdb_post_query, CosmosDbQueryRequestOptions,
+    CosmosDbResponse,
 };
 use super::paging::apply_cosmosdb_result_paging;
 use super::CosmosDbAdapter;
@@ -83,8 +84,10 @@ pub(super) async fn execute_cosmosdb_query(
     let documents = normalized.documents;
     let truncated = normalized.truncated || response.continuation.is_some();
     let row_count = rows.len() as u32;
+    let document_payload =
+        cosmosdb_editable_document_payload(connection, &operation, &request_value, documents).await;
     let mut payloads = vec![
-        payload_document(documents),
+        document_payload,
         payload_table(columns, rows),
         payload_json(bounded_cosmosdb_response(
             &operation,
@@ -121,6 +124,89 @@ pub(super) async fn execute_cosmosdb_query(
     });
     apply_cosmosdb_result_paging(&mut result, &response, row_limit)?;
     Ok(result)
+}
+
+pub(crate) async fn cosmosdb_editable_document_payload(
+    connection: &ResolvedConnectionProfile,
+    operation: &str,
+    request: &Value,
+    documents: Value,
+) -> Value {
+    if !matches!(operation, "QueryDocuments" | "ReadDocument") {
+        return payload_document(documents);
+    }
+    let database = request
+        .get("database")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| cosmosdb_default_database(connection));
+    let Ok(container) = cosmosdb_request_container(connection, request) else {
+        return payload_document(documents);
+    };
+    let metadata_path = format!("/dbs/{database}/colls/{container}");
+    let metadata = cosmosdb_get(connection, &metadata_path)
+        .await
+        .and_then(|response| response.json());
+    let (partition_paths, unavailable_reason) = match metadata {
+        Ok(value) => {
+            let paths = value
+                .get("partitionKey")
+                .and_then(|partition| partition.get("paths"))
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|path| {
+                    path.as_str().map(|path| {
+                        path.trim_start_matches('/')
+                            .split('/')
+                            .filter(|segment| !segment.is_empty())
+                            .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect::<Vec<_>>();
+            if paths.is_empty() {
+                (
+                    paths,
+                    Some("Container partition-key metadata is unavailable."),
+                )
+            } else {
+                (paths, None)
+            }
+        }
+        Err(_) => (
+            Vec::new(),
+            Some("Container partition-key metadata could not be loaded."),
+        ),
+    };
+    let mut protected = vec![
+        vec!["id"],
+        vec!["_etag"],
+        vec!["_rid"],
+        vec!["_self"],
+        vec!["_attachments"],
+        vec!["_ts"],
+    ];
+    protected.extend(
+        partition_paths
+            .iter()
+            .map(|path| path.iter().map(String::as_str).collect::<Vec<_>>()),
+    );
+    json!({
+        "renderer": "document",
+        "documents": documents,
+        "database": database,
+        "collection": container,
+        "editMetadata": {
+            "adapterStrategy": "cosmosdb",
+            "protectedPaths": protected,
+            "partitionKeyPaths": partition_paths,
+            "concurrencyTokenField": "_etag",
+            "maxDocumentBytes": 2 * 1024 * 1024,
+            "unavailableReason": unavailable_reason,
+        }
+    })
 }
 
 fn cosmos_sql_execution_request(request: &ExecutionRequest) -> Result<Option<Value>, CommandError> {

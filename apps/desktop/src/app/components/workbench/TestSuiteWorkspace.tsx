@@ -46,6 +46,7 @@ interface TestSuiteWorkspaceProps {
   onRunSuite(caseId?: string): void
   onCancelRun(): void
   onUpdateSuite(suite: DatastoreTestSuiteDefinition, activeTestCaseId?: string): void
+  theme: string
 }
 
 export function TestSuiteWorkspace({
@@ -58,6 +59,7 @@ export function TestSuiteWorkspace({
   onRunSuite,
   onCancelRun,
   onUpdateSuite,
+  theme,
 }: TestSuiteWorkspaceProps) {
   const suite = useMemo(
     () => ensureCases(tab.testSuite ?? parseSuite(tab.queryText) ?? emptySuite(tab, connection), connection),
@@ -311,6 +313,7 @@ export function TestSuiteWorkspace({
               steps={selectedCase[phase]}
               connection={connection}
               tab={tab}
+              theme={theme}
               onChange={(steps) => updateCase({ ...selectedCase, [phase]: steps })}
             />
           ))}
@@ -462,12 +465,14 @@ function TestPhasePanel({
   steps,
   connection,
   tab,
+  theme,
   onChange,
 }: {
   phase: DatastoreTestPhase
   steps: DatastoreTestStep[]
   connection: ConnectionProfile
   tab: QueryTabState
+  theme: string
   onChange(steps: DatastoreTestStep[]): void
 }) {
   return (
@@ -488,6 +493,7 @@ function TestPhasePanel({
           step={step}
           connection={connection}
           tab={tab}
+          theme={theme}
           onChange={(nextStep) => onChange(replaceAt(steps, index, nextStep))}
           onRemove={() => onChange(steps.filter((candidate) => candidate.id !== step.id))}
         />
@@ -500,12 +506,14 @@ function StepEditor({
   step,
   connection,
   tab,
+  theme,
   onChange,
   onRemove,
 }: {
   step: DatastoreTestStep
   connection: ConnectionProfile
   tab: QueryTabState
+  theme: string
   onChange(step: DatastoreTestStep): void
   onRemove(): void
 }) {
@@ -568,6 +576,7 @@ function StepEditor({
               connection={connection}
               tab={{ ...tab, id: `${tab.id}-${step.id}`, builderState, queryText: step.queryText ?? builderState.lastAppliedQueryText ?? '' }}
               builderState={builderState}
+              theme={theme}
               onBuilderStateChange={(_tabId, nextBuilderState) =>
                 onChange({
                   ...step,

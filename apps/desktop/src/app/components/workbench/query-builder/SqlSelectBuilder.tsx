@@ -8,9 +8,14 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { BuilderSection } from './BuilderSection'
 import {
-  buildSqlSelectQueryText,
   sqlBuilderRowId,
 } from './sql-select'
+import { QueryBuilderValueInput } from './QueryBuilderValueInput'
+import {
+  queryBuilderOperatorArity,
+  queryBuilderValueTypeLabel,
+} from './query-value-codec'
+import { builderStateWithCompiledQueryText } from '../../../controllers/query-builder-routing'
 
 interface SqlSelectBuilderProps {
   connection: ConnectionProfile
@@ -18,6 +23,7 @@ interface SqlSelectBuilderProps {
   builderState: SqlSelectBuilderState
   tableOptions?: string[]
   onBuilderStateChange?(tabId: string, builderState: QueryBuilderState): void
+  theme: string
 }
 
 const FILTER_OPERATORS: Array<{ value: SqlSelectFilterOperator; label: string }> = [
@@ -38,9 +44,20 @@ const FILTER_OPERATORS: Array<{ value: SqlSelectFilterOperator; label: string }>
   { value: 'not-in', label: 'NOT IN' },
   { value: 'is-null', label: 'IS NULL' },
   { value: 'is-not-null', label: 'IS NOT NULL' },
+  { value: 'has-items', label: 'Has Items' },
+  { value: 'has-no-items', label: 'Has No Items' },
+  { value: 'has-length', label: 'Has Length' },
 ]
 
-const VALUE_TYPES: SqlBuilderValueType[] = ['string', 'number', 'boolean', 'null']
+const VALUE_TYPES: SqlBuilderValueType[] = ['string', 'number', 'boolean', 'null', 'date', 'uuid']
+const ARRAY_PREDICATE_ENGINES = new Set<ConnectionProfile['engine']>([
+  'postgresql',
+  'cockroachdb',
+  'mysql',
+  'mariadb',
+  'sqlite',
+  'sqlserver',
+])
 
 export function SqlSelectBuilder({
   connection,
@@ -48,15 +65,13 @@ export function SqlSelectBuilder({
   builderState,
   tableOptions = [],
   onBuilderStateChange,
+  theme,
 }: SqlSelectBuilderProps) {
   const draft = builderState
   const resolvedTableOptions = uniqueValues([draft.table, ...tableOptions])
   const updateDraft = (patch: Partial<SqlSelectBuilderState>) => {
     const nextDraft = { ...draft, ...patch }
-    const next = {
-      ...nextDraft,
-      lastAppliedQueryText: buildSqlSelectQueryText(nextDraft, connection.engine),
-    }
+    const next = builderStateWithCompiledQueryText(nextDraft, connection, tab)
 
     onBuilderStateChange?.(tab.id, next)
   }
@@ -184,10 +199,12 @@ export function SqlSelectBuilder({
         {draft.filters.length === 0 ? (
           <p className="query-builder-empty">No filters applied.</p>
         ) : (
-          draft.filters.map((filter) => (
+          draft.filters.map((filter) => {
+            const arity = queryBuilderOperatorArity(filter.operator)
+            return (
             <div
               key={filter.id}
-              className={`query-builder-row query-builder-row--filter${filter.enabled === false ? ' is-disabled' : ''}`}
+              className={`query-builder-row query-builder-row--filter is-${arity}${filter.enabled === false ? ' is-disabled' : ''}`}
             >
               <label className="query-builder-toggle">
                 <input
@@ -209,6 +226,7 @@ export function SqlSelectBuilder({
               />
               <select
                 aria-label="Filter operator"
+                title={filter.operator.startsWith('has-') ? 'Native server-side array or JSON-array length predicate.' : undefined}
                 value={filter.operator}
                 onChange={(event) =>
                   updateFilter(draft, updateDraft, filter.id, {
@@ -216,14 +234,17 @@ export function SqlSelectBuilder({
                   })
                 }
               >
-                {FILTER_OPERATORS.map((operator) => (
+                {FILTER_OPERATORS.filter((operator) =>
+                  !operator.value.startsWith('has-') || ARRAY_PREDICATE_ENGINES.has(connection.engine),
+                ).map((operator) => (
                   <option key={operator.value} value={operator.value}>
                     {operator.label}
                   </option>
                 ))}
               </select>
-              <select
+              {arity !== 'none' && arity !== 'length' ? <select
                 aria-label="Filter value type"
+                className="query-builder-value-type"
                 value={filter.valueType}
                 onChange={(event) =>
                   updateFilter(draft, updateDraft, filter.id, {
@@ -233,18 +254,20 @@ export function SqlSelectBuilder({
               >
                 {VALUE_TYPES.map((type) => (
                   <option key={type} value={type}>
-                    {type}
+                    {queryBuilderValueTypeLabel(type)}
                   </option>
                 ))}
-              </select>
-              <input
-                aria-label="Filter value"
+              </select> : null}
+              {arity !== 'none' ? <QueryBuilderValueInput
+                ariaLabel="Filter value"
+                operator={filter.operator}
+                theme={theme}
                 value={filter.value}
-                disabled={filter.operator === 'is-null' || filter.operator === 'is-not-null'}
-                onChange={(event) =>
-                  updateFilter(draft, updateDraft, filter.id, { value: event.target.value })
+                valueType={arity === 'length' ? 'number' : filter.valueType}
+                onChange={(value) =>
+                  updateFilter(draft, updateDraft, filter.id, { value })
                 }
-              />
+              /> : null}
               <button
                 type="button"
                 className="query-builder-remove"
@@ -258,7 +281,8 @@ export function SqlSelectBuilder({
                 Remove
               </button>
             </div>
-          ))
+            )
+          })
         )}
       </BuilderSection>
 

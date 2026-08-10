@@ -113,8 +113,31 @@ pub(super) async fn execute_litedb_query(
     let documents = normalized.documents;
     let truncated = normalized.truncated;
     let row_count = rows.len() as u32;
+    let editable_collection = bridge_request
+        .get("collection")
+        .and_then(Value::as_str)
+        .filter(|_| matches!(operation.as_str(), "Find" | "FindById"));
+    let document_payload = if let Some(collection) = editable_collection {
+        json!({
+            "renderer": "document",
+            "documents": documents,
+            "collection": collection,
+            "editMetadata": {
+                "adapterStrategy": "litedb",
+                "protectedPaths": [["_id"]],
+                "maxDocumentBytes": 16 * 1024 * 1024,
+                "unavailableReason": if live_execution {
+                    Value::Null
+                } else {
+                    Value::String("Live LiteDB editing requires a configured sidecar.".into())
+                }
+            }
+        })
+    } else {
+        payload_document(documents)
+    };
     let payloads = vec![
-        payload_document(documents),
+        document_payload,
         payload_table(columns, rows),
         payload_json(bounded_litedb_response(
             &operation,

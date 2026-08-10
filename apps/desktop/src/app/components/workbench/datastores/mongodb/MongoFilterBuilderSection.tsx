@@ -14,6 +14,11 @@ import {
   type MongoBuilderRowDragPayload,
 } from './MongoBuilderRowDrag.helpers'
 import { MongoBuilderDragHandle } from './MongoBuilderRowDrag'
+import { QueryBuilderValueInput } from '../../query-builder/QueryBuilderValueInput'
+import {
+  queryBuilderOperatorArity,
+  queryBuilderValueTypeLabel,
+} from '../../query-builder/query-value-codec'
 
 const FILTER_OPERATORS: Array<{ value: MongoFilterOperator; label: string }> = [
   { value: 'eq', label: '=' },
@@ -37,6 +42,9 @@ const FILTER_OPERATORS: Array<{ value: MongoFilterOperator; label: string }> = [
   { value: 'not-ends-with', label: 'Does not end with' },
   { value: 'in', label: 'In' },
   { value: 'not-in', label: 'Not in' },
+  { value: 'has-items', label: 'Has Items' },
+  { value: 'has-no-items', label: 'Has No Items' },
+  { value: 'has-length', label: 'Has Length' },
 ]
 
 const VALUE_TYPES: Array<{ value: MongoBuilderValueType; label: string }> = [
@@ -44,6 +52,7 @@ const VALUE_TYPES: Array<{ value: MongoBuilderValueType; label: string }> = [
   { value: 'number', label: 'number' },
   { value: 'boolean', label: 'boolean' },
   { value: 'date', label: 'Date' },
+  { value: 'uuid', label: 'GUID / UUID' },
   { value: 'objectId', label: 'ObjectId' },
   { value: 'null', label: 'null' },
   { value: 'json', label: 'json' },
@@ -333,6 +342,7 @@ function FilterRows({
   handleFilterPointerDrop,
   moveFilter,
   rows,
+  theme = 'dark',
   updateDraft,
 }: MongoFindSectionProps & {
   handleFilterPointerDrop(event: PointerEvent<HTMLElement>, fallbackGroupId?: string, fallbackRowId?: string): void
@@ -341,9 +351,12 @@ function FilterRows({
 }) {
   return (
     <>
-      {rows.map((row) => (
+      {rows.map((row) => {
+        const arity = queryBuilderOperatorArity(row.operator)
+        const showType = arity !== 'none' && arity !== 'length' && row.operator !== 'type' && row.operator !== 'not-type'
+        return (
         <div
-          className={`query-builder-row query-builder-row--filter query-builder-row--draggable${
+          className={`query-builder-row query-builder-row--filter query-builder-row--draggable is-${arity}${
             row.enabled === false ? ' is-disabled' : ''
           }`}
           data-mongo-builder-filter-group-id={row.groupId}
@@ -407,6 +420,7 @@ function FilterRows({
           />
           <select
             aria-label="Filter operator"
+            title={row.operator.startsWith('has-') ? 'Native MongoDB array predicate; $size is not index-backed.' : undefined}
             value={row.operator}
             onChange={(event) =>
               updateDraft({
@@ -425,8 +439,9 @@ function FilterRows({
               </option>
             ))}
           </select>
-          <select
+          {showType ? <select
             aria-label="Value type"
+            className="query-builder-value-type"
             value={row.valueType}
             onChange={(event) =>
               updateDraft({
@@ -441,24 +456,41 @@ function FilterRows({
           >
             {VALUE_TYPES.map((type) => (
               <option key={type.value} value={type.value}>
-                {type.label}
+                {queryBuilderValueTypeLabel(type.value)}
               </option>
             ))}
-          </select>
-          <input
-            aria-label="Filter value"
-            placeholder={filterValuePlaceholder(row.operator)}
-            value={row.value}
-            disabled={row.valueType === 'null' || mongoOperatorHasNoValue(row.operator)}
-            onChange={(event) =>
+          </select> : null}
+          {arity !== 'none' ? row.operator === 'type' || row.operator === 'not-type' ? (
+            <input
+              aria-label="Filter value"
+              placeholder="string, date, objectId, 2..."
+              value={row.value}
+              onChange={(event) =>
+                updateDraft({
+                  filterGroups,
+                  filters: draft.filters.map((item) =>
+                    item.id === row.id ? { ...item, value: event.target.value } : item,
+                  ),
+                })
+              }
+            />
+          ) : (
+            <QueryBuilderValueInput
+              ariaLabel="Filter value"
+              operator={row.operator}
+              theme={theme}
+              value={row.value}
+              valueType={arity === 'length' ? 'number' : row.valueType}
+              onChange={(value) =>
               updateDraft({
                 filterGroups,
                 filters: draft.filters.map((item) =>
-                  item.id === row.id ? { ...item, value: event.target.value } : item,
+                  item.id === row.id ? { ...item, value } : item,
                 ),
               })
-            }
-          />
+              }
+            />
+          ) : null}
           <button
             type="button"
             className="query-builder-remove query-builder-remove--icon"
@@ -474,7 +506,8 @@ function FilterRows({
             <TrashIcon className="toolbar-icon" />
           </button>
         </div>
-      ))}
+        )
+      })}
     </>
   )
 }
@@ -496,15 +529,7 @@ function mongoFilterWithOperator(row: MongoFindFilterRow, operator: MongoFilterO
 }
 
 function mongoOperatorHasNoValue(operator: MongoFilterOperator) {
-  return ['exists', 'does-not-exist', 'is-null', 'is-not-null'].includes(operator)
-}
-
-function filterValuePlaceholder(operator: MongoFilterOperator) {
-  if (operator === 'type' || operator === 'not-type') {
-    return 'string, date, objectId, 2...'
-  }
-
-  return mongoOperatorHasNoValue(operator) ? '' : 'value'
+  return queryBuilderOperatorArity(operator) === 'none'
 }
 
 type RowDropPlacement = 'before' | 'after'

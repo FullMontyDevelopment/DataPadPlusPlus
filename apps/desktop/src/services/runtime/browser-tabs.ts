@@ -1,6 +1,7 @@
-import type { CloseQueryTabsRequest, ConnectionProfile, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryTabState, ScopedQueryTarget, UpdateQueryTabTargetRequest, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
+import type { CloseQueryTabsRequest, ConnectionProfile, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryTabState, ScopedQueryTarget, UpdateQueryTabSqlScopeRequest, UpdateQueryTabTargetRequest, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import { createId, defaultQueryTextForConnection, defaultQueryViewModeForConnection, defaultScriptTextForConnection, editorLabelForConnection, languageForConnection } from '../../app/state/helpers'
 import { createDefaultCosmosSqlBuilderState } from '../../app/components/workbench/query-builder/cosmos-sql'
+import { defaultSqlQueryScope } from '../../app/components/workbench/query-targets/query-target-registry'
 import {
   cassandraPartitionKeyFromTarget,
   cassandraTargetFromTarget,
@@ -37,6 +38,7 @@ export function createQueryTabForConnection(
     queryText: defaultQueryTextForConnection(connection),
     queryViewMode: defaultQueryViewModeForConnection(connection),
     scriptText: defaultScriptTextForConnection(connection),
+    sqlScope: defaultSqlQueryScope(connection),
     status: 'idle',
     dirty,
     history: [],
@@ -344,6 +346,7 @@ export function createScopedQueryTabInSnapshot(
           ? mongoScriptAggregationText(targetObjectName)
         : defaultScriptTextForConnection(connection),
     scopedTarget: request.target,
+    sqlScope: defaultSqlQueryScope(connection, request.target),
     builderState:
       builderKind === 'mongo-find'
         ? {
@@ -801,6 +804,30 @@ export function updateQueryTabTargetInSnapshot(
   if (request.title?.trim()) {
     tab.title = request.title.trim()
   }
+  tab.status = 'idle'
+  tab.activeExecution = undefined
+  tab.dirty = true
+  tab.lastRunAt = undefined
+  tab.result = undefined
+  tab.error = undefined
+  next.updatedAt = new Date().toISOString()
+  return next
+}
+
+export function updateQueryTabSqlScopeInSnapshot(
+  snapshot: WorkspaceSnapshot,
+  request: UpdateQueryTabSqlScopeRequest,
+): WorkspaceSnapshot {
+  const next = cloneSnapshot(snapshot)
+  const tab = findTab(next, request.tabId)
+  if (!tab) {
+    return next
+  }
+  if (tab.activeExecution) {
+    throw new Error('Wait for the current query to finish before changing its SQL scope.')
+  }
+
+  tab.sqlScope = request.sqlScope
   tab.status = 'idle'
   tab.activeExecution = undefined
   tab.dirty = true

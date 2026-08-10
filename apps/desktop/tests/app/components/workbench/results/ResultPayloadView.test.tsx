@@ -16,6 +16,28 @@ import {
 import { JsonTreeView } from '../../../../../src/app/components/workbench/results/JsonTreeView'
 import { ResultPayloadView } from '../../../../../src/app/components/workbench/results/ResultPayloadView'
 
+vi.mock('../../../../../src/app/components/workbench/DesktopCodeEditor', async () => {
+  const React = await vi.importActual<typeof import('react')>('react')
+  return {
+    DesktopCodeEditor: ({
+      value,
+      ariaLabel,
+      readOnly,
+      onChange,
+    }: {
+      value: string
+      ariaLabel: string
+      readOnly: boolean
+      onChange(value: string): void
+    }) => React.createElement('textarea', {
+      'aria-label': ariaLabel,
+      readOnly,
+      value,
+      onChange: (event: { target: { value: string } }) => onChange(event.target.value),
+    }),
+  }
+})
+
 const writeTextSpy = vi.fn()
 
 beforeEach(() => {
@@ -389,14 +411,7 @@ describe('ResultPayloadView', () => {
     expect(inspector).toBeInTheDocument()
     expect(within(inspector).getByText('status')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Search raw JSON'), {
-      target: { value: 'active' },
-    })
-
-    await waitFor(() => {
-      expect(within(inspector).getByText('1/1')).toBeInTheDocument()
-      expect(within(inspector).getByLabelText('Selected field raw JSON')).toHaveTextContent('"active"')
-    })
+    expect(within(inspector).getByLabelText('Selected field raw JSON')).toHaveTextContent('"active"')
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy Raw JSON' }))
     await waitFor(() => {
@@ -405,17 +420,7 @@ describe('ResultPayloadView', () => {
 
     fireEvent.contextMenu(screen.getByRole('button', { name: '7' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'View Raw JSON' }))
-    fireEvent.change(screen.getByLabelText('Change inspected field type count'), {
-      target: { value: 'string' },
-    })
-    fireEvent.change(screen.getByLabelText('Search raw JSON'), {
-      target: { value: '7' },
-    })
-
-    await waitFor(() => {
-      expect(within(inspector).getByText('1/1')).toBeInTheDocument()
-      expect(screen.getByLabelText('Selected field raw JSON')).toHaveTextContent('"7"')
-    })
+    expect(screen.getByLabelText('Selected field raw JSON')).toHaveTextContent('7')
   })
 
   it('uses visible document rows as pointer drag handles for query builder drops', () => {
@@ -508,7 +513,7 @@ describe('ResultPayloadView', () => {
     window.removeEventListener(FIELD_POINTER_DRAG_DROP_EVENT, onDrop)
   })
 
-  it('enables Mongo document inline edits, typed badges, and context actions', async () => {
+  it('keeps Mongo document mutations disabled when guarded execution scope is unavailable', async () => {
     render(
       <ResultPayloadView
         connection={mongoConnection()}
@@ -528,34 +533,17 @@ describe('ResultPayloadView', () => {
     expect(screen.getAllByText('string')[0]).toHaveClass('is-string')
     expect(screen.getByText('number')).toHaveClass('is-number')
 
-    fireEvent.doubleClick(screen.getByText('status'))
-    const renameInput = screen.getByLabelText('Rename field status')
-    fireEvent.change(renameInput, {
-      target: { value: 'state' },
-    })
-    fireEvent.blur(renameInput)
-    expect(screen.getByText('state')).toBeInTheDocument()
-
     fireEvent.doubleClick(screen.getByRole('button', { name: 'active' }))
-    const valueInput = screen.getByLabelText('Edit value state')
-    fireEvent.change(valueInput, {
-      target: { value: 'paused' },
-    })
-    fireEvent.blur(valueInput)
-    expect(screen.getByRole('button', { name: 'paused' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Edit value status')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'active' })).toBeInTheDocument()
 
-    fireEvent.doubleClick(screen.getByText('number'))
-    expect(screen.getByLabelText('Change type count')).toHaveClass('is-number')
-    fireEvent.change(screen.getByLabelText('Change type count'), {
-      target: { value: 'string' },
-    })
-    expect(screen.queryByLabelText('Change type count')).not.toBeInTheDocument()
-
-    fireEvent.contextMenu(screen.getByRole('button', { name: 'paused' }))
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'active' }))
+    expect(screen.getByRole('menuitem', { name: 'Edit Value' })).toBeDisabled()
+    expect(screen.getByRole('menuitem', { name: 'Add Field' })).toBeDisabled()
     fireEvent.click(screen.getByRole('menuitem', { name: 'Copy Value' }))
 
     await waitFor(() => {
-      expect(writeTextSpy).toHaveBeenCalledWith('paused')
+      expect(writeTextSpy).toHaveBeenCalledWith('active')
     })
   })
 
@@ -599,8 +587,13 @@ describe('ResultPayloadView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
     fireEvent.doubleClick(screen.getByRole('button', { name: 'active' }))
     const valueInput = screen.getByLabelText('Edit value status')
+    const inlineEditor = valueInput.closest('.document-inline-value-editor')
+    const editorActions = inlineEditor?.querySelector('.document-inline-value-editor-actions')
+    expect(editorActions).not.toBeNull()
+    expect(within(editorActions as HTMLElement).getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
+    expect(within(editorActions as HTMLElement).getByRole('button', { name: 'Save' })).toBeInTheDocument()
     fireEvent.change(valueInput, { target: { value: 'paused' } })
-    fireEvent.blur(valueInput)
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
       expect(executeDataEdit).toHaveBeenCalledWith({
@@ -613,6 +606,7 @@ describe('ResultPayloadView', () => {
           database: 'catalog',
           collection: 'products',
           documentId: 'account-1',
+          expectedDocument: { _id: 'account-1', status: 'active' },
         },
         changes: [
           {
@@ -624,6 +618,174 @@ describe('ResultPayloadView', () => {
       })
     })
     expect(screen.getByRole('button', { name: 'paused' })).toBeInTheDocument()
+  })
+
+  it('requires explicit validation before saving raw JSON and refreshes from evidence', async () => {
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      editKind: request.editKind,
+      executionSupport: 'live',
+      executed: true,
+      plan: {
+        operationId: 'mongodb.data-edit.set-field',
+        engine: 'mongodb',
+        summary: 'Updated document field.',
+        generatedRequest: '{}',
+        requestLanguage: 'mongodb',
+        destructive: false,
+        requiredPermissions: ['update collection document'],
+        warnings: [],
+      },
+      messages: ['Updated field from validated JSON.'],
+      warnings: [],
+      metadata: {
+        documentEvidence: {
+          beforeDocument: { _id: 'account-1', status: 'active' },
+          afterDocument: { _id: 'account-1', status: 'paused' },
+        },
+      },
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={mongoConnection()}
+        editContext={{
+          connectionId: 'conn-mongo',
+          environmentId: 'env-dev',
+          queryText: '{ "database": "catalog", "collection": "products", "filter": {} }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'document',
+          documents: [{ _id: 'account-1', status: 'active' }],
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'active' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit Raw JSON' }))
+
+    const editor = await screen.findByLabelText('Edit selected value raw JSON')
+    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    const save = screen.getByRole('button', { name: 'Save' })
+    expect(save).toBeDisabled()
+
+    fireEvent.change(editor, { target: { value: '{not json' } })
+    expect(editor).toHaveValue('{not json')
+    fireEvent.click(screen.getByRole('button', { name: 'Validate JSON' }))
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+
+    fireEvent.change(editor, { target: { value: '"paused"' } })
+    expect(save).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Validate JSON' }))
+    expect(screen.getByRole('status')).toHaveTextContent('passed validation')
+    expect(save).toBeEnabled()
+    fireEvent.click(save)
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledWith({
+        connectionId: 'conn-mongo',
+        environmentId: 'env-dev',
+        editKind: 'set-field',
+        target: {
+          objectKind: 'document',
+          path: ['status'],
+          database: 'catalog',
+          collection: 'products',
+          documentId: 'account-1',
+          expectedDocument: { _id: 'account-1', status: 'active' },
+        },
+        changes: [{ path: ['status'], value: 'paused', valueType: 'string' }],
+      })
+    })
+    expect(screen.getByRole('button', { name: 'paused' })).toBeInTheDocument()
+  })
+
+  it('adds a document field only after the datastore confirms the guarded edit', async () => {
+    const executeDataEdit = vi.fn(async (
+      request: DataEditExecutionRequest,
+    ): Promise<DataEditExecutionResponse> => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      editKind: request.editKind,
+      executionSupport: 'live',
+      executed: true,
+      plan: {
+        operationId: 'mongodb.data-edit.add-field',
+        engine: 'mongodb',
+        summary: 'Added document field.',
+        generatedRequest: '{}',
+        requestLanguage: 'mongodb',
+        destructive: false,
+        requiredPermissions: ['update collection document'],
+        warnings: [],
+      },
+      messages: ['Added document field.'],
+      warnings: [],
+      metadata: {
+        documentEvidence: {
+          beforeDocument: { _id: 'account-1', status: 'active' },
+          afterDocument: {
+            _id: 'account-1',
+            status: 'active',
+            timezone: 'Africa/Johannesburg',
+          },
+        },
+      },
+    }))
+
+    render(
+      <ResultPayloadView
+        connection={mongoConnection()}
+        editContext={{
+          connectionId: 'conn-mongo',
+          environmentId: 'env-dev',
+          queryText: '{ "database": "catalog", "collection": "products", "filter": {} }',
+        }}
+        onExecuteDataEdit={executeDataEdit}
+        payload={{
+          renderer: 'document',
+          documents: [{ _id: 'account-1', status: 'active' }],
+        }}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByText('account-1'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add Field' }))
+    const dialog = screen.getByRole('dialog', { name: 'Add document field' })
+    fireEvent.change(within(dialog).getByLabelText('New field name'), {
+      target: { value: 'timezone' },
+    })
+    fireEvent.change(within(dialog).getByLabelText('New field value'), {
+      target: { value: 'Africa/Johannesburg' },
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add Field' }))
+
+    await waitFor(() => {
+      expect(executeDataEdit).toHaveBeenCalledWith({
+        connectionId: 'conn-mongo',
+        environmentId: 'env-dev',
+        editKind: 'add-field',
+        target: {
+          objectKind: 'document',
+          path: ['timezone'],
+          database: 'catalog',
+          collection: 'products',
+          documentId: 'account-1',
+          expectedDocument: { _id: 'account-1', status: 'active' },
+        },
+        changes: [{
+          path: ['timezone'],
+          value: 'Africa/Johannesburg',
+          valueType: 'string',
+        }],
+      })
+    })
+    expect(screen.getByRole('button', { name: 'Africa/Johannesburg' })).toBeInTheDocument()
   })
 
   it('handles rejected Mongo document field edits without applying a local success state', async () => {
@@ -651,7 +813,7 @@ describe('ResultPayloadView', () => {
     fireEvent.doubleClick(screen.getByRole('button', { name: 'active' }))
     const valueInput = screen.getByLabelText('Edit value status')
     fireEvent.change(valueInput, { target: { value: 'paused' } })
-    fireEvent.blur(valueInput)
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
       expect(screen.getByText('MongoDB rejected the document edit.')).toBeInTheDocument()
@@ -706,7 +868,7 @@ describe('ResultPayloadView', () => {
     fireEvent.doubleClick(screen.getByRole('button', { name: 'active' }))
     const valueInput = screen.getByLabelText('Edit value status')
     fireEvent.change(valueInput, { target: { value: 'paused' } })
-    fireEvent.blur(valueInput)
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
       expect(
@@ -752,9 +914,9 @@ describe('ResultPayloadView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
     fireEvent.contextMenu(screen.getByRole('button', { name: 'active' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Field' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove Field' }))
 
-    expect(screen.getByRole('dialog', { name: 'Delete field status?' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Remove field status?' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 
     expect(confirmSpy).not.toHaveBeenCalled()
@@ -819,6 +981,7 @@ describe('ResultPayloadView', () => {
           database: 'catalog',
           collection: 'products',
           documentId: 'account-1',
+          expectedDocument: { _id: 'account-1', status: 'active' },
         },
         changes: [],
       })
@@ -927,7 +1090,7 @@ describe('ResultPayloadView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
     fireEvent.contextMenu(screen.getByRole('button', { name: 'active' }))
 
-    expect(screen.getByRole('menuitem', { name: 'Delete Field' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Remove Field' })).toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'Delete Document' })).not.toBeInTheDocument()
   })
 
@@ -1040,8 +1203,8 @@ describe('ResultPayloadView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
     fireEvent.contextMenu(screen.getByRole('button', { name: 'active' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Field' }))
-    expect(screen.getByRole('dialog', { name: 'Delete field status?' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove Field' }))
+    expect(screen.getByRole('dialog', { name: 'Remove field status?' })).toBeInTheDocument()
 
     rerender(
       <ResultPayloadView
@@ -1059,7 +1222,7 @@ describe('ResultPayloadView', () => {
       />,
     )
 
-    expect(screen.queryByRole('dialog', { name: 'Delete field status?' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Remove field status?' })).not.toBeInTheDocument()
     expect(executeDataEdit).not.toHaveBeenCalled()
   })
 

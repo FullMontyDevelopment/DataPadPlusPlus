@@ -39,12 +39,12 @@ export function postgresSourceInspectPayload(
 
 export function sqlServerSourceInspectQueryTemplate(
   nodeId: string,
-  database: string,
+  _database: string,
   schema: string,
   objectName: string,
 ) {
   if ((nodeId.startsWith('procedure:') || nodeId.startsWith('function:')) && objectName) {
-    return `use [${database}];\nselect sm.definition from sys.sql_modules sm join sys.objects so on so.object_id = sm.object_id join sys.schemas ss on ss.schema_id = so.schema_id where ss.name = N'${escapeSqlLiteral(schema)}' and so.name = N'${escapeSqlLiteral(objectName)}';`
+    return `select sm.definition from sys.sql_modules sm join sys.objects so on so.object_id = sm.object_id join sys.schemas ss on ss.schema_id = so.schema_id where ss.name = N'${escapeSqlLiteral(schema)}' and so.name = N'${escapeSqlLiteral(objectName)}';`
   }
 
   return undefined

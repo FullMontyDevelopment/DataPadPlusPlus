@@ -207,6 +207,7 @@ async fn neo4j_bolt_fixture_returns_graph_entities() {
             confirmed_guardrail_id: None,
             builder_state: None,
             scoped_target: None,
+            sql_scope: None,
             datastore_execution_input: None,
         },
         Vec::new(),

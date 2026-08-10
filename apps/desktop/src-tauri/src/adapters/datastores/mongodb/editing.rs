@@ -2,7 +2,9 @@ use mongodb::bson::{doc, spec::BinarySubtype, Bson, Document};
 use serde_json::{json, Value};
 
 use super::super::super::*;
-use super::bson_extjson::{mongodb_json_to_bson, mongodb_json_to_document};
+use super::bson_extjson::{
+    mongodb_document_to_json, mongodb_json_to_bson, mongodb_json_to_document,
+};
 use super::connection::{mongodb_client, mongodb_database_name};
 
 pub(super) async fn execute_mongodb_data_edit(
@@ -107,13 +109,32 @@ pub(super) async fn execute_mongodb_data_edit(
     let document_id_bson = json_value_to_bson(document_id)?;
     let document_id_type = mongodb_identity_type(&document_id_bson);
     let filter = doc! { "_id": document_id_bson };
+    let before_document = collection.find_one(filter.clone()).await?;
+    let Some(expected_filter) =
+        mongodb_expected_document_filter(request, &filter, before_document.as_ref())?
+    else {
+        warnings.push(
+            "MongoDB did not apply the edit because the document changed or was removed after this result was loaded."
+                .into(),
+        );
+        return Ok(data_edit_response(
+            request,
+            plan,
+            false,
+            messages,
+            warnings,
+            Some(json!({
+                "matchedCount": 0,
+                "documentEvidence": {
+                    "beforeDocument": before_document.as_ref().map(mongodb_document_to_json),
+                    "afterDocument": before_document.as_ref().map(mongodb_document_to_json)
+                }
+            })),
+        ));
+    };
     if request.edit_kind == "delete-document" {
-        let matched_before = collection
-            .find_one(filter.clone())
-            .projection(doc! { "_id": 1 })
-            .await?
-            .is_some();
-        let delete_result = collection.delete_one(filter.clone()).await?;
+        let matched_before = before_document.is_some();
+        let delete_result = collection.delete_one(expected_filter).await?;
         let deleted_count = delete_result.deleted_count;
         let exists_after = collection
             .find_one(filter)
@@ -122,10 +143,13 @@ pub(super) async fn execute_mongodb_data_edit(
             .is_some();
 
         if deleted_count == 0 {
-            warnings.push(
+            warnings.push(if matched_before {
+                "MongoDB did not delete the document because it changed after this result was loaded."
+                    .into()
+            } else {
                 "MongoDB acknowledged the delete request, but no document matched the supplied `_id`."
-                    .into(),
-            );
+                    .into()
+            });
         } else {
             messages.push(format!(
                 "MongoDB deleted {deleted_count} document(s) from {database_name}.{collection_name}."
@@ -150,20 +174,25 @@ pub(super) async fn execute_mongodb_data_edit(
                 "documentIdType": document_id_type,
                 "matchedBefore": matched_before,
                 "deletedCount": deleted_count,
-                "existsAfter": exists_after
+                "existsAfter": exists_after,
+                "documentEvidence": {
+                    "beforeDocument": before_document.as_ref().map(mongodb_document_to_json),
+                    "afterDocument": null
+                }
             })),
         ));
     }
 
     if request.edit_kind == "update-document" {
         let replacement = mongodb_replacement_document(request, document_id)?;
-        let replace_result = collection.replace_one(filter, replacement).await?;
+        let replace_result = collection.replace_one(expected_filter, replacement).await?;
         let matched_count = replace_result.matched_count;
         let modified_count = replace_result.modified_count;
+        let after_document = collection.find_one(filter).await?;
 
         if matched_count == 0 {
             warnings.push(
-                "MongoDB acknowledged the replacement request, but no document matched the supplied `_id`."
+                "MongoDB did not replace the document because it was removed or changed after this result was loaded."
                     .into(),
             );
         } else {
@@ -180,7 +209,11 @@ pub(super) async fn execute_mongodb_data_edit(
             warnings,
             Some(json!({
                 "matchedCount": matched_count,
-                "modifiedCount": modified_count
+                "modifiedCount": modified_count,
+                "documentEvidence": {
+                    "beforeDocument": before_document.as_ref().map(mongodb_document_to_json),
+                    "afterDocument": after_document.as_ref().map(mongodb_document_to_json)
+                }
             })),
         ));
     }
@@ -193,15 +226,29 @@ pub(super) async fn execute_mongodb_data_edit(
         ));
     }
 
-    let update_result = collection.update_one(filter, update).await?;
+    let mut guarded_filter = expected_filter;
+    if request.edit_kind == "add-field" {
+        let change = request.changes.first().ok_or_else(|| {
+            CommandError::new(
+                "mongodb-add-field-missing-change",
+                "MongoDB Add Field requires one field change.",
+            )
+        })?;
+        guarded_filter.insert(data_edit_path(change)?, doc! { "$exists": false });
+    }
+    let update_result = collection.update_one(guarded_filter, update).await?;
     let matched_count = update_result.matched_count;
     let modified_count = update_result.modified_count;
+    let after_document = collection.find_one(filter).await?;
 
     if matched_count == 0 {
-        warnings.push(
+        warnings.push(if request.edit_kind == "add-field" && before_document.is_some() {
+            "MongoDB did not add the field because the guarded path already exists or the document changed concurrently."
+                .into()
+        } else {
             "MongoDB acknowledged the edit request, but no document matched the supplied `_id`."
-                .into(),
-        );
+                .into()
+        });
     } else {
         messages.push(format!(
             "MongoDB document edit matched {matched_count} document(s) and modified {modified_count} document(s)."
@@ -221,9 +268,39 @@ pub(super) async fn execute_mongodb_data_edit(
                 .upserted_id
                 .as_ref()
                 .map(bson_value_to_json)
-                .transpose()?
+                .transpose()?,
+            "documentEvidence": {
+                "beforeDocument": before_document.as_ref().map(mongodb_document_to_json),
+                "afterDocument": after_document.as_ref().map(mongodb_document_to_json)
+            }
         })),
     ))
+}
+
+fn mongodb_expected_document_filter(
+    request: &DataEditExecutionRequest,
+    identity_filter: &Document,
+    current_document: Option<&Document>,
+) -> Result<Option<Document>, CommandError> {
+    let Some(expected) = request.target.expected_document.as_ref() else {
+        return Ok(Some(identity_filter.clone()));
+    };
+    let Some(current_document) = current_document else {
+        return Ok(None);
+    };
+    if &mongodb_document_to_json(current_document) != expected {
+        return Ok(None);
+    }
+    let exact_document_expression = Bson::Array(vec![
+        Bson::String("$$ROOT".into()),
+        Bson::Document(doc! { "$literal": current_document.clone() }),
+    ]);
+    let mut filter = identity_filter.clone();
+    filter.insert(
+        "$expr",
+        Bson::Document(doc! { "$eq": exact_document_expression }),
+    );
+    Ok(Some(filter))
 }
 
 pub(super) fn mongodb_insert_document(
@@ -323,7 +400,7 @@ pub(super) fn mongodb_update_document(
                         })?,
                 );
             }
-            "set-field" | "change-field-type" => {
+            "set-field" | "add-field" | "change-field-type" => {
                 fields.insert(
                     path,
                     json_value_to_bson(change.value.as_ref().unwrap_or(&Value::Null))?,

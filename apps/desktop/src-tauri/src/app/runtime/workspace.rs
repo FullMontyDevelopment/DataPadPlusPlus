@@ -28,9 +28,10 @@ use crate::{
             DatastoreApiServerConfig, DatastoreApiServerPreferences, DatastoreMcpServerPreferences,
             DatastoreMcpServerTokenConfig, DatastoreSecurityChecksPreferences,
             DatastoreTestsSettingsRequest, DiagnosticsCounts, DiagnosticsReport, ExportBundle,
-            LockState, ResolvedEnvironment, UiState, WorkspaceCreateRequest,
-            WorkspaceRenameRequest, WorkspaceSearchSettingsRequest, WorkspaceSnapshot,
-            WorkspaceSwitchRequest, WorkspaceSwitcherSettingsRequest, WorkspaceSwitcherStatus,
+            LockState, QueryTabState, ResolvedEnvironment, SqlQueryScope, UiState,
+            WorkspaceCreateRequest, WorkspaceRenameRequest, WorkspaceSearchSettingsRequest,
+            WorkspaceSnapshot, WorkspaceSwitchRequest, WorkspaceSwitcherSettingsRequest,
+            WorkspaceSwitcherStatus,
         },
     },
     infrastructure, persistence, security,
@@ -382,6 +383,7 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     strip_demo_records(&mut snapshot);
     migrate_environment_variables(&mut snapshot);
     migrate_legacy_variable_tokens(&mut snapshot);
+    migrate_generated_sqlserver_scopes(&mut snapshot);
     super::workspace_fixture_migrations::migrate_fixture_workspace(&mut snapshot);
     migrate_connection_modes(&mut snapshot);
     normalize_datastore_api_server_preferences(&mut snapshot.preferences.datastore_api_server);
@@ -413,6 +415,120 @@ fn migrate_environment_variables(snapshot: &mut WorkspaceSnapshot) {
     for environment in &mut snapshot.environments {
         migrate_environment_profile_secrets(environment);
     }
+}
+
+fn migrate_generated_sqlserver_scopes(snapshot: &mut WorkspaceSnapshot) {
+    let sqlserver_connections = snapshot
+        .connections
+        .iter()
+        .filter(|connection| connection.engine == "sqlserver")
+        .map(|connection| connection.id.clone())
+        .collect::<HashSet<_>>();
+
+    let migrate_tab = |tab: &mut QueryTabState| {
+        if !sqlserver_connections.contains(&tab.connection_id) {
+            return;
+        }
+        if let Some((database, query_text)) = generated_sqlserver_scope(&tab.query_text) {
+            tab.query_text = query_text;
+            tab.sql_scope.get_or_insert_with(|| SqlQueryScope {
+                database: Some(database),
+                ..Default::default()
+            });
+        }
+        for entry in &mut tab.history {
+            if let Some((database, query_text)) = generated_sqlserver_scope(&entry.query_text) {
+                entry.query_text = query_text;
+                entry.sql_scope.get_or_insert_with(|| SqlQueryScope {
+                    database: Some(database),
+                    ..Default::default()
+                });
+            }
+        }
+    };
+    snapshot.tabs.iter_mut().for_each(migrate_tab);
+    snapshot
+        .closed_tabs
+        .iter_mut()
+        .for_each(|closed| migrate_tab(&mut closed.tab));
+    for node in &mut snapshot.library_nodes {
+        if !node
+            .connection_id
+            .as_ref()
+            .is_some_and(|id| sqlserver_connections.contains(id))
+        {
+            continue;
+        }
+        let Some(query_text) = node.query_text.as_deref() else {
+            continue;
+        };
+        if let Some((database, migrated_query)) = generated_sqlserver_scope(query_text) {
+            node.query_text = Some(migrated_query);
+            node.sql_scope.get_or_insert_with(|| SqlQueryScope {
+                database: Some(database),
+                ..Default::default()
+            });
+        }
+    }
+}
+
+fn generated_sqlserver_scope(query_text: &str) -> Option<(String, String)> {
+    const PREFIXES: &[&str] = &[
+        "select db_name() as database_name;",
+        "select top 100 * from [",
+        "select top 50 * from sys.query_store_runtime_stats",
+        "select session_id, status, command, wait_type, blocking_session_id from sys.dm_exec_requests",
+        "select request_session_id, resource_type, request_mode, request_status from sys.dm_tran_locks",
+        "select top 50 * from sys.dm_db_missing_index_details",
+        "select name, type_desc from sys.database_principals",
+        "select sm.definition from sys.sql_modules",
+        "select s.name as schema_name,",
+        "select role.name, count(member.member_principal_id)",
+        "select name, subject, issuer_name, expiry_date",
+        "select name, algorithm_desc, key_length",
+        "select name, credential_identity, target_type",
+        "select name, is_state_enabled, create_date",
+        "select name, type_desc, physical_name",
+        "select fg.name, fg.type_desc",
+        "select ps.name, pf.name as function_name",
+        "select name, type_desc, fanout",
+        "select name, event_retention_mode_desc",
+        "select top 100 name, enabled from msdb.dbo.sysjobs",
+    ];
+
+    let trimmed = query_text.trim_start();
+    if !trimmed
+        .get(..5)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("use ["))
+    {
+        return None;
+    }
+    let body = &trimmed[5..];
+    let mut database = String::new();
+    let mut chars = body.char_indices().peekable();
+    let end = loop {
+        let (index, character) = chars.next()?;
+        if character != ']' {
+            database.push(character);
+            continue;
+        }
+        if chars.peek().is_some_and(|(_, next)| *next == ']') {
+            let _ = chars.next();
+            database.push(']');
+            continue;
+        }
+        break index + character.len_utf8();
+    };
+    let remaining = body
+        .get(end..)?
+        .trim_start()
+        .strip_prefix(';')?
+        .trim_start();
+    let normalized = remaining.to_ascii_lowercase();
+    PREFIXES
+        .iter()
+        .any(|prefix| normalized.starts_with(prefix))
+        .then(|| (database, remaining.to_string()))
 }
 
 fn migrate_legacy_variable_tokens(snapshot: &mut WorkspaceSnapshot) {

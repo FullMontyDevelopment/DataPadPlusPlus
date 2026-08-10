@@ -44,6 +44,16 @@ fn mysql_select_template_qualifies_and_escapes_identifiers() {
 }
 
 #[test]
+fn mysql_database_node_uses_tab_scope_instead_of_a_use_statement() {
+    let node = database_node(&test_connection(None), "commerce");
+
+    assert_eq!(
+        node.query_template.as_deref(),
+        Some("select database() as database_name;")
+    );
+}
+
+#[test]
 fn mysql_database_nodes_separate_system_schemas() {
     let connection = test_connection(None);
     let user = database_node(&connection, "app");

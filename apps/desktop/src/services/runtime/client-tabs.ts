@@ -1,6 +1,6 @@
-import type { BootstrapPayload, CloseQueryTabsRequest, CloseQueryTabsResponse, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryViewMode, UpdateDatastoreQueryEditorStateRequest, UpdateQueryBuilderStateRequest, UpdateQueryTabTargetRequest } from '@datapadplusplus/shared-types'
+import type { BootstrapPayload, CloseQueryTabsRequest, CloseQueryTabsResponse, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryViewMode, UpdateDatastoreQueryEditorStateRequest, UpdateQueryBuilderStateRequest, UpdateQueryTabSqlScopeRequest, UpdateQueryTabTargetRequest } from '@datapadplusplus/shared-types'
 import { resolveEnvironment } from '../../app/state/helpers'
-import { closeQueryTab, closeQueryTabs, createEnvironmentTabInSnapshot, createExplorerTabInSnapshot, createMetricsTabInSnapshot, createObjectViewTabInSnapshot, createQueryTabForConnection, createScopedQueryTabInSnapshot, renameQueryTab, reopenClosedQueryTab, reorderQueryTabsInSnapshot, updateQueryTabTargetInSnapshot, upsertTab } from './browser-tabs'
+import { closeQueryTab, closeQueryTabs, createEnvironmentTabInSnapshot, createExplorerTabInSnapshot, createMetricsTabInSnapshot, createObjectViewTabInSnapshot, createQueryTabForConnection, createScopedQueryTabInSnapshot, renameQueryTab, reopenClosedQueryTab, reorderQueryTabsInSnapshot, updateQueryTabSqlScopeInSnapshot, updateQueryTabTargetInSnapshot, upsertTab } from './browser-tabs'
 import { collectDiagnosticsLocally } from './browser-operation-inspection'
 import { redactForEnvironment } from './browser-response-redaction'
 import { buildBrowserPayload, cloneSnapshot, findConnection, findTab, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
@@ -14,6 +14,7 @@ import {
   validateRequiredTabId,
   validateUpdateQueryBuilderStateRequest,
   validateUpdateDatastoreQueryEditorStateRequest,
+  validateUpdateQueryTabSqlScopeRequest,
   validateUpdateQueryTabTargetRequest,
   validateUpdateQueryTabRequest,
 } from './request-validation'
@@ -459,6 +460,19 @@ export const clientTabs = {
 
     const next = updateQueryTabTargetInSnapshot(loadBrowserSnapshot(), request)
 
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
+  },
+
+  async updateQuerySqlScope(
+    request: UpdateQueryTabSqlScopeRequest,
+  ): Promise<BootstrapPayload> {
+    request = validateUpdateQueryTabSqlScopeRequest(request)
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('update_query_tab_sql_scope', { request })
+    }
+
+    const next = updateQueryTabSqlScopeInSnapshot(loadBrowserSnapshot(), request)
     saveBrowserSnapshot(next)
     return buildBrowserPayload(next)
   },

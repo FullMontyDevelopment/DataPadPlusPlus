@@ -10,6 +10,7 @@ use crate::domain::{
 
 mod capabilities;
 mod count_results;
+mod document_edit;
 mod explorer_paging;
 mod graph_results;
 mod gremlin_ws;
@@ -19,11 +20,13 @@ mod paging;
 mod payloads;
 mod results;
 mod sql_batch;
+mod sql_scope;
 mod structure;
 mod tree_manifest;
 
 pub(crate) use capabilities::*;
 pub(crate) use count_results::*;
+pub(crate) use document_edit::*;
 pub(crate) use explorer_paging::*;
 pub(crate) use graph_results::*;
 pub(crate) use gremlin_ws::*;
@@ -33,6 +36,7 @@ pub(crate) use paging::*;
 pub(crate) use payloads::*;
 pub(crate) use results::*;
 pub(crate) use sql_batch::*;
+pub(crate) use sql_scope::*;
 pub(crate) use structure::*;
 #[cfg(test)]
 pub(crate) use tree_manifest::datastore_tree_manifest;

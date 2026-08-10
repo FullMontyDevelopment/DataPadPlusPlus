@@ -5,6 +5,7 @@ import type {
   ExecutionCapabilities,
   ExecutionResultEnvelope,
   QueryTabState,
+  SqlQueryScope,
   UpdateUiStateRequest,
   WorkspaceCreateRequest,
   WorkspaceRenameRequest,
@@ -516,8 +517,9 @@ export function confirmationGuardrailId(
   environmentId: string,
   mode: string,
   queryText: string,
+  sqlScope?: SqlQueryScope,
 ) {
-  return hashPassphrase(`${connectionId}:${environmentId}:${mode}:${queryText}`).replace(
+  return hashPassphrase(`${connectionId}:${environmentId}:${mode}:${queryText}:${JSON.stringify(sqlScope ?? null)}`).replace(
     'preview-',
     'guardrail-',
   )

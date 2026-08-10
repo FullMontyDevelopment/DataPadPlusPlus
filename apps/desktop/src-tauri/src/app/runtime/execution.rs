@@ -24,7 +24,7 @@ use crate::{
             CancelExecutionRequest, CancelExecutionResult, DocumentNodeChildrenRequest,
             DocumentNodeChildrenResponse, ExecutionRequest, ExecutionResponse,
             QueryExecutionNotice, QueryHistoryEntry, ResolvedConnectionProfile, ResultPageRequest,
-            ResultPageResponse, ScopedQueryTarget, UserFacingError,
+            ResultPageResponse, ScopedQueryTarget, SqlQueryScope, UserFacingError,
         },
     },
     security,
@@ -48,6 +48,7 @@ impl ManagedAppState {
         let (mut resolved_connection, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
         apply_scoped_target_override(&mut resolved_connection, request.scoped_target.as_ref());
+        apply_sql_query_scope(&mut resolved_connection, request.sql_scope.as_ref())?;
         let query_template = adapters::selected_query(&request).to_string();
         if profile.engine == "mongodb" && request.execution_input_mode.as_deref() == Some("script")
         {
@@ -85,6 +86,7 @@ impl ManagedAppState {
                 &environment.id,
                 request.mode.as_deref().unwrap_or("full"),
                 &query_text,
+                request.sql_scope.as_ref(),
             );
             guardrail.id = Some(guardrail_id.clone());
             guardrail.required_confirmation_text = Some(format!("CONFIRM {}", environment.label));
@@ -110,6 +112,7 @@ impl ManagedAppState {
                             query_text: query_template,
                             executed_at,
                             status: "blocked".into(),
+                            sql_scope: request.sql_scope.clone(),
                         },
                     );
                     tab.error = Some(UserFacingError {
@@ -204,6 +207,7 @@ impl ManagedAppState {
                 tab.script_text = request.script_text.clone();
             }
             tab.query_view_mode = request.execution_input_mode.clone();
+            tab.sql_scope = request.sql_scope.clone();
             if request.document_efficiency_mode.is_some() {
                 tab.document_efficiency_mode = request.document_efficiency_mode;
             }
@@ -216,6 +220,7 @@ impl ManagedAppState {
                     query_text: query_template,
                     executed_at,
                     status: status.clone(),
+                    sql_scope: request.sql_scope.clone(),
                 },
             );
             tab.error = if guardrail.status == "block" {
@@ -282,6 +287,7 @@ impl ManagedAppState {
         let (mut resolved, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
         apply_scoped_target_override(&mut resolved, request.scoped_target.as_ref());
+        apply_sql_query_scope(&mut resolved, request.sql_scope.as_ref())?;
         let mut resolved_request = request.clone();
         resolved_request.query_text =
             resolve_string_template(&request.query_text, &resolved_environment.variables)?;
@@ -455,6 +461,13 @@ fn apply_scoped_target_override(
         }
         _ => {}
     }
+}
+
+fn apply_sql_query_scope(
+    connection: &mut ResolvedConnectionProfile,
+    scope: Option<&SqlQueryScope>,
+) -> Result<(), CommandError> {
+    adapters::apply_sql_query_scope(connection, scope)
 }
 
 fn scoped_namespace(target: &ScopedQueryTarget, prefixes: &[&str]) -> Option<String> {
@@ -658,6 +671,7 @@ pub(super) fn confirmation_guardrail_id(
     environment_id: &str,
     mode: &str,
     query_text: &str,
+    sql_scope: Option<&SqlQueryScope>,
 ) -> String {
     let mut hasher = Sha256::new();
     hasher.update(connection_id.as_bytes());
@@ -667,6 +681,10 @@ pub(super) fn confirmation_guardrail_id(
     hasher.update(mode.as_bytes());
     hasher.update([0]);
     hasher.update(query_text.as_bytes());
+    hasher.update([0]);
+    if let Some(scope) = sql_scope {
+        hasher.update(serde_json::to_vec(scope).unwrap_or_default());
+    }
     let digest = hasher.finalize();
     let short_id = digest
         .iter()

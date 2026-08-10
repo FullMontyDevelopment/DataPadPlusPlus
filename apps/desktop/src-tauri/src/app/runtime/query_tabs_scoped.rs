@@ -15,7 +15,7 @@ use super::{
 };
 use crate::domain::models::{
     ConnectionProfile, CreateScopedQueryTabRequest, QueryTabState, ScopedQueryTarget,
-    WorkspaceSnapshot,
+    SqlQueryScope, WorkspaceSnapshot,
 };
 
 pub(super) fn build_scoped_query_tab(
@@ -139,6 +139,7 @@ pub(super) fn build_scoped_query_tab(
             }
         }),
         document_efficiency_mode: None,
+        sql_scope: sql_scope_for_scoped_target(connection, &request.target),
         scoped_target: Some(request.target),
         builder_state,
         metrics_state: None,
@@ -154,6 +155,168 @@ pub(super) fn build_scoped_query_tab(
         history: Vec::new(),
         error: None,
     }
+}
+
+fn sql_scope_for_scoped_target(
+    connection: &ConnectionProfile,
+    target: &ScopedQueryTarget,
+) -> Option<SqlQueryScope> {
+    let engine = connection.engine.as_str();
+    if !matches!(
+        engine,
+        "postgresql"
+            | "cockroachdb"
+            | "timescaledb"
+            | "sqlserver"
+            | "mysql"
+            | "mariadb"
+            | "oracle"
+            | "duckdb"
+            | "clickhouse"
+            | "snowflake"
+            | "bigquery"
+    ) {
+        return None;
+    }
+
+    let direct = |kinds: &[&str]| {
+        kinds
+            .contains(
+                &target
+                    .kind
+                    .trim()
+                    .to_ascii_lowercase()
+                    .replace(['_', ' '], "-")
+                    .as_str(),
+            )
+            .then(|| target.label.trim().to_string())
+            .filter(|value| !value.is_empty())
+    };
+    let after = |containers: &[&str]| {
+        target.path.windows(2).find_map(|pair| {
+            containers
+                .contains(&pair[0].trim().to_ascii_lowercase().as_str())
+                .then(|| pair[1].trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+    };
+    let parts = target
+        .scope
+        .as_deref()
+        .unwrap_or_default()
+        .split(':')
+        .collect::<Vec<_>>();
+
+    let database = direct(&["database"])
+        .or_else(|| after(&["databases"]))
+        .or_else(|| {
+            (engine == "sqlserver" && parts.first() == Some(&"table") && parts.len() >= 4)
+                .then(|| parts[1].trim().to_string())
+        })
+        .or_else(|| {
+            (matches!(engine, "mysql" | "mariadb") && parts.first() == Some(&"table"))
+                .then(|| parts.get(1).copied().unwrap_or_default())
+                .and_then(|identity| identity.split('.').next())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .or_else(|| connection.database.clone())
+        .or_else(|| {
+            connection
+                .warehouse_options
+                .as_ref()
+                .and_then(|options| options.database_name.clone())
+        });
+    let catalog = direct(&["catalog", "project"])
+        .or_else(|| after(&["catalogs", "projects"]))
+        .or_else(|| {
+            connection.warehouse_options.as_ref().and_then(|options| {
+                options
+                    .project_id
+                    .clone()
+                    .or_else(|| options.catalog_name.clone())
+            })
+        });
+    let schema = direct(&["schema", "dataset"])
+        .or_else(|| after(&["schemas", "user-schemas", "datasets"]))
+        .or_else(|| {
+            (engine == "oracle")
+                .then(|| oracle_schema_from_scope(target.scope.as_deref().unwrap_or_default()))
+                .flatten()
+        })
+        .or_else(|| {
+            (parts.first() == Some(&"table") && parts.len() >= 4)
+                .then(|| parts[2].trim().to_string())
+        })
+        .or_else(|| {
+            connection.warehouse_options.as_ref().and_then(|options| {
+                options
+                    .schema_name
+                    .clone()
+                    .or_else(|| options.dataset_id.clone())
+            })
+        })
+        .or_else(|| {
+            connection
+                .postgres_options
+                .as_ref()
+                .and_then(|options| options.search_path.clone())
+        });
+
+    let scope = match engine {
+        "sqlserver" | "mysql" | "mariadb" | "clickhouse" => SqlQueryScope {
+            database,
+            ..Default::default()
+        },
+        "postgresql" | "cockroachdb" | "timescaledb" | "snowflake" => SqlQueryScope {
+            database,
+            schema,
+            ..Default::default()
+        },
+        "oracle" | "duckdb" => SqlQueryScope {
+            schema,
+            ..Default::default()
+        },
+        "bigquery" => SqlQueryScope {
+            catalog,
+            schema,
+            ..Default::default()
+        },
+        _ => return None,
+    };
+    (scope.catalog.is_some() || scope.database.is_some() || scope.schema.is_some()).then_some(scope)
+}
+
+fn oracle_schema_from_scope(scope: &str) -> Option<String> {
+    let parts = scope.split(':').collect::<Vec<_>>();
+    if parts.first() != Some(&"oracle") || parts.get(1) != Some(&"object") {
+        return None;
+    }
+
+    let encoded = match parts.as_slice() {
+        [_, _, _, "database", _, schema, _] => *schema,
+        [_, _, _, "schema", schema, _] | [_, _, _, schema, _] => *schema,
+        _ => return None,
+    };
+    decode_scope_component(encoded)
+}
+
+fn decode_scope_component(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != b'%' {
+            decoded.push(bytes[index]);
+            index += 1;
+            continue;
+        }
+        let hex = std::str::from_utf8(bytes.get(index + 1..index + 3)?).ok()?;
+        decoded.push(u8::from_str_radix(hex, 16).ok()?);
+        index += 3;
+    }
+    String::from_utf8(decoded).ok()
 }
 
 fn scoped_builder_kind(

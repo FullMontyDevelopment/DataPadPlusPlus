@@ -34,6 +34,11 @@ pub(crate) fn mongodb_document_payload<'a>(
         "hydrationMode": if lazy { "lazy" } else { "full" },
         "database": database,
         "collection": collection,
+        "editMetadata": {
+            "adapterStrategy": "mongodb",
+            "protectedPaths": [["_id"]],
+            "maxDocumentBytes": 16 * 1024 * 1024,
+        },
     })
 }
 
@@ -69,7 +74,11 @@ pub(crate) async fn fetch_mongodb_document_node_children(
         tab_id: request.tab_id.clone(),
         document_id: request.document_id.clone(),
         path: request.path.clone(),
-        value: summarize_hydrated_value(&value, &request.path),
+        value: if request.mode.as_deref() == Some("full-value") {
+            mongodb_bson_to_json(&value)
+        } else {
+            summarize_hydrated_value(&value, &request.path)
+        },
         notices: Vec::new(),
     })
 }
@@ -227,6 +236,10 @@ async fn fetch_path_with_find(
         .as_ref()
         .map(|(_, adjusted_path)| adjusted_path.as_slice())
         .unwrap_or(path);
+
+    if effective_path.is_empty() {
+        return Ok(Bson::Document(document));
+    }
 
     bson_value_at_path(&document, effective_path).cloned()
 }

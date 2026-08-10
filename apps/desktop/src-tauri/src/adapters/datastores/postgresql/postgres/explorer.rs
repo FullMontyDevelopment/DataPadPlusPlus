@@ -11,7 +11,7 @@ pub(super) async fn list_postgres_explorer_nodes(
 ) -> Result<ExplorerResponse, CommandError> {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
-        .connect(&postgres_dsn(connection))
+        .connect_with(postgres_connect_options(connection)?)
         .await?;
     let nodes = match request.scope.as_deref() {
         None => root_nodes(&pool, connection).await,
@@ -41,7 +41,7 @@ pub(super) async fn inspect_postgres_explorer_node(
     let query_template = postgres_inspect_query_template(connection, &request.node_id);
     let payload = match sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
-        .connect(&postgres_dsn(connection))
+        .connect_with(postgres_connect_options(connection)?)
         .await
     {
         Ok(pool) => {

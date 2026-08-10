@@ -12,11 +12,14 @@ import type {
   ExplorerNode,
   QueryBuilderState,
   ScopedQueryTarget,
+  SqlQueryScope,
 } from '@datapadplusplus/shared-types'
 import { ChevronDownIcon, RefreshIcon, SearchIcon } from '../icons'
 import {
   queryTargetOptions,
   queryTargetRegistryForEngine,
+  nativeSqlScopeLevelIds,
+  sqlQueryScopeFromValues,
   targetRelatedExplorerScopes,
   type QueryTargetOption,
 } from './query-target-registry'
@@ -33,8 +36,10 @@ export function QueryTargetPicker({
   onChange,
   onLoadScope,
   onRefresh,
+  onSqlScopeChange,
   selectableLevelIds,
   scopedTarget,
+  sqlScope,
 }: {
   builderState: QueryBuilderState | undefined
   connection: ConnectionProfile
@@ -47,13 +52,30 @@ export function QueryTargetPicker({
   onChange(target: ScopedQueryTarget): void
   onLoadScope(scope?: string): void
   onRefresh(): void
+  onSqlScopeChange?(scope: SqlQueryScope | undefined): void
   selectableLevelIds?: ReadonlySet<string>
   scopedTarget?: ScopedQueryTarget
+  sqlScope?: SqlQueryScope
 }) {
   const registry = queryTargetRegistryForEngine(connection.engine)
+  const nativeScopeLevels = useMemo(
+    () => nativeSqlScopeLevelIds(connection),
+    [connection],
+  )
+  const effectiveSelectableLevelIds = useMemo(
+    () => new Set([...(selectableLevelIds ?? []), ...nativeScopeLevels]),
+    [nativeScopeLevels, selectableLevelIds],
+  )
   const targetData = useMemo(
-    () => queryTargetOptions(connection, nodes, scopedTarget, builderState, selectableLevelIds),
-    [builderState, connection, nodes, scopedTarget, selectableLevelIds],
+    () => queryTargetOptions(
+      connection,
+      nodes,
+      scopedTarget,
+      builderState,
+      sqlScope,
+      effectiveSelectableLevelIds,
+    ),
+    [builderState, connection, effectiveSelectableLevelIds, nodes, scopedTarget, sqlScope],
   )
   const [openLevel, setOpenLevel] = useState<number>()
   const [search, setSearch] = useState('')
@@ -217,6 +239,15 @@ export function QueryTargetPicker({
                     setSearch('')
                     if (option.scope && !isScopeLoaded(option.scope)) {
                       onLoadScope(option.scope)
+                    }
+                    if (onSqlScopeChange && nativeScopeLevels.has(level.id)) {
+                      onSqlScopeChange(sqlQueryScopeFromValues(connection, nextSelected))
+                      if (levelIndex < targetData.levels.length - 1) {
+                        setOpenLevel(levelIndex + 1)
+                      } else {
+                        closeMenu()
+                      }
+                      return
                     }
                     if (option.target) {
                       closeMenu()

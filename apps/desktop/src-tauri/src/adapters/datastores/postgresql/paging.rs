@@ -2,7 +2,7 @@ use sqlx::{Column, Row};
 
 use super::super::super::*;
 use super::cells::stringify_pg_cell;
-use super::connection::postgres_dsn;
+use super::connection::postgres_connect_options;
 
 pub(crate) async fn fetch_postgres_page(
     connection: &ResolvedConnectionProfile,
@@ -13,7 +13,7 @@ pub(crate) async fn fetch_postgres_page(
     let query = paged_sql(selected_page_query(request), page_size, page_index)?;
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
-        .connect(&postgres_dsn(connection))
+        .connect_with(postgres_connect_options(connection)?)
         .await?;
     let rows = sqlx::query(sqlx::AssertSqlSafe(query))
         .fetch_all(&pool)

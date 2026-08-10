@@ -34,7 +34,7 @@ pub(super) async fn execute_postgres_query(
             .collect::<Result<Vec<_>, _>>()?;
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(&postgres_dsn(connection))
+            .connect_with(postgres_connect_options(connection)?)
             .await?;
         let mut sections = Vec::new();
         let mut total_rows = 0u32;
@@ -114,7 +114,7 @@ pub(super) async fn execute_postgres_query(
     let query_request = postgres_query_request(statement, execute_mode(request))?;
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
-        .connect(&postgres_dsn(connection))
+        .connect_with(postgres_connect_options(connection)?)
         .await?;
     let result = query_postgres_rows(&pool, &query_request.wire_statement, row_limit).await;
     pool.close().await;

@@ -79,6 +79,8 @@ export function DocumentVirtualGridRows({
           return row ? (
             <div
               key={virtualRow.key}
+              ref={virtualizer.measureElement}
+              data-index={virtualRow.index}
               className="document-data-grid-virtual-row"
               style={{ transform: `translateY(${virtualRow.start}px)` }}
             >

@@ -74,7 +74,7 @@ pub(super) async fn timescale_inspection_payload(
 
     match PgPoolOptions::new()
         .max_connections(1)
-        .connect(&postgres_dsn(connection))
+        .connect_with(postgres_connect_options(connection).ok()?)
         .await
     {
         Ok(pool) => {

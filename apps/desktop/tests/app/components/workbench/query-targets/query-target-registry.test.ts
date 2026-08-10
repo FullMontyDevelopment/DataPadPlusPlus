@@ -4,8 +4,10 @@ import { describe, expect, it } from 'vitest'
 import { createSeedSnapshot } from '../../../../fixtures/seed-workspace'
 import {
   QUERY_TARGET_REGISTRY,
+  nativeSqlScopeLevelIds,
   queryTargetOptions,
   queryTargetValues,
+  sqlQueryScopeFromValues,
 } from '../../../../../src/app/components/workbench/query-targets/query-target-registry'
 import {
   buildQueryTargetChangePlan,
@@ -19,6 +21,41 @@ describe('query target registry', () => {
       const entry = QUERY_TARGET_REGISTRY[engine]
       expect(entry.levels.length > 0 || Boolean(entry.noTargetReason)).toBe(true)
     }
+  })
+
+  it('advertises only native SQL scope levels and maps selected values without inventing scope', () => {
+    const snapshot = createSeedSnapshot()
+    const base = required(snapshot.connections.find((item) => item.id === 'conn-analytics'))
+    const expected = {
+      postgresql: ['database', 'schema'],
+      cockroachdb: ['database', 'schema'],
+      timescaledb: ['database', 'schema'],
+      sqlserver: ['database'],
+      mysql: ['database'],
+      mariadb: ['database'],
+      oracle: ['schema'],
+      duckdb: ['schema'],
+      clickhouse: ['database'],
+      snowflake: ['database', 'schema'],
+      bigquery: ['catalog', 'schema'],
+      sqlite: [],
+    } as const
+
+    for (const [engine, levels] of Object.entries(expected)) {
+      const connection = engineConnection(base, engine as ConnectionProfile['engine'], 'sql')
+      expect([...nativeSqlScopeLevelIds(connection)]).toEqual(levels)
+    }
+
+    const postgres = engineConnection(base, 'postgresql', 'sql')
+    expect(sqlQueryScopeFromValues(postgres, ['analytics', 'reporting', 'orders'])).toEqual({
+      database: 'analytics',
+      schema: 'reporting',
+    })
+    const sqlServer = engineConnection(base, 'sqlserver', 'sql')
+    expect(sqlQueryScopeFromValues(sqlServer, ['archive', 'dbo', 'orders'])).toEqual({
+      database: 'archive',
+    })
+    expect(sqlQueryScopeFromValues(engineConnection(base, 'sqlite', 'sql'), ['main', 'orders'])).toBeUndefined()
   })
 
   it('builds discovered MongoDB database and collection choices and retains unavailable targets', () => {

@@ -1,10 +1,10 @@
-import type { QueryTabState } from '@datapadplusplus/shared-types'
+import type { QueryTabState, SqlQueryScope } from '@datapadplusplus/shared-types'
 import { HistoryIcon } from '../icons'
 
 interface HistoryViewProps {
   activeTab: QueryTabState
   executionLocked?: boolean
-  onRestoreHistory(queryText: string): void
+  onRestoreHistory(queryText: string, sqlScope?: SqlQueryScope): void
 }
 
 export function HistoryView({
@@ -17,7 +17,7 @@ export function HistoryView({
       <div className="panel-title-row">
         <div>
           <strong>Query History</strong>
-          <p>Restore previous query text for the active tab.</p>
+          <p>Restore previous query text and its database scope for the active tab.</p>
         </div>
       </div>
 
@@ -37,7 +37,7 @@ export function HistoryView({
                     ? 'Wait for the running query to finish before restoring history.'
                     : undefined
                 }
-                onClick={() => onRestoreHistory(entry.queryText)}
+                onClick={() => onRestoreHistory(entry.queryText, entry.sqlScope)}
               >
                 <HistoryIcon className="panel-inline-icon" />
                 <span>{entry.status}</span>

@@ -74,6 +74,46 @@ fn explicit_mysql_connection_string_is_preserved() {
 }
 
 #[test]
+fn mysql_connect_options_override_connection_string_database_with_tab_scope() {
+    let mut connection = ResolvedConnectionProfile {
+        id: "conn".into(),
+        name: "MySQL".into(),
+        engine: "mysql".into(),
+        family: "sql".into(),
+        host: "localhost".into(),
+        port: Some(3306),
+        database: Some("tab_database".into()),
+        username: Some("root".into()),
+        password: Some("secret".into()),
+        connection_string: Some("mysql://root:secret@localhost/profile_database".into()),
+        redis_options: None,
+        memcached_options: None,
+        sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        mongodb_options: None,
+        warehouse_options: None,
+        read_only: false,
+    };
+
+    let options = mysql_connect_options(&connection).expect("options");
+    assert_eq!(options.get_database(), Some("tab_database"));
+    connection.database = None;
+    assert_eq!(
+        mysql_connect_options(&connection).unwrap().get_database(),
+        Some("profile_database")
+    );
+}
+
+#[test]
 fn mysql_dsn_applies_native_profile_options() {
     let connection = ResolvedConnectionProfile {
         id: "conn".into(),

@@ -15,7 +15,7 @@ use sqlx::{
 
 use super::super::super::*;
 use super::cells::stringify_pg_cell;
-use super::postgres_dsn;
+use super::postgres_connect_options;
 
 const POSTGRES_FILE_WORKFLOW_MAX_ROWS: u64 = 100_000;
 const POSTGRES_BACKUP_DEFAULT_ROWS: u64 = 1_000;
@@ -164,7 +164,7 @@ async fn execute_postgres_table_export(
     let row_limit = workflow_row_limit(request);
     let pool = PgPoolOptions::new()
         .max_connections(1)
-        .connect(&postgres_dsn(connection))
+        .connect_with(postgres_connect_options(connection)?)
         .await?;
     let rows = fetch_pg_table_rows(&pool, &schema, &table, row_limit).await?;
     pool.close().await;
@@ -336,7 +336,7 @@ async fn execute_postgres_table_import(
 
     let pool = PgPoolOptions::new()
         .max_connections(1)
-        .connect(&postgres_dsn(connection))
+        .connect_with(postgres_connect_options(connection)?)
         .await?;
     let table_columns = pg_table_column_info(&pool, &schema, &table).await?;
     if table_columns.is_empty() {
@@ -549,7 +549,7 @@ async fn execute_postgres_database_backup(
     let row_limit = backup_row_limit(request);
     let pool = PgPoolOptions::new()
         .max_connections(1)
-        .connect(&postgres_dsn(connection))
+        .connect_with(postgres_connect_options(connection)?)
         .await?;
     let mut tables = pg_backup_tables(&pool, schema_filter.as_deref(), table_limit + 1).await?;
     let table_list_truncated = tables.len() as u64 > table_limit;

@@ -1,8 +1,8 @@
-use std::time::Duration;
+use std::{str::FromStr, time::Duration};
 
 use crate::domain::models::MySqlConnectionOptions;
 use sqlx::{
-    mysql::{MySqlPool, MySqlPoolOptions},
+    mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions},
     types::chrono::{NaiveDate, NaiveDateTime, NaiveTime},
     Column, Row, TypeInfo,
 };
@@ -86,7 +86,23 @@ pub(super) async fn mysql_pool(
     if let Some(timeout_ms) = mysql_timeout_ms(connection) {
         options = options.acquire_timeout(Duration::from_millis(timeout_ms));
     }
-    Ok(options.connect(&mysql_dsn(connection)).await?)
+    let connect_options = mysql_connect_options(connection)?;
+    Ok(options.connect_with(connect_options).await?)
+}
+
+fn mysql_connect_options(
+    connection: &ResolvedConnectionProfile,
+) -> Result<MySqlConnectOptions, CommandError> {
+    let mut connect_options = MySqlConnectOptions::from_str(&mysql_dsn(connection))?;
+    if let Some(database) = connection
+        .database
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        connect_options = connect_options.database(database);
+    }
+    Ok(connect_options)
 }
 
 fn mysql_dsn_query(connection: &ResolvedConnectionProfile) -> String {

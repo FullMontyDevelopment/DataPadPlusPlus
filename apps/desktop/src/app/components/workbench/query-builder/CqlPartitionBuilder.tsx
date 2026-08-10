@@ -8,16 +8,19 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { BuilderSection } from './BuilderSection'
 import {
-  buildCqlPartitionQueryText,
   cqlBuilderRowId,
   newCqlCondition,
 } from './cql-partition'
+import { QueryBuilderValueInput } from './QueryBuilderValueInput'
+import { queryBuilderValueTypeLabel } from './query-value-codec'
+import { builderStateWithCompiledQueryText } from '../../../controllers/query-builder-routing'
 
 interface CqlPartitionBuilderProps {
   tab: QueryTabState
   builderState: CqlPartitionBuilderState
   tableOptions?: string[]
   onBuilderStateChange?(tabId: string, builderState: QueryBuilderState): void
+  theme: string
 }
 
 const OPERATORS: Array<{ value: CqlConditionOperator; label: string }> = [
@@ -29,22 +32,20 @@ const OPERATORS: Array<{ value: CqlConditionOperator; label: string }> = [
   { value: 'in', label: 'IN' },
   { value: 'contains', label: 'CONTAINS' },
 ]
-const VALUE_TYPES: CqlBuilderValueType[] = ['string', 'number', 'boolean', 'null']
+const VALUE_TYPES: CqlBuilderValueType[] = ['string', 'number', 'boolean', 'null', 'date', 'uuid']
 
 export function CqlPartitionBuilder({
   tab,
   builderState,
   tableOptions = [],
   onBuilderStateChange,
+  theme,
 }: CqlPartitionBuilderProps) {
   const draft = builderState
   const tableOptionsList = uniqueValues([draft.table, ...tableOptions])
   const updateDraft = (patch: Partial<CqlPartitionBuilderState>) => {
     const nextDraft = { ...draft, ...patch }
-    onBuilderStateChange?.(tab.id, {
-      ...nextDraft,
-      lastAppliedQueryText: buildCqlPartitionQueryText(nextDraft),
-    })
+    onBuilderStateChange?.(tab.id, builderStateWithCompiledQueryText(nextDraft, undefined, tab))
   }
 
   return (
@@ -97,18 +98,21 @@ export function CqlPartitionBuilder({
         actionLabel="Add Key"
         rows={draft.partitionKeys}
         updateRows={(partitionKeys) => updateDraft({ partitionKeys })}
+        theme={theme}
       />
       <CqlConditionSection
         title="Clustering"
         actionLabel="Add Clustering Key"
         rows={draft.clusteringKeys}
         updateRows={(clusteringKeys) => updateDraft({ clusteringKeys })}
+        theme={theme}
       />
       <CqlConditionSection
         title="Filters"
         actionLabel="Add Filter"
         rows={draft.filters}
         updateRows={(filters) => updateDraft({ filters })}
+        theme={theme}
       />
 
       <BuilderSection
@@ -173,11 +177,13 @@ function CqlConditionSection({
   rows,
   title,
   updateRows,
+  theme,
 }: {
   actionLabel: string
   rows: CqlConditionRow[]
   title: string
   updateRows(rows: CqlConditionRow[]): void
+  theme: string
 }) {
   return (
     <BuilderSection
@@ -193,6 +199,7 @@ function CqlConditionSection({
         <ConditionRow
           key={row.id}
           row={row}
+          theme={theme}
           onChange={(patch) =>
             updateRows(rows.map((item) => item.id === row.id ? { ...item, ...patch } : item))
           }
@@ -207,10 +214,12 @@ function ConditionRow({
   row,
   onChange,
   onRemove,
+  theme,
 }: {
   row: CqlConditionRow
   onChange(patch: Partial<CqlConditionRow>): void
   onRemove(): void
+  theme: string
 }) {
   return (
     <div className={`query-builder-row query-builder-row--filter${row.enabled === false ? ' is-disabled' : ''}`}>
@@ -239,15 +248,19 @@ function ConditionRow({
       </select>
       <select
         aria-label="Condition value type"
+        className="query-builder-value-type"
         value={row.valueType}
         onChange={(event) => onChange({ valueType: event.target.value as CqlBuilderValueType })}
       >
-        {VALUE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+        {VALUE_TYPES.map((type) => <option key={type} value={type}>{queryBuilderValueTypeLabel(type)}</option>)}
       </select>
-      <input
-        aria-label="Condition value"
+      <QueryBuilderValueInput
+        ariaLabel="Condition value"
+        operator={row.operator}
+        theme={theme}
         value={row.value}
-        onChange={(event) => onChange({ value: event.target.value })}
+        valueType={row.valueType}
+        onChange={(value) => onChange({ value })}
       />
       <button
         type="button"

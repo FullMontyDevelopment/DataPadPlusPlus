@@ -33,6 +33,14 @@ import {
   buildSqlSelectQueryText,
   isSqlSelectBuilderState,
 } from '../components/workbench/query-builder/sql-select'
+import {
+  validateQueryBuilderState,
+  type QueryBuilderValidationError,
+} from '../components/workbench/query-builder/query-builder-validation'
+
+export type QueryBuilderCompilation =
+  | { ok: true; queryText?: string; errors: [] }
+  | { ok: false; errors: QueryBuilderValidationError[] }
 
 export function queryScopeForBuilderState(
   builderState: QueryBuilderState | undefined,
@@ -55,6 +63,48 @@ export function buildQueryTextForBuilderState(
   connection: ConnectionProfile | undefined,
   tab?: QueryTabState,
 ) {
+  const compilation = compileQueryBuilderState(builderState, connection, tab)
+  return compilation.ok ? compilation.queryText : undefined
+}
+
+export function compileQueryBuilderState(
+  builderState: QueryBuilderState,
+  connection: ConnectionProfile | undefined,
+  tab?: QueryTabState,
+): QueryBuilderCompilation {
+  const errors = validateQueryBuilderState(builderState)
+  if (errors.length > 0) return { ok: false, errors }
+
+  try {
+    return {
+      ok: true,
+      queryText: buildUncheckedQueryTextForBuilderState(builderState, connection, tab),
+      errors: [],
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      errors: [{ message: error instanceof Error ? error.message : 'The query builder draft is invalid.' }],
+    }
+  }
+}
+
+export function builderStateWithCompiledQueryText<T extends QueryBuilderState>(
+  builderState: T,
+  connection: ConnectionProfile | undefined,
+  tab?: QueryTabState,
+): T {
+  const compilation = compileQueryBuilderState(builderState, connection, tab)
+  return compilation.ok && compilation.queryText !== undefined
+    ? { ...builderState, lastAppliedQueryText: compilation.queryText }
+    : builderState
+}
+
+function buildUncheckedQueryTextForBuilderState(
+  builderState: QueryBuilderState,
+  connection: ConnectionProfile | undefined,
+  tab?: QueryTabState,
+) {
   if (isMongoFindBuilderState(builderState)) {
     return buildMongoFindQueryText(builderState, {
       database: queryScopeForBuilderState(builderState, connection, tab)?.database,
@@ -68,7 +118,10 @@ export function buildQueryTextForBuilderState(
   }
 
   if (connection && isSqlSelectBuilderState(builderState)) {
-    return buildSqlSelectQueryText(builderState, connection.engine)
+    const scopedState = tab?.sqlScope?.schema
+      ? { ...builderState, schema: tab.sqlScope.schema }
+      : builderState
+    return buildSqlSelectQueryText(scopedState, connection.engine)
   }
 
   if (isDynamoDbKeyConditionBuilderState(builderState)) {

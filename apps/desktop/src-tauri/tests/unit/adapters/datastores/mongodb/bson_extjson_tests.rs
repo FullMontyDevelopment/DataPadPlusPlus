@@ -79,8 +79,20 @@ fn keeps_legacy_uuid_subtypes_as_binary_values() {
     });
     let rendered = mongodb_bson_to_json(&bson);
 
-    assert_eq!(rendered["$binary"]["subType"], "UuidOld");
+    assert_eq!(rendered["$binary"]["subType"], "03");
+    assert_eq!(rendered["$binary"]["base64"], "ABEiM0RVZneImaq7zN3u/w==");
     assert!(rendered.get("$uuid").is_none());
+}
+
+#[test]
+fn rejects_malformed_compound_extended_json_without_silent_defaults() {
+    for value in [
+        json!({ "$timestamp": { "t": "bad", "i": 1 } }),
+        json!({ "$regularExpression": { "pattern": 7, "options": "i" } }),
+        json!({ "$binary": { "base64": "AA==", "subType": "0" } }),
+    ] {
+        assert!(mongodb_json_to_bson(&value, "mongodb-invalid-native").is_err());
+    }
 }
 
 #[test]

@@ -17,14 +17,11 @@ fn inspect_sqlserver_explorer_node_quotes_explicit_table_when_available() {
 }
 
 #[test]
-fn inspect_sqlserver_explorer_node_includes_database_for_scoped_tables() {
+fn inspect_sqlserver_explorer_node_keeps_database_scope_out_of_scoped_table_sql() {
     let connection = connection();
     let query = inspect_query_template(&connection, "table:datapadplusplus:dbo:orders");
 
-    assert_eq!(
-        query,
-        "use [datapadplusplus];\nselect top 100 * from [dbo].[orders];"
-    );
+    assert_eq!(query, "select top 100 * from [dbo].[orders];");
 }
 
 #[test]
@@ -33,11 +30,11 @@ fn inspect_sqlserver_explorer_node_uses_table_query_for_table_feature_nodes() {
 
     assert_eq!(
         inspect_query_template(&connection, "keys:datapadplusplus:dbo:orders"),
-        "use [datapadplusplus];\nselect top 100 * from [dbo].[orders];"
+        "select top 100 * from [dbo].[orders];"
     );
     assert_eq!(
         inspect_query_template(&connection, "dependencies:datapadplusplus:dbo:orders"),
-        "use [datapadplusplus];\nselect top 100 * from [dbo].[orders];"
+        "select top 100 * from [dbo].[orders];"
     );
 }
 
@@ -49,7 +46,7 @@ fn inspect_sqlserver_explorer_node_uses_module_definition_for_routines() {
     let function_query =
         inspect_query_template(&connection, "function:datapadplusplus:dbo:account_status");
 
-    assert!(procedure_query.starts_with("use [datapadplusplus];"));
+    assert!(!procedure_query.to_ascii_lowercase().starts_with("use "));
     assert!(procedure_query.contains("sys.sql_modules"));
     assert!(procedure_query.contains("ss.name = N'dbo'"));
     assert!(procedure_query.contains("so.name = N'refresh_cache'"));
@@ -361,7 +358,7 @@ fn table_scope_returns_table_management_children() {
             .unwrap()
             .query_template
             .as_deref(),
-        Some("use [datapadplusplus];\nselect top 100 * from [dbo].[accounts];")
+        Some("select top 100 * from [dbo].[accounts];")
     );
 }
 

@@ -13,7 +13,7 @@ use super::validators::{
     validate_environment_id, validate_query_tab_reorder_request, validate_required_tab_id,
     validate_update_datastore_query_editor_state_request,
     validate_update_query_builder_state_request, validate_update_query_tab_request,
-    validate_update_query_tab_target_request,
+    validate_update_query_tab_sql_scope_request, validate_update_query_tab_target_request,
 };
 use super::{generate_id, timestamp_now, ManagedAppState};
 use crate::domain::{
@@ -23,7 +23,7 @@ use crate::domain::{
         CreateObjectViewTabRequest, CreateScopedQueryTabRequest, PersistenceWarning,
         QueryTabReorderRequest, QueryTabState, ScopedQueryTarget,
         UpdateDatastoreQueryEditorStateRequest, UpdateQueryBuilderStateRequest,
-        UpdateQueryTabTargetRequest, WorkspaceSnapshot,
+        UpdateQueryTabSqlScopeRequest, UpdateQueryTabTargetRequest, WorkspaceSnapshot,
     },
 };
 use crate::infrastructure;
@@ -563,6 +563,34 @@ impl ManagedAppState {
             .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
 
         apply_query_target_update(tab, request)?;
+        self.snapshot.updated_at = timestamp_now();
+        self.persist()?;
+        Ok(self.bootstrap_payload())
+    }
+
+    pub fn update_query_tab_sql_scope(
+        &mut self,
+        request: UpdateQueryTabSqlScopeRequest,
+    ) -> Result<BootstrapPayload, CommandError> {
+        validate_update_query_tab_sql_scope_request(&request)?;
+        let tab = self
+            .snapshot
+            .tabs
+            .iter_mut()
+            .find(|item| item.id == request.tab_id)
+            .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
+        if tab.active_execution.is_some() {
+            return Err(CommandError::new(
+                "query-scope-change-running",
+                "Wait for the current query to finish before changing its SQL scope.",
+            ));
+        }
+        tab.sql_scope = request.sql_scope;
+        tab.status = "idle".into();
+        tab.dirty = true;
+        tab.last_run_at = None;
+        tab.result = None;
+        tab.error = None;
         self.snapshot.updated_at = timestamp_now();
         self.persist()?;
         Ok(self.bootstrap_payload())

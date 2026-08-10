@@ -5,7 +5,9 @@ import {
   isBsonNumberValue,
   isBsonObjectIdValue,
   isBsonUuidValue,
+  isLiteDbGuidValue,
 } from './document-bson-values'
+import { DocumentDraftInput } from './DocumentAddFieldDialog'
 import { documentValueTypeLabel, type DocumentGridRow, type DocumentValueType } from './document-grid-model'
 import { coerceValue, editableValue, parseEditedValue } from './document-value-editing'
 import {
@@ -301,6 +303,10 @@ function documentDragValueType(value: unknown, fallbackType: DocumentValueType) 
     return 'uuid'
   }
 
+  if (isLiteDbGuidValue(value)) {
+    return 'guid'
+  }
+
   if (isBsonNumberValue(value)) {
     return 'number'
   }
@@ -362,28 +368,45 @@ function FieldValueEditor({
   ): void
 }) {
   const [valueDraft, setValueDraft] = useState(editableValue(row.value))
+  const [error, setError] = useState('')
 
   const commit = () => {
-    onUpdateValue(row, parseEditedValue(valueDraft, row.type), 'set-field')
+    const parsed = parseEditedValue(valueDraft, row.type, row.value)
+    if (!parsed.ok) {
+      setError(parsed.error)
+      return
+    }
+    onUpdateValue(row, parsed.value, 'set-field')
     onStopEditing()
   }
 
   return (
-    <input
-      className="document-data-grid-value-input"
-      aria-label={`Edit value ${row.fieldPath}`}
-      value={valueDraft}
-      autoFocus
-      onBlur={commit}
-      onChange={(event) => setValueDraft(event.target.value)}
-      onFocus={(event) => event.currentTarget.select()}
+    <div
+      className="document-data-grid-value-input document-inline-value-editor"
       onKeyDown={(event) => handleDraftEditorKeyDown(event, commit, onStopEditing)}
-    />
+    >
+      <DocumentDraftInput
+        type={row.type}
+        value={valueDraft}
+        ariaLabel={`Edit value ${row.fieldPath}`}
+        autoFocus
+        onChange={(value) => {
+          setValueDraft(value)
+          setError('')
+        }}
+        onError={setError}
+      />
+      <div className="document-inline-value-editor-actions">
+        <button type="button" className="drawer-button drawer-button--compact" onClick={onStopEditing}>Cancel</button>
+        <button type="button" className="drawer-button drawer-button--compact drawer-button--primary" onClick={commit}>Save</button>
+      </div>
+      {error ? <span className="document-edit-error" role="alert">{error}</span> : null}
+    </div>
   )
 }
 
 function handleDraftEditorKeyDown(
-  event: KeyboardEvent<HTMLInputElement>,
+  event: KeyboardEvent<HTMLElement>,
   commit: () => void,
   cancel: () => void,
 ) {

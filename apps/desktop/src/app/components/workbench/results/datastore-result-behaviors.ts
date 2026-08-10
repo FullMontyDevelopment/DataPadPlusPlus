@@ -8,8 +8,10 @@ export interface DocumentResultBehavior {
     copyPath: boolean
     copyValue: boolean
     copyDocument: boolean
+    addField: boolean
     renameField: boolean
     editValue: boolean
+    editRawJson: boolean
     changeType: boolean
     deleteField: boolean
     deleteDocument: boolean
@@ -25,8 +27,10 @@ const READ_ONLY_BEHAVIOR: DocumentResultBehavior = {
     copyPath: true,
     copyValue: true,
     copyDocument: true,
+    addField: false,
     renameField: false,
     editValue: false,
+    editRawJson: false,
     changeType: false,
     deleteField: false,
     deleteDocument: false,
@@ -34,7 +38,7 @@ const READ_ONLY_BEHAVIOR: DocumentResultBehavior = {
   editModeLabel: 'Read-only result',
 }
 
-const MONGO_DOCUMENT_BEHAVIOR: DocumentResultBehavior = {
+const EDITABLE_DOCUMENT_BEHAVIOR: DocumentResultBehavior = {
   canEditDocuments: true,
   canRenameFields: true,
   canChangeTypes: true,
@@ -42,24 +46,34 @@ const MONGO_DOCUMENT_BEHAVIOR: DocumentResultBehavior = {
     copyPath: true,
     copyValue: true,
     copyDocument: true,
+    addField: true,
     renameField: true,
     editValue: true,
+    editRawJson: true,
     changeType: true,
     deleteField: true,
     deleteDocument: true,
   },
-  editModeLabel: 'MongoDB editable document result',
+  editModeLabel: 'Guarded editable document result',
 }
 
 export function documentResultBehaviorForConnection(
   connection?: ConnectionProfile,
 ): DocumentResultBehavior {
-  if (!connection || connection.readOnly) {
+  if (!connection) {
     return READ_ONLY_BEHAVIOR
   }
 
-  if (connection.engine === 'mongodb' || connection.engine === 'cosmosdb') {
-    return MONGO_DOCUMENT_BEHAVIOR
+  if (['mongodb', 'cosmosdb', 'litedb', 'arango'].includes(connection.engine)) {
+    return connection.readOnly
+      ? {
+          ...EDITABLE_DOCUMENT_BEHAVIOR,
+          canEditDocuments: false,
+          canRenameFields: false,
+          canChangeTypes: false,
+          editModeLabel: 'Read-only connection',
+        }
+      : EDITABLE_DOCUMENT_BEHAVIOR
   }
 
   return READ_ONLY_BEHAVIOR

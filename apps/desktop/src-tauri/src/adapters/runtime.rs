@@ -50,18 +50,22 @@ pub async fn execute(
     request: &ExecutionRequest,
     notices: Vec<QueryExecutionNotice>,
 ) -> Result<ExecutionResultEnvelope, CommandError> {
-    let result = adapter_for_engine(&connection.engine)?
-        .execute(connection, request, notices)
+    let mut scoped_connection = connection.clone();
+    apply_sql_query_scope(&mut scoped_connection, request.sql_scope.as_ref())?;
+    let result = adapter_for_engine(&scoped_connection.engine)?
+        .execute(&scoped_connection, request, notices)
         .await?;
-    normalize_count_execution_result(connection, request, result)
+    normalize_count_execution_result(&scoped_connection, request, result)
 }
 
 pub async fn fetch_result_page(
     connection: &ResolvedConnectionProfile,
     request: &ResultPageRequest,
 ) -> Result<ResultPageResponse, CommandError> {
-    adapter_for_engine(&connection.engine)?
-        .fetch_result_page(connection, request)
+    let mut scoped_connection = connection.clone();
+    apply_sql_query_scope(&mut scoped_connection, request.sql_scope.as_ref())?;
+    adapter_for_engine(&scoped_connection.engine)?
+        .fetch_result_page(&scoped_connection, request)
         .await
 }
 

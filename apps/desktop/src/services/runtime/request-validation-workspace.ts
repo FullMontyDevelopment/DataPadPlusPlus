@@ -13,8 +13,10 @@ import type {
   QueryViewMode,
   SecretRef,
   ScopedQueryTarget,
+  SqlQueryScope,
   UpdateQueryBuilderStateRequest,
   UpdateDatastoreQueryEditorStateRequest,
+  UpdateQueryTabSqlScopeRequest,
   UpdateQueryTabTargetRequest,
   UpdateQueryTabRequest,
   UpdateTestSuiteTabRequest,
@@ -271,6 +273,25 @@ export function validateUpdateQueryTabTargetRequest(
     title,
     scopedTarget: validateScopedQueryTarget(request.scopedTarget),
   }
+}
+
+export function validateSqlQueryScope(scope: SqlQueryScope | undefined): SqlQueryScope | undefined {
+  if (!scope) {
+    return undefined
+  }
+  const normalized: SqlQueryScope = {
+    catalog: validateOptionalText(scope.catalog, 'SQL catalog', MAX_OBJECT_NAME_LENGTH)?.trim(),
+    database: validateOptionalText(scope.database, 'SQL database', MAX_OBJECT_NAME_LENGTH)?.trim(),
+    schema: validateOptionalText(scope.schema, 'SQL schema', MAX_OBJECT_NAME_LENGTH)?.trim(),
+  }
+  return normalized.catalog || normalized.database || normalized.schema ? normalized : undefined
+}
+
+export function validateUpdateQueryTabSqlScopeRequest(
+  request: UpdateQueryTabSqlScopeRequest,
+): UpdateQueryTabSqlScopeRequest {
+  validateRequiredId(request.tabId, 'Tab id')
+  return { ...request, sqlScope: validateSqlQueryScope(request.sqlScope) }
 }
 
 export function validateCreateTestSuiteTabRequest(

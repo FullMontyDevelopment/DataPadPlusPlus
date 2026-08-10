@@ -19,13 +19,42 @@ const appMarker = '<title>DataPad++</title>'
 const identityMarker = 'datapadplusplus-desktop'
 const readyTimeoutMs = 30000
 const staleRecoveryMs = 3000
+const moduleGraphBatchSize = 32
+const moduleGraphLimit = 2500
 const logPath = resolve(workspaceRoot, '.vscode', 'ui-dev.log')
 
-export function extractOptimizedDependencyUrls(entrySource) {
-  const matches = entrySource.matchAll(
-    /["'](\/node_modules\/\.vite\/deps\/[^"']+)["']/g,
+export function extractModuleUrls(moduleSource, moduleUrl = entryUrl) {
+  const matches = moduleSource.matchAll(
+    /\b(?:import|export)\s+(?:[\w*{}\s,$]+\s+from\s+)?["']([^"']+)["']/g,
   )
-  return [...new Set([...matches].map((match) => new URL(match[1], appUrl).href))]
+  const urls = []
+
+  for (const match of matches) {
+    const specifier = match[1]
+    if (!specifier.startsWith('/') && !specifier.startsWith('./') && !specifier.startsWith('../')) {
+      continue
+    }
+
+    let url
+    try {
+      url = new URL(specifier, moduleUrl)
+    } catch {
+      continue
+    }
+
+    if (url.origin !== new URL(appUrl).origin || !isCrawlableModulePath(url.pathname)) {
+      continue
+    }
+    urls.push(url.href)
+  }
+
+  return [...new Set(urls)]
+}
+
+export function extractOptimizedDependencyUrls(entrySource) {
+  return extractModuleUrls(entrySource).filter((url) =>
+    new URL(url).pathname.startsWith('/node_modules/.vite/deps/'),
+  )
 }
 
 export async function inspectUiServer({
@@ -55,17 +84,50 @@ export async function inspectUiServer({
     return { kind: 'datapad-stale', pid }
   }
 
-  const dependencyUrls = extractOptimizedDependencyUrls(entry.body)
-  if (dependencyUrls.length === 0) {
-    return { kind: 'datapad-stale', pid }
-  }
-
-  const dependencies = await Promise.all(dependencyUrls.map((url) => read(url)))
-  if (dependencies.some((dependency) => dependency?.statusCode !== 200)) {
+  const moduleGraph = await inspectModuleGraph(entry.body, read)
+  if (!moduleGraph.ready) {
     return { kind: 'datapad-stale', pid }
   }
 
   return { kind: 'datapad-ready', pid }
+}
+
+async function inspectModuleGraph(entrySource, read) {
+  const visited = new Set([entryUrl])
+  const queue = extractModuleUrls(entrySource)
+
+  while (queue.length > 0) {
+    if (visited.size + queue.length > moduleGraphLimit) {
+      return { ready: false }
+    }
+
+    const batch = queue.splice(0, moduleGraphBatchSize).filter((url) => {
+      if (visited.has(url)) return false
+      visited.add(url)
+      return true
+    })
+    if (batch.length === 0) continue
+
+    const responses = await Promise.all(batch.map((url) => read(url)))
+    for (let index = 0; index < batch.length; index += 1) {
+      const response = responses[index]
+      if (response?.statusCode !== 200) return { ready: false }
+
+      for (const nestedUrl of extractModuleUrls(response.body, batch[index])) {
+        if (!visited.has(nestedUrl)) queue.push(nestedUrl)
+      }
+    }
+  }
+
+  return { ready: visited.size > 1 }
+}
+
+function isCrawlableModulePath(pathname) {
+  return pathname.startsWith('/src/') ||
+    pathname.startsWith('/@fs/') ||
+    pathname.startsWith('/@id/') ||
+    pathname.startsWith('/@vite/') ||
+    pathname.startsWith('/node_modules/.vite/deps/')
 }
 
 function canConnect() {
@@ -175,7 +237,7 @@ function startVite() {
   const logFd = openSync(logPath, 'a')
   const child = spawn(
     process.execPath,
-    [viteBin, '--host', host, '--port', String(port), '--strictPort'],
+    [viteBin, '--host', host, '--port', String(port), '--strictPort', '--force'],
     {
       cwd: desktopRoot,
       detached: true,

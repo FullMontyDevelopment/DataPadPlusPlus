@@ -9,7 +9,7 @@ use futures_util::StreamExt;
 use hmac::{Hmac, KeyInit, Mac};
 use reqwest::{redirect::Policy, Client, Method, RequestBuilder, Response, Url};
 use serde::Serialize;
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use sha2::Sha256;
 use tokio_util::sync::CancellationToken;
 
@@ -90,6 +90,13 @@ pub(super) struct CosmosDbQueryRequestOptions {
 #[derive(Debug, Clone, Default)]
 struct CosmosDbRequestOptions {
     query: Option<CosmosDbQueryRequestOptions>,
+    mutation: Option<CosmosDbMutationRequestOptions>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct CosmosDbMutationRequestOptions {
+    partition_key: String,
+    if_match: Option<String>,
 }
 
 pub(super) async fn test_cosmosdb_connection(
@@ -157,8 +164,83 @@ pub(super) async fn cosmosdb_post_query(
         Some(body),
         CosmosDbRequestOptions {
             query: Some(options),
+            mutation: None,
         },
         cancellation,
+    )
+    .await
+}
+
+pub(super) async fn cosmosdb_guarded_get_document(
+    connection: &ResolvedConnectionProfile,
+    path: &str,
+    partition_key: &Value,
+) -> Result<CosmosDbResponse, CommandError> {
+    cosmosdb_guarded_document_request(connection, Method::GET, path, None, partition_key, None)
+        .await
+}
+
+pub(super) async fn cosmosdb_guarded_replace_document(
+    connection: &ResolvedConnectionProfile,
+    path: &str,
+    body: &str,
+    partition_key: &Value,
+    etag: &str,
+) -> Result<CosmosDbResponse, CommandError> {
+    cosmosdb_guarded_document_request(
+        connection,
+        Method::PUT,
+        path,
+        Some(body),
+        partition_key,
+        Some(etag),
+    )
+    .await
+}
+
+pub(super) async fn cosmosdb_guarded_delete_document(
+    connection: &ResolvedConnectionProfile,
+    path: &str,
+    partition_key: &Value,
+    etag: &str,
+) -> Result<CosmosDbResponse, CommandError> {
+    cosmosdb_guarded_document_request(
+        connection,
+        Method::DELETE,
+        path,
+        None,
+        partition_key,
+        Some(etag),
+    )
+    .await
+}
+
+async fn cosmosdb_guarded_document_request(
+    connection: &ResolvedConnectionProfile,
+    method: Method,
+    path: &str,
+    body: Option<&str>,
+    partition_key: &Value,
+    if_match: Option<&str>,
+) -> Result<CosmosDbResponse, CommandError> {
+    let partition_key = if partition_key.is_array() {
+        partition_key.clone()
+    } else {
+        json!([partition_key])
+    };
+    cosmosdb_request(
+        connection,
+        method,
+        path,
+        body,
+        CosmosDbRequestOptions {
+            query: None,
+            mutation: Some(CosmosDbMutationRequestOptions {
+                partition_key: partition_key.to_string(),
+                if_match: if_match.map(str::to_string),
+            }),
+        },
+        None,
     )
     .await
 }
@@ -176,7 +258,11 @@ async fn cosmosdb_request(
     let url = endpoint.url(&logical_path)?;
     let body = body.unwrap_or("").to_string();
     let client = cosmosdb_http_client(connection, &endpoint)?;
-    let max_retries = cosmosdb_max_retry_attempts(connection);
+    let max_retries = if options.mutation.is_some() {
+        0
+    } else {
+        cosmosdb_max_retry_attempts(connection)
+    };
 
     for attempt in 0..=max_retries {
         ensure_not_cancelled(cancellation)?;
@@ -204,6 +290,14 @@ async fn cosmosdb_request(
         }
         if let Some(query) = options.query.as_ref() {
             request = apply_cosmosdb_query_headers(request, query);
+        }
+        if let Some(mutation) = options.mutation.as_ref() {
+            request = request
+                .header("Content-Type", "application/json")
+                .header("x-ms-documentdb-partitionkey", &mutation.partition_key);
+            if let Some(if_match) = mutation.if_match.as_deref() {
+                request = request.header("If-Match", if_match);
+            }
         }
         if !body.is_empty() {
             request = request.body(body.clone());
@@ -242,8 +336,14 @@ async fn cosmosdb_request(
         if status.is_success() {
             return Ok(metadata.with_body(body));
         }
+        let code = match status.as_u16() {
+            404 => "cosmosdb-document-not-found",
+            409 => "cosmosdb-document-conflict",
+            412 => "cosmosdb-concurrency-conflict",
+            _ => "cosmosdb-http-error",
+        };
         return Err(CommandError::new(
-            "cosmosdb-http-error",
+            code,
             format!(
                 "{} (HTTP {})",
                 sanitized_cosmosdb_error(&body)

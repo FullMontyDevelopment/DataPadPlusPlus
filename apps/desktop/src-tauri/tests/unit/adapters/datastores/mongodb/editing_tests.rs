@@ -21,6 +21,20 @@ fn request(edit_kind: &str, changes: Vec<DataEditChange>) -> DataEditExecutionRe
 
 #[test]
 fn mongodb_update_document_builds_set_unset_and_rename_operations() {
+    let add_update = mongodb_update_document(&request(
+        "add-field",
+        vec![DataEditChange {
+            path: Some(vec!["metadata".into(), "newField".into()]),
+            value: Some(json!("value")),
+            ..Default::default()
+        }],
+    ))
+    .expect("add update");
+    assert_eq!(
+        add_update,
+        doc! { "$set": { "metadata.newField": "value" } }
+    );
+
     let set_update = mongodb_update_document(&request(
         "set-field",
         vec![DataEditChange {
@@ -61,6 +75,52 @@ fn mongodb_update_document_builds_set_unset_and_rename_operations() {
         rename_update,
         doc! { "$rename": { "metadata.sku": "metadata.stockKeepingUnit" } }
     );
+}
+
+#[test]
+fn mongodb_document_filter_atomically_matches_the_loaded_document() {
+    let mut guarded_request = request("set-field", vec![]);
+    guarded_request.target.expected_document = Some(json!({
+        "_id": "product-1",
+        "status": "active",
+        "details": { "version": 3 }
+    }));
+
+    let filter = mongodb_expected_document_filter(
+        &guarded_request,
+        &doc! { "_id": "product-1" },
+        Some(&doc! {
+            "details": { "version": 3 },
+            "status": "active",
+            "_id": "product-1"
+        }),
+    )
+    .expect("guarded document filter")
+    .expect("matching document");
+
+    assert_eq!(filter.get_str("_id").unwrap(), "product-1");
+    let expression = filter
+        .get_document("$expr")
+        .expect("exact match expression");
+    let operands = expression.get_array("$eq").expect("equality operands");
+    assert_eq!(operands.first(), Some(&Bson::String("$$ROOT".into())));
+    let literal = operands[1]
+        .as_document()
+        .and_then(|value| value.get_document("$literal").ok())
+        .expect("literal expected document");
+    assert_eq!(literal.get_str("status").unwrap(), "active");
+
+    guarded_request.target.expected_document = Some(json!({
+        "_id": "product-1",
+        "status": "stale"
+    }));
+    assert!(mongodb_expected_document_filter(
+        &guarded_request,
+        &doc! { "_id": "product-1" },
+        Some(&doc! { "_id": "product-1", "status": "active" }),
+    )
+    .expect("stale filter check")
+    .is_none());
 }
 
 #[test]

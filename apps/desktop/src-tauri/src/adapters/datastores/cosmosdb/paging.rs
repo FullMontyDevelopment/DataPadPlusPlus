@@ -2,8 +2,9 @@ use super::super::super::*;
 use super::cancellation;
 use super::connection::CosmosDbResponse;
 use super::query::{
-    cosmosdb_api, cosmosdb_operation, cosmosdb_page_size, execute_read_operation,
-    normalize_cosmosdb_response_bounded, parse_request, CosmosDbReadOperationRequest,
+    cosmosdb_api, cosmosdb_editable_document_payload, cosmosdb_operation, cosmosdb_page_size,
+    execute_read_operation, normalize_cosmosdb_response_bounded, parse_request,
+    CosmosDbReadOperationRequest,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
@@ -70,7 +71,15 @@ pub(super) async fn fetch_cosmosdb_page(
     let normalized = normalize_cosmosdb_response_bounded(&operation, &response_value, page_size);
     let buffered_rows = normalized.rows.len() as u32;
     let payload = match request.renderer.as_str() {
-        "document" => payload_document(normalized.documents),
+        "document" => {
+            cosmosdb_editable_document_payload(
+                connection,
+                &operation,
+                &request_value,
+                normalized.documents,
+            )
+            .await
+        }
         "table" => payload_table(normalized.columns, normalized.rows),
         "json" => payload_json(response_value),
         _ => unreachable!("renderer was validated above"),

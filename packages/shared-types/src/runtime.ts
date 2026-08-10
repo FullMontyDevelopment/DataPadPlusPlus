@@ -29,6 +29,7 @@ import type {
   QueryLanguage,
   QueryViewMode,
   ScopedQueryTarget,
+  SqlQueryScope,
   QueryTabState,
   ResultPageInfo,
   ResultPayload,
@@ -716,6 +717,7 @@ export type DataEditKind =
   | 'update-row'
   | 'delete-row'
   | 'set-field'
+  | 'add-field'
   | 'unset-field'
   | 'rename-field'
   | 'change-field-type'
@@ -759,6 +761,9 @@ export interface DataEditTarget {
   collection?: string
   key?: string
   documentId?: unknown
+  expectedDocument?: Record<string, unknown>
+  partitionKey?: unknown
+  concurrencyToken?: string
   itemKey?: Record<string, unknown>
   primaryKey?: Record<string, unknown>
 }
@@ -801,7 +806,16 @@ export interface DataEditExecutionResponse {
   messages: string[]
   warnings: string[]
   result?: ExecutionResultEnvelope
-  metadata?: unknown
+  metadata?: DataEditExecutionMetadata
+}
+
+export interface DocumentEditEvidence {
+  beforeDocument?: Record<string, unknown> | null
+  afterDocument?: Record<string, unknown> | null
+}
+
+export interface DataEditExecutionMetadata extends Record<string, unknown> {
+  documentEvidence?: DocumentEditEvidence
 }
 
 export interface OperationManifestRequest {
@@ -980,6 +994,7 @@ export interface ExecutionRequest {
   confirmedGuardrailId?: string
   builderState?: QueryBuilderState
   scopedTarget?: ScopedQueryTarget
+  sqlScope?: SqlQueryScope
   datastoreExecutionInput?: DatastoreExecutionInput
 }
 
@@ -1023,6 +1038,7 @@ export interface ResultPageRequest {
   cursor?: string
   documentEfficiencyMode?: boolean
   scopedTarget?: ScopedQueryTarget
+  sqlScope?: SqlQueryScope
 }
 
 export interface ResultPageResponse {
@@ -1054,6 +1070,7 @@ export interface DocumentNodeChildrenRequest {
   collection: string
   documentId: unknown
   path: Array<string | number>
+  mode?: 'children' | 'full-value'
   queryText?: string
 }
 
@@ -1256,6 +1273,11 @@ export interface UpdateQueryTabTargetRequest {
   scriptText?: string
   builderState?: QueryBuilderState
   title?: string
+}
+
+export interface UpdateQueryTabSqlScopeRequest {
+  tabId: string
+  sqlScope?: SqlQueryScope
 }
 
 export interface UpdateQueryTabRequest {

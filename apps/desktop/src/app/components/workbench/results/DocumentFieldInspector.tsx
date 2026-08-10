@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { MutableRefObject, ReactNode } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import { useEffect, useState } from 'react'
+import { DesktopCodeEditor } from '../DesktopCodeEditor'
 import {
   documentValueTypeLabel,
   type DocumentGridRow,
@@ -9,81 +8,110 @@ import {
 import { copyText } from './payload-export'
 
 const TYPE_OPTIONS: DocumentValueType[] = ['string', 'number', 'boolean', 'null', 'object', 'array']
-const INSPECTOR_HIGHLIGHT_LIMIT = 500
 
 interface DocumentFieldInspectorProps {
   canChangeType: boolean
+  canEditRaw: boolean
   document: Record<string, unknown>
+  editUnavailableReason?: string
+  initialMode?: 'view' | 'edit'
   row: DocumentGridRow
+  theme: string
   onChangeType(row: DocumentGridRow, nextType: DocumentValueType): void
   onClose(): void
+  onSaveRaw(row: DocumentGridRow, value: unknown): void
+  onValidateRaw(row: DocumentGridRow, value: unknown): string[]
 }
 
 export function DocumentFieldInspector({
   canChangeType,
+  canEditRaw,
   document,
+  editUnavailableReason,
+  initialMode = 'view',
   row,
+  theme,
   onChangeType,
   onClose,
+  onSaveRaw,
+  onValidateRaw,
 }: DocumentFieldInspectorProps) {
-  const [searchText, setSearchText] = useState('')
-  const [activeMatchIndex, setActiveMatchIndex] = useState(0)
+  const formattedValue = formatRawJson(row.value, true)
+  const [mode, setMode] = useState<'view' | 'edit'>(initialMode)
+  const [draft, setDraft] = useState(formattedValue)
+  const [validatedDraft, setValidatedDraft] = useState<string>()
+  const [validationErrors, setValidationErrors] = useState<string[]>([])
   const [copyStatus, setCopyStatus] = useState('')
-  const [serialization, setSerialization] = useState<{
-    rawJson: string
-    source: unknown
-  }>()
-  const rawJson =
-    serialization && serialization.source === row.value ? serialization.rawJson : ''
-  const serializationPending = !serialization || serialization.source !== row.value
-  const matches = useMemo(() => findMatches(rawJson, searchText), [rawJson, searchText])
-  const activeMatchRef = useRef<HTMLElement | null>(null)
   const fieldPath = row.fieldPath || '$'
-  const safeActiveMatchIndex =
-    matches.length === 0 ? 0 : Math.min(activeMatchIndex, matches.length - 1)
+  const saveEnabled = mode === 'edit' && validatedDraft === draft && validationErrors.length === 0
 
   useEffect(() => {
-    activeMatchRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [safeActiveMatchIndex])
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setDraft(formattedValue)
+        setValidatedDraft(undefined)
+        setValidationErrors([])
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [formattedValue, row.id])
 
   useEffect(() => {
-    const source = row.value
-    const timeout = globalThis.setTimeout(() => {
-      setSerialization({
-        rawJson: formatRawJson(source, true),
-        source,
-      })
-    }, 0)
-
-    return () => globalThis.clearTimeout(timeout)
-  }, [row.value])
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) setMode(initialMode)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [initialMode, row.id])
 
   const copy = async (label: string, text: string) => {
     await copyText(text)
     setCopyStatus(`${label} copied.`)
   }
 
-  const matchLabel = searchText.trim()
-    ? `${matches.length === 0 ? 0 : safeActiveMatchIndex + 1}/${matches.length}`
-    : ''
+  const validate = () => {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(draft) as unknown
+    } catch (error) {
+      setValidatedDraft(draft)
+      setValidationErrors([error instanceof Error ? error.message : 'JSON is invalid.'])
+      return
+    }
+
+    if (row.path.length === 0 && (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))) {
+      setValidatedDraft(draft)
+      setValidationErrors(['A root document edit must produce a JSON object.'])
+      return
+    }
+
+    const errors = onValidateRaw(row, parsed)
+    setValidatedDraft(draft)
+    setValidationErrors(errors)
+  }
+
+  const save = () => {
+    if (!saveEnabled) return
+    onSaveRaw(row, JSON.parse(draft) as unknown)
+  }
 
   return (
     <aside className="document-field-inspector" aria-label="Document field raw JSON inspector">
       <header className="document-field-inspector-header">
         <div>
-          <strong>Raw JSON</strong>
+          <strong>{mode === 'edit' ? 'Edit Raw JSON' : 'Raw JSON'}</strong>
           <span>{fieldPath}</span>
         </div>
-        <button type="button" className="bottom-panel-icon-button" aria-label="Close inspector" onClick={onClose}>
-          x
-        </button>
+        <button type="button" className="bottom-panel-icon-button" aria-label="Close inspector" onClick={onClose}>x</button>
       </header>
 
       <dl className="document-field-inspector-meta">
-        <div>
-          <dt>Document</dt>
-          <dd>{documentIdentity(document, row.documentIndex)}</dd>
-        </div>
+        <div><dt>Document</dt><dd>{documentIdentity(document, row.documentIndex)}</dd></div>
         <div>
           <dt>Type</dt>
           <dd>
@@ -93,84 +121,75 @@ export function DocumentFieldInspector({
                 value={row.type}
                 onChange={(event) => onChangeType(row, event.target.value as DocumentValueType)}
               >
-                {TYPE_OPTIONS.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
+                {TYPE_OPTIONS.map((type) => <option key={type} value={type}>{type}</option>)}
               </select>
             ) : (
-              <span className={`document-type-badge is-${row.type}`}>
-                {documentValueTypeLabel(row.type)}
-              </span>
+              <span className={`document-type-badge is-${row.type}`}>{documentValueTypeLabel(row.type)}</span>
             )}
           </dd>
         </div>
       </dl>
 
-      <div className="document-field-inspector-search">
-        <input
-          aria-label="Search raw JSON"
-          placeholder="Search raw JSON"
-          value={searchText}
-          onChange={(event) => {
-            setSearchText(event.target.value)
-            setActiveMatchIndex(0)
+      <div className="document-field-inspector-editor" title="Use Ctrl+F to search within the JSON editor.">
+        <DesktopCodeEditor
+          ariaLabel={mode === 'edit' ? 'Edit selected value raw JSON' : 'Selected field raw JSON'}
+          language="json"
+          readOnly={mode === 'view'}
+          resetKey={`${row.id}:${mode}`}
+          theme={theme}
+          value={mode === 'edit' ? draft : formattedValue}
+          onChange={(value) => {
+            setDraft(value)
+            setValidatedDraft(undefined)
+            setValidationErrors([])
           }}
         />
-        <span>{matchLabel}</span>
-        <button
-          type="button"
-          className="drawer-button"
-          disabled={matches.length === 0}
-          onClick={() => setActiveMatchIndex(wrapMatchIndex(safeActiveMatchIndex - 1, matches.length))}
-        >
-          Prev
-        </button>
-        <button
-          type="button"
-          className="drawer-button"
-          disabled={matches.length === 0}
-          onClick={() => setActiveMatchIndex(wrapMatchIndex(safeActiveMatchIndex + 1, matches.length))}
-        >
-          Next
-        </button>
       </div>
 
-      {serializationPending ? (
-        <div className="document-field-inspector-preparing" role="status">
-          Preparing JSON...
-        </div>
-      ) : (
-        <VirtualizedInspectorJson
-          activeMatchIndex={safeActiveMatchIndex}
-          activeMatchRef={activeMatchRef}
-          matches={matches}
-          text={rawJson}
-        />
-      )}
+      {validationErrors.length > 0 ? (
+        <ul className="document-raw-json-errors" role="alert">
+          {validationErrors.map((error) => <li key={error}>{error}</li>)}
+        </ul>
+      ) : validatedDraft === draft && mode === 'edit' ? (
+        <span className="document-raw-json-valid" role="status">JSON and datastore safeguards passed validation.</span>
+      ) : null}
 
       <div className="document-field-inspector-actions">
-        <button type="button" className="drawer-button" onClick={() => void copy('Path', fieldPath)}>
-          Copy Path
-        </button>
-        <button type="button" className="drawer-button" onClick={() => void copy('Raw JSON', rawJson)}>
-          Copy Raw JSON
-        </button>
-        <button
-          type="button"
-          className="drawer-button"
-          onClick={() => void copy('Compact JSON', formatRawJson(row.value, false))}
-        >
-          Copy Compact
-        </button>
-        <button
-          type="button"
-          className="drawer-button"
-          onClick={() => void copy('Document JSON', formatRawJson(document, true))}
-        >
-          Copy Document JSON
-        </button>
+        {mode === 'view' ? (
+          <button
+            type="button"
+            className="drawer-button drawer-button--primary"
+            disabled={!canEditRaw || Boolean(editUnavailableReason)}
+            title={editUnavailableReason}
+            onClick={() => {
+              setMode('edit')
+              setDraft(formattedValue)
+              setValidatedDraft(undefined)
+            }}
+          >
+            Edit Raw JSON
+          </button>
+        ) : (
+          <>
+            <button type="button" className="drawer-button" onClick={validate}>Validate JSON</button>
+            <button type="button" className="drawer-button drawer-button--primary" disabled={!saveEnabled} onClick={save}>Save</button>
+            <button
+              type="button"
+              className="drawer-button"
+              onClick={() => {
+                setMode('view')
+                setDraft(formattedValue)
+                setValidatedDraft(undefined)
+                setValidationErrors([])
+              }}
+            >
+              Cancel
+            </button>
+          </>
+        )}
+        <button type="button" className="drawer-button" onClick={() => void copy('Path', fieldPath)}>Copy Path</button>
+        <button type="button" className="drawer-button" onClick={() => void copy('Raw JSON', mode === 'edit' ? draft : formattedValue)}>Copy Raw JSON</button>
+        <button type="button" className="drawer-button" onClick={() => void copy('Document JSON', formatRawJson(document, true))}>Copy Document JSON</button>
         {copyStatus ? <span>{copyStatus}</span> : null}
       </div>
     </aside>
@@ -178,160 +197,17 @@ export function DocumentFieldInspector({
 }
 
 function formatRawJson(value: unknown, pretty: boolean) {
-  if (value === undefined) {
-    return 'undefined'
-  }
-
+  if (value === undefined) return 'null'
   try {
-    const formatted = JSON.stringify(value, null, pretty ? 2 : 0)
-    return formatted ?? String(value)
+    return JSON.stringify(value, null, pretty ? 2 : 0) ?? String(value)
   } catch {
     return String(value)
   }
 }
 
 function documentIdentity(document: Record<string, unknown>, index: number) {
-  const value = document._id ?? document.id ?? document.key
-
-  if (value === undefined) {
-    return `document ${index + 1}`
-  }
-
-  if (typeof value === 'string' || typeof value === 'number') {
-    return String(value)
-  }
-
+  const value = document._id ?? document.id ?? document._key ?? document.key
+  if (value === undefined) return `document ${index + 1}`
+  if (typeof value === 'string' || typeof value === 'number') return String(value)
   return formatRawJson(value, false)
-}
-
-function findMatches(text: string, query: string) {
-  const needle = query.trim()
-
-  if (!needle) {
-    return []
-  }
-
-  const matches: Array<{ end: number; start: number }> = []
-  const lowerText = text.toLowerCase()
-  const lowerNeedle = needle.toLowerCase()
-  let index = lowerText.indexOf(lowerNeedle)
-
-  while (index >= 0 && matches.length < INSPECTOR_HIGHLIGHT_LIMIT) {
-    matches.push({ start: index, end: index + needle.length })
-    index = lowerText.indexOf(lowerNeedle, index + needle.length)
-  }
-
-  return matches
-}
-
-function VirtualizedInspectorJson({
-  activeMatchIndex,
-  activeMatchRef,
-  matches,
-  text,
-}: {
-  activeMatchIndex: number
-  activeMatchRef: MutableRefObject<HTMLElement | null>
-  matches: Array<{ end: number; start: number }>
-  text: string
-}) {
-  const parentRef = useRef<HTMLDivElement>(null)
-  const lines = useMemo(() => text.split('\n'), [text])
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const virtualizer = useVirtualizer({
-    count: lines.length,
-    estimateSize: () => 18,
-    getScrollElement: () => parentRef.current,
-    initialRect: { height: 480, width: 420 },
-    overscan: 12,
-  })
-
-  if (matches.length > 0) {
-    return (
-      <pre className="document-field-inspector-code" aria-label="Selected field raw JSON">
-        {renderHighlightedJson(text, matches, activeMatchIndex, activeMatchRef)}
-      </pre>
-    )
-  }
-
-  return (
-    <div
-      ref={parentRef}
-      className="document-field-inspector-code document-field-inspector-code--virtual"
-      aria-label="Selected field raw JSON"
-      role="region"
-    >
-      <div
-        className="document-field-inspector-virtual-space"
-        style={{ height: virtualizer.getTotalSize() }}
-      >
-        {virtualizer.getVirtualItems().map((item) => (
-          <pre
-            key={item.key}
-            className="document-field-inspector-line"
-            style={{ transform: `translateY(${item.start}px)` }}
-          >
-            {lines[item.index] || ' '}
-          </pre>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function renderHighlightedJson(
-  text: string,
-  matches: Array<{ end: number; start: number }>,
-  activeMatchIndex: number,
-  activeMatchRef: MutableRefObject<HTMLElement | null>,
-) {
-  if (matches.length === 0) {
-    return text
-  }
-
-  const parts: ReactNode[] = []
-  let cursor = 0
-
-  matches.forEach((match, index) => {
-    if (match.start > cursor) {
-      parts.push(text.slice(cursor, match.start))
-    }
-
-    parts.push(
-      <mark
-        key={`${match.start}-${match.end}`}
-        ref={(element) => {
-          if (index === activeMatchIndex) {
-            activeMatchRef.current = element
-          }
-        }}
-        className={index === activeMatchIndex ? 'is-active' : undefined}
-      >
-        {text.slice(match.start, match.end)}
-      </mark>,
-    )
-    cursor = match.end
-  })
-
-  if (cursor < text.length) {
-    parts.push(text.slice(cursor))
-  }
-
-  return parts
-}
-
-function wrapMatchIndex(nextIndex: number, total: number) {
-  if (total <= 0) {
-    return 0
-  }
-
-  if (nextIndex < 0) {
-    return total - 1
-  }
-
-  if (nextIndex >= total) {
-    return 0
-  }
-
-  return nextIndex
 }

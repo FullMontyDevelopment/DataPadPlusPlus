@@ -2619,6 +2619,37 @@ describe('App', () => {
     expect(updateBuilderSpy).not.toHaveBeenCalled()
   })
 
+  it('blocks invalid builder drafts instead of falling back to the last raw query', async () => {
+    const executeSpy = vi.spyOn(desktopClient, 'executeQuery')
+
+    render(<App />)
+    await createCatalogMongoWithBuilderTab()
+
+    const builder = screen.getByLabelText('MongoDB query builder')
+    fireEvent.click(within(builder).getAllByRole('button', { name: 'Add Filter' })[0] as HTMLElement)
+    fireEvent.change(within(builder).getByLabelText('Filter field'), {
+      target: { value: 'price' },
+    })
+    fireEvent.change(within(builder).getByLabelText('Value type'), {
+      target: { value: 'number' },
+    })
+    fireEvent.change(within(builder).getByLabelText('Filter value'), {
+      target: { value: 'not-a-number' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/enter a finite number/i).length).toBeGreaterThan(0)
+      expect(screen.getByRole('button', { name: 'Count' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Run query' })).toBeDisabled()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run query' }))
+    await waitFor(() => {
+      expect(screen.getAllByText(/enter a finite number/i).length).toBeGreaterThan(0)
+    })
+    expect(executeSpy).not.toHaveBeenCalled()
+  })
+
   it('executes the latest Cosmos builder fields, filters, sort, and paging as validated input', async () => {
     const snapshot = createBlankBootstrapPayload().snapshot
     const environment = testEnvironment('env-local', 'Local')

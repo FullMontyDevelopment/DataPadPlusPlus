@@ -70,14 +70,14 @@ use crate::{
             RedisKeyScanResponse, ResultExportReference, ResultPageRequest, ResultPageResponse,
             SaveQueryTabToLibraryRequest, SaveQueryTabToLocalFileRequest, SavedWorkItem,
             StructureRequest, StructureResponse, UpdateDatastoreQueryEditorStateRequest,
-            UpdateQueryBuilderStateRequest, UpdateQueryTabTargetRequest, UpdateTestSuiteTabRequest,
-            UpdateUiStateRequest, UserFacingError, WorkspaceBackupDeleteRequest,
-            WorkspaceBackupRestoreRequest, WorkspaceBackupRunRequest, WorkspaceBackupRunResponse,
-            WorkspaceBackupSettingsRequest, WorkspaceBackupSummary,
-            WorkspaceBundleFileExportRequest, WorkspaceBundleFileExportResponse,
-            WorkspaceBundleFileImportRequest, WorkspaceCreateRequest, WorkspaceRenameRequest,
-            WorkspaceSearchSettingsRequest, WorkspaceSwitchRequest,
-            WorkspaceSwitcherSettingsRequest, WorkspaceSwitcherStatus,
+            UpdateQueryBuilderStateRequest, UpdateQueryTabSqlScopeRequest,
+            UpdateQueryTabTargetRequest, UpdateTestSuiteTabRequest, UpdateUiStateRequest,
+            UserFacingError, WorkspaceBackupDeleteRequest, WorkspaceBackupRestoreRequest,
+            WorkspaceBackupRunRequest, WorkspaceBackupRunResponse, WorkspaceBackupSettingsRequest,
+            WorkspaceBackupSummary, WorkspaceBundleFileExportRequest,
+            WorkspaceBundleFileExportResponse, WorkspaceBundleFileImportRequest,
+            WorkspaceCreateRequest, WorkspaceRenameRequest, WorkspaceSearchSettingsRequest,
+            WorkspaceSwitchRequest, WorkspaceSwitcherSettingsRequest, WorkspaceSwitcherStatus,
         },
     },
     infrastructure,
@@ -266,6 +266,7 @@ fn clear_tab_execution_after_cancel(
                 query_text,
                 executed_at,
                 status: "canceled".into(),
+                sql_scope: request.sql_scope.clone(),
             },
         );
         tab.error = None;
@@ -333,6 +334,7 @@ fn merge_execution_response(
     response.tab.query_text = current_tab.query_text;
     response.tab.query_view_mode = current_tab.query_view_mode;
     response.tab.script_text = current_tab.script_text;
+    response.tab.sql_scope = current_tab.sql_scope;
     if response.tab.document_efficiency_mode.is_none() {
         response.tab.document_efficiency_mode = current_tab.document_efficiency_mode;
     }

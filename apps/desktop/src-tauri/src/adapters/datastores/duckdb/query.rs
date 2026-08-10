@@ -1,3 +1,4 @@
+use crate::domain::models::SqlQueryScope;
 use serde_json::json;
 
 use super::super::super::*;
@@ -28,6 +29,7 @@ pub(super) async fn execute_duckdb_query(
     );
     let query_request = duckdb_query_request(statement, execute_mode(request))?;
     let db = open_duckdb_connection(connection)?;
+    apply_duckdb_schema_scope(&db, request.sql_scope.as_ref())?;
     let (payloads, row_count, total_rows, truncated) = match query_table_with_truncation(
         &db,
         &query_request.wire_statement,
@@ -120,6 +122,22 @@ pub(super) async fn execute_duckdb_query(
         truncated,
         explain_payload: None,
     }))
+}
+
+fn apply_duckdb_schema_scope(
+    db: &duckdb::Connection,
+    scope: Option<&SqlQueryScope>,
+) -> Result<(), CommandError> {
+    let Some(schema) = scope
+        .and_then(|item| item.schema.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+    let escaped = schema.replace('\'', "''");
+    db.execute_batch(&format!("set schema = '{escaped}'"))
+        .map_err(super::connection::duckdb_error)
 }
 
 fn is_non_query_error(message: &str) -> bool {

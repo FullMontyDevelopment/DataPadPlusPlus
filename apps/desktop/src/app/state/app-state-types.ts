@@ -112,6 +112,7 @@ import type {
   UpdateTestSuiteTabRequest,
   UpdateQueryBuilderStateRequest,
   UpdateDatastoreQueryEditorStateRequest,
+  UpdateQueryTabSqlScopeRequest,
   UpdateQueryTabTargetRequest,
   UpdateUiStateRequest,
   WorkspaceBackupDeleteRequest,
@@ -307,6 +308,7 @@ export interface Actions {
     request: UpdateDatastoreQueryEditorStateRequest,
   ): Promise<void>
   updateQueryTarget(request: UpdateQueryTabTargetRequest): Promise<boolean>
+  updateQuerySqlScope(request: UpdateQueryTabSqlScopeRequest): Promise<boolean>
   updateTestSuiteTab(request: UpdateTestSuiteTabRequest): Promise<void>
   renameTab(tabId: string, title: string): Promise<void>
   saveCurrentQuery(tabId: string): Promise<void>

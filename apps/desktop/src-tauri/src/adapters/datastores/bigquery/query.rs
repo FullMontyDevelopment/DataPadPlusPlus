@@ -2,7 +2,8 @@ use serde_json::{json, Value};
 
 use super::super::super::*;
 use super::connection::{
-    bigquery_post_json, bigquery_project_id, has_http_endpoint, has_live_auth, parse_bigquery_json,
+    bigquery_dataset_id, bigquery_post_json, bigquery_project_id, has_http_endpoint, has_live_auth,
+    parse_bigquery_json,
 };
 use super::query_request::bigquery_query_request;
 use super::query_results::{
@@ -33,7 +34,11 @@ pub(super) async fn execute_bigquery_query(
     );
     let query_request = bigquery_query_request(query_text, execute_mode(request), row_limit)?;
     let project = bigquery_project_id(connection);
-    let body = query_request.body;
+    let mut body = query_request.body;
+    body["defaultDataset"] = json!({
+        "projectId": project,
+        "datasetId": bigquery_dataset_id(connection),
+    });
     let (response, live) = if has_live_auth(connection) && has_http_endpoint(connection) {
         let body_text = serde_json::to_string(&body).unwrap_or_default();
         let http_response = bigquery_post_json(

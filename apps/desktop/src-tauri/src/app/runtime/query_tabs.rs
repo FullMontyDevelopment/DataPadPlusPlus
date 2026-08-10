@@ -4,7 +4,7 @@ pub(super) use super::query_tabs_scoped::build_scoped_query_tab;
 use super::{generate_id, library::effective_connection_environment_id};
 use crate::domain::models::{
     ConnectionProfile, CreateObjectViewTabRequest, EnvironmentProfile, QueryTabState,
-    SavedWorkItem, WorkspaceSnapshot,
+    SavedWorkItem, SqlQueryScope, WorkspaceSnapshot,
 };
 
 pub(super) fn default_query_text(connection: &ConnectionProfile) -> String {
@@ -168,6 +168,7 @@ pub(super) fn build_query_tab(
         script_text: default_script_text(connection),
         document_efficiency_mode: None,
         scoped_target: None,
+        sql_scope: default_sql_query_scope(connection),
         builder_state: None,
         metrics_state: None,
         object_view_state: None,
@@ -182,6 +183,58 @@ pub(super) fn build_query_tab(
         history: Vec::new(),
         error: None,
     }
+}
+
+pub(super) fn default_sql_query_scope(connection: &ConnectionProfile) -> Option<SqlQueryScope> {
+    let clean = |value: Option<&str>| {
+        value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let warehouse = connection.warehouse_options.as_ref();
+    let database = clean(connection.database.as_deref())
+        .or_else(|| warehouse.and_then(|options| clean(options.database_name.as_deref())));
+    let schema = warehouse
+        .and_then(|options| {
+            clean(options.schema_name.as_deref()).or_else(|| clean(options.dataset_id.as_deref()))
+        })
+        .or_else(|| {
+            connection
+                .postgres_options
+                .as_ref()
+                .and_then(|options| clean(options.search_path.as_deref()))
+        });
+    let catalog = warehouse.and_then(|options| {
+        clean(options.project_id.as_deref()).or_else(|| clean(options.catalog_name.as_deref()))
+    });
+
+    let scope = match connection.engine.as_str() {
+        "sqlserver" | "mysql" | "mariadb" | "clickhouse" => SqlQueryScope {
+            database,
+            ..Default::default()
+        },
+        "postgresql" | "cockroachdb" | "timescaledb" | "snowflake" => SqlQueryScope {
+            database,
+            schema,
+            ..Default::default()
+        },
+        "oracle" => SqlQueryScope {
+            schema: schema.or_else(|| clean(connection.auth.username.as_deref())),
+            ..Default::default()
+        },
+        "duckdb" => SqlQueryScope {
+            schema,
+            ..Default::default()
+        },
+        "bigquery" => SqlQueryScope {
+            catalog,
+            schema,
+            ..Default::default()
+        },
+        _ => return None,
+    };
+    (scope.catalog.is_some() || scope.database.is_some() || scope.schema.is_some()).then_some(scope)
 }
 
 pub(super) fn build_explorer_tab(
@@ -207,6 +260,7 @@ pub(super) fn build_explorer_tab(
         script_text: None,
         document_efficiency_mode: None,
         scoped_target: None,
+        sql_scope: None,
         builder_state: None,
         metrics_state: None,
         object_view_state: None,
@@ -248,6 +302,7 @@ pub(super) fn build_metrics_tab(
         script_text: None,
         document_efficiency_mode: None,
         scoped_target: None,
+        sql_scope: None,
         builder_state: None,
         metrics_state: Some(json!({
             "connectionId": connection.id.clone(),
@@ -300,6 +355,7 @@ pub(super) fn build_environment_tab(
         script_text: None,
         document_efficiency_mode: None,
         scoped_target: None,
+        sql_scope: None,
         builder_state: None,
         metrics_state: None,
         object_view_state: None,
@@ -341,6 +397,7 @@ pub(super) fn build_object_view_tab(
         script_text: None,
         document_efficiency_mode: None,
         scoped_target: None,
+        sql_scope: None,
         builder_state: None,
         metrics_state: None,
         object_view_state: Some(json!({

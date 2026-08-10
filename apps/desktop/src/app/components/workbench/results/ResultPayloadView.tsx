@@ -35,6 +35,7 @@ export function ResultPayloadView({
   resultDurationMs,
   resultRuntimeTitle,
   resultSummary,
+  theme = 'dark',
   documentResetToken,
   executionLocked = false,
   editContext,
@@ -54,6 +55,7 @@ export function ResultPayloadView({
   resultDurationMs?: number
   resultRuntimeTitle?: string
   resultSummary?: string
+  theme?: string
   documentResetToken?: string
   executionLocked?: boolean
   onFetchDocumentNodeChildren?(
@@ -87,6 +89,7 @@ export function ResultPayloadView({
             resultDurationMs={resultDurationMs}
             resultRuntimeTitle={resultRuntimeTitle}
             resultSummary={resultSummary}
+            theme={theme}
             documentResetToken={documentResetToken}
             executionLocked={executionLocked}
             onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
@@ -131,10 +134,12 @@ export function ResultPayloadView({
         collection={payload.collection}
         footerControls={documentFooterControls}
         hydrationMode={payload.hydrationMode}
+        editMetadata={payload.editMetadata}
         tabId={tabId}
         resultDurationMs={resultDurationMs}
         resultRuntimeTitle={resultRuntimeTitle}
         resultSummary={resultSummary}
+        theme={theme}
         documentResetToken={documentResetToken}
         executionLocked={executionLocked}
         onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}

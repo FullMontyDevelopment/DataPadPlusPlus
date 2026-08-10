@@ -140,9 +140,13 @@ pub(super) async fn execute_litedb_data_edit(
         messages,
         warnings,
         Some(json!({
-            "sidecarResponse": outcome.response,
+            "sidecarResponse": outcome.response.clone(),
             "sidecarExecutionBoundary": sidecar_boundary,
-            "request": normalized_request
+            "request": normalized_request,
+            "documentEvidence": {
+                "beforeDocument": outcome.response.get("beforeDocument").cloned().unwrap_or(Value::Null),
+                "afterDocument": outcome.response.get("afterDocument").cloned().unwrap_or(Value::Null)
+            }
         })),
     ))
 }
@@ -176,7 +180,8 @@ fn litedb_confirmation_text(edit_kind: &str) -> String {
 fn litedb_data_edit_operation(edit_kind: &str) -> Option<&'static str> {
     match edit_kind {
         "insert-document" => Some("InsertDocument"),
-        "update-document" => Some("UpdateDocument"),
+        "add-field" | "set-field" | "unset-field" | "rename-field" | "change-field-type"
+        | "update-document" => Some("UpdateDocument"),
         "delete-document" => Some("DeleteDocument"),
         _ => None,
     }
@@ -206,6 +211,8 @@ fn litedb_mutation_request(
                 "collection": collection,
                 "id": id,
                 "document": document,
+                "editKind": request.edit_kind,
+                "path": request.target.path,
                 "evidenceRequests": {
                     "before": null,
                     "after": { "operation": "FindById", "collection": collection, "id": id }
@@ -220,6 +227,9 @@ fn litedb_mutation_request(
                 "collection": collection,
                 "id": id,
                 "document": document,
+                "previousDocument": request.target.expected_document,
+                "editKind": request.edit_kind,
+                "path": request.target.path,
                 "evidenceRequests": {
                     "before": { "operation": "FindById", "collection": collection, "id": id },
                     "after": { "operation": "FindById", "collection": collection, "id": id }
@@ -232,6 +242,7 @@ fn litedb_mutation_request(
                 "operation": operation,
                 "collection": collection,
                 "id": id,
+                "previousDocument": request.target.expected_document,
                 "evidenceRequests": {
                     "before": { "operation": "FindById", "collection": collection, "id": id },
                     "after": { "operation": "FindById", "collection": collection, "id": id }

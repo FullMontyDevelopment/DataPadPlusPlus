@@ -30,6 +30,7 @@ describe('document-edit-requests', () => {
         database: 'catalog',
         collection: 'products',
         documentId: 'product-1',
+        expectedDocument: { _id: 'product-1', status: 'active' },
       },
       changes: [],
     })
@@ -116,8 +117,96 @@ describe('document-edit-requests', () => {
         path: ['status'],
         collection: 'products',
         documentId: 'product-1',
+        expectedDocument: { _id: 'product-1', status: 'active' },
       },
       changes: [{ path: ['status'] }],
+    })
+  })
+
+  it('builds guarded Cosmos DB targets with partition and ETag evidence', () => {
+    const connection = { ...mongoConnection(), engine: 'cosmosdb' as const, name: 'Cosmos' }
+    const document = { id: 'one', tenant: { region: 'za' }, _etag: 'etag-1', name: 'Ada' }
+    expect(buildDocumentEditRequest(
+      connection,
+      { connectionId: connection.id, environmentId: 'env-dev', queryText: '{}', database: 'app', collection: 'people' },
+      [document],
+      { ...rootRow(), value: document, path: ['name'], fieldPath: 'name' },
+      'set-field',
+      [{ path: ['name'], value: 'Grace' }],
+      {
+        adapterStrategy: 'cosmosdb',
+        protectedPaths: [['id'], ['_etag'], ['tenant', 'region']],
+        partitionKeyPaths: [['tenant', 'region']],
+      },
+      [{ ...document, name: 'Grace' }],
+    )).toMatchObject({
+      target: {
+        database: 'app',
+        collection: 'people',
+        documentId: 'one',
+        partitionKey: 'za',
+        concurrencyToken: 'etag-1',
+      },
+      changes: [{ value: { ...document, name: 'Grace' }, valueType: 'object' }],
+    })
+  })
+
+  it('derives ArangoDB collection, key, and revision from native identity fields', () => {
+    const connection = { ...mongoConnection(), engine: 'arango' as const, family: 'graph' as const, name: 'Arango' }
+    const document = { _id: 'people/one', _key: 'one', _rev: 'rev-1', name: 'Ada' }
+    expect(buildDocumentEditRequest(
+      connection,
+      { connectionId: connection.id, environmentId: 'env-dev', queryText: '{}' },
+      [document],
+      { ...rootRow(), value: document, path: ['name'], fieldPath: 'name' },
+      'set-field',
+      [{ path: ['name'], value: 'Grace' }],
+      { adapterStrategy: 'arango', protectedPaths: [['_id'], ['_key'], ['_rev']] },
+      [{ ...document, name: 'Grace' }],
+    )?.target).toMatchObject({
+      collection: 'people',
+      documentId: 'one',
+      concurrencyToken: 'rev-1',
+    })
+  })
+
+  it('rejects contradictory ArangoDB identity and collection evidence', () => {
+    const connection = { ...mongoConnection(), engine: 'arango' as const, family: 'graph' as const, name: 'Arango' }
+    const document = { _id: 'people/one', _key: 'two', _rev: 'rev-1' }
+
+    expect(buildDocumentEditRequest(
+      connection,
+      { connectionId: connection.id, environmentId: 'env-dev', queryText: '{}', collection: 'people' },
+      [document],
+      { ...rootRow(), value: document },
+      'update-document',
+      [{ path: [], value: document }],
+      { adapterStrategy: 'arango', protectedPaths: [['_id'], ['_key'], ['_rev']] },
+      [document],
+    )).toBeUndefined()
+  })
+
+  it('preserves the new field path when a replacement adapter executes Add Field', () => {
+    const connection = { ...mongoConnection(), engine: 'cosmosdb' as const, name: 'Cosmos' }
+    const document = { id: 'one', tenant: 'za', _etag: 'etag-1' }
+    const nextDocument = { ...document, timezone: 'Africa/Johannesburg' }
+
+    expect(buildDocumentEditRequest(
+      connection,
+      { connectionId: connection.id, environmentId: 'env-dev', queryText: '{}', database: 'app', collection: 'people' },
+      [document],
+      { ...rootRow(), value: 'Africa/Johannesburg', path: ['timezone'], fieldPath: 'timezone' },
+      'add-field',
+      [{ path: ['timezone'], value: 'Africa/Johannesburg' }],
+      {
+        adapterStrategy: 'cosmosdb',
+        protectedPaths: [['id'], ['_etag'], ['tenant']],
+        partitionKeyPaths: [['tenant']],
+      },
+      [nextDocument],
+    )).toMatchObject({
+      target: { path: ['timezone'] },
+      changes: [{ path: ['timezone'], value: nextDocument }],
     })
   })
 })

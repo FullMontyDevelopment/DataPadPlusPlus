@@ -394,6 +394,7 @@ export function DesktopCodeEditor({
           padding: { top: 12 },
           quickSuggestions: true,
           suggestOnTriggerCharacters: true,
+          ariaLabel,
           readOnly,
           domReadOnly: readOnly,
         }}

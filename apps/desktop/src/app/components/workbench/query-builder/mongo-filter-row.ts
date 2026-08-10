@@ -41,6 +41,10 @@ function mongoBuilderValueType(
     return 'objectId'
   }
 
+  if (dragValueType === 'uuid' || dragValueType === 'guid') {
+    return 'uuid'
+  }
+
   if (dragValueType === 'number' || typeof value === 'number') {
     return 'number'
   }
@@ -75,6 +79,10 @@ function mongoBuilderValue(value: unknown, valueType: MongoBuilderValueType) {
 
   if (valueType === 'objectId') {
     return mongoObjectIdInput(value)
+  }
+
+  if (valueType === 'uuid') {
+    return mongoUuidInput(value)
   }
 
   if (valueType === 'number') {
@@ -115,6 +123,12 @@ function mongoObjectIdInput(value: unknown) {
   const label = value === undefined || value === null ? '' : String(value)
   const objectId = label.match(/ObjectId\("([^"]+)"\)/)
   return objectId?.[1] ?? label
+}
+
+function mongoUuidInput(value: unknown) {
+  if (isRecord(value) && typeof value.$uuid === 'string') return value.$uuid
+  const label = value === undefined || value === null ? '' : String(value)
+  return label.match(/UUID\("([^"]+)"\)/i)?.[1] ?? label
 }
 
 function mongoNumberInput(value: unknown) {

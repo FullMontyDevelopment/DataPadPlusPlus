@@ -334,6 +334,38 @@ try {
     }
   })
 
+  await record('DynamoDB Local: guarded native list-size predicates', async () => {
+    const items = [
+      { pk: { S: 'ARRAY#1' }, sk: { S: 'VALUE' }, items: { L: [{ S: 'one' }, { S: 'two' }] } },
+      { pk: { S: 'ARRAY#2' }, sk: { S: 'VALUE' }, items: { L: [] } },
+      { pk: { S: 'ARRAY#3' }, sk: { S: 'VALUE' } },
+      { pk: { S: 'ARRAY#4' }, sk: { S: 'VALUE' }, items: { NULL: true } },
+      { pk: { S: 'ARRAY#5' }, sk: { S: 'VALUE' }, items: { S: 'scalar' } },
+    ]
+
+    for (const item of items) {
+      await dynamodb('PutItem', { TableName: transientTable, Item: item })
+    }
+
+    const scanCountFor = async (comparison, length) => {
+      const result = await dynamodb('Scan', {
+        TableName: transientTable,
+        Select: 'COUNT',
+        FilterExpression: `attribute_type(#items, :listType) AND size(#items) ${comparison} :length`,
+        ExpressionAttributeNames: { '#items': 'items' },
+        ExpressionAttributeValues: {
+          ':listType': { S: 'L' },
+          ':length': { N: String(length) },
+        },
+      })
+      return result.Count
+    }
+
+    expect(await scanCountFor('>', 0) === 1, 'DynamoDB Has Items matched a missing, null, scalar, or empty value')
+    expect(await scanCountFor('=', 0) === 1, 'DynamoDB Has No Items did not match exactly the empty list')
+    expect(await scanCountFor('=', 2) === 1, 'DynamoDB Has Length did not match exactly the two-item list')
+  })
+
   await record('DynamoDB Local: conditional item edit before/after evidence', async () => {
     const key = { order_id: { S: 'fixture-edit-1' } }
     await dynamodb('DeleteItem', { TableName: 'orders', Key: key }).catch(() => undefined)

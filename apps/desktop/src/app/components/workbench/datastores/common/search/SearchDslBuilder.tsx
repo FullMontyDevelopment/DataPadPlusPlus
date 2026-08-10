@@ -10,16 +10,22 @@ import type {
 import { BuilderSection } from '../../../query-builder/BuilderSection'
 import { SearchAggregationSection } from './SearchDslAggregationSection'
 import {
-  buildSearchDslQueryText,
   newSearchFilter,
   searchDslBuilderRowId,
 } from '../../../query-builder/search-dsl'
+import { QueryBuilderValueInput } from '../../../query-builder/QueryBuilderValueInput'
+import {
+  queryBuilderOperatorArity,
+  queryBuilderValueTypeLabel,
+} from '../../../query-builder/query-value-codec'
+import { builderStateWithCompiledQueryText } from '../../../../../controllers/query-builder-routing'
 
 interface SearchDslBuilderProps {
   tab: QueryTabState
   builderState: SearchDslBuilderState
   indexOptions?: string[]
   onBuilderStateChange?(tabId: string, builderState: QueryBuilderState): void
+  theme: string
 }
 
 const QUERY_MODES: SearchDslQueryMode[] = ['match-all', 'match', 'term', 'range', 'query-string']
@@ -37,22 +43,20 @@ const FILTER_OPERATORS: Array<{ value: SearchDslFilterOperator; label: string }>
   { value: 'range-lte', label: '<=' },
   { value: 'not-in', label: 'Not in' },
 ]
-const VALUE_TYPES: SearchDslValueType[] = ['string', 'number', 'boolean']
+const VALUE_TYPES: SearchDslValueType[] = ['string', 'number', 'boolean', 'date', 'uuid']
 
 export function SearchDslBuilder({
   tab,
   builderState,
   indexOptions = [],
   onBuilderStateChange,
+  theme,
 }: SearchDslBuilderProps) {
   const draft = builderState
   const resolvedIndexOptions = uniqueValues([draft.index, ...indexOptions])
   const updateDraft = (patch: Partial<SearchDslBuilderState>) => {
     const nextDraft = { ...draft, ...patch }
-    onBuilderStateChange?.(tab.id, {
-      ...nextDraft,
-      lastAppliedQueryText: buildSearchDslQueryText(nextDraft),
-    })
+    onBuilderStateChange?.(tab.id, builderStateWithCompiledQueryText(nextDraft, undefined, tab))
   }
 
   return (
@@ -103,23 +107,30 @@ export function SearchDslBuilder({
               onChange={(event) => updateDraft({ field: event.target.value })}
             />
           ) : null}
-          <select
+          {draft.queryMode !== 'query-string' ? <select
             aria-label="Search value type"
+            className="query-builder-value-type"
             value={draft.valueType}
             onChange={(event) => updateDraft({ valueType: event.target.value as SearchDslValueType })}
           >
-            {VALUE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
-          </select>
-          <input
+            {VALUE_TYPES.map((type) => <option key={type} value={type}>{queryBuilderValueTypeLabel(type)}</option>)}
+          </select> : null}
+          {draft.queryMode === 'query-string' ? <input
             aria-label="Search value"
             value={draft.value}
-            placeholder={draft.queryMode === 'query-string' ? 'status:active' : 'value'}
+            placeholder="status:active"
             onChange={(event) => updateDraft({ value: event.target.value })}
-          />
+          /> : <QueryBuilderValueInput
+            ariaLabel="Search value"
+            theme={theme}
+            value={draft.value}
+            valueType={draft.valueType}
+            onChange={(value) => updateDraft({ value })}
+          />}
         </div>
       ) : null}
 
-      <SearchFilterSection draft={draft} updateDraft={updateDraft} />
+      <SearchFilterSection draft={draft} theme={theme} updateDraft={updateDraft} />
       <SearchSimpleFieldSection
         title="Source Fields"
         actionLabel="Add Field"
@@ -135,9 +146,11 @@ export function SearchDslBuilder({
 
 function SearchFilterSection({
   draft,
+  theme,
   updateDraft,
 }: {
   draft: SearchDslBuilderState
+  theme: string
   updateDraft(patch: Partial<SearchDslBuilderState>): void
 }) {
   return (
@@ -154,6 +167,7 @@ function SearchFilterSection({
         <FilterRow
           key={filter.id}
           row={filter}
+          theme={theme}
           onChange={(patch) =>
             updateDraft({
               filters: draft.filters.map((item) =>
@@ -172,13 +186,16 @@ function FilterRow({
   row,
   onChange,
   onRemove,
+  theme,
 }: {
   row: SearchDslFilterRow
   onChange(patch: Partial<SearchDslFilterRow>): void
   onRemove(): void
+  theme: string
 }) {
+  const arity = queryBuilderOperatorArity(row.operator)
   return (
-    <div className={`query-builder-row query-builder-row--filter${row.enabled === false ? ' is-disabled' : ''}`}>
+    <div className={`query-builder-row query-builder-row--filter is-${arity}${row.enabled === false ? ' is-disabled' : ''}`}>
       <label className="query-builder-toggle">
         <input
           type="checkbox"
@@ -202,19 +219,22 @@ function FilterRow({
           <option key={operator.value} value={operator.value}>{operator.label}</option>
         ))}
       </select>
-      <select
+      {arity !== 'none' ? <select
         aria-label="Filter value type"
+        className="query-builder-value-type"
         value={row.valueType}
         onChange={(event) => onChange({ valueType: event.target.value as SearchDslValueType })}
       >
-        {VALUE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
-      </select>
-      <input
-        aria-label="Filter value"
+        {VALUE_TYPES.map((type) => <option key={type} value={type}>{queryBuilderValueTypeLabel(type)}</option>)}
+      </select> : null}
+      {arity !== 'none' ? <QueryBuilderValueInput
+        ariaLabel="Filter value"
+        operator={row.operator}
+        theme={theme}
         value={row.value}
-        disabled={searchOperatorHasNoValue(row.operator)}
-        onChange={(event) => onChange({ value: event.target.value })}
-      />
+        valueType={row.valueType}
+        onChange={(value) => onChange({ value })}
+      /> : null}
       <button
         type="button"
         className="query-builder-remove"

@@ -27,6 +27,10 @@ fn reference_engines_advertise_native_live_edit_scopes() {
     assert!(mongo_scope
         .edit_kinds
         .iter()
+        .any(|kind| kind == "add-field"));
+    assert!(mongo_scope
+        .edit_kinds
+        .iter()
         .any(|kind| kind == "rename-field"));
     assert!(mongo_scope
         .edit_kinds
@@ -116,6 +120,11 @@ fn litedb_advertises_scoped_live_document_crud_scope() {
         scope.edit_kinds,
         vec![
             "insert-document".to_string(),
+            "add-field".to_string(),
+            "set-field".to_string(),
+            "unset-field".to_string(),
+            "rename-field".to_string(),
+            "change-field-type".to_string(),
             "update-document".to_string(),
             "delete-document".to_string()
         ]
@@ -261,7 +270,6 @@ fn wave_five_engines_advertise_query_builders_without_edit_scopes() {
         ("influxdb", "timeseries-query"),
         ("opentsdb", "timeseries-query"),
         ("neo4j", "graph-query"),
-        ("arango", "graph-query"),
         ("janusgraph", "graph-query"),
         ("neptune", "graph-query"),
     ] {
@@ -276,6 +284,34 @@ fn wave_five_engines_advertise_query_builders_without_edit_scopes() {
         assert!(
             experience.editable_scopes.is_empty(),
             "{engine} should keep edit/admin writes preview-first"
+        );
+    }
+
+    let arango = experience_for_engine("arango");
+    assert!(arango.query_builders.iter().any(|builder| {
+        builder.kind == "graph-query" && builder.default_mode == "split" && builder.scope == "query"
+    }));
+    let document_scope = arango
+        .editable_scopes
+        .iter()
+        .find(|scope| scope.scope == "collection")
+        .expect("ArangoDB document edit scope");
+    assert!(document_scope.live_execution);
+    for edit_kind in [
+        "add-field",
+        "set-field",
+        "unset-field",
+        "rename-field",
+        "change-field-type",
+        "update-document",
+        "delete-document",
+    ] {
+        assert!(
+            document_scope
+                .edit_kinds
+                .iter()
+                .any(|kind| kind == edit_kind),
+            "ArangoDB missing {edit_kind}"
         );
     }
 }

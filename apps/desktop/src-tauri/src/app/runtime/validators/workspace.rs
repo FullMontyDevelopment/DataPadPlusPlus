@@ -6,9 +6,9 @@ use crate::domain::{
         CancelTestRunRequest, CloseQueryTabsRequest, ConnectionProfile, ConnectionTestRequest,
         CreateScopedQueryTabRequest, CreateTestSuiteTabRequest, DatastoreTestRunPlanRequest,
         EnvironmentProfile, ExecuteTestSuiteRequest, OpenTestSuiteTemplateRequest,
-        QueryTabReorderRequest, ScopedQueryTarget, SecretRef,
+        QueryTabReorderRequest, ScopedQueryTarget, SecretRef, SqlQueryScope,
         UpdateDatastoreQueryEditorStateRequest, UpdateQueryBuilderStateRequest,
-        UpdateQueryTabTargetRequest, UpdateTestSuiteTabRequest,
+        UpdateQueryTabSqlScopeRequest, UpdateQueryTabTargetRequest, UpdateTestSuiteTabRequest,
     },
 };
 
@@ -245,6 +245,36 @@ pub(in crate::app::runtime) fn validate_update_query_tab_target_request(
         assert_json_size(builder_state, "Query builder state")?;
     }
     validate_optional_text(request.title.as_deref(), "Tab title", 80)
+}
+
+pub(in crate::app::runtime) fn validate_sql_query_scope(
+    scope: &SqlQueryScope,
+) -> Result<(), CommandError> {
+    validate_optional_text(
+        scope.catalog.as_deref(),
+        "SQL catalog",
+        MAX_OBJECT_NAME_LENGTH,
+    )?;
+    validate_optional_text(
+        scope.database.as_deref(),
+        "SQL database",
+        MAX_OBJECT_NAME_LENGTH,
+    )?;
+    validate_optional_text(
+        scope.schema.as_deref(),
+        "SQL schema",
+        MAX_OBJECT_NAME_LENGTH,
+    )
+}
+
+pub(in crate::app::runtime) fn validate_update_query_tab_sql_scope_request(
+    request: &UpdateQueryTabSqlScopeRequest,
+) -> Result<(), CommandError> {
+    validate_required_id(&request.tab_id, "Tab id")?;
+    if let Some(scope) = request.sql_scope.as_ref() {
+        validate_sql_query_scope(scope)?;
+    }
+    Ok(())
 }
 
 pub(in crate::app::runtime) fn validate_create_test_suite_tab_request(

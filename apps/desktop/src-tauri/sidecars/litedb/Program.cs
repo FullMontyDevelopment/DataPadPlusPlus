@@ -267,6 +267,10 @@ static object UpdateDocument(LiteDatabase db, SidecarRequest envelope)
     var collectionName = RequireCollection(envelope.Request);
     var id = JsonElementToBson(RequireProperty(envelope.Request, "id"));
     var document = RequireDocument(envelope.Request, "document", "litedb-invalid-document");
+    var previousDocument = OptionalRequestDocument(
+        envelope.Request,
+        "previousDocument",
+        "litedb-invalid-previous-document");
 
     if (TryDocumentId(document, out var replacementId) && !BsonValuesEqual(replacementId, id))
     {
@@ -279,9 +283,36 @@ static object UpdateDocument(LiteDatabase db, SidecarRequest envelope)
     }
 
     var collection = db.GetCollection<BsonDocument>(collectionName);
-    var before = collection.FindById(id);
-    var modified = before is not null && collection.Update(document);
-    var after = collection.FindById(id);
+    BsonDocument? before;
+    BsonDocument? after;
+    bool modified;
+    db.BeginTrans();
+    try
+    {
+        before = collection.FindById(id);
+        EnsureExpectedDocument(before, previousDocument);
+        var editKind = OptionalString(envelope.Request, "editKind");
+        if (editKind?.Equals("add-field", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            var path = OptionalStringArray(envelope.Request, "path");
+            if (path.Length == 0)
+            {
+                throw new SidecarException("litedb-add-path-missing", "LiteDB Add Field requires a field path.");
+            }
+            if (before is not null && BsonPathExists(before, path))
+            {
+                throw new SidecarException("litedb-field-exists", "LiteDB Add Field cannot overwrite an existing field.");
+            }
+        }
+        modified = before is not null && collection.Update(document);
+        after = collection.FindById(id);
+        db.Commit();
+    }
+    catch
+    {
+        db.Rollback();
+        throw;
+    }
 
     return new
     {
@@ -302,14 +333,58 @@ static object UpdateDocument(LiteDatabase db, SidecarRequest envelope)
     };
 }
 
+static string[] OptionalStringArray(JsonElement request, string name)
+{
+    if (!request.TryGetProperty(name, out var element) || element.ValueKind != JsonValueKind.Array)
+    {
+        return Array.Empty<string>();
+    }
+    return element.EnumerateArray()
+        .Where(item => item.ValueKind == JsonValueKind.String)
+        .Select(item => item.GetString() ?? string.Empty)
+        .Where(item => item.Length > 0)
+        .ToArray();
+}
+
+static bool BsonPathExists(BsonDocument document, IReadOnlyList<string> path)
+{
+    BsonValue current = document;
+    foreach (var segment in path)
+    {
+        if (!current.IsDocument || !current.AsDocument.TryGetValue(segment, out current))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 static object DeleteDocument(LiteDatabase db, SidecarRequest envelope)
 {
     var collectionName = RequireCollection(envelope.Request);
     var id = JsonElementToBson(RequireProperty(envelope.Request, "id"));
+    var previousDocument = OptionalRequestDocument(
+        envelope.Request,
+        "previousDocument",
+        "litedb-invalid-previous-document");
     var collection = db.GetCollection<BsonDocument>(collectionName);
-    var before = collection.FindById(id);
-    var deleted = collection.Delete(id);
-    var after = collection.FindById(id);
+    BsonDocument? before;
+    BsonDocument? after;
+    bool deleted;
+    db.BeginTrans();
+    try
+    {
+        before = collection.FindById(id);
+        EnsureExpectedDocument(before, previousDocument);
+        deleted = collection.Delete(id);
+        after = collection.FindById(id);
+        db.Commit();
+    }
+    catch
+    {
+        db.Rollback();
+        throw;
+    }
 
     return new
     {
@@ -976,6 +1051,41 @@ static BsonDocument? OptionalDocument(JsonElement request, string name)
     }
 
     return bsonValue.AsDocument;
+}
+
+static BsonDocument? OptionalRequestDocument(
+    JsonElement request,
+    string name,
+    string code)
+{
+    var element = OptionalProperty(request, name);
+    if (!element.HasValue || element.Value.ValueKind == JsonValueKind.Null)
+    {
+        return null;
+    }
+
+    if (element.Value.ValueKind != JsonValueKind.Object)
+    {
+        throw new SidecarException(code, $"LiteDB sidecar request property {name} must be a JSON object.");
+    }
+
+    var bsonValue = LiteDB.JsonSerializer.Deserialize(element.Value.GetRawText());
+    if (!bsonValue.IsDocument)
+    {
+        throw new SidecarException(code, $"LiteDB sidecar request property {name} must be a JSON object.");
+    }
+
+    return bsonValue.AsDocument;
+}
+
+static void EnsureExpectedDocument(BsonDocument? current, BsonDocument? expected)
+{
+    if (expected is not null && (current is null || !BsonValuesEqual(current, expected)))
+    {
+        throw new SidecarException(
+            "litedb-concurrency-conflict",
+            "The LiteDB document changed after this result was loaded. Refresh it before editing.");
+    }
 }
 
 static string RequireAbsolutePath(JsonElement request, string[] names, string code)

@@ -13263,7 +13263,23 @@
           "defaultMode": "visual"
         }
       ],
-      "editableScopes": [],
+      "editableScopes": [
+        {
+          "scope": "collection",
+          "label": "Collection Documents",
+          "editKinds": [
+            "add-field",
+            "set-field",
+            "unset-field",
+            "rename-field",
+            "change-field-type",
+            "update-document",
+            "delete-document"
+          ],
+          "requiresPrimaryKey": true,
+          "liveExecution": true
+        }
+      ],
       "diagnosticsTabs": [
         {
           "id": "overview",
@@ -19958,7 +19974,23 @@
           "defaultMode": "split"
         }
       ],
-      "editableScopes": [],
+      "editableScopes": [
+        {
+          "scope": "collection",
+          "label": "Collection Documents",
+          "editKinds": [
+            "add-field",
+            "set-field",
+            "unset-field",
+            "rename-field",
+            "change-field-type",
+            "update-document",
+            "delete-document"
+          ],
+          "requiresPrimaryKey": true,
+          "liveExecution": true
+        }
+      ],
       "diagnosticsTabs": [
         {
           "id": "overview",
@@ -23497,6 +23529,11 @@
           "label": "Collection Documents",
           "editKinds": [
             "insert-document",
+            "add-field",
+            "set-field",
+            "unset-field",
+            "rename-field",
+            "change-field-type",
             "update-document",
             "delete-document"
           ],
@@ -24192,6 +24229,7 @@
           "label": "Collection Documents",
           "editKinds": [
             "insert-document",
+            "add-field",
             "set-field",
             "unset-field",
             "rename-field",

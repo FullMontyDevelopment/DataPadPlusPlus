@@ -132,19 +132,25 @@ impl CockroachInspectionSurface {
         node_id: &str,
     ) -> Value {
         let mut payload = self.payload.clone();
-        let live_payload = match PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&postgres_dsn(connection))
-            .await
-        {
-            Ok(pool) => {
-                let live = cockroach_live_payload(self.kind, &pool).await;
-                pool.close().await;
-                live
-            }
+        let live_payload = match postgres_connect_options(connection) {
+            Ok(options) => match PgPoolOptions::new()
+                .max_connections(1)
+                .connect_with(options)
+                .await
+            {
+                Ok(pool) => {
+                    let live = cockroach_live_payload(self.kind, &pool).await;
+                    pool.close().await;
+                    live
+                }
+                Err(error) => Err(format!(
+                    "Live CockroachDB metadata is unavailable: {}",
+                    compact_error(&error.to_string())
+                )),
+            },
             Err(error) => Err(format!(
                 "Live CockroachDB metadata is unavailable: {}",
-                compact_error(&error.to_string())
+                compact_error(&error.message)
             )),
         };
 

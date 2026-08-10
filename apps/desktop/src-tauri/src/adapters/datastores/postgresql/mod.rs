@@ -18,7 +18,7 @@ mod timescale;
 
 pub(crate) use cells::stringify_pg_cell;
 pub(crate) use cockroach::CockroachAdapter;
-pub(crate) use connection::postgres_dsn;
+pub(crate) use connection::postgres_connect_options;
 pub(crate) use diagnostics::collect_postgres_diagnostics;
 use editing::execute_postgres_data_edit;
 pub(crate) use import_export::execute_postgres_file_operation;

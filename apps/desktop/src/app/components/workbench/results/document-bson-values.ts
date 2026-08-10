@@ -10,44 +10,57 @@ export function bsonScalarInfo(value: unknown): DocumentBsonScalarInfo | undefin
     return undefined
   }
 
-  if (typeof value.$oid === 'string') {
+  if (hasOnlyKey(value, '$oid') && typeof value.$oid === 'string') {
     return { type: 'objectid', label: `ObjectId("${value.$oid}")` }
   }
 
-  if (typeof value.$uuid === 'string') {
+  if (hasOnlyKey(value, '$uuid') && typeof value.$uuid === 'string') {
     return { type: 'uuid', label: `UUID("${value.$uuid}")` }
   }
 
-  if (typeof value.$date === 'string') {
+  if (hasOnlyKey(value, '$guid') && typeof value.$guid === 'string') {
+    return { type: 'guid', label: `GUID("${value.$guid}")` }
+  }
+
+  if (hasOnlyKey(value, '$date') && typeof value.$date === 'string') {
     return { type: 'date', label: `ISODate("${value.$date}")` }
   }
 
-  if (isRecord(value.$date) && typeof value.$date.$numberLong === 'string') {
+  if (
+    hasOnlyKey(value, '$date') &&
+    isRecord(value.$date) &&
+    hasOnlyKey(value.$date, '$numberLong') &&
+    typeof value.$date.$numberLong === 'string'
+  ) {
     return { type: 'date', label: dateLabelFromMilliseconds(value.$date.$numberLong) }
   }
 
-  if (typeof value.$numberDecimal === 'string') {
+  if (hasOnlyKey(value, '$numberDecimal') && typeof value.$numberDecimal === 'string') {
     return { type: 'decimal', label: `Decimal128("${value.$numberDecimal}")` }
   }
 
-  if (typeof value.$numberLong === 'string') {
+  if (hasOnlyKey(value, '$numberLong') && typeof value.$numberLong === 'string') {
     return { type: 'number', label: `NumberLong("${value.$numberLong}")` }
   }
 
-  if (typeof value.$numberInt === 'string') {
+  if (hasOnlyKey(value, '$numberInt') && typeof value.$numberInt === 'string') {
     return { type: 'number', label: value.$numberInt }
   }
 
-  if (typeof value.$numberDouble === 'string') {
+  if (hasOnlyKey(value, '$numberDouble') && typeof value.$numberDouble === 'string') {
     return { type: 'number', label: value.$numberDouble }
   }
 
-  if (isRecord(value.$binary)) {
+  if (hasOnlyKey(value, '$binary') && typeof value.$binary === 'string') {
+    return { type: 'binary', label: `Binary(${base64ByteLength(value.$binary)} bytes)` }
+  }
+
+  if (hasOnlyKey(value, '$binary') && isRecord(value.$binary)) {
     const subType = typeof value.$binary.subType === 'string' ? value.$binary.subType : undefined
     return { type: 'binary', label: subType ? `Binary(${subType})` : 'Binary' }
   }
 
-  if (isRecord(value.$regularExpression)) {
+  if (hasOnlyKey(value, '$regularExpression') && isRecord(value.$regularExpression)) {
     const pattern =
       typeof value.$regularExpression.pattern === 'string'
         ? value.$regularExpression.pattern
@@ -59,18 +72,18 @@ export function bsonScalarInfo(value: unknown): DocumentBsonScalarInfo | undefin
     return { type: 'regex', label: `/${pattern}/${options}` }
   }
 
-  if (isRecord(value.$timestamp)) {
+  if (hasOnlyKey(value, '$timestamp') && isRecord(value.$timestamp)) {
     const timestamp = value.$timestamp
     const t = typeof timestamp.t === 'number' ? timestamp.t : timestamp.t
     const i = typeof timestamp.i === 'number' ? timestamp.i : timestamp.i
     return { type: 'timestamp', label: `Timestamp(${String(t)}, ${String(i)})` }
   }
 
-  if (value.$minKey === 1) {
+  if (hasOnlyKey(value, '$minKey') && value.$minKey === 1) {
     return { type: 'object', label: 'MinKey' }
   }
 
-  if (value.$maxKey === 1) {
+  if (hasOnlyKey(value, '$maxKey') && value.$maxKey === 1) {
     return { type: 'object', label: 'MaxKey' }
   }
 
@@ -80,25 +93,31 @@ export function bsonScalarInfo(value: unknown): DocumentBsonScalarInfo | undefin
 export function isBsonDateValue(value: unknown) {
   return (
     isRecord(value) &&
+    hasOnlyKey(value, '$date') &&
     (typeof value.$date === 'string' ||
       (isRecord(value.$date) && typeof value.$date.$numberLong === 'string'))
   )
 }
 
 export function isBsonObjectIdValue(value: unknown) {
-  return isRecord(value) && typeof value.$oid === 'string'
+  return isRecord(value) && hasOnlyKey(value, '$oid') && typeof value.$oid === 'string'
 }
 
 export function isBsonUuidValue(value: unknown) {
-  return isRecord(value) && typeof value.$uuid === 'string'
+  return isRecord(value) && hasOnlyKey(value, '$uuid') && typeof value.$uuid === 'string'
+}
+
+export function isLiteDbGuidValue(value: unknown) {
+  return isRecord(value) && hasOnlyKey(value, '$guid') && typeof value.$guid === 'string'
 }
 
 export function isBsonNumberValue(value: unknown) {
   return (
     isRecord(value) &&
-    (typeof value.$numberLong === 'string' ||
-      typeof value.$numberInt === 'string' ||
-      typeof value.$numberDouble === 'string')
+    Object.keys(value).length === 1 &&
+    ((hasOnlyKey(value, '$numberLong') && typeof value.$numberLong === 'string') ||
+      (hasOnlyKey(value, '$numberInt') && typeof value.$numberInt === 'string') ||
+      (hasOnlyKey(value, '$numberDouble') && typeof value.$numberDouble === 'string'))
   )
 }
 
@@ -109,9 +128,22 @@ function dateLabelFromMilliseconds(value: string) {
     return `Date(${value})`
   }
 
-  return `ISODate("${new Date(milliseconds).toISOString()}")`
+  const date = new Date(milliseconds)
+  return Number.isFinite(date.getTime())
+    ? `ISODate("${date.toISOString()}")`
+    : `Date(${value})`
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function hasOnlyKey(value: Record<string, unknown>, key: string) {
+  const keys = Object.keys(value)
+  return keys.length === 1 && keys[0] === key
+}
+
+function base64ByteLength(value: string) {
+  const normalized = value.replace(/=+$/, '')
+  return Math.max(0, Math.floor((normalized.length * 3) / 4))
 }

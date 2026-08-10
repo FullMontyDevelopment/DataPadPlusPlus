@@ -6,6 +6,7 @@ use super::{
         workspace_is_empty,
     },
     generate_id,
+    query_tabs::build_query_tab,
     tabs::reorder_query_tabs_in_place,
     timestamp_now,
     workspace::{migrate_snapshot, sanitize_snapshot},
@@ -17,7 +18,7 @@ use super::{
 };
 use crate::domain::models::{
     ConnectionProfile, DatastoreMcpServerConfig, DatastoreMcpServerTokenConfig,
-    FirstInstallGuidePreferences, QueryTabState, SecretRef,
+    FirstInstallGuidePreferences, QueryHistoryEntry, QueryTabState, SecretRef,
 };
 use std::{fs, path::PathBuf, sync::Mutex as TestMutex};
 
@@ -567,6 +568,67 @@ fn migrated_workspace_is_unlocked_after_lock_ui_removal() {
 
     assert!(!migrated.lock_state.is_locked);
     assert!(migrated.lock_state.locked_at.is_none());
+}
+
+#[test]
+fn migration_moves_only_generated_sqlserver_use_prefixes_into_scope() {
+    let mut snapshot = blank_workspace_snapshot();
+    let connection = ConnectionProfile {
+        id: "conn-sqlserver-scope".into(),
+        name: "SQL Server".into(),
+        engine: "sqlserver".into(),
+        family: "sql".into(),
+        host: "localhost".into(),
+        database: Some("master".into()),
+        connection_mode: Some("host-port".into()),
+        icon: "sqlserver".into(),
+        created_at: timestamp_now(),
+        updated_at: timestamp_now(),
+        ..ConnectionProfile::default()
+    };
+    let mut tab = build_query_tab(&connection, true, "orders.sql".into());
+    tab.query_text = "USE [archive]]2025];\nselect top 100 * from [dbo].[orders];".into();
+    tab.sql_scope = None;
+    tab.history = vec![
+        QueryHistoryEntry {
+            id: "generated".into(),
+            query_text: "use [reporting];\nselect db_name() as database_name;".into(),
+            executed_at: timestamp_now(),
+            status: "success".into(),
+            sql_scope: None,
+        },
+        QueryHistoryEntry {
+            id: "user".into(),
+            query_text: "USE [custom];\nselect * from customer_written_query;".into(),
+            executed_at: timestamp_now(),
+            status: "success".into(),
+            sql_scope: None,
+        },
+    ];
+    snapshot.connections.push(connection);
+    snapshot.tabs.push(tab);
+
+    let migrated = migrate_snapshot(snapshot);
+    let tab = &migrated.tabs[0];
+    assert_eq!(tab.query_text, "select top 100 * from [dbo].[orders];");
+    assert_eq!(
+        tab.sql_scope
+            .as_ref()
+            .and_then(|scope| scope.database.as_deref()),
+        Some("archive]2025")
+    );
+    assert_eq!(
+        tab.history[0]
+            .sql_scope
+            .as_ref()
+            .and_then(|scope| scope.database.as_deref()),
+        Some("reporting")
+    );
+    assert_eq!(
+        tab.history[1].query_text,
+        "USE [custom];\nselect * from customer_written_query;"
+    );
+    assert!(tab.history[1].sql_scope.is_none());
 }
 
 #[test]

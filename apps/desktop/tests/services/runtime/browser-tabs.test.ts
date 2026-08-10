@@ -10,6 +10,7 @@ import {
   createScopedQueryTabInSnapshot,
   closeQueryTabs,
   scopedTargetsMatch,
+  updateQueryTabSqlScopeInSnapshot,
   updateQueryTabTargetInSnapshot,
 } from '../../../src/services/runtime/browser-tabs'
 import {
@@ -268,6 +269,33 @@ describe('browser tab runtime', () => {
     expect(tab.queryText).toContain('"collection": ""')
     expect(tab.queryText).not.toContain('products')
     expect(tab.scriptText).toBe('')
+  })
+
+  it('persists per-tab SQL scope without rewriting SQL and clears stale execution state', () => {
+    const snapshot = createSeedSnapshot()
+    const tab = snapshot.tabs.find((item) => item.id === 'tab-commerce-mysql')
+    if (!tab) throw new Error('SQL tab fixture is missing.')
+    const originalQuery = tab.queryText
+    tab.status = 'success'
+    tab.lastRunAt = '2026-08-09T10:00:00Z'
+    tab.result = { executionId: 'old-result' } as never
+    tab.error = { code: 'old-error', message: 'Old error' }
+
+    const updated = updateQueryTabSqlScopeInSnapshot(snapshot, {
+      tabId: tab.id,
+      sqlScope: { database: 'archive' },
+    })
+    const nextTab = updated.tabs.find((item) => item.id === tab.id)
+
+    expect(nextTab).toMatchObject({
+      queryText: originalQuery,
+      sqlScope: { database: 'archive' },
+      status: 'idle',
+      dirty: true,
+    })
+    expect(nextTab?.lastRunAt).toBeUndefined()
+    expect(nextTab?.result).toBeUndefined()
+    expect(nextTab?.error).toBeUndefined()
   })
 
   it('opens object views once per connection, environment, and object node', () => {

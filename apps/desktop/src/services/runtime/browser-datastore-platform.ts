@@ -329,6 +329,7 @@ function browserEditableScopes(
         label: 'Collection Documents',
         editKinds: [
           'insert-document',
+          'add-field',
           'set-field',
           'unset-field',
           'rename-field',
@@ -342,12 +343,21 @@ function browserEditableScopes(
     ]
   }
 
-  if (engine === 'litedb') {
+  if (engine === 'litedb' || engine === 'cosmosdb' || engine === 'arango') {
     return [
       {
         scope: 'collection',
         label: 'Collection Documents',
-        editKinds: ['insert-document', 'update-document', 'delete-document'],
+        editKinds: [
+          ...(engine === 'litedb' ? ['insert-document' as const] : []),
+          'add-field',
+          'set-field',
+          'unset-field',
+          'rename-field',
+          'change-field-type',
+          'update-document',
+          'delete-document',
+        ],
         requiresPrimaryKey: true,
         liveExecution: false,
       },
@@ -443,7 +453,16 @@ function browserEditableScopes(
 }
 
 function isLiteDbDocumentCrud(editKind: string) {
-  return ['insert-document', 'update-document', 'delete-document'].includes(editKind)
+  return [
+    'insert-document',
+    'add-field',
+    'set-field',
+    'unset-field',
+    'rename-field',
+    'change-field-type',
+    'update-document',
+    'delete-document',
+  ].includes(editKind)
 }
 
 function browserDiagnosticsTabs(

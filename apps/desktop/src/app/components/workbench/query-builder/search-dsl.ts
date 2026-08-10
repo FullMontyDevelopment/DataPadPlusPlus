@@ -7,6 +7,7 @@ import type {
   SearchDslValueType,
 } from '@datapadplusplus/shared-types'
 import { aggregationEntry, parseAggregations } from './search-dsl-aggregations'
+import { parseQueryBuilderValue } from './query-value-codec'
 
 export function createDefaultSearchDslBuilderState(
   index = '',
@@ -92,11 +93,16 @@ export function parseSearchDslQueryText(
     const parsed = JSON.parse(queryText) as Record<string, unknown>
     const body = objectField(parsed, 'body') ?? parsed
     const query = objectField(body, 'query')
+    const mainQuery = parseMainQuery(query)
+    const filters = parseFilters(query)
+    if (!mainQuery || !filters) {
+      return undefined
+    }
     const state: SearchDslBuilderState = {
       kind: 'search-dsl',
       index: stringField(parsed, 'index') ?? '',
-      ...parseMainQuery(query),
-      filters: parseFilters(query),
+      ...mainQuery,
+      filters,
       sourceFields: parseSourceFields(body),
       sort: parseSort(body),
       aggregations: parseAggregations(body),
@@ -217,22 +223,11 @@ function filterQuery(row: SearchDslFilterRow) {
 }
 
 function csvSearchValues(value: string, type: SearchDslValueType) {
-  return value
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => scalarValue(part, type))
+  return parseQueryBuilderValue(value, type, { operator: 'in' }) as unknown[]
 }
 
 function scalarValue(value: string, type: SearchDslValueType) {
-  if (type === 'boolean') {
-    return ['true', '1', 'yes'].includes(value.trim().toLowerCase())
-  }
-  if (type === 'number') {
-    const parsed = Number(value)
-    return Number.isFinite(parsed) ? parsed : 0
-  }
-  return value
+  return parseQueryBuilderValue(value, type)
 }
 
 function parseMainQuery(query: Record<string, unknown> | undefined) {
@@ -240,8 +235,26 @@ function parseMainQuery(query: Record<string, unknown> | undefined) {
     return mainQueryState('match-all')
   }
   const bool = objectField(query, 'bool')
-  const must = Array.isArray(bool?.must) ? bool.must[0] : undefined
-  const main = must && typeof must === 'object' ? must as Record<string, unknown> : query
+  if (bool && Object.keys(bool).some((key) => key !== 'must' && key !== 'filter')) {
+    return undefined
+  }
+  const mustEntries = Array.isArray(bool?.must) ? bool.must : undefined
+  if (bool && (!mustEntries || mustEntries.length !== 1)) {
+    return undefined
+  }
+  const must = mustEntries?.[0]
+  const main = must && typeof must === 'object' && !Array.isArray(must)
+    ? must as Record<string, unknown>
+    : bool
+      ? undefined
+      : query
+  if (!main || Object.keys(main).length !== 1) {
+    return undefined
+  }
+
+  if (objectField(main, 'match_all')) {
+    return mainQueryState('match-all')
+  }
 
   if (objectField(main, 'query_string')) {
     return mainQueryState('query-string', '', stringField(objectField(main, 'query_string'), 'query') ?? '*')
@@ -250,15 +263,17 @@ function parseMainQuery(query: Record<string, unknown> | undefined) {
   for (const mode of ['match', 'term', 'range'] as const) {
     const clause = objectField(main, mode)
     const field = clause ? Object.keys(clause)[0] : undefined
-    if (clause && field) {
-      const value = mode === 'range'
-        ? objectField(clause, field)?.gte ?? ''
-        : clause[field]
+    if (clause && field && Object.keys(clause).length === 1) {
+      const bounds = mode === 'range' ? objectField(clause, field) : undefined
+      if (mode === 'range' && (!bounds || Object.keys(bounds).length !== 1 || bounds.gte === undefined)) {
+        return undefined
+      }
+      const value = mode === 'range' ? bounds?.gte : clause[field]
       return mainQueryState(mode, field, String(value ?? ''), inferValueType(value))
     }
   }
 
-  return mainQueryState('match-all')
+  return undefined
 }
 
 function mainQueryState(
@@ -270,12 +285,24 @@ function mainQueryState(
   return { queryMode, field, value, valueType }
 }
 
-function parseFilters(query: Record<string, unknown> | undefined) {
+function parseFilters(query: Record<string, unknown> | undefined): SearchDslFilterRow[] | undefined {
   const bool = objectField(query, 'bool')
-  const filters = Array.isArray(bool?.filter) ? bool.filter : []
-  return filters
-    .map((filter) => parseFilter(filter))
-    .filter((row): row is SearchDslFilterRow => Boolean(row))
+  if (!bool || bool.filter === undefined) {
+    return []
+  }
+  if (!Array.isArray(bool.filter)) {
+    return undefined
+  }
+
+  const rows: SearchDslFilterRow[] = []
+  for (const filter of bool.filter) {
+    const row = parseFilter(filter)
+    if (!row) {
+      return undefined
+    }
+    rows.push(row)
+  }
+  return rows
 }
 
 function parseFilter(value: unknown): SearchDslFilterRow | undefined {
@@ -284,11 +311,17 @@ function parseFilter(value: unknown): SearchDslFilterRow | undefined {
   }
   const filter = value as Record<string, unknown>
   const bool = objectField(filter, 'bool')
+  if (bool && (Object.keys(bool).length !== 1 || !Array.isArray(bool.must_not) || bool.must_not.length !== 1)) {
+    return undefined
+  }
   const mustNot = Array.isArray(bool?.must_not) ? bool.must_not[0] : undefined
   const negated = parseNegatedFilter(mustNot)
 
   if (negated) {
     return negated
+  }
+  if (bool) {
+    return undefined
   }
 
   const exists = objectField(filter, 'exists')
@@ -307,18 +340,22 @@ function parseFilter(value: unknown): SearchDslFilterRow | undefined {
   }
   const wildcard = objectField(filter, 'wildcard')
   const wildcardField = wildcard ? Object.keys(wildcard)[0] : undefined
-  if (wildcard && wildcardField) {
+  if (wildcard && wildcardField && Object.keys(wildcard).length === 1) {
     const raw = wildcard[wildcardField]
+    const rawValue = String(raw ?? '')
+    if (!rawValue.startsWith('*') || rawValue.endsWith('*')) {
+      return undefined
+    }
     return {
       ...newSearchFilter(wildcardField, 'ends-with'),
-      value: String(raw ?? '').replace(/^\*/, ''),
+      value: rawValue.slice(1),
       valueType: inferValueType(raw),
     }
   }
   for (const operator of ['term', 'match'] as const) {
     const clause = objectField(filter, operator)
     const field = clause ? Object.keys(clause)[0] : undefined
-    if (clause && field) {
+    if (clause && field && Object.keys(clause).length === 1) {
       const raw = clause[field]
       return {
         ...newSearchFilter(field, operator),
@@ -330,7 +367,10 @@ function parseFilter(value: unknown): SearchDslFilterRow | undefined {
   const range = objectField(filter, 'range')
   const field = range ? Object.keys(range)[0] : undefined
   const bounds = field ? objectField(range, field) : undefined
-  if (field && bounds) {
+  if (field && bounds && Object.keys(range ?? {}).length === 1 && Object.keys(bounds).length === 1) {
+    if (bounds.gte === undefined && bounds.lte === undefined) {
+      return undefined
+    }
     const key = bounds.gte !== undefined ? 'gte' : 'lte'
     return {
       ...newSearchFilter(field, key === 'gte' ? 'range-gte' : 'range-lte'),

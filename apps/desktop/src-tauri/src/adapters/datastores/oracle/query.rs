@@ -71,8 +71,18 @@ pub(super) async fn execute_oracle_query(
         let path = oracle_sqlplus_path(connection).unwrap_or_else(|| "sqlplus".into());
         if oracle_statement_supports_sqlplus_live(statement) {
             Some(
-                execute_oracle_sqlplus_query(connection, statement, row_limit, explain, &path)
-                    .await?,
+                execute_oracle_sqlplus_query(
+                    connection,
+                    request
+                        .sql_scope
+                        .as_ref()
+                        .and_then(|scope| scope.schema.as_deref()),
+                    statement,
+                    row_limit,
+                    explain,
+                    &path,
+                )
+                .await?,
             )
         } else {
             notices.push(QueryExecutionNotice {
@@ -429,12 +439,19 @@ struct OracleSqlPlusOutcome {
 
 async fn execute_oracle_sqlplus_query(
     connection: &ResolvedConnectionProfile,
+    current_schema: Option<&str>,
     statement: &str,
     row_limit: u32,
     explain: bool,
     sqlplus_path: &str,
 ) -> Result<OracleSqlPlusOutcome, CommandError> {
-    let script = oracle_sqlplus_script(connection, statement, row_limit, explain)?;
+    let script = oracle_sqlplus_script_with_scope(
+        connection,
+        current_schema,
+        statement,
+        row_limit,
+        explain,
+    )?;
     let output = run_oracle_sqlplus_script(connection, sqlplus_path, &script).await?;
     let (columns, rows) = parse_oracle_sqlplus_csv(&output, row_limit)?;
     let mode = if explain {
@@ -573,6 +590,16 @@ pub(crate) fn oracle_sqlplus_script(
     row_limit: u32,
     explain: bool,
 ) -> Result<String, CommandError> {
+    oracle_sqlplus_script_with_scope(connection, None, statement, row_limit, explain)
+}
+
+fn oracle_sqlplus_script_with_scope(
+    connection: &ResolvedConnectionProfile,
+    current_schema: Option<&str>,
+    statement: &str,
+    row_limit: u32,
+    explain: bool,
+) -> Result<String, CommandError> {
     let connect_clause = oracle_sqlplus_connect_clause(connection)?;
     let live_statement = oracle_live_statement(statement, row_limit, explain)?;
     let mut lines = vec![
@@ -594,6 +621,21 @@ pub(crate) fn oracle_sqlplus_script(
         "alter session set nls_timestamp_tz_format = 'YYYY-MM-DD\"T\"HH24:MI:SS.FF6 TZH:TZM';"
             .to_string(),
     ];
+    if let Some(schema) = current_schema
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if schema.chars().any(char::is_control) {
+            return Err(CommandError::new(
+                "oracle-schema-invalid",
+                "Oracle schema names cannot contain control characters.",
+            ));
+        }
+        lines.push(format!(
+            "alter session set current_schema = \"{}\";",
+            schema.replace('"', "\"\"")
+        ));
+    }
     if !explain {
         lines.push("set transaction read only;".to_string());
     }

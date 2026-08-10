@@ -67,10 +67,7 @@ async fn list_database_nodes(
                 detail: format!("{state}{}", if read_only { " / read-only" } else { "" }),
                 scope: Some(format!("database:{database}")),
                 path: Some(vec![connection.name.clone(), "Databases".into()]),
-                query_template: Some(format!(
-                    "use {};\nselect db_name() as database_name;",
-                    quote_identifier(&database)
-                )),
+                query_template: Some("select db_name() as database_name;".into()),
                 expandable: Some(true),
             }
         })
@@ -279,8 +276,7 @@ async fn query_object_rows(
             ]),
             query_template: Some(if matches!(kind, "table" | "view") {
                 format!(
-                    "use {};\nselect top 100 * from {}.{};",
-                    quote_identifier(database),
+                    "select top 100 * from {}.{};",
                     quote_identifier(schema),
                     quote_identifier(name)
                 )
@@ -813,8 +809,7 @@ fn table_folder_nodes(connection: &ResolvedConnectionProfile, scope: &str) -> Ve
         path: Some(path.clone()),
         query_template: if id == "data" {
             Some(format!(
-                "use {};\nselect top 100 * from {}.{};",
-                quote_identifier(&database),
+                "select top 100 * from {}.{};",
                 quote_identifier(&schema),
                 quote_identifier(&table)
             ))
@@ -946,10 +941,9 @@ pub(super) async fn inspect_sqlserver_explorer_node(
 
 fn inspect_query_template(connection: &ResolvedConnectionProfile, node_id: &str) -> String {
     if let Some(scope) = node_id.strip_prefix("table:") {
-        if let Some((database, schema, table)) = parse_three_part_scope(scope) {
+        if let Some((_database, schema, table)) = parse_three_part_scope(scope) {
             return format!(
-                "use {};\nselect top 100 * from {}.{};",
-                quote_identifier(&database),
+                "select top 100 * from {}.{};",
                 quote_identifier(&schema),
                 quote_identifier(&table)
             );
@@ -969,10 +963,9 @@ fn inspect_query_template(connection: &ResolvedConnectionProfile, node_id: &str)
         "scripts",
     ] {
         if let Some(scope) = node_id.strip_prefix(&format!("{prefix}:")) {
-            if let Some((database, schema, table)) = parse_three_part_scope(scope) {
+            if let Some((_database, schema, table)) = parse_three_part_scope(scope) {
                 return format!(
-                    "use {};\nselect top 100 * from {}.{};",
-                    quote_identifier(&database),
+                    "select top 100 * from {}.{};",
                     quote_identifier(&schema),
                     quote_identifier(&table)
                 );
@@ -981,10 +974,9 @@ fn inspect_query_template(connection: &ResolvedConnectionProfile, node_id: &str)
     }
 
     if let Some(scope) = node_id.strip_prefix("view:") {
-        if let Some((database, schema, view)) = parse_three_part_scope(scope) {
+        if let Some((_database, schema, view)) = parse_three_part_scope(scope) {
             return format!(
-                "use {};\nselect top 100 * from {}.{};",
-                quote_identifier(&database),
+                "select top 100 * from {}.{};",
                 quote_identifier(&schema),
                 quote_identifier(&view)
             );
@@ -1085,11 +1077,8 @@ fn inspect_query_template(connection: &ResolvedConnectionProfile, node_id: &str)
         );
     }
 
-    if let Some(database) = node_id.strip_prefix("database:") {
-        return format!(
-            "use {};\nselect db_name() as database_name;",
-            quote_identifier(database)
-        );
+    if node_id.strip_prefix("database:").is_some() {
+        return "select db_name() as database_name;".into();
     }
 
     "select 1;".into()
@@ -3802,112 +3791,33 @@ fn type_query() -> String {
         .into()
 }
 
-fn category_query_template(database: &str, category: &str) -> String {
+fn category_query_template(_database: &str, category: &str) -> String {
     match category {
-        "tables" => format!(
-            "use {};\nselect s.name as schema_name, t.name as table_name from sys.tables t join sys.schemas s on t.schema_id = s.schema_id order by s.name, t.name;",
-            quote_identifier(database)
-        ),
-        "views" => format!(
-            "use {};\nselect s.name as schema_name, v.name as view_name from sys.views v join sys.schemas s on v.schema_id = s.schema_id order by s.name, v.name;",
-            quote_identifier(database)
-        ),
-        "stored-procedures" => format!(
-            "use {};\nselect s.name as schema_name, p.name as procedure_name from sys.procedures p join sys.schemas s on p.schema_id = s.schema_id order by s.name, p.name;",
-            quote_identifier(database)
-        ),
-        "query-store" => format!(
-            "use {};\nselect top 50 * from sys.query_store_runtime_stats order by last_execution_time desc;",
-            quote_identifier(database)
-        ),
-        "performance" | "performance-runtime-queries" => format!(
-            "use {};\n{}",
-            quote_identifier(database),
-            sqlserver_runtime_queries_query()
-        ),
-        "performance-sessions" => format!(
-            "use {};\n{}",
-            quote_identifier(database),
-            sqlserver_active_requests_query()
-        ),
-        "performance-waits" => format!(
-            "use {};\n{}",
-            quote_identifier(database),
-            sqlserver_waits_query()
-        ),
-        "performance-io" => format!(
-            "use {};\n{}",
-            quote_identifier(database),
-            sqlserver_io_stats_query()
-        ),
-        "performance-memory-grants" => format!(
-            "use {};\n{}",
-            quote_identifier(database),
-            sqlserver_memory_grants_query()
-        ),
-        "performance-transactions" => format!(
-            "use {};\n{}",
-            quote_identifier(database),
-            sqlserver_transactions_query()
-        ),
-        "security" | "security-users" => format!(
-            "use {};\nselect name, type_desc, default_schema_name, authentication_type_desc from sys.database_principals where type in ('S','U','G','E','X') order by name;",
-            quote_identifier(database)
-        ),
-        "security-roles" => format!(
-            "use {};\nselect role.name, count(member.member_principal_id) as member_count from sys.database_principals role left join sys.database_role_members member on member.role_principal_id = role.principal_id where role.type = 'R' group by role.name order by role.name;",
-            quote_identifier(database)
-        ),
-        "security-schemas" => format!(
-            "use {};\nselect s.name, user_name(s.principal_id) as owner_name, count(o.object_id) as object_count from sys.schemas s left join sys.objects o on o.schema_id = s.schema_id group by s.name, s.principal_id order by s.name;",
-            quote_identifier(database)
-        ),
-        "security-certificates" => format!(
-            "use {};\nselect name, subject, issuer_name, expiry_date, pvt_key_encryption_type_desc from sys.certificates order by name;",
-            quote_identifier(database)
-        ),
-        "security-symmetric-keys" => format!(
-            "use {};\nselect name, algorithm_desc, key_length, create_date, modify_date from sys.symmetric_keys order by name;",
-            quote_identifier(database)
-        ),
-        "security-asymmetric-keys" => format!(
-            "use {};\nselect name, algorithm_desc, key_length, pvt_key_encryption_type_desc from sys.asymmetric_keys order by name;",
-            quote_identifier(database)
-        ),
-        "security-credentials" => format!(
-            "use {};\nselect name, credential_identity, target_type, create_date, modify_date from sys.database_scoped_credentials order by name;",
-            quote_identifier(database)
-        ),
-        "security-audits" => format!(
-            "use {};\nselect name, is_state_enabled, create_date, modify_date from sys.database_audit_specifications order by name;",
-            quote_identifier(database)
-        ),
-        "storage" | "storage-files" => format!(
-            "use {};\nselect name, type_desc, physical_name, size * 8 / 1024 as size_mb, growth, max_size, state_desc from sys.database_files order by file_id;",
-            quote_identifier(database)
-        ),
-        "storage-filegroups" => format!(
-            "use {};\nselect fg.name, fg.type_desc, fg.is_default, fg.is_read_only, count(df.file_id) as file_count from sys.filegroups fg left join sys.database_files df on df.data_space_id = fg.data_space_id group by fg.name, fg.type_desc, fg.is_default, fg.is_read_only order by fg.name;",
-            quote_identifier(database)
-        ),
-        "storage-partition-schemes" => format!(
-            "use {};\nselect ps.name, pf.name as function_name from sys.partition_schemes ps join sys.partition_functions pf on pf.function_id = ps.function_id order by ps.name;",
-            quote_identifier(database)
-        ),
-        "storage-partition-functions" => format!(
-            "use {};\nselect name, type_desc, fanout, boundary_value_on_right, create_date, modify_date from sys.partition_functions order by name;",
-            quote_identifier(database)
-        ),
-        "extended-events" => format!(
-            "use {};\nselect name, event_retention_mode_desc from sys.database_event_sessions order by name;",
-            quote_identifier(database)
-        ),
-        "agent" | "agent-jobs" | "agent-schedules" | "agent-alerts" | "agent-operators"
-        | "agent-proxies" => {
-            "use [msdb];\nselect top 100 name, enabled from msdb.dbo.sysjobs order by name;"
-                .into()
-        }
-        _ => format!("use {};\nselect db_name() as database_name;", quote_identifier(database)),
+        "tables" => "select s.name as schema_name, t.name as table_name from sys.tables t join sys.schemas s on t.schema_id = s.schema_id order by s.name, t.name;".into(),
+        "views" => "select s.name as schema_name, v.name as view_name from sys.views v join sys.schemas s on v.schema_id = s.schema_id order by s.name, v.name;".into(),
+        "stored-procedures" => "select s.name as schema_name, p.name as procedure_name from sys.procedures p join sys.schemas s on p.schema_id = s.schema_id order by s.name, p.name;".into(),
+        "query-store" => "select top 50 * from sys.query_store_runtime_stats order by last_execution_time desc;".into(),
+        "performance" | "performance-runtime-queries" => sqlserver_runtime_queries_query().into(),
+        "performance-sessions" => sqlserver_active_requests_query().into(),
+        "performance-waits" => sqlserver_waits_query().into(),
+        "performance-io" => sqlserver_io_stats_query().into(),
+        "performance-memory-grants" => sqlserver_memory_grants_query().into(),
+        "performance-transactions" => sqlserver_transactions_query().into(),
+        "security" | "security-users" => "select name, type_desc, default_schema_name, authentication_type_desc from sys.database_principals where type in ('S','U','G','E','X') order by name;".into(),
+        "security-roles" => "select role.name, count(member.member_principal_id) as member_count from sys.database_principals role left join sys.database_role_members member on member.role_principal_id = role.principal_id where role.type = 'R' group by role.name order by role.name;".into(),
+        "security-schemas" => "select s.name, user_name(s.principal_id) as owner_name, count(o.object_id) as object_count from sys.schemas s left join sys.objects o on o.schema_id = s.schema_id group by s.name, s.principal_id order by s.name;".into(),
+        "security-certificates" => "select name, subject, issuer_name, expiry_date, pvt_key_encryption_type_desc from sys.certificates order by name;".into(),
+        "security-symmetric-keys" => "select name, algorithm_desc, key_length, create_date, modify_date from sys.symmetric_keys order by name;".into(),
+        "security-asymmetric-keys" => "select name, algorithm_desc, key_length, pvt_key_encryption_type_desc from sys.asymmetric_keys order by name;".into(),
+        "security-credentials" => "select name, credential_identity, target_type, create_date, modify_date from sys.database_scoped_credentials order by name;".into(),
+        "security-audits" => "select name, is_state_enabled, create_date, modify_date from sys.database_audit_specifications order by name;".into(),
+        "storage" | "storage-files" => "select name, type_desc, physical_name, size * 8 / 1024 as size_mb, growth, max_size, state_desc from sys.database_files order by file_id;".into(),
+        "storage-filegroups" => "select fg.name, fg.type_desc, fg.is_default, fg.is_read_only, count(df.file_id) as file_count from sys.filegroups fg left join sys.database_files df on df.data_space_id = fg.data_space_id group by fg.name, fg.type_desc, fg.is_default, fg.is_read_only order by fg.name;".into(),
+        "storage-partition-schemes" => "select ps.name, pf.name as function_name from sys.partition_schemes ps join sys.partition_functions pf on pf.function_id = ps.function_id order by ps.name;".into(),
+        "storage-partition-functions" => "select name, type_desc, fanout, boundary_value_on_right, create_date, modify_date from sys.partition_functions order by name;".into(),
+        "extended-events" => "select name, event_retention_mode_desc from sys.database_event_sessions order by name;".into(),
+        "agent" | "agent-jobs" | "agent-schedules" | "agent-alerts" | "agent-operators" | "agent-proxies" => "select top 100 name, enabled from msdb.dbo.sysjobs order by name;".into(),
+        _ => "select db_name() as database_name;".into(),
     }
 }
 
@@ -3977,10 +3887,13 @@ fn qualified_name(schema: &str, object_name: &str) -> String {
     }
 }
 
-fn sqlserver_module_definition_template(database: &str, schema: &str, object_name: &str) -> String {
+fn sqlserver_module_definition_template(
+    _database: &str,
+    schema: &str,
+    object_name: &str,
+) -> String {
     format!(
-        "use {};\nselect sm.definition from sys.sql_modules sm join sys.objects so on so.object_id = sm.object_id join sys.schemas ss on ss.schema_id = so.schema_id where ss.name = N'{}' and so.name = N'{}';",
-        quote_identifier(database),
+        "select sm.definition from sys.sql_modules sm join sys.objects so on so.object_id = sm.object_id join sys.schemas ss on ss.schema_id = so.schema_id where ss.name = N'{}' and so.name = N'{}';",
         sql_literal(schema),
         sql_literal(object_name)
     )

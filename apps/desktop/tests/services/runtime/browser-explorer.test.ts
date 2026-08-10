@@ -951,7 +951,7 @@ describe('browser explorer runtime', () => {
         label: 'dbo.accounts',
         kind: 'table',
         scope: 'table:datapadplusplus:dbo:accounts',
-        queryTemplate: 'use [datapadplusplus];\nselect top 100 * from [dbo].[accounts];',
+        queryTemplate: 'select top 100 * from [dbo].[accounts];',
       }),
       expect.objectContaining({ label: 'dbo.orders', kind: 'table' }),
       expect.objectContaining({ label: 'dbo.products', kind: 'table' }),
@@ -970,7 +970,7 @@ describe('browser explorer runtime', () => {
       nodeId: 'table:datapadplusplus:dbo:accounts',
     })
 
-    expect(tableResponse.queryTemplate).toBe('use [datapadplusplus];\nselect top 100 * from [dbo].[accounts];')
+    expect(tableResponse.queryTemplate).toBe('select top 100 * from [dbo].[accounts];')
     expect(tableResponse.payload).toMatchObject({
       engine: 'sqlserver',
       database: 'datapadplusplus',

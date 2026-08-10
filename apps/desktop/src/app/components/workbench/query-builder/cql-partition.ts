@@ -5,6 +5,7 @@ import type {
   CqlPartitionBuilderState,
   QueryBuilderState,
 } from '@datapadplusplus/shared-types'
+import { parseQueryBuilderValue } from './query-value-codec'
 
 const OPERATORS: Record<CqlConditionOperator, string> = {
   eq: '=',
@@ -120,6 +121,9 @@ export function parseCqlPartitionQueryText(
 
   const target = parseCqlTarget(match[2] ?? '')
   const conditions = parseWhereConditions(match[3] ?? '')
+  if (!conditions) {
+    return undefined
+  }
   const state: CqlPartitionBuilderState = {
     kind: 'cql-partition',
     keyspace: target.keyspace,
@@ -178,26 +182,18 @@ function cqlCondition(row: CqlConditionRow) {
 }
 
 function cqlValue(value: string, type: CqlBuilderValueType) {
-  const trimmed = value.trim()
-  if (type === 'null') {
-    return 'null'
-  }
-  if (type === 'boolean') {
-    return ['true', '1', 'yes'].includes(trimmed.toLowerCase()) ? 'true' : 'false'
-  }
-  if (type === 'number') {
-    return Number.isFinite(Number(trimmed)) ? String(Number(trimmed)) : '0'
-  }
-
-  return `'${value.replaceAll("'", "''")}'`
+  return cqlParsedValue(parseQueryBuilderValue(value, type), type)
 }
 
 function csvValues(value: string, type: CqlBuilderValueType) {
-  return value
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => cqlValue(item, type))
+  const parsed = parseQueryBuilderValue(value, type, { operator: 'in' })
+  return (parsed as unknown[]).map((item) => cqlParsedValue(item, type))
+}
+
+function cqlParsedValue(value: unknown, type: CqlBuilderValueType) {
+  if (value === null) return 'null'
+  if (type === 'boolean' || type === 'number' || type === 'uuid') return String(value)
+  return `'${String(value).replaceAll("'", "''")}'`
 }
 
 function cqlTarget(keyspace: string | undefined, table: string) {
@@ -237,11 +233,118 @@ function parseProjectionFields(selectList: string) {
     .map((field) => ({ id: cqlBuilderRowId('cql-projection'), field }))
 }
 
-function parseWhereConditions(whereClause: string) {
-  return whereClause
-    .split(/\s+and\s+/i)
-    .map((part) => parseCondition(part.trim()))
-    .filter((condition): condition is CqlConditionRow => Boolean(condition))
+function parseWhereConditions(whereClause: string): CqlConditionRow[] | undefined {
+  if (!whereClause.trim()) {
+    return []
+  }
+  if (containsTopLevelCqlKeyword(whereClause, 'or')) {
+    return undefined
+  }
+
+  const parts = splitCqlConjunctions(whereClause)
+  if (!parts) {
+    return undefined
+  }
+
+  const conditions: CqlConditionRow[] = []
+  for (const part of parts) {
+    const condition = parseCondition(part)
+    if (!condition) {
+      return undefined
+    }
+    conditions.push(condition)
+  }
+  return conditions
+}
+
+function containsTopLevelCqlKeyword(value: string, keyword: string) {
+  let depth = 0
+  let quoted = false
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+    if (character === "'") {
+      if (quoted && value[index + 1] === "'") {
+        index += 1
+      } else {
+        quoted = !quoted
+      }
+      continue
+    }
+    if (quoted) {
+      continue
+    }
+    if (character === '(') {
+      depth += 1
+      continue
+    }
+    if (character === ')') {
+      depth -= 1
+      continue
+    }
+    if (
+      depth === 0 &&
+      value.slice(index, index + keyword.length).toLowerCase() === keyword &&
+      /\s/.test(value[index - 1] ?? '') &&
+      /\s/.test(value[index + keyword.length] ?? '')
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+function splitCqlConjunctions(whereClause: string): string[] | undefined {
+  const parts: string[] = []
+  let start = 0
+  let depth = 0
+  let quoted = false
+
+  for (let index = 0; index < whereClause.length; index += 1) {
+    const character = whereClause[index]
+    if (character === "'") {
+      if (quoted && whereClause[index + 1] === "'") {
+        index += 1
+      } else {
+        quoted = !quoted
+      }
+      continue
+    }
+    if (quoted) {
+      continue
+    }
+    if (character === '(') {
+      depth += 1
+      continue
+    }
+    if (character === ')') {
+      depth -= 1
+      if (depth < 0) {
+        return undefined
+      }
+      continue
+    }
+    if (
+      depth === 0 &&
+      whereClause.slice(index, index + 3).toLowerCase() === 'and' &&
+      /\s/.test(whereClause[index - 1] ?? '') &&
+      /\s/.test(whereClause[index + 3] ?? '')
+    ) {
+      const part = whereClause.slice(start, index).trim()
+      if (!part) {
+        return undefined
+      }
+      parts.push(part)
+      index += 2
+      start = index + 1
+    }
+  }
+
+  const finalPart = whereClause.slice(start).trim()
+  if (quoted || depth !== 0 || !finalPart) {
+    return undefined
+  }
+  parts.push(finalPart)
+  return parts
 }
 
 function parseCondition(condition: string): CqlConditionRow | undefined {
@@ -251,11 +354,70 @@ function parseCondition(condition: string): CqlConditionRow | undefined {
   }
 
   const operator = operatorFromToken(match[2])
+  if (operator === 'in') {
+    const values = parseCqlInValues(match[3] ?? '')
+    if (!values) {
+      return undefined
+    }
+    const valueTypes = values.map(inferValueType)
+    if (new Set(valueTypes).size !== 1) {
+      return undefined
+    }
+    const cleanedValues = values.map(cleanCqlValue)
+    if (cleanedValues.some((value) => value.includes(','))) {
+      return undefined
+    }
+    return {
+      ...newCqlCondition(unquoteCqlIdentifier(match[1]), operator),
+      value: cleanedValues.join(', '),
+      valueType: valueTypes[0] ?? 'string',
+    }
+  }
   return {
     ...newCqlCondition(unquoteCqlIdentifier(match[1]), operator),
     value: cleanCqlValue(match[3] ?? ''),
     valueType: inferValueType(match[3] ?? ''),
   }
+}
+
+function parseCqlInValues(value: string): string[] | undefined {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('(') || !trimmed.endsWith(')')) {
+    return undefined
+  }
+
+  const content = trimmed.slice(1, -1)
+  const values: string[] = []
+  let start = 0
+  let quoted = false
+  for (let index = 0; index < content.length; index += 1) {
+    if (content[index] === "'") {
+      if (quoted && content[index + 1] === "'") {
+        index += 1
+      } else {
+        quoted = !quoted
+      }
+      continue
+    }
+    if (!quoted && content[index] === ',') {
+      const item = content.slice(start, index).trim()
+      if (!item) {
+        return undefined
+      }
+      values.push(item)
+      start = index + 1
+    }
+  }
+
+  if (quoted) {
+    return undefined
+  }
+  const last = content.slice(start).trim()
+  if (!last) {
+    return undefined
+  }
+  values.push(last)
+  return values
 }
 
 function operatorFromToken(token: string): CqlConditionOperator {
@@ -292,6 +454,9 @@ function inferValueType(value: string): CqlBuilderValueType {
   }
   if (cleaned.toLowerCase() === 'true' || cleaned.toLowerCase() === 'false') {
     return 'boolean'
+  }
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cleaned)) {
+    return 'uuid'
   }
   return /^-?\d+(?:\.\d+)?$/.test(cleaned) ? 'number' : 'string'
 }

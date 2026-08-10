@@ -193,6 +193,7 @@ pub(crate) async fn execute_standard_live_operation<A: DatastoreAdapter + ?Sized
             confirmed_guardrail_id: None,
             builder_state: None,
             scoped_target: None,
+            sql_scope: None,
             datastore_execution_input: None,
         };
         let result = adapter

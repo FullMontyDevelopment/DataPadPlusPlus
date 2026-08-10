@@ -9,6 +9,7 @@ export type DocumentValueType =
   | 'null'
   | 'objectid'
   | 'uuid'
+  | 'guid'
   | 'date'
   | 'decimal'
   | 'binary'
@@ -702,6 +703,10 @@ export function documentValueTypeLabel(type: DocumentValueType) {
     return 'UUID'
   }
 
+  if (type === 'guid') {
+    return 'GUID'
+  }
+
   if (type === 'date') {
     return 'Date'
   }
@@ -726,5 +731,15 @@ export function documentValueTypeLabel(type: DocumentValueType) {
 }
 
 export function isEditableDocumentValueType(type: DocumentValueType) {
-  return ['string', 'number', 'boolean', 'null', 'object', 'array'].includes(type)
+  return [
+    'string',
+    'number',
+    'boolean',
+    'null',
+    'objectid',
+    'uuid',
+    'guid',
+    'date',
+    'decimal',
+  ].includes(type)
 }

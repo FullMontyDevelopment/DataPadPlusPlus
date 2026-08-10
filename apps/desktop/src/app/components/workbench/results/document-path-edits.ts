@@ -14,6 +14,23 @@ export function setValueAtPath(
   return clone
 }
 
+export function addFieldAtPath(
+  document: Record<string, unknown>,
+  parentPath: Array<string | number>,
+  fieldName: string,
+  value: unknown,
+) {
+  const clone = clonePath(document, parentPath)
+  const parent = valueAtPath(clone, parentPath)
+
+  if (!isObjectRecord(parent) || Object.hasOwn(parent, fieldName)) {
+    return clone
+  }
+
+  parent[fieldName] = value
+  return clone
+}
+
 export function renameFieldAtPath(
   document: Record<string, unknown>,
   parentPath: Array<string | number>,
@@ -92,7 +109,7 @@ function isContainer(value: unknown): value is Array<unknown> | Record<string, u
   return typeof value === 'object' && value !== null
 }
 
-function valueAtPath(value: unknown, path: Array<string | number>) {
+export function valueAtPath(value: unknown, path: Array<string | number>) {
   let current = value
 
   for (const key of path) {
@@ -114,6 +131,10 @@ function valueAtPath(value: unknown, path: Array<string | number>) {
   }
 
   return current
+}
+
+export function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function setChildValue(parent: unknown, key: string | number, nextValue: unknown) {

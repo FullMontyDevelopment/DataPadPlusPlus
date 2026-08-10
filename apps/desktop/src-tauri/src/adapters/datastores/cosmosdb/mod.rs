@@ -4,6 +4,7 @@ mod cancellation;
 mod catalog;
 mod connection;
 mod diagnostics;
+mod editing;
 mod explorer;
 mod paging;
 mod query;
@@ -12,6 +13,7 @@ mod structure;
 use catalog::*;
 use connection::test_cosmosdb_connection;
 use diagnostics::collect_cosmosdb_diagnostics;
+use editing::execute_cosmosdb_data_edit;
 use explorer::{inspect_cosmosdb_explorer_node, list_cosmosdb_explorer_nodes};
 use structure::load_cosmosdb_structure;
 
@@ -69,6 +71,14 @@ impl DatastoreAdapter for CosmosDbAdapter {
         request: &ResultPageRequest,
     ) -> Result<ResultPageResponse, CommandError> {
         paging::fetch_cosmosdb_page(connection, request).await
+    }
+
+    async fn execute_data_edit(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &DataEditExecutionRequest,
+    ) -> Result<DataEditExecutionResponse, CommandError> {
+        execute_cosmosdb_data_edit(self, connection, request).await
     }
 
     async fn load_structure_map(

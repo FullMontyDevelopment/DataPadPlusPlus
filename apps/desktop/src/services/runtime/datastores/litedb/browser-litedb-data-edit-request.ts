@@ -21,13 +21,23 @@ export function liteDbEditRequest(request: DataEditPlanRequest) {
     )
   }
 
-  if (request.editKind === 'update-document') {
+  if ([
+    'add-field',
+    'set-field',
+    'unset-field',
+    'rename-field',
+    'change-field-type',
+    'update-document',
+  ].includes(request.editKind)) {
     return JSON.stringify(
       {
         operation: 'UpdateDocument',
         collection,
         id,
         document: request.changes[0]?.value ?? {},
+        previousDocument: request.target.expectedDocument,
+        editKind: request.editKind,
+        path: request.target.path,
         evidenceRequests: {
           before: { operation: 'FindById', collection, id },
           after: { operation: 'FindById', collection, id },
@@ -44,6 +54,7 @@ export function liteDbEditRequest(request: DataEditPlanRequest) {
         operation: 'DeleteDocument',
         collection,
         id,
+        previousDocument: request.target.expectedDocument,
         evidenceRequests: {
           before: { operation: 'FindById', collection, id },
           after: { operation: 'FindById', collection, id },
@@ -60,7 +71,7 @@ export function liteDbEditRequest(request: DataEditPlanRequest) {
       collection,
       requestedEditKind: request.editKind,
       disabledReason:
-        'LiteDB live document editing is currently scoped to insert-document, update-document, and delete-document.',
+        'LiteDB document editing requires a guarded insert, field mutation, replacement, or delete operation.',
     },
     null,
     2,

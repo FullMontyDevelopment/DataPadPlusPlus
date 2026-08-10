@@ -1,5 +1,8 @@
+use std::str::FromStr;
+
 use super::super::super::*;
 use crate::domain::models::PostgresConnectionOptions;
+use sqlx::postgres::PgConnectOptions;
 
 pub(crate) fn postgres_dsn(connection: &ResolvedConnectionProfile) -> String {
     connection.connection_string.clone().unwrap_or_else(|| {
@@ -29,6 +32,30 @@ pub(crate) fn postgres_dsn(connection: &ResolvedConnectionProfile) -> String {
             postgres_dsn_query(connection)
         )
     })
+}
+
+pub(crate) fn postgres_connect_options(
+    connection: &ResolvedConnectionProfile,
+) -> Result<PgConnectOptions, CommandError> {
+    let mut options = PgConnectOptions::from_str(&postgres_dsn(connection))?;
+    if let Some(database) = connection
+        .database
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        options = options.database(database);
+    }
+    if let Some(search_path) = connection
+        .postgres_options
+        .as_ref()
+        .and_then(|item| item.search_path.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        options = options.options([("search_path", search_path)]);
+    }
+    Ok(options)
 }
 
 fn postgres_dsn_query(connection: &ResolvedConnectionProfile) -> String {

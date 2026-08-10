@@ -142,6 +142,17 @@ public sealed class OracleSidecarTests
         Assert.Matches("^[A-Z0-9]+$", first);
     }
 
+    [Fact]
+    public void CurrentSchemaStatementQuotesIdentifiersAndRejectsControlCharacters()
+    {
+        Assert.Equal(
+            "alter session set current_schema = \"Reporting\"\"Owner\"",
+            Program.CurrentSchemaStatement(" Reporting\"Owner "));
+        Assert.Null(Program.CurrentSchemaStatement("  "));
+        var error = Assert.Throws<SidecarException>(() => Program.CurrentSchemaStatement("bad\nschema"));
+        Assert.Equal("oracle-schema-invalid", error.Code);
+    }
+
     private static OracleConnectionInput Connection(
         string? connectMode = "service",
         string? serviceName = null,

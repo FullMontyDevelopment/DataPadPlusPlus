@@ -29,6 +29,7 @@ pub(super) fn fixture_query_tab(
         script_text: crate::app::runtime::query_tabs::default_script_text(connection),
         document_efficiency_mode: None,
         scoped_target: None,
+        sql_scope: None,
         builder_state: None,
         metrics_state: None,
         object_view_state: None,
@@ -45,6 +46,7 @@ pub(super) fn fixture_query_tab(
             query_text: seed.query_text.into(),
             executed_at: created_at.into(),
             status: "seeded".into(),
+            sql_scope: None,
         }],
         error: None,
     }

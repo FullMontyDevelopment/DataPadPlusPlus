@@ -14,7 +14,7 @@ pub(super) async fn list_timescale_explorer_nodes(
     {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(&postgres_dsn(connection))
+            .connect_with(postgres_connect_options(connection)?)
             .await?;
         let limit = bounded_page_size(request.limit.or(Some(100))) as usize;
         let nodes = timescale_nodes_for_scope(&pool, connection, scope, limit)

@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 use super::super::super::*;
-use super::connection::{arango_delete, arango_post_json, arango_put_json};
+use super::connection::{arango_delete, arango_get, arango_post_json, arango_put_json};
 use super::query_request::{arango_query_request, is_read_only_aql, ArangoQueryRequest};
 use super::query_results::{
     normalize_arango_result, validate_arango_response, NormalizedArangoResult,
@@ -69,8 +69,10 @@ pub(super) async fn execute_arango_query(
                 .unwrap_or(false);
         let row_count = normalized.rows.len() as u32;
         let profile = arango_profile_payload(&query_request, &normalized, row_limit, truncated);
+        let document_payload =
+            arango_editable_document_payload(connection, normalized.documents).await;
         let mut payloads = vec![
-            payload_document(normalized.documents),
+            document_payload,
             payload_table(vec!["document".into()], normalized.rows),
             profile,
             payload_json(value),
@@ -112,6 +114,79 @@ pub(super) async fn execute_arango_query(
         truncated,
         explain_payload,
     }))
+}
+
+async fn arango_editable_document_payload(
+    connection: &ResolvedConnectionProfile,
+    documents: Value,
+) -> Value {
+    let collections = documents
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|document| document.get("_id").and_then(Value::as_str))
+        .filter_map(|id| {
+            id.split_once('/')
+                .map(|(collection, _)| collection.to_string())
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let collection = collections.iter().next().cloned();
+    let mut unavailable_reason = if collections.len() == 1 {
+        None
+    } else {
+        Some("ArangoDB document results must target one collection before editing.")
+    };
+    let shard_paths = if let Some(collection) = collection.as_deref() {
+        let path = format!("/_api/collection/{collection}/properties");
+        match arango_get(connection, &path)
+            .await
+            .and_then(|result| parse_arango_json(&result.body))
+        {
+            Ok(value) => value
+                .get("shardKeys")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_else(|| vec![json!("_key")])
+                .into_iter()
+                .filter_map(|value| {
+                    value
+                        .as_str()
+                        .map(|path| path.split('.').map(str::to_string).collect::<Vec<_>>())
+                })
+                .collect::<Vec<_>>(),
+            Err(_) => {
+                unavailable_reason = Some("ArangoDB shard-key metadata could not be loaded.");
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+    let mut protected = vec![
+        vec!["_id"],
+        vec!["_key"],
+        vec!["_rev"],
+        vec!["_from"],
+        vec!["_to"],
+    ];
+    protected.extend(
+        shard_paths
+            .iter()
+            .map(|path| path.iter().map(String::as_str).collect::<Vec<_>>()),
+    );
+    json!({
+        "renderer": "document",
+        "documents": documents,
+        "collection": collection,
+        "editMetadata": {
+            "adapterStrategy": "arango",
+            "protectedPaths": protected,
+            "shardKeyPaths": shard_paths,
+            "concurrencyTokenField": "_rev",
+            "maxDocumentBytes": 32 * 1024 * 1024,
+            "unavailableReason": unavailable_reason,
+        }
+    })
 }
 
 async fn execute_arango_cursor(

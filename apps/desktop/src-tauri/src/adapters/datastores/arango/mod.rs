@@ -3,6 +3,7 @@ use super::super::*;
 mod catalog;
 mod connection;
 mod diagnostics;
+mod editing;
 mod explorer;
 mod query;
 mod query_request;
@@ -12,6 +13,7 @@ mod structure;
 use catalog::*;
 use connection::test_arango_connection;
 use diagnostics::collect_arango_diagnostics;
+use editing::execute_arango_data_edit;
 use explorer::{inspect_arango_explorer_node, list_arango_explorer_nodes};
 use structure::load_arango_structure;
 
@@ -69,6 +71,14 @@ impl DatastoreAdapter for ArangoDbAdapter {
         request: &ResultPageRequest,
     ) -> Result<ResultPageResponse, CommandError> {
         Ok(no_additional_pages_response("arango", request))
+    }
+
+    async fn execute_data_edit(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &DataEditExecutionRequest,
+    ) -> Result<DataEditExecutionResponse, CommandError> {
+        execute_arango_data_edit(self, connection, request).await
     }
 
     async fn load_structure_map(

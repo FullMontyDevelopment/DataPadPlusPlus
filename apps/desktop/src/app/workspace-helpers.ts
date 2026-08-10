@@ -25,6 +25,7 @@ import {
   buildMongoFindQueryText,
   createDefaultMongoFindBuilderState,
   isMongoFindBuilderState,
+  parseMongoFindQueryText,
 } from './components/workbench/query-builder/mongo-find'
 import {
   buildMongoAggregationQueryText,
@@ -91,13 +92,18 @@ export function builderStateForTab(
       return withMongoBuilderDatabase(aggregation, tab, connection)
     }
 
-    return createDefaultMongoFindBuilderState(
-      mongoCollectionFromQueryText(tab.queryText),
-      mongoLimitFromQueryText(tab.queryText),
-      mongoDatabaseFromQueryText(tab.queryText) ??
-        mongoDatabaseFromScopedTarget(tab.scopedTarget) ??
-        connection.database,
-    )
+    const find = parseMongoFindQueryText(tab.queryText)
+    if (find) {
+      return withMongoBuilderDatabase(find, tab, connection)
+    }
+
+    return tab.queryText.trim()
+      ? undefined
+      : createDefaultMongoFindBuilderState(
+          '',
+          20,
+          mongoDatabaseFromScopedTarget(tab.scopedTarget) ?? connection.database,
+        )
   }
 
   if (connection.engine === 'redis' || connection.engine === 'valkey') {
@@ -123,7 +129,9 @@ export function builderStateForTab(
 
     const target = cosmosTargetForTab(tab, connection)
     return parseCosmosSqlQueryText(tab.queryText, target)
-      ?? createDefaultCosmosSqlBuilderState(target.container, target.database)
+      ?? (tab.queryText.trim()
+        ? undefined
+        : createDefaultCosmosSqlBuilderState(target.container, target.database))
   }
 
   if (isSqlBuilderConnection(connection)) {
@@ -148,7 +156,9 @@ export function builderStateForTab(
     }
 
     return parseDynamoDbKeyConditionQueryText(tab.queryText)
-      ?? createDefaultDynamoDbKeyConditionBuilderState('', 20)
+      ?? (tab.queryText.trim()
+        ? undefined
+        : createDefaultDynamoDbKeyConditionBuilderState('', 20))
   }
 
   if (connection.engine === 'cassandra') {
@@ -161,7 +171,9 @@ export function builderStateForTab(
     }
 
     return parseCqlPartitionQueryText(tab.queryText)
-      ?? createDefaultCqlPartitionBuilderState('', connection.database ?? '', 20)
+      ?? (tab.queryText.trim()
+        ? undefined
+        : createDefaultCqlPartitionBuilderState('', connection.database ?? '', 20))
   }
 
   if (connection.engine === 'elasticsearch' || connection.engine === 'opensearch') {
@@ -173,7 +185,8 @@ export function builderStateForTab(
       return tab.builderState
     }
 
-    return parseSearchDslQueryText(tab.queryText) ?? createDefaultSearchDslBuilderState('', 20)
+    return parseSearchDslQueryText(tab.queryText)
+      ?? (tab.queryText.trim() ? undefined : createDefaultSearchDslBuilderState('', 20))
   }
 
   return undefined
@@ -406,15 +419,6 @@ function cosmosTargetForTab(tab: QueryTabState, connection: ConnectionProfile) {
   }
 }
 
-function mongoCollectionFromQueryText(queryText: string) {
-  try {
-    const parsed = JSON.parse(queryText) as { collection?: unknown }
-    return typeof parsed.collection === 'string' ? parsed.collection : ''
-  } catch {
-    return ''
-  }
-}
-
 function mongoDatabaseFromQueryText(queryText: string) {
   try {
     const parsed = JSON.parse(queryText) as { database?: unknown; db?: unknown }
@@ -452,15 +456,4 @@ function mongoDatabaseFromScopedTarget(target: QueryTabState['scopedTarget']) {
   return collectionContainerIndex && collectionContainerIndex > 0
     ? path[collectionContainerIndex - 1] ?? ''
     : ''
-}
-
-function mongoLimitFromQueryText(queryText: string) {
-  try {
-    const parsed = JSON.parse(queryText) as { limit?: unknown }
-    return typeof parsed.limit === 'number' && Number.isFinite(parsed.limit) && parsed.limit > 0
-      ? Math.floor(parsed.limit)
-      : 20
-  } catch {
-    return 20
-  }
 }

@@ -37,6 +37,7 @@ type QueryTabActions = Pick<
   | 'updateQueryBuilderState'
   | 'updateDatastoreQueryEditorState'
   | 'updateQueryTarget'
+  | 'updateQuerySqlScope'
   | 'updateTestSuiteTab'
   | 'renameTab'
   | 'saveCurrentQuery'
@@ -491,6 +492,16 @@ export function useQueryTabActions({
     [runOpenTabMutation],
   )
 
+  const updateQuerySqlScope = useCallback<Actions['updateQuerySqlScope']>(
+    async (request) => {
+      return runOpenTabMutation(
+        request.tabId,
+        () => desktopClient.updateQuerySqlScope(request),
+      )
+    },
+    [runOpenTabMutation],
+  )
+
   const updateTestSuiteTab = useCallback<Actions['updateTestSuiteTab']>(
     async (request) => {
       await runOpenTabMutation(request.tabId, () => desktopClient.updateTestSuiteTab(request))
@@ -694,6 +705,7 @@ export function useQueryTabActions({
       updateQueryBuilderState,
       updateDatastoreQueryEditorState,
       updateQueryTarget,
+      updateQuerySqlScope,
       updateTestSuiteTab,
       renameTab,
       saveCurrentQuery,
@@ -750,6 +762,7 @@ export function useQueryTabActions({
       updateQueryBuilderState,
       updateDatastoreQueryEditorState,
       updateQueryTarget,
+      updateQuerySqlScope,
       updateTestSuiteTab,
     ],
   )

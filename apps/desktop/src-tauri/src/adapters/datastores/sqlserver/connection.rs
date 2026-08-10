@@ -13,6 +13,15 @@ pub(super) fn sqlserver_config(
         config_from_fields(connection)?
     };
 
+    if let Some(database) = connection
+        .database
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        config.database(database);
+    }
+
     apply_sqlserver_options(&mut config, connection)?;
     Ok(config)
 }

@@ -6,7 +6,9 @@ import type {
   DataEditExecutionRequest,
   DataEditExecutionResponse,
   DataEditKind,
+  DocumentEditMetadata,
 } from '@datapadplusplus/shared-types'
+import { DocumentAddFieldDialog } from './DocumentAddFieldDialog'
 import { DocumentContextMenu } from './document-context-menu'
 import { DeleteConfirmationPanel } from './DeleteConfirmationPanel'
 import type { DocumentEditContext } from './document-edit-context'
@@ -18,6 +20,7 @@ import {
 import {
   buildDocumentDeleteRequest,
   buildDocumentEditRequest,
+  documentEditUnavailableReason,
   pathSegments,
   valueTypeName,
 } from './document-edit-requests'
@@ -26,6 +29,12 @@ import { DocumentVirtualGridRows } from './DocumentVirtualGridRows'
 import { documentResultBehaviorForConnection } from './datastore-result-behaviors'
 import { dataEditErrorMessage, dataEditStatusMessage, executeDataEditWithConfirmation } from './data-edit-confirmation'
 import { editablePermissions } from './document-edit-permissions'
+import {
+  containsUnavailableValue,
+  protectedDocumentPaths,
+  rawDocumentValidationErrors,
+  validateDocumentFieldName,
+} from './document-edit-validation'
 import {
   collectExpandableRowIdsCooperative,
   createDocumentTreeIndex,
@@ -36,7 +45,14 @@ import {
   type DocumentTreeIndex,
   type DocumentValueType,
 } from './document-grid-model'
-import { deleteValueAtPath, renameFieldAtPath, setValueAtPath } from './document-path-edits'
+import {
+  addFieldAtPath,
+  deleteValueAtPath,
+  isObjectRecord,
+  renameFieldAtPath,
+  setValueAtPath,
+  valueAtPath,
+} from './document-path-edits'
 import { coerceValue } from './document-value-editing'
 import {
   emptyDocumentSearchResult,
@@ -53,12 +69,14 @@ interface DocumentResultsViewProps {
   documents: Array<Record<string, unknown>>
   database?: string
   collection?: string
+  editMetadata?: DocumentEditMetadata
   footerControls?: ReactNode
   hydrationMode?: 'full' | 'lazy'
   tabId?: string
   resultDurationMs?: number
   resultRuntimeTitle?: string
   resultSummary?: string
+  theme?: string
   documentResetToken?: string
   executionLocked?: boolean
   onFetchDocumentNodeChildren?: Parameters<typeof useDocumentLazyHydration>[0]['onFetchDocumentNodeChildren']
@@ -100,33 +118,31 @@ export function DocumentResultsView({
   documents,
   database,
   collection,
+  editMetadata,
   footerControls,
   hydrationMode = 'full',
   tabId,
   resultDurationMs,
   resultRuntimeTitle,
   resultSummary,
+  theme = 'dark',
   documentResetToken,
   executionLocked = false,
   onFetchDocumentNodeChildren,
   onExecuteDataEdit,
 }: DocumentResultsViewProps) {
   const connectionBehavior = documentResultBehaviorForConnection(connection)
-  const behavior = executionLocked
+  const [editPending, setEditPending] = useState(false)
+  const behavior = executionLocked || editPending
     ? {
         ...connectionBehavior,
         canEditDocuments: false,
         canRenameFields: false,
         canChangeTypes: false,
-        contextActions: {
-          ...connectionBehavior.contextActions,
-          renameField: false,
-          editValue: false,
-          changeType: false,
-          deleteField: false,
-          deleteDocument: false,
-        },
-        editModeLabel: 'Result editing is unavailable while the query is running',
+        contextActions: connectionBehavior.contextActions,
+        editModeLabel: executionLocked
+          ? 'Result editing is unavailable while the query is running'
+          : 'Wait for the current document edit to finish',
       }
     : connectionBehavior
   const [draftState, setDraftState] = useState(() => ({
@@ -154,6 +170,8 @@ export function DocumentResultsView({
     index: DocumentTreeIndex
   }>()
   const [inspectorRowId, setInspectorRowId] = useState<string>()
+  const [inspectorMode, setInspectorMode] = useState<'view' | 'edit'>('view')
+  const [pendingAddField, setPendingAddField] = useState<PendingFieldDeleteState>()
   const [pendingFieldDelete, setPendingFieldDelete] = useState<PendingFieldDeleteState>()
   const [pendingDocumentDelete, setPendingDocumentDelete] = useState<PendingDocumentDeleteState>()
   const {
@@ -170,6 +188,9 @@ export function DocumentResultsView({
     : undefined
   const pendingDocumentDeleteRow = pendingDocumentDelete?.source === documents
     ? pendingDocumentDelete.row
+    : undefined
+  const pendingAddFieldRow = pendingAddField?.source === documents
+    ? pendingAddField.row
     : undefined
   const copyTimer = useRef<number | undefined>(undefined)
   const expandAllAbortRef = useRef<AbortController | undefined>(undefined)
@@ -224,8 +245,12 @@ export function DocumentResultsView({
     inspectorRow && draftDocuments[inspectorRow.documentIndex]
       ? draftDocuments[inspectorRow.documentIndex]
       : undefined
+  const protectedPaths = useMemo(
+    () => protectedDocumentPaths(connection, editMetadata),
+    [connection, editMetadata],
+  )
   const inspectorPermissions = inspectorRow
-    ? editablePermissions(inspectorRow, behavior)
+    ? editablePermissions(inspectorRow, behavior, protectedPaths)
     : undefined
   const activeDocumentDeleteRequest =
     activeContextMenu && connection && editContext
@@ -234,7 +259,48 @@ export function DocumentResultsView({
           editContext,
           draftDocuments,
           activeContextMenu.row,
+          editMetadata,
         )
+      : undefined
+  const activeEditUnavailableReason = activeContextMenu
+    ? executionLocked
+      ? 'Wait for the running query to finish.'
+      : editPending
+        ? 'Wait for the current document edit to finish.'
+        : !onExecuteDataEdit
+          ? 'Guarded datastore edit execution is unavailable.'
+          : documentEditUnavailableReason(
+              connection,
+              editContext,
+              draftDocuments,
+              activeContextMenu.row,
+              editMetadata,
+            )
+    : undefined
+  const inspectorEditUnavailableReason = inspectorRow
+    ? executionLocked
+      ? 'Wait for the running query to finish.'
+      : editPending
+        ? 'Wait for the current document edit to finish.'
+        : !onExecuteDataEdit
+          ? 'Guarded datastore edit execution is unavailable.'
+          : documentEditUnavailableReason(
+              connection,
+              editContext,
+              draftDocuments,
+              inspectorRow,
+              editMetadata,
+            )
+    : undefined
+  const pendingAddFieldPermissions = pendingAddFieldRow
+    ? editablePermissions(pendingAddFieldRow, behavior, protectedPaths)
+    : undefined
+  const pendingAddFieldDocument = pendingAddFieldRow
+    ? draftDocuments[pendingAddFieldRow.documentIndex]
+    : undefined
+  const pendingAddFieldParent =
+    pendingAddFieldDocument && pendingAddFieldPermissions
+      ? valueAtPath(pendingAddFieldDocument, pendingAddFieldPermissions.addDestinationPath)
       : undefined
   const documentCountLabel = documentCountText(
     resultSummary,
@@ -266,6 +332,8 @@ export function DocumentResultsView({
       setActiveEditor(undefined)
       setContextMenu(undefined)
       setInspectorRowId(undefined)
+      setInspectorMode('view')
+      setPendingAddField(undefined)
       setPendingFieldDelete(undefined)
       setPendingDocumentDelete(undefined)
     })
@@ -282,6 +350,7 @@ export function DocumentResultsView({
       setContextMenu(undefined)
       setPendingFieldDelete(undefined)
       setPendingDocumentDelete(undefined)
+      setPendingAddField(undefined)
     })
   }, [cancelDataEditConfirmation, executionLocked])
 
@@ -384,7 +453,11 @@ export function DocumentResultsView({
     onHydrated: (row, response) => {
       updateDraftDocuments((current) =>
         current.map((item, index) =>
-          index === row.documentIndex ? setValueAtPath(item, row.path, response.value) : item,
+          index !== row.documentIndex
+            ? item
+            : row.path.length === 0 && isObjectRecord(response.value)
+              ? response.value
+              : setValueAtPath(item, row.path, response.value),
         ),
       )
       setExpandedRows((current) => new Set(current).add(row.id))
@@ -402,61 +475,91 @@ export function DocumentResultsView({
     updater: (current: Array<Record<string, unknown>>) => Array<Record<string, unknown>>,
     successMessage: string,
   ) => {
-    if (executionLocked) {
+    if (executionLocked || editPending) {
       setCopyMessage('Wait for the running query to finish before editing this result.')
       return
     }
     void (async () => {
+      setEditPending(true)
       try {
-        if (onExecuteDataEdit && editContext && connection) {
-          const request = buildDocumentEditRequest(
-            connection,
-            editContext,
-            draftDocuments,
-            row,
-            editKind,
-            changes,
-          )
-
-          if (!request) {
-            setCopyMessage('Edit kept locally; collection scope or document id is unavailable.')
-            updateDraftDocuments(updater)
-            return
-          }
-
-          const response = await executeDataEditWithConfirmation(
-            onExecuteDataEdit,
-            request,
-            {
-              actionLabel: successMessage,
-              confirm: confirmDataEdit,
-              confirmationTitle: 'Apply this document edit?',
-            },
-          )
-          const failureMessage = dataEditStatusMessage(
-            response,
-            'Datastore did not confirm the edit.',
-          )
-
-          if (!response?.executed) {
-            setCopyMessage(failureMessage)
-            return
-          }
+        if (!onExecuteDataEdit || !editContext || !connection) {
+          setCopyMessage('Edit unavailable; this result is missing guarded datastore execution scope.')
+          return
         }
 
-        updateDraftDocuments(updater)
-        setCopyMessage(successMessage)
+        const nextDocuments = updater(draftDocuments)
+        const request = buildDocumentEditRequest(
+          connection,
+          editContext,
+          draftDocuments,
+          row,
+          editKind,
+          changes,
+          editMetadata,
+          nextDocuments,
+        )
+
+        if (!request) {
+          setCopyMessage(
+            documentEditUnavailableReason(
+              connection,
+              editContext,
+              draftDocuments,
+              row,
+              editMetadata,
+            ) ?? 'Edit unavailable; document targeting is incomplete.',
+          )
+          return
+        }
+
+        const response = await executeDataEditWithConfirmation(
+          onExecuteDataEdit,
+          request,
+          {
+            actionLabel: successMessage,
+            confirm: confirmDataEdit,
+            confirmationTitle: 'Apply this document edit?',
+          },
+        )
+        const failureMessage = dataEditStatusMessage(
+          response,
+          'Datastore did not confirm the edit.',
+        )
+
+        if (!response?.executed) {
+          setCopyMessage(failureMessage)
+          return
+        }
+
+        const authoritativeDocument = response.metadata?.documentEvidence?.afterDocument
+        updateDraftDocuments((current) =>
+          current.map((document, index) =>
+            index === row.documentIndex
+              ? authoritativeDocument ?? nextDocuments[row.documentIndex] ?? document
+              : document,
+          ),
+        )
+        setCopyMessage(response.messages.at(-1) ?? successMessage)
       } catch (error) {
         setCopyMessage(dataEditErrorMessage(error, 'Document edit failed.'))
+      } finally {
+        setEditPending(false)
       }
     })()
   }
 
   const beginEditing = (row: DocumentGridRow, cell: DocumentEditCell) => {
-    if (executionLocked) {
+    if (executionLocked || editPending) {
       return
     }
-    const permissions = editablePermissions(row, behavior)
+    const unavailableReason = !onExecuteDataEdit
+      ? 'Guarded datastore edit execution is unavailable.'
+      : documentEditUnavailableReason(connection, editContext, draftDocuments, row, editMetadata)
+    if (unavailableReason) {
+      setCopyMessage(unavailableReason)
+      return
+    }
+    const permissions = editablePermissions(row, behavior, protectedPaths)
 
     if (
       (cell === 'field' && !permissions.canEditField) ||
@@ -606,6 +709,21 @@ export function DocumentResultsView({
     }
 
     const nextName = nextFieldName.trim()
+    if (nextName === row.label) {
+      return
+    }
+    const document = draftDocuments[row.documentIndex]
+    const parent = document ? valueAtPath(document, row.parentPath) : undefined
+    const fieldError = validateDocumentFieldName({
+      fieldName: nextName,
+      parent,
+      parentPath: row.parentPath,
+      protectedPaths,
+    })
+    if (fieldError) {
+      setCopyMessage(fieldError)
+      return
+    }
 
     applyDocumentEdit(
       row,
@@ -645,7 +763,107 @@ export function DocumentResultsView({
         current.map((document, index) =>
           index === row.documentIndex ? deleteValueAtPath(document, row.path) : document,
         ),
-      'Deleted field.',
+      'Removed field.',
+    )
+  }
+
+  const addRowField = (row: DocumentGridRow, fieldName: string, value: unknown) => {
+    const permissions = editablePermissions(row, behavior, protectedPaths)
+    if (!permissions.canAddField) return
+    const destinationPath = permissions.addDestinationPath
+    const newPath = [...destinationPath, fieldName]
+    const editRow: DocumentGridRow = {
+      ...row,
+      id: `${row.id}:add:${fieldName}`,
+      label: fieldName,
+      fieldPath: pathSegments(newPath).join('.'),
+      parentPath: destinationPath,
+      path: newPath,
+      value,
+    }
+    applyDocumentEdit(
+      editRow,
+      'add-field',
+      [{ path: pathSegments(newPath), value, valueType: valueTypeName(value) }],
+      (current) => current.map((document, index) =>
+        index === row.documentIndex
+          ? addFieldAtPath(document, destinationPath, fieldName, value)
+          : document,
+      ),
+      `Added field ${fieldName}.`,
+    )
+    setExpandedRows((current) => new Set(current).add(
+      `document:${row.documentIndex}:${JSON.stringify(destinationPath)}`,
+    ))
+  }
+
+  const openRawInspector = (row: DocumentGridRow, mode: 'view' | 'edit') => {
+    if (mode === 'edit') {
+      const unavailableReason = documentEditUnavailableReason(
+        connection,
+        editContext,
+        draftDocuments,
+        row,
+        editMetadata,
+      )
+      if (unavailableReason || executionLocked || editPending) {
+        setCopyMessage(
+          unavailableReason ?? 'Wait for the active operation before editing raw JSON.',
+        )
+        return
+      }
+    }
+
+    if (containsUnavailableValue(row.value) && efficiencyModeEnabled) {
+      void hydrateLazyRow(row, 'full-value').then((response) => {
+        if (!response) return
+        if (mode === 'edit' && containsUnavailableValue(response.value)) {
+          setCopyMessage('Raw JSON editing is unavailable because the datastore could not hydrate this value losslessly.')
+          return
+        }
+        setInspectorMode(mode)
+        setInspectorRowId(row.id)
+      })
+      return
+    }
+    if (mode === 'edit' && containsUnavailableValue(row.value)) {
+      setCopyMessage('Raw JSON editing is unavailable until every selected value is loaded losslessly.')
+      return
+    }
+
+    setInspectorMode(mode)
+    setInspectorRowId(row.id)
+  }
+
+  const validateRawValue = (row: DocumentGridRow, value: unknown) => {
+    const document = draftDocuments[row.documentIndex]
+    if (!document) return ['The selected document is no longer present.']
+    const nextDocument = row.path.length === 0
+      ? value as Record<string, unknown>
+      : setValueAtPath(document, row.path, value)
+    return rawDocumentValidationErrors({
+      beforeDocument: document,
+      nextDocument,
+      metadata: editMetadata,
+      protectedPaths,
+    })
+  }
+
+  const saveRawValue = (row: DocumentGridRow, value: unknown) => {
+    const rootEdit = row.path.length === 0
+    applyDocumentEdit(
+      row,
+      rootEdit ? 'update-document' : 'set-field',
+      [{
+        path: pathSegments(row.path),
+        value,
+        valueType: valueTypeName(value),
+      }],
+      (current) => current.map((document, index) => {
+        if (index !== row.documentIndex) return document
+        return rootEdit ? value as Record<string, unknown> : setValueAtPath(document, row.path, value)
+      }),
+      rootEdit ? 'Replaced document from validated JSON.' : 'Updated field from validated JSON.',
     )
   }
 
@@ -660,7 +878,13 @@ export function DocumentResultsView({
         return
       }
 
-      const request = buildDocumentDeleteRequest(connection, editContext, draftDocuments, row)
+      const request = buildDocumentDeleteRequest(
+        connection,
+        editContext,
+        draftDocuments,
+        row,
+        editMetadata,
+      )
 
       if (!request) {
         setCopyMessage('Delete unavailable; DataPad++ needs a collection and stable _id.')
@@ -668,6 +892,7 @@ export function DocumentResultsView({
       }
 
       try {
+        setEditPending(true)
         const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
           actionLabel: 'Delete this document.',
           confirm: confirmDataEdit,
@@ -691,6 +916,8 @@ export function DocumentResultsView({
         setCopyMessage(response.messages.at(-1) ?? 'Deleted document.')
       } catch (error) {
         setCopyMessage(dataEditErrorMessage(error, 'Document delete failed.'))
+      } finally {
+        setEditPending(false)
       }
     })()
   }
@@ -754,10 +981,16 @@ export function DocumentResultsView({
         {inspectorRow && inspectorDocument ? (
           <DocumentFieldInspector
             canChangeType={Boolean(inspectorPermissions?.canChangeType)}
+            canEditRaw={Boolean(inspectorPermissions?.canEditRaw)}
             document={inspectorDocument}
+            editUnavailableReason={inspectorEditUnavailableReason}
+            initialMode={inspectorMode}
             row={inspectorRow}
+            theme={theme}
             onChangeType={changeRowType}
             onClose={() => setInspectorRowId(undefined)}
+            onSaveRaw={saveRawValue}
+            onValidateRaw={validateRawValue}
           />
         ) : null}
       </div>
@@ -771,10 +1004,15 @@ export function DocumentResultsView({
       {activeContextMenu ? (
         <DocumentContextMenu
           behavior={behavior}
+          protectedPaths={protectedPaths}
           row={activeContextMenu.row}
           x={activeContextMenu.x}
           y={activeContextMenu.y}
           onClose={() => setContextMenu(undefined)}
+          onAddField={() => {
+            setPendingAddField({ source: documents, row: activeContextMenu.row })
+            setContextMenu(undefined)
+          }}
           onCopyDocument={() => void copyDocument(activeContextMenu.row)}
           onCopyPath={() => void copyText(activeContextMenu.row.fieldPath || '$')}
           onCopyValue={() => void copyValue(activeContextMenu.row.value)}
@@ -787,23 +1025,41 @@ export function DocumentResultsView({
             setContextMenu(undefined)
           }}
           documentDeleteUnavailableReason={
-            activeContextMenu.row.path.length === 0 && !activeDocumentDeleteRequest
-              ? 'DataPad++ needs a collection and stable _id before it can delete this document.'
+            activeContextMenu.row.path.length === 0
+              ? activeEditUnavailableReason ?? (
+                  !activeDocumentDeleteRequest ? 'Document targeting is incomplete.' : undefined
+                )
               : undefined
           }
+          editUnavailableReason={activeEditUnavailableReason}
+          onEditRawJson={() => openRawInspector(activeContextMenu.row, 'edit')}
           onEditValue={() => {
             beginEditing(activeContextMenu.row, 'value')
           }}
           onRename={() => {
             beginEditing(activeContextMenu.row, 'field')
           }}
-          onViewRawJson={() => setInspectorRowId(activeContextMenu.row.id)}
+          onViewRawJson={() => openRawInspector(activeContextMenu.row, 'view')}
+        />
+      ) : null}
+      {pendingAddFieldRow && isObjectRecord(pendingAddFieldParent) && pendingAddFieldPermissions ? (
+        <DocumentAddFieldDialog
+          connection={connection}
+          parent={pendingAddFieldParent}
+          parentPath={pendingAddFieldPermissions.addDestinationPath}
+          protectedPaths={protectedPaths}
+          onCancel={() => setPendingAddField(undefined)}
+          onAdd={(fieldName, value) => {
+            const row = pendingAddFieldRow
+            setPendingAddField(undefined)
+            addRowField(row, fieldName, value)
+          }}
         />
       ) : null}
       {pendingFieldDeleteRow ? (
         <DeleteConfirmationPanel
-          title={`Delete field ${pendingFieldDeleteRow.fieldPath || pathSegments(pendingFieldDeleteRow.path).join('.')}?`}
-          body="DataPad++ will run this guarded field delete with confirmation."
+          title={`Remove field ${pendingFieldDeleteRow.fieldPath || pathSegments(pendingFieldDeleteRow.path).join('.')}?`}
+          body="DataPad++ will run this guarded field removal with confirmation."
           onCancel={() => setPendingFieldDelete(undefined)}
           onConfirm={() => {
             const row = pendingFieldDeleteRow

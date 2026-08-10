@@ -157,6 +157,7 @@ impl ManagedAppState {
             script_text: None,
             document_efficiency_mode: None,
             scoped_target: None,
+            sql_scope: None,
             builder_state: None,
             metrics_state: None,
             object_view_state: None,

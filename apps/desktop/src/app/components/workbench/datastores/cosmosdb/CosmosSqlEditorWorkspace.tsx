@@ -12,6 +12,8 @@ import {
   validateCosmosSqlEditorState,
 } from '../../query-builder/cosmos-sql'
 import { cosmosSqlCompletionProvider } from './cosmos-sql-provider'
+import { QueryBuilderValueInput } from '../../query-builder/QueryBuilderValueInput'
+import { queryBuilderValueTypeLabel } from '../../query-builder/query-value-codec'
 
 const VALUE_TYPES: CosmosSqlBuilderValueType[] = [
   'string',
@@ -19,6 +21,8 @@ const VALUE_TYPES: CosmosSqlBuilderValueType[] = [
   'boolean',
   'null',
   'json',
+  'date',
+  'uuid',
 ]
 
 export function CosmosSqlEditorWorkspace({
@@ -136,6 +140,7 @@ export function CosmosSqlEditorWorkspace({
                 />
                 <select
                   aria-label={`Type for ${parameter.name || 'parameter'}`}
+                  className="query-builder-value-type"
                   value={parameter.valueType}
                   disabled={readOnly}
                   onChange={(event) => update({
@@ -145,15 +150,17 @@ export function CosmosSqlEditorWorkspace({
                         : item),
                   })}
                 >
-                  {VALUE_TYPES.map((type) => <option value={type} key={type}>{type}</option>)}
+                  {VALUE_TYPES.map((type) => <option value={type} key={type}>{queryBuilderValueTypeLabel(type)}</option>)}
                 </select>
-                <input
-                  aria-label={`Value for ${parameter.name || 'parameter'}`}
+                <QueryBuilderValueInput
+                  ariaLabel={`Value for ${parameter.name || 'parameter'}`}
                   value={parameter.value}
                   disabled={readOnly || parameter.valueType === 'null'}
-                  onChange={(event) => update({
+                  theme={theme}
+                  valueType={parameter.valueType}
+                  onChange={(value) => update({
                     parameters: state.parameters.map((item) =>
-                      item.id === parameter.id ? { ...item, value: event.target.value } : item),
+                      item.id === parameter.id ? { ...item, value } : item),
                   })}
                 />
                 <button
@@ -186,19 +193,22 @@ export function CosmosSqlEditorWorkspace({
               <div className="cosmos-sql-routing-value">
                 <select
                   aria-label="Partition key type"
+                  className="query-builder-value-type"
                   value={state.partitionKeyValueType ?? 'string'}
                   disabled={readOnly}
                   onChange={(event) => update({
                     partitionKeyValueType: event.target.value as CosmosSqlBuilderValueType,
                   })}
                 >
-                  {VALUE_TYPES.map((type) => <option value={type} key={type}>{type}</option>)}
+                  {VALUE_TYPES.map((type) => <option value={type} key={type}>{queryBuilderValueTypeLabel(type)}</option>)}
                 </select>
-                <input
-                  aria-label="Partition key value"
+                <QueryBuilderValueInput
+                  ariaLabel="Partition key value"
                   value={state.partitionKeyValue ?? ''}
                   disabled={readOnly || state.partitionKeyValueType === 'null'}
-                  onChange={(event) => update({ partitionKeyValue: event.target.value })}
+                  theme={theme}
+                  valueType={state.partitionKeyValueType ?? 'string'}
+                  onChange={(value) => update({ partitionKeyValue: value })}
                 />
               </div>
             ) : (

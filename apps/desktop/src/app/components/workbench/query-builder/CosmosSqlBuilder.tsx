@@ -16,13 +16,21 @@ import {
 import { BuilderSection } from './BuilderSection'
 import {
   buildCosmosSqlRequest,
-  buildCosmosSqlQueryText,
   cosmosSqlBuilderRowId,
 } from './cosmos-sql'
 import {
   pointInsideElement,
   queryBuilderDropZoneFromPoint,
 } from './query-builder-drag-targets'
+import { QueryBuilderValueInput } from './QueryBuilderValueInput'
+import {
+  queryBuilderOperatorArity,
+  queryBuilderValueTypeLabel,
+} from './query-value-codec'
+import {
+  builderStateWithCompiledQueryText,
+  compileQueryBuilderState,
+} from '../../../controllers/query-builder-routing'
 
 interface CosmosSqlBuilderProps {
   tab: QueryTabState
@@ -30,6 +38,7 @@ interface CosmosSqlBuilderProps {
   containerOptions?: string[]
   onBuilderStateChange?(tabId: string, builderState: QueryBuilderState): void
   onUseInQueryEditor?(builderState: CosmosSqlBuilderState): void
+  theme: string
 }
 
 const FILTER_OPERATORS: Array<{ value: CosmosSqlFilterOperator; label: string }> = [
@@ -50,6 +59,9 @@ const FILTER_OPERATORS: Array<{ value: CosmosSqlFilterOperator; label: string }>
   { value: 'not-in', label: 'Not in' },
   { value: 'is-null', label: 'Is null' },
   { value: 'is-not-null', label: 'Is not null' },
+  { value: 'has-items', label: 'Has Items' },
+  { value: 'has-no-items', label: 'Has No Items' },
+  { value: 'has-length', label: 'Has Length' },
 ]
 
 const VALUE_TYPES: CosmosSqlBuilderValueType[] = [
@@ -58,6 +70,8 @@ const VALUE_TYPES: CosmosSqlBuilderValueType[] = [
   'boolean',
   'null',
   'json',
+  'date',
+  'uuid',
 ]
 
 export function CosmosSqlBuilder({
@@ -66,21 +80,23 @@ export function CosmosSqlBuilder({
   containerOptions = [],
   onBuilderStateChange,
   onUseInQueryEditor,
+  theme,
 }: CosmosSqlBuilderProps) {
   const draft = builderState
   const rootRef = useRef<HTMLElement>(null)
   const [builderDragActive, setBuilderDragActive] = useState(false)
   const [activeDropZone, setActiveDropZone] = useState<CosmosDropZone>()
   const resolvedContainerOptions = uniqueValues([draft.container, ...containerOptions])
-  const generatedRequest = buildCosmosSqlRequest(draft)
+  const compilation = compileQueryBuilderState(draft, undefined, tab)
+  const generatedRequest: ReturnType<typeof buildCosmosSqlRequest> | undefined =
+    compilation.ok && compilation.queryText
+      ? JSON.parse(compilation.queryText) as ReturnType<typeof buildCosmosSqlRequest>
+      : undefined
   const updateDraft = useCallback((patch: Partial<CosmosSqlBuilderState>) => {
     const nextDraft = { ...draft, ...patch }
-    const next = {
-      ...nextDraft,
-      lastAppliedQueryText: buildCosmosSqlQueryText(nextDraft),
-    }
+    const next = builderStateWithCompiledQueryText(nextDraft, undefined, tab)
     onBuilderStateChange?.(tab.id, next)
-  }, [draft, onBuilderStateChange, tab.id])
+  }, [draft, onBuilderStateChange, tab])
   const addDroppedField = useCallback((field: string, dropZone: CosmosDropZone) => {
     if (dropZone === 'projection') {
       updateDraft({
@@ -209,20 +225,22 @@ export function CosmosSqlBuilder({
         </label>
         <select
           aria-label="Partition key value type"
+          className="query-builder-value-type"
           disabled={!draft.partitionKeyEnabled}
           value={draft.partitionKeyValueType ?? 'string'}
           onChange={(event) => updateDraft({
             partitionKeyValueType: event.target.value as CosmosSqlBuilderValueType,
           })}
         >
-          {VALUE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+          {VALUE_TYPES.map((type) => <option key={type} value={type}>{queryBuilderValueTypeLabel(type)}</option>)}
         </select>
-        <input
-          aria-label="Partition key value"
+        <QueryBuilderValueInput
+          ariaLabel="Partition key value"
           disabled={!draft.partitionKeyEnabled || draft.partitionKeyValueType === 'null'}
+          theme={theme}
           value={draft.partitionKeyValue ?? ''}
-          placeholder="Partition key value"
-          onChange={(event) => updateDraft({ partitionKeyValue: event.target.value })}
+          valueType={draft.partitionKeyValueType ?? 'string'}
+          onChange={(value) => updateDraft({ partitionKeyValue: value })}
         />
         <label className="query-builder-toggle cosmos-builder-routing__toggle">
           <input
@@ -302,10 +320,12 @@ export function CosmosSqlBuilder({
         </label>
         {draft.filters.length === 0 ? (
           <p className="query-builder-empty">No filters applied.</p>
-        ) : draft.filters.map((filter) => (
+        ) : draft.filters.map((filter) => {
+          const arity = queryBuilderOperatorArity(filter.operator)
+          return (
           <div
             key={filter.id}
-            className={`query-builder-row query-builder-row--filter${filter.enabled === false ? ' is-disabled' : ''}`}
+            className={`query-builder-row query-builder-row--filter is-${arity}${filter.enabled === false ? ' is-disabled' : ''}`}
           >
             <label className="query-builder-toggle">
               <input
@@ -327,6 +347,7 @@ export function CosmosSqlBuilder({
             />
             <select
               aria-label="Filter operator"
+              title={filter.operator.startsWith('has-') ? 'Native Cosmos DB array predicate; ARRAY_LENGTH is computed server-side.' : undefined}
               value={filter.operator}
               onChange={(event) => updateFilter(draft, updateDraft, filter.id, {
                 operator: event.target.value as CosmosSqlFilterOperator,
@@ -336,23 +357,26 @@ export function CosmosSqlBuilder({
                 <option key={operator.value} value={operator.value}>{operator.label}</option>
               ))}
             </select>
-            <select
+            {arity !== 'none' && arity !== 'length' ? <select
               aria-label="Filter value type"
+              className="query-builder-value-type"
               value={filter.valueType}
               onChange={(event) => updateFilter(draft, updateDraft, filter.id, {
                 valueType: event.target.value as CosmosSqlBuilderValueType,
               })}
             >
-              {VALUE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
-            </select>
-            <input
-              aria-label="Filter value"
-              disabled={filter.operator === 'is-null' || filter.operator === 'is-not-null'}
+              {VALUE_TYPES.map((type) => <option key={type} value={type}>{queryBuilderValueTypeLabel(type)}</option>)}
+            </select> : null}
+            {arity !== 'none' ? <QueryBuilderValueInput
+              ariaLabel="Filter value"
+              operator={filter.operator}
+              theme={theme}
               value={filter.value}
-              onChange={(event) => updateFilter(draft, updateDraft, filter.id, {
-                value: event.target.value,
+              valueType={arity === 'length' ? 'number' : filter.valueType}
+              onChange={(value) => updateFilter(draft, updateDraft, filter.id, {
+                value,
               })}
-            />
+            /> : null}
             <RemoveButton
               label={`Remove filter ${filter.field || 'empty'}`}
               onClick={() => updateDraft({
@@ -360,7 +384,8 @@ export function CosmosSqlBuilder({
               })}
             />
           </div>
-        ))}
+          )
+        })}
       </BuilderSection>
 
       <BuilderSection
@@ -416,19 +441,20 @@ export function CosmosSqlBuilder({
           <button
             type="button"
             className="query-builder-action"
+            disabled={!generatedRequest}
             onClick={() => onUseInQueryEditor?.(draft)}
           >
             Use in Query Editor
           </button>
         </div>
-        <code className="cosmos-generated-query__sql">{generatedRequest.query}</code>
-        {generatedRequest.parameters.length > 0 ? (
+        <code className="cosmos-generated-query__sql">{generatedRequest?.query ?? 'Fix the invalid builder value to generate SQL.'}</code>
+        {(generatedRequest?.parameters.length ?? 0) > 0 ? (
           <table className="cosmos-generated-query__parameters">
             <thead>
               <tr><th>Name</th><th>Value</th></tr>
             </thead>
             <tbody>
-              {generatedRequest.parameters.map((parameter) => (
+              {generatedRequest?.parameters.map((parameter) => (
                 <tr key={parameter.name}>
                   <td>{parameter.name}</td>
                   <td>{formatGeneratedValue(parameter.value)}</td>

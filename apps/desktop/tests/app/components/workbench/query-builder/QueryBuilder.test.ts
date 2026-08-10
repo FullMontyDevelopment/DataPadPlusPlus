@@ -1362,7 +1362,7 @@ describe('DynamoDB key-condition query builder', () => {
         filters: [
           { id: 'string', enabled: true, field: 'stringValue', operator: 'eq', value: 'open', valueType: 'string' },
           { id: 'number', enabled: true, field: 'numberValue', operator: 'eq', value: '42.5', valueType: 'number' },
-          { id: 'boolean', enabled: true, field: 'booleanValue', operator: 'eq', value: 'yes', valueType: 'boolean' },
+          { id: 'boolean', enabled: true, field: 'booleanValue', operator: 'eq', value: 'true', valueType: 'boolean' },
           { id: 'null', enabled: true, field: 'nullValue', operator: 'eq', value: '', valueType: 'null' },
           {
             id: 'json',

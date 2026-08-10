@@ -12,6 +12,26 @@ fn sqlserver_config_supports_named_instance_without_port() {
 }
 
 #[test]
+fn sqlserver_config_overrides_connection_string_database_with_tab_scope() {
+    let mut connection = resolved_connection(None);
+    connection.connection_string = Some(
+        "Server=localhost,1433;Database=profile_database;User Id=sa;Password=secret;TrustServerCertificate=true".into(),
+    );
+    connection.database = Some("tab_database".into());
+
+    let config = sqlserver_config(&connection).expect("config");
+    let debug = format!("{config:?}");
+    assert!(
+        debug.contains("database: Some(\"tab_database\")"),
+        "{debug}"
+    );
+    assert!(
+        !debug.contains("database: Some(\"profile_database\")"),
+        "{debug}"
+    );
+}
+
+#[test]
 fn sqlserver_config_rejects_localdb_live_path() {
     let mut options = sqlserver_options("localdb");
     options.local_db_instance = Some("MSSQLLocalDB".into());

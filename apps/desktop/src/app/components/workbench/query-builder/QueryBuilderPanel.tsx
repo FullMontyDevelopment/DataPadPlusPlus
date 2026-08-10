@@ -28,7 +28,6 @@ import { isCosmosSqlBuilderState } from './cosmos-sql'
 import { DynamoDbKeyConditionBuilder } from '../datastores/dynamodb/DynamoDbKeyConditionBuilder'
 import { isDynamoDbKeyConditionBuilderState } from './dynamodb-key-condition'
 import {
-  buildMongoFindQueryText,
   isMongoFindBuilderState,
 } from './mongo-find'
 import { MongoAggregationBuilder } from '../datastores/mongodb/MongoAggregationBuilder'
@@ -57,6 +56,10 @@ import {
   queryBuilderDropZoneFromEvent,
   queryBuilderDropZoneFromPoint,
 } from './query-builder-drag-targets'
+import {
+  builderStateWithCompiledQueryText,
+  compileQueryBuilderState,
+} from '../../../controllers/query-builder-routing'
 
 interface QueryBuilderPanelProps {
   connection?: ConnectionProfile
@@ -74,6 +77,7 @@ interface QueryBuilderPanelProps {
   onCount?(tabId: string, builderState: QueryBuilderState): Promise<void>
   redisRefreshSignal?: number
   executionLocked?: boolean
+  theme?: string
 }
 
 export function QueryBuilderPanel({
@@ -90,13 +94,18 @@ export function QueryBuilderPanel({
   onCount,
   redisRefreshSignal = 0,
   executionLocked = false,
+  theme = 'dark',
 }: QueryBuilderPanelProps) {
   const resolvedBuilderState = builderState ?? tab.builderState
   const locked = executionLocked || Boolean(tab.activeExecution) || tab.status === 'queued'
   const safeBuilderStateChange = locked ? undefined : onBuilderStateChange
+  const compilation = resolvedBuilderState
+    ? compileQueryBuilderState(resolvedBuilderState, connection, tab)
+    : undefined
+  const builderInvalid = compilation?.ok === false
   const countControl = resolvedBuilderState ? (
     <QueryBuilderCountButton
-      activeExecution={locked}
+      activeExecution={locked || builderInvalid}
       builderState={resolvedBuilderState}
       onCount={locked ? undefined : onCount}
       tabId={tab.id}
@@ -113,6 +122,7 @@ export function QueryBuilderPanel({
         builderState={resolvedBuilderState}
         countControl={countControl}
         onBuilderStateChange={safeBuilderStateChange}
+        theme={theme}
       />
     )
   }
@@ -139,6 +149,7 @@ export function QueryBuilderPanel({
         builderState={resolvedBuilderState}
         tableOptions={tableOptions}
         onBuilderStateChange={safeBuilderStateChange}
+        theme={theme}
       />
     )
   }
@@ -151,7 +162,8 @@ export function QueryBuilderPanel({
         builderState={resolvedBuilderState}
         containerOptions={collectionOptions}
         onBuilderStateChange={safeBuilderStateChange}
-        onUseInQueryEditor={onUseBuilderInEditor}
+        onUseInQueryEditor={builderInvalid ? undefined : onUseBuilderInEditor}
+        theme={theme}
       />
     )
   }
@@ -164,6 +176,7 @@ export function QueryBuilderPanel({
         builderState={resolvedBuilderState}
         tableOptions={tableOptions}
         onBuilderStateChange={safeBuilderStateChange}
+        theme={theme}
       />
     )
   }
@@ -176,6 +189,7 @@ export function QueryBuilderPanel({
         builderState={resolvedBuilderState}
         tableOptions={tableOptions}
         onBuilderStateChange={safeBuilderStateChange}
+        theme={theme}
       />
     )
   }
@@ -188,6 +202,7 @@ export function QueryBuilderPanel({
         builderState={resolvedBuilderState}
         indexOptions={tableOptions}
         onBuilderStateChange={safeBuilderStateChange}
+        theme={theme}
       />
     )
   }
@@ -220,11 +235,23 @@ export function QueryBuilderPanel({
       className={`query-builder-workspace${locked ? ' is-execution-locked' : ''}`}
       aria-disabled={locked}
     >
+      {compilation?.ok === false ? (
+        <div className="query-builder-validation-summary" role="alert">
+          <strong>Fix the builder value before running this query.</strong>
+          <ul>
+            {compilation.errors.map((error, index) => (
+              <li key={`${error.rowId ?? 'builder'}-${index}`}>
+                {error.field ? `${error.field}: ` : ''}{error.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <fieldset className="query-builder-execution-fieldset" disabled={locked}>
         {panel}
         {!countIsInsideBuilder ? (
           <QueryBuilderCountFooter
-            activeExecution={locked}
+            activeExecution={locked || builderInvalid}
             builderState={resolvedBuilderState}
             onCount={locked ? undefined : onCount}
             tabId={tab.id}
@@ -241,12 +268,14 @@ function MongoFindBuilder({
   builderState,
   countControl,
   onBuilderStateChange,
+  theme,
 }: {
   connection?: ConnectionProfile
   tab: QueryTabState
   builderState: MongoFindBuilderState
   countControl?: ReactNode
   onBuilderStateChange?(tabId: string, builderState: QueryBuilderState): void
+  theme: string
 }) {
   const draft = builderState
   const filterGroups = useMemo(() => draft.filterGroups ?? [], [draft.filterGroups])
@@ -266,15 +295,12 @@ function MongoFindBuilder({
       ...(scopedDatabase ? { database: scopedDatabase } : {}),
       ...patch,
     }
-    const next = {
-      ...nextDraft,
-      lastAppliedQueryText: buildMongoFindQueryText(nextDraft, { database: scopedDatabase }),
-    }
+    const next = builderStateWithCompiledQueryText(nextDraft, connection, tab)
 
     if (onBuilderStateChange) {
       onBuilderStateChange(tab.id, next)
     }
-  }, [draft, onBuilderStateChange, scopedDatabase, tab.id])
+  }, [connection, draft, onBuilderStateChange, scopedDatabase, tab])
 
   const addDroppedFilter = useCallback((payload: FieldDragPayload, groupId?: string) => {
     updateDraft({
@@ -431,6 +457,7 @@ function MongoFindBuilder({
         dragActive={activeDropZone === 'filters'}
         filterGroups={filterGroups}
         updateDraft={updateDraft}
+        theme={theme}
       />
       <MongoProjectionBuilderSection
         draft={draft}

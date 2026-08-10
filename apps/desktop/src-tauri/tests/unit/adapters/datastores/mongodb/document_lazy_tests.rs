@@ -37,7 +37,10 @@ fn efficiency_mode_keeps_real_extended_json_lookalike_documents_expandable() {
 
     assert_eq!(payload["documents"][0]["literal"]["type"], "object");
     assert_eq!(payload["documents"][0]["literal"]["childCount"], 1);
-    assert!(payload["documents"][0]["createdAt"]["$date"].is_object());
+    assert_eq!(
+        payload["documents"][0]["createdAt"]["$date"],
+        "2026-02-02T12:40:00.000Z"
+    );
 }
 
 #[test]

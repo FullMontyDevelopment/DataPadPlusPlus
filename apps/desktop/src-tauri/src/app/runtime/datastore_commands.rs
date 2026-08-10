@@ -144,6 +144,7 @@ impl ManagedAppState {
                     query_text: format!("INSPECT {}", request.key),
                     executed_at,
                     status: "success".into(),
+                    sql_scope: tab.sql_scope.clone(),
                 },
             );
             tab.error = None;

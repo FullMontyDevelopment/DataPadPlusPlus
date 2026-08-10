@@ -72,27 +72,30 @@ export function useDocumentLazyHydration({
     })
   }, [documents, resetKey, suspended])
 
-  const hydrateLazyRow = async (row: DocumentGridRow) => {
+  const hydrateLazyRow = async (
+    row: DocumentGridRow,
+    mode: DocumentNodeChildrenRequest['mode'] = 'children',
+  ) => {
     if (suspendedRef.current) {
       onMessage('Wait for the running query to finish before loading this field.')
-      return
+      return undefined
     }
     if (!onFetchDocumentNodeChildren || !editContext || !tabId || !collection) {
       onMessage('Run a full query or select a collection before expanding this field.')
-      return
+      return undefined
     }
 
     const documentId = draftDocuments[row.documentIndex]?._id
     if (documentId === undefined) {
       onMessage('This document cannot be expanded because its _id is unavailable.')
-      return
+      return undefined
     }
 
     const sourceDocuments = documents
     const sourceGeneration = generationRef.current
     const sourceRequests = requestsRef.current.get(sourceDocuments) ?? new Set<string>()
     if (sourceRequests.has(row.id)) {
-      return
+      return undefined
     }
     sourceRequests.add(row.id)
     requestsRef.current.set(sourceDocuments, sourceRequests)
@@ -108,6 +111,7 @@ export function useDocumentLazyHydration({
         collection,
         documentId,
         path: row.path,
+        mode,
         queryText: editContext.queryText,
       })
       validateResponse(response, tabId, documentId, row.path)
@@ -117,7 +121,9 @@ export function useDocumentLazyHydration({
         documentsRef.current === sourceDocuments
       ) {
         onHydrated(row, response)
+        return response
       }
+      return undefined
     } catch (error) {
       const message = dataEditErrorMessage(error, 'Unable to expand this field.')
       if (
@@ -128,6 +134,7 @@ export function useDocumentLazyHydration({
         setRowError(setHydrationErrors, sourceDocuments, row.id, message)
         onMessage(message)
       }
+      return undefined
     } finally {
       sourceRequests.delete(row.id)
       if (sourceRequests.size === 0) {

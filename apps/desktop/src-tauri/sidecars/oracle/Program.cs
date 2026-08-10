@@ -210,6 +210,7 @@ internal static partial class Program
         await using var connection = BuildConnection(input);
         await connection.OpenAsync(cancellationToken);
         ApplySessionIdentity(connection, input);
+        await ApplyCurrentSchemaAsync(connection, request, active, cancellationToken);
 
         await using var command = connection.CreateCommand();
         command.CommandText = SessionContextProbe;
@@ -871,6 +872,39 @@ internal static partial class Program
         }
     }
 
+    private static async Task ApplyCurrentSchemaAsync(
+        OracleConnection connection,
+        OracleRequest request,
+        ActiveRequest active,
+        CancellationToken cancellationToken)
+    {
+        var statement = CurrentSchemaStatement(request.CurrentSchema);
+        if (statement is null)
+        {
+            return;
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = statement;
+        command.CommandTimeout = CommandTimeoutSeconds(request.TimeoutMs);
+        active.SetCommand(command);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    internal static string? CurrentSchemaStatement(string? currentSchema)
+    {
+        var schema = currentSchema?.Trim();
+        if (string.IsNullOrEmpty(schema))
+        {
+            return null;
+        }
+        if (schema.Any(char.IsControl))
+        {
+            throw new SidecarException("oracle-schema-invalid", "Oracle schema names cannot contain control characters.");
+        }
+        return $"alter session set current_schema = \"{schema.Replace("\"", "\"\"")}\"";
+    }
+
     private static void ValidateConnectionInput(OracleConnectionInput input)
     {
         if (string.IsNullOrWhiteSpace(input.ConnectionString) && string.IsNullOrWhiteSpace(input.Username))
@@ -980,7 +1014,8 @@ internal sealed record OracleRequest(
     int? FetchSize,
     bool ReadOnly,
     bool CaptureDbmsOutput,
-    string? TargetRequestId);
+    string? TargetRequestId,
+    string? CurrentSchema);
 
 internal sealed record OracleConnectionInput(
     string? Host,

@@ -399,6 +399,7 @@ export function useRuntimeActions({
             (payload) => payload.renderer === 'document' && payload.hydrationMode === 'lazy',
           ),
           scopedTarget: tab.scopedTarget,
+          sqlScope: tab.sqlScope,
         }
 
         dispatch({

@@ -157,6 +157,7 @@ async fn detect_version_by_query(
         confirmed_guardrail_id: None,
         builder_state: None,
         scoped_target: None,
+        sql_scope: None,
         datastore_execution_input: None,
     };
     let notices = vec![QueryExecutionNotice {

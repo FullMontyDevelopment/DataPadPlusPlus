@@ -258,6 +258,7 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   stripDemoRecords(next)
   next.environments = next.environments.map(sanitizeEnvironmentProfile)
   migrateLegacyVariableTokens(next)
+  migrateGeneratedSqlServerScopes(next)
   migrateConnectionModes(next.connections)
   next.preferences = normalizePreferences(next.preferences)
   normalizeMcpEffectiveAccess(
@@ -287,6 +288,74 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   }
 
   return next
+}
+
+const GENERATED_SQLSERVER_TEMPLATE_PREFIXES = [
+  'select db_name() as database_name;',
+  'select top 100 * from [',
+  'select top 50 * from sys.query_store_runtime_stats',
+  'select session_id, status, command, wait_type, blocking_session_id from sys.dm_exec_requests',
+  'select request_session_id, resource_type, request_mode, request_status from sys.dm_tran_locks',
+  'select top 50 * from sys.dm_db_missing_index_details',
+  'select name, type_desc from sys.database_principals',
+  'select sm.definition from sys.sql_modules',
+  'select s.name as schema_name,',
+  'select role.name, count(member.member_principal_id)',
+  'select name, subject, issuer_name, expiry_date',
+  'select name, algorithm_desc, key_length',
+  'select name, credential_identity, target_type',
+  'select name, is_state_enabled, create_date',
+  'select name, type_desc, physical_name',
+  'select fg.name, fg.type_desc',
+  'select ps.name, pf.name as function_name',
+  'select name, type_desc, fanout',
+  'select name, event_retention_mode_desc',
+  'select top 100 name, enabled from msdb.dbo.sysjobs',
+] as const
+
+function migrateGeneratedSqlServerScopes(snapshot: WorkspaceSnapshot) {
+  const sqlServerConnections = new Set(
+    snapshot.connections
+      .filter((connection) => connection.engine === 'sqlserver')
+      .map((connection) => connection.id),
+  )
+  const migrateTab = (tab: QueryTabState) => {
+    if (!sqlServerConnections.has(tab.connectionId)) return
+    const migrated = generatedSqlServerScope(tab.queryText)
+    if (migrated) {
+      tab.queryText = migrated.queryText
+      tab.sqlScope ??= { database: migrated.database }
+    }
+    for (const entry of tab.history) {
+      const history = generatedSqlServerScope(entry.queryText)
+      if (!history) continue
+      entry.queryText = history.queryText
+      entry.sqlScope ??= { database: history.database }
+    }
+  }
+  snapshot.tabs.forEach(migrateTab)
+  snapshot.closedTabs.forEach(migrateTab)
+  for (const node of snapshot.libraryNodes) {
+    if (!node.queryText || !node.connectionId || !sqlServerConnections.has(node.connectionId)) continue
+    const migrated = generatedSqlServerScope(node.queryText)
+    if (!migrated) continue
+    node.queryText = migrated.queryText
+    node.sqlScope ??= { database: migrated.database }
+  }
+}
+
+function generatedSqlServerScope(queryText: string) {
+  const match = /^\s*use\s+\[((?:[^\]]|\]\])+)\]\s*;\s*/i.exec(queryText)
+  if (!match) return undefined
+  const remaining = queryText.slice(match[0].length).trimStart()
+  const normalized = remaining.toLowerCase()
+  if (!GENERATED_SQLSERVER_TEMPLATE_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
+    return undefined
+  }
+  return {
+    database: (match[1] ?? '').replace(/\]\]/g, ']'),
+    queryText: remaining,
+  }
 }
 
 function normalizePreferences(

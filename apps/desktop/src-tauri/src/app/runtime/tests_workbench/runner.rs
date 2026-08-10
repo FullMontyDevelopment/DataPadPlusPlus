@@ -292,6 +292,7 @@ async fn run_step(
                     &context.test_tab.environment_id,
                     "full",
                     &resolved_query,
+                    context.test_tab.sql_scope.as_ref(),
                 )
             })
     } else {
@@ -316,6 +317,7 @@ async fn run_step(
         confirmed_guardrail_id: guardrail_confirmation,
         builder_state: step.get("builderState").cloned(),
         scoped_target: context.test_tab.scoped_target.clone(),
+        sql_scope: context.test_tab.sql_scope.clone(),
         datastore_execution_input: None,
     };
     let timeout_ms = step

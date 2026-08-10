@@ -58,15 +58,19 @@ fn litedb_edit_request(request: &DataEditPlanRequest) -> String {
                 "after": { "operation": "FindById", "collection": collection, "id": id }
             }
         }),
-        "update-document" => json!({
+        "add-field" | "set-field" | "unset-field" | "rename-field" | "change-field-type"
+        | "update-document" => json!({
             "operation": "UpdateDocument",
             "collection": collection,
             "id": id,
+            "previousDocument": request.target.expected_document,
             "document": request
                 .changes
                 .first()
                 .and_then(|change| change.value.clone())
                 .unwrap_or(Value::Object(Default::default())),
+            "editKind": request.edit_kind,
+            "path": request.target.path,
             "evidenceRequests": {
                 "before": { "operation": "FindById", "collection": collection, "id": id },
                 "after": { "operation": "FindById", "collection": collection, "id": id }
@@ -76,6 +80,7 @@ fn litedb_edit_request(request: &DataEditPlanRequest) -> String {
             "operation": "DeleteDocument",
             "collection": collection,
             "id": id,
+            "previousDocument": request.target.expected_document,
             "evidenceRequests": {
                 "before": { "operation": "FindById", "collection": collection, "id": id },
                 "after": { "operation": "FindById", "collection": collection, "id": id }
@@ -85,7 +90,7 @@ fn litedb_edit_request(request: &DataEditPlanRequest) -> String {
             "operation": "UnsupportedDocumentEdit",
             "collection": collection,
             "requestedEditKind": request.edit_kind,
-            "disabledReason": "LiteDB live document editing is currently scoped to insert-document, update-document, and delete-document."
+            "disabledReason": "LiteDB live document editing requires a guarded insert, field mutation, replacement, or delete operation."
         }),
     };
 
@@ -404,13 +409,7 @@ fn mongo_edit_request(request: &DataEditPlanRequest) -> String {
         .unwrap_or_else(|_| "{}".into());
     }
 
-    let filter = json!({
-        "_id": request
-            .target
-            .document_id
-            .clone()
-            .unwrap_or(Value::String("<_id>".into()))
-    });
+    let filter = mongo_document_filter(request);
     if request.edit_kind == "delete-document" {
         return serde_json::to_string_pretty(&json!({
             "database": database,
@@ -451,6 +450,36 @@ fn mongo_edit_request(request: &DataEditPlanRequest) -> String {
         "multi": false
     }))
     .unwrap_or_else(|_| "{}".into())
+}
+
+fn mongo_document_filter(request: &DataEditPlanRequest) -> Value {
+    let mut filter = serde_json::Map::from_iter([(
+        "_id".into(),
+        request
+            .target
+            .document_id
+            .clone()
+            .unwrap_or(Value::String("<_id>".into())),
+    )]);
+    if let Some(expected) = request.target.expected_document.clone() {
+        filter.insert(
+            "$expr".into(),
+            json!({ "$eq": ["$$ROOT", { "$literal": expected }] }),
+        );
+    }
+    if request.edit_kind == "add-field" {
+        if let Some(change) = request.changes.first() {
+            let path = change
+                .path
+                .as_ref()
+                .filter(|path| !path.is_empty())
+                .map(|path| path.join("."))
+                .or_else(|| change.field.clone())
+                .unwrap_or_else(|| "<field>".into());
+            filter.insert(path, json!({ "$exists": false }));
+        }
+    }
+    Value::Object(filter)
 }
 
 fn document_value_object(request: &DataEditPlanRequest) -> Value {

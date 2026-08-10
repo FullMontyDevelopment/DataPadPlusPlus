@@ -14,6 +14,7 @@ import { join, resolve } from 'node:path'
 import test from 'node:test'
 
 import {
+  extractModuleUrls,
   extractOptimizedDependencyUrls,
   inspectUiServer,
 } from '../../.vscode/ensure-ui-dev.mjs'
@@ -61,6 +62,8 @@ test('Tauri dev reuses only a verified DataPad++ UI server', () => {
   assert.equal(desktopPackage.scripts['dev:ensure'], 'node ../../.vscode/ensure-ui-dev.mjs')
   assert.match(ensureUi, /<title>DataPad\+\+<\/title>/)
   assert.match(ensureUi, /extractOptimizedDependencyUrls/)
+  assert.match(ensureUi, /inspectModuleGraph/)
+  assert.match(ensureUi, /'--force'/)
   assert.match(ensureUi, /datapad-stale/)
   assert.match(ensureUi, /process\.kill\(initialState\.pid/)
   assert.doesNotMatch(ensureUi, /cmd\.exe/)
@@ -74,6 +77,14 @@ test('UI health rejects a DataPad++ server with stale optimized dependencies', a
     import react from "/node_modules/.vite/deps/react.js?v=abc123"
     import { App } from "/src/app/App.tsx"
   `
+  const app = `
+    import { Database } from "/src/app/components/Database.tsx"
+    export function App() { return Database }
+  `
+  const database = `
+    import icon from "/node_modules/.vite/deps/lucide-react.js?v=stale"
+    export const Database = icon
+  `
   const responses = new Map([
     ['http://127.0.0.1:1420/', response(200, '<title>DataPad++</title>')],
     ['http://127.0.0.1:1420/@vite/client', response(200, 'vite')],
@@ -82,7 +93,10 @@ test('UI health rejects a DataPad++ server with stale optimized dependencies', a
       'http://127.0.0.1:1420/__datapad_dev_server',
       response(200, JSON.stringify({ app: 'datapadplusplus-desktop', pid: 4242 })),
     ],
-    ['http://127.0.0.1:1420/node_modules/.vite/deps/react.js?v=abc123', response(504, '')],
+    ['http://127.0.0.1:1420/node_modules/.vite/deps/react.js?v=abc123', response(200, 'react')],
+    ['http://127.0.0.1:1420/src/app/App.tsx', response(200, app)],
+    ['http://127.0.0.1:1420/src/app/components/Database.tsx', response(200, database)],
+    ['http://127.0.0.1:1420/node_modules/.vite/deps/lucide-react.js?v=stale', response(504, '')],
   ])
 
   const state = await inspectUiServer({
@@ -97,6 +111,7 @@ test('UI health accepts only an executable DataPad++ entry graph', async () => {
   const entry = `
     import react from "/node_modules/.vite/deps/react.js?v=abc123"
     import reactAgain from "/node_modules/.vite/deps/react.js?v=abc123"
+    import { App } from "/src/app/App.tsx"
   `
   assert.deepEqual(extractOptimizedDependencyUrls(entry), [
     'http://127.0.0.1:1420/node_modules/.vite/deps/react.js?v=abc123',
@@ -111,6 +126,7 @@ test('UI health accepts only an executable DataPad++ entry graph', async () => {
       response(200, JSON.stringify({ app: 'datapadplusplus-desktop', pid: 4242 })),
     ],
     ['http://127.0.0.1:1420/node_modules/.vite/deps/react.js?v=abc123', response(200, 'react')],
+    ['http://127.0.0.1:1420/src/app/App.tsx', response(200, 'export function App() {}')],
   ])
 
   const state = await inspectUiServer({
@@ -119,6 +135,22 @@ test('UI health accepts only an executable DataPad++ entry graph', async () => {
   })
 
   assert.deepEqual(state, { kind: 'datapad-ready', pid: 4242 })
+})
+
+test('UI health extracts only local executable module references', () => {
+  assert.deepEqual(
+    extractModuleUrls(`
+      import App from "/src/app/App.tsx"
+      export { shared } from "/@fs/C:/repo/packages/shared-types/src/index.ts"
+      import("/src/app/lazy.tsx")
+      import packageName from "react"
+      const image = "/src/assets/logo.png"
+    `),
+    [
+      'http://127.0.0.1:1420/src/app/App.tsx',
+      'http://127.0.0.1:1420/@fs/C:/repo/packages/shared-types/src/index.ts',
+    ],
+  )
 })
 
 test('the static boot surface cannot remain in a starting state forever', () => {

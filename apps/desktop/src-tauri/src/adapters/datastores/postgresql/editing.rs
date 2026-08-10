@@ -8,7 +8,7 @@ use sqlx::{
 
 use super::super::super::*;
 use super::cells::stringify_pg_cell;
-use super::postgres_dsn;
+use super::postgres_connect_options;
 
 pub(super) async fn execute_postgres_data_edit(
     connection: &ResolvedConnectionProfile,
@@ -67,7 +67,7 @@ pub(super) async fn execute_postgres_data_edit(
 
     let pool = PgPoolOptions::new()
         .max_connections(1)
-        .connect(&postgres_dsn(connection))
+        .connect_with(postgres_connect_options(connection)?)
         .await?;
 
     let before_rows = if let Some(select) = &workflow.before_select {

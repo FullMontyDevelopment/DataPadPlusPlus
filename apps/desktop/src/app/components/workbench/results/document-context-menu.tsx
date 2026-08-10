@@ -7,22 +7,27 @@ type DocumentResultBehavior = ReturnType<typeof documentResultBehaviorForConnect
 interface DocumentContextMenuProps {
   behavior: DocumentResultBehavior
   onClose(): void
+  onAddField(): void
   onCopyDocument(): void
   onCopyPath(): void
   onCopyValue(): void
   onDelete(): void
   onDeleteDocument(): void
   onEditValue(): void
+  onEditRawJson(): void
   onRename(): void
   onViewRawJson(): void
   row: DocumentGridRow
   documentDeleteUnavailableReason?: string
+  editUnavailableReason?: string
+  protectedPaths?: string[][]
   x: number
   y: number
 }
 
 export function DocumentContextMenu({
   behavior,
+  onAddField,
   onClose,
   onCopyDocument,
   onCopyPath,
@@ -30,14 +35,17 @@ export function DocumentContextMenu({
   onDelete,
   onDeleteDocument,
   onEditValue,
+  onEditRawJson,
   onRename,
   onViewRawJson,
   row,
   documentDeleteUnavailableReason,
+  editUnavailableReason,
+  protectedPaths,
   x,
   y,
 }: DocumentContextMenuProps) {
-  const permissions = editablePermissions(row, behavior)
+  const permissions = editablePermissions(row, behavior, protectedPaths)
   const rootDocument = row.path.length === 0
 
   return (
@@ -65,13 +73,47 @@ export function DocumentContextMenu({
       <button type="button" role="menuitem" onClick={() => { onViewRawJson(); onClose() }}>
         View Raw JSON
       </button>
-      {behavior.contextActions.renameField && permissions.canEditField ? (
-        <button type="button" role="menuitem" onClick={() => { onRename(); onClose() }}>
+      {behavior.contextActions.editRawJson ? (
+        <button
+          type="button"
+          role="menuitem"
+          disabled={!permissions.canEditRaw || Boolean(editUnavailableReason)}
+          title={editUnavailableReason}
+          onClick={() => { onEditRawJson(); onClose() }}
+        >
+          Edit Raw JSON
+        </button>
+      ) : null}
+      {behavior.contextActions.addField && permissions.addFieldDestinationAvailable ? (
+        <button
+          type="button"
+          role="menuitem"
+          disabled={!permissions.canAddField || Boolean(editUnavailableReason)}
+          title={editUnavailableReason}
+          onClick={() => { onAddField(); onClose() }}
+        >
+          Add Field
+        </button>
+      ) : null}
+      {behavior.contextActions.renameField ? (
+        <button
+          type="button"
+          role="menuitem"
+          disabled={!permissions.canEditField || Boolean(editUnavailableReason)}
+          title={editUnavailableReason}
+          onClick={() => { onRename(); onClose() }}
+        >
           Rename Field
         </button>
       ) : null}
-      {behavior.contextActions.editValue && permissions.canEditLeaf ? (
-        <button type="button" role="menuitem" onClick={() => { onEditValue(); onClose() }}>
+      {behavior.contextActions.editValue ? (
+        <button
+          type="button"
+          role="menuitem"
+          disabled={!permissions.canEditLeaf || Boolean(editUnavailableReason)}
+          title={editUnavailableReason}
+          onClick={() => { onEditValue(); onClose() }}
+        >
           Edit Value
         </button>
       ) : null}
@@ -90,9 +132,15 @@ export function DocumentContextMenu({
           Delete Document unavailable
         </button>
       ) : null}
-      {behavior.contextActions.deleteField && permissions.canDeleteField ? (
-        <button type="button" role="menuitem" onClick={() => { onDelete(); onClose() }}>
-          Delete Field
+      {behavior.contextActions.deleteField && !rootDocument ? (
+        <button
+          type="button"
+          role="menuitem"
+          disabled={!permissions.canDeleteField || Boolean(editUnavailableReason)}
+          title={editUnavailableReason}
+          onClick={() => { onDelete(); onClose() }}
+        >
+          Remove Field
         </button>
       ) : null}
     </div>

@@ -6,7 +6,7 @@ pub(super) async fn test_timescale_connection(
     let started = Instant::now();
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
-        .connect(&postgres_dsn(connection))
+        .connect_with(postgres_connect_options(connection)?)
         .await?;
     let extension: Option<(String, String)> = sqlx::query_as(
         "select e.extversion, n.nspname from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'timescaledb'",

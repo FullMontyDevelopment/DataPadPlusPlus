@@ -125,6 +125,7 @@ fn validators_reject_invalid_object_view_and_renderer_inputs() {
         cursor: None,
         document_efficiency_mode: None,
         scoped_target: None,
+        sql_scope: None,
     };
     let renderer_error = validate_result_page_request(&mut page).unwrap_err();
     assert!(renderer_error
@@ -148,6 +149,7 @@ fn validators_accept_bounded_cosmos_continuation_state_and_execution_ids() {
         cursor: Some("x".repeat(200 * 1024)),
         document_efficiency_mode: None,
         scoped_target: None,
+        sql_scope: None,
     };
 
     validate_result_page_request(&mut page).expect("bounded Cosmos cursor");
@@ -168,6 +170,7 @@ fn validators_accept_the_full_mongodb_document_depth() {
         path: (0..100)
             .map(|index| json!(format!("level{index}")))
             .collect(),
+        mode: None,
         query_text: None,
     };
 

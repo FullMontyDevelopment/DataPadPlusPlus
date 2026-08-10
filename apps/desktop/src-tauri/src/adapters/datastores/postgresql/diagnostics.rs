@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 use sqlx::Row;
 
-use super::connection::postgres_dsn;
+use super::connection::postgres_connect_options;
 use super::*;
 
 pub(crate) async fn collect_postgres_diagnostics(
@@ -15,7 +15,7 @@ pub(crate) async fn collect_postgres_diagnostics(
 
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
-        .connect(&postgres_dsn(connection))
+        .connect_with(postgres_connect_options(connection)?)
         .await?;
     let mut metrics = Vec::new();
     let mut warnings = Vec::new();

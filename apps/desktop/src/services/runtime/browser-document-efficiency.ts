@@ -53,7 +53,9 @@ export function fetchDocumentNodeChildrenFromResult(
     tabId: request.tabId,
     documentId: request.documentId,
     path: request.path,
-    value: summarizeValueForLazyHydration(currentValue, request.path),
+    value: request.mode === 'full-value'
+      ? currentValue
+      : summarizeValueForLazyHydration(currentValue, request.path),
     notices: [],
   }
 }

@@ -287,6 +287,7 @@ fn execution_request(query_text: &str) -> ExecutionRequest {
         confirmed_guardrail_id: None,
         builder_state: None,
         scoped_target: None,
+        sql_scope: None,
         datastore_execution_input: None,
     }
 }

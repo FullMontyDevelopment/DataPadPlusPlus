@@ -55,6 +55,7 @@ fn beta_execution_clamps_large_requested_row_limits() {
         confirmed_guardrail_id: None,
         builder_state: None,
         scoped_target: None,
+        sql_scope: None,
         datastore_execution_input: None,
     };
 

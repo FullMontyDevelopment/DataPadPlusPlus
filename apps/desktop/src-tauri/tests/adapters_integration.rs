@@ -12,7 +12,8 @@ use datapadplusplus_desktop_lib::{
             CosmosDbConnectionOptions, DataEditChange, DataEditExecutionRequest,
             DataEditPlanRequest, DataEditTarget, DocumentNodeChildrenRequest, ExecutionRequest,
             ExplorerRequest, GraphConnectionOptions, OperationExecutionRequest,
-            ResolvedConnectionProfile, ResultPageRequest, WarehouseConnectionOptions,
+            ResolvedConnectionProfile, ResultPageRequest, SqlQueryScope,
+            WarehouseConnectionOptions,
         },
     },
 };
@@ -76,6 +77,7 @@ fn execution_request(
         confirmed_guardrail_id: None,
         builder_state: None,
         scoped_target: None,
+        sql_scope: None,
         datastore_execution_input: None,
     }
 }
@@ -100,6 +102,7 @@ fn result_page_request(
         cursor: None,
         document_efficiency_mode: None,
         scoped_target: None,
+        sql_scope: None,
     }
 }
 
@@ -1806,6 +1809,20 @@ async fn postgres_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     assert_eq!(result.engine, "postgresql");
     assert!(!result.payloads.is_empty());
 
+    let mut scoped_request = execution_request(
+        &connection.id,
+        "env-dev",
+        "sql",
+        "select current_schema() as schema_name, count(*) from table_health;",
+    );
+    scoped_request.sql_scope = Some(SqlQueryScope {
+        database: connection.database.clone(),
+        schema: Some("observability".into()),
+        ..Default::default()
+    });
+    let scoped_result = adapters::execute(&connection, &scoped_request, Vec::new()).await?;
+    assert_eq!(scoped_result.payloads[0]["rows"][0][0], "observability");
+
     let edit = adapters::execute_data_edit(
         &connection,
         &DataEditExecutionRequest {
@@ -1936,6 +1953,19 @@ async fn sqlserver_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     assert_eq!(result.engine, "sqlserver");
     assert!(!result.payloads.is_empty());
 
+    let mut scoped_request = execution_request(
+        &connection.id,
+        "env-dev",
+        "sql",
+        "select db_name() as database_name;",
+    );
+    scoped_request.sql_scope = Some(SqlQueryScope {
+        database: Some("master".into()),
+        ..Default::default()
+    });
+    let scoped_result = adapters::execute(&connection, &scoped_request, Vec::new()).await?;
+    assert_eq!(scoped_result.payloads[0]["rows"][0][0], "master");
+
     let edit = adapters::execute_data_edit(
         &connection,
         &DataEditExecutionRequest {
@@ -2028,6 +2058,22 @@ async fn mysql_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     assert_eq!(result.engine, "mysql");
     assert!(!result.payloads.is_empty());
 
+    let mut scoped_request = execution_request(
+        &connection.id,
+        "env-dev",
+        "sql",
+        "select database() as database_name;",
+    );
+    scoped_request.sql_scope = Some(SqlQueryScope {
+        database: Some("information_schema".into()),
+        ..Default::default()
+    });
+    let scoped_result = adapters::execute(&connection, &scoped_request, Vec::new()).await?;
+    assert_eq!(
+        scoped_result.payloads[0]["rows"][0][0],
+        "information_schema"
+    );
+
     let id_result = adapters::execute(
         &connection,
         &execution_request(
@@ -2097,10 +2143,15 @@ async fn assert_mysql_explorer_tree(
     };
 
     let root = adapters::list_explorer_nodes(connection, &request(None)).await?;
-    assert!(root
+    let database_node = root
         .nodes
         .iter()
-        .any(|node| { node.id == "mysql:database:commerce" && node.label == "commerce" }));
+        .find(|node| node.id == "mysql:database:commerce" && node.label == "commerce")
+        .expect("commerce database node");
+    assert_eq!(
+        database_node.query_template.as_deref(),
+        Some("select database() as database_name;")
+    );
 
     let database =
         adapters::list_explorer_nodes(connection, &request(Some("mysql:database:commerce")))
@@ -2886,6 +2937,7 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
             collection: import_collection.clone(),
             document_id: json!(lazy_id),
             path: full_deep_path,
+            mode: None,
             query_text: None,
         },
     )
@@ -2911,6 +2963,7 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
                 json!(1),
                 json!("[0]"),
             ],
+            mode: None,
             query_text: None,
         },
     )

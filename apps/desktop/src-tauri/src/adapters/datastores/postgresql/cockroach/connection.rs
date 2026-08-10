@@ -6,7 +6,7 @@ pub(super) async fn test_cockroach_connection(
     let started = Instant::now();
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
-        .connect(&postgres_dsn(connection))
+        .connect_with(postgres_connect_options(connection)?)
         .await?;
     let version: String = sqlx::query_scalar("select version()")
         .fetch_one(&pool)

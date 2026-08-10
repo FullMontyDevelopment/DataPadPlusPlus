@@ -1,7 +1,10 @@
-use super::{apply_scoped_target_override, sql_database_from_target, sql_schema_from_target};
+use super::{
+    apply_scoped_target_override, apply_sql_query_scope, confirmation_guardrail_id,
+    sql_database_from_target, sql_schema_from_target,
+};
 use crate::domain::models::{
     CassandraConnectionOptions, CosmosDbConnectionOptions, PostgresConnectionOptions,
-    RedisConnectionOptions, ResolvedConnectionProfile, ScopedQueryTarget,
+    RedisConnectionOptions, ResolvedConnectionProfile, ScopedQueryTarget, SqlQueryScope,
     WarehouseConnectionOptions,
 };
 
@@ -191,6 +194,80 @@ fn warehouse_targets_apply_project_and_dataset_to_the_transient_profile() {
     assert_eq!(connection.database.as_deref(), Some("commerce-project"));
     assert_eq!(options.project_id.as_deref(), Some("commerce-project"));
     assert_eq!(options.dataset_id.as_deref(), Some("analytics"));
+}
+
+#[test]
+fn explicit_sql_scope_overrides_native_connection_fields_for_every_supported_shape() {
+    let mut postgres = resolved_connection("postgresql", "sql");
+    postgres.postgres_options = Some(PostgresConnectionOptions::default());
+    apply_sql_query_scope(
+        &mut postgres,
+        Some(&SqlQueryScope {
+            database: Some("analytics".into()),
+            schema: Some("reporting".into()),
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+    assert_eq!(postgres.database.as_deref(), Some("analytics"));
+    assert_eq!(
+        postgres
+            .postgres_options
+            .as_ref()
+            .and_then(|options| options.search_path.as_deref()),
+        Some("reporting")
+    );
+
+    let mut bigquery = resolved_connection("bigquery", "warehouse");
+    bigquery.warehouse_options = Some(WarehouseConnectionOptions::default());
+    apply_sql_query_scope(
+        &mut bigquery,
+        Some(&SqlQueryScope {
+            catalog: Some("commerce-project".into()),
+            schema: Some("orders".into()),
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+    let warehouse = bigquery.warehouse_options.as_ref().unwrap();
+    assert_eq!(warehouse.project_id.as_deref(), Some("commerce-project"));
+    assert_eq!(warehouse.dataset_id.as_deref(), Some("orders"));
+
+    let mut sqlite = resolved_connection("sqlite", "sql");
+    let error = apply_sql_query_scope(
+        &mut sqlite,
+        Some(&SqlQueryScope {
+            schema: Some("main".into()),
+            ..Default::default()
+        }),
+    )
+    .expect_err("SQLite does not expose a selectable native scope");
+    assert_eq!(error.code, "sql-scope-unsupported");
+}
+
+#[test]
+fn guardrail_confirmation_identity_changes_with_sql_scope() {
+    let first = confirmation_guardrail_id(
+        "connection",
+        "environment",
+        "full",
+        "delete from accounts",
+        Some(&SqlQueryScope {
+            database: Some("primary".into()),
+            ..Default::default()
+        }),
+    );
+    let second = confirmation_guardrail_id(
+        "connection",
+        "environment",
+        "full",
+        "delete from accounts",
+        Some(&SqlQueryScope {
+            database: Some("archive".into()),
+            ..Default::default()
+        }),
+    );
+    assert_ne!(first, second);
 }
 
 fn target(kind: &str, label: &str, path: &[&str], scope: &str) -> ScopedQueryTarget {

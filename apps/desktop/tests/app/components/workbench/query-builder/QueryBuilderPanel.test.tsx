@@ -102,6 +102,7 @@ describe('QueryBuilderPanel', () => {
       target: { value: 'profile.name' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Add Filter' }))
+    expect(within(screen.getByLabelText('Filter operator')).getByRole('option', { name: 'Has Items' })).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Filter field'), { target: { value: 'status' } })
     fireEvent.change(screen.getByLabelText('Filter value'), { target: { value: 'active' } })
     fireEvent.click(screen.getByLabelText('Route to partition key'))
@@ -377,7 +378,7 @@ describe('QueryBuilderPanel', () => {
     fireEvent.change(screen.getByLabelText('Filter operator'), {
       target: { value: 'does-not-exist' },
     })
-    expect(screen.getByLabelText('Filter value')).toBeDisabled()
+    expect(screen.queryByLabelText('Filter value')).not.toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Filter operator'), {
       target: { value: 'not-contains' },
     })
@@ -442,6 +443,53 @@ describe('QueryBuilderPanel', () => {
 
     expect(toggle).toBeChecked()
     expect(group).not.toHaveClass('is-disabled')
+  })
+
+  it('recompiles Mongo group logic from the UI without losing same-field predicates', () => {
+    const onBuilderStateChange = vi.fn()
+    const initialBuilderState = {
+      ...createDefaultMongoFindBuilderState('orders'),
+      filterGroups: [{ id: 'status-group', label: 'Status', logic: 'and' as const }],
+      filters: [
+        {
+          id: 'open',
+          field: 'status',
+          groupId: 'status-group',
+          operator: 'eq' as const,
+          value: 'open',
+          valueType: 'string' as const,
+        },
+        {
+          id: 'paused',
+          field: 'status',
+          groupId: 'status-group',
+          operator: 'eq' as const,
+          value: 'paused',
+          valueType: 'string' as const,
+        },
+      ],
+    }
+
+    render(
+      <BuilderHarness
+        initialBuilderState={initialBuilderState}
+        onBuilderStateChange={onBuilderStateChange}
+        tab={mongoTab()}
+      />,
+    )
+
+    const logic = screen.getByLabelText('Filter group logic Status')
+    fireEvent.change(logic, { target: { value: 'or' } })
+    let query = JSON.parse(lastBuilderState(onBuilderStateChange).lastAppliedQueryText ?? '{}')
+    expect(query.filter).toEqual({
+      $or: [{ status: 'open' }, { status: 'paused' }],
+    })
+
+    fireEvent.change(logic, { target: { value: 'and' } })
+    query = JSON.parse(lastBuilderState(onBuilderStateChange).lastAppliedQueryText ?? '{}')
+    expect(query.filter).toEqual({
+      $and: [{ status: 'open' }, { status: 'paused' }],
+    })
   })
 
   it('drops Mongo result fields into the filter group under the pointer', () => {
@@ -826,10 +874,11 @@ describe('QueryBuilderPanel', () => {
     fireEvent.click(within(section('Filters')).getAllByRole('button', { name: 'Add Filter' })[0] as HTMLElement)
     let operator = screen.getByLabelText('Filter operator')
     expect(within(operator).getByRole('option', { name: 'Not Contains' })).toBeInTheDocument()
+    expect(within(operator).getByRole('option', { name: 'Has Items' })).toBeInTheDocument()
     fireEvent.change(operator, { target: { value: 'not-contains' } })
     expect(screen.getByLabelText('Filter value')).not.toBeDisabled()
     fireEvent.change(operator, { target: { value: 'does-not-exist' } })
-    expect(screen.getByLabelText('Filter value')).toBeDisabled()
+    expect(screen.queryByLabelText('Filter value')).not.toBeInTheDocument()
     view.unmount()
 
     view = render(
@@ -843,10 +892,11 @@ describe('QueryBuilderPanel', () => {
     fireEvent.click(within(section('Filters')).getByRole('button', { name: 'Add Filter' }))
     operator = screen.getByLabelText('Filter operator')
     expect(within(operator).getByRole('option', { name: 'Not Contains' })).toBeInTheDocument()
+    expect(within(operator).getByRole('option', { name: 'Has Length' })).toBeInTheDocument()
     fireEvent.change(operator, { target: { value: 'not-contains' } })
     expect(screen.getByLabelText('Filter value')).not.toBeDisabled()
     fireEvent.change(operator, { target: { value: 'is-null' } })
-    expect(screen.getByLabelText('Filter value')).toBeDisabled()
+    expect(screen.queryByLabelText('Filter value')).not.toBeInTheDocument()
     view.unmount()
 
     view = render(
@@ -860,10 +910,11 @@ describe('QueryBuilderPanel', () => {
     fireEvent.click(within(section('Filters')).getByRole('button', { name: 'Add Filter' }))
     operator = within(section('Filters')).getByLabelText('Filter operator')
     expect(within(operator).getByRole('option', { name: 'NOT CONTAINS' })).toBeInTheDocument()
+    expect(within(operator).getByRole('option', { name: 'HAS ITEMS' })).toBeInTheDocument()
     fireEvent.change(operator, { target: { value: 'not-contains' } })
     expect(within(section('Filters')).getByLabelText('Filter value')).not.toBeDisabled()
     fireEvent.change(operator, { target: { value: 'does-not-exist' } })
-    expect(within(section('Filters')).getByLabelText('Filter value')).toBeDisabled()
+    expect(within(section('Filters')).queryByLabelText('Filter value')).not.toBeInTheDocument()
     view.unmount()
 
     view = render(
@@ -877,10 +928,11 @@ describe('QueryBuilderPanel', () => {
     fireEvent.click(within(section('Filters')).getByRole('button', { name: 'Add Filter' }))
     operator = screen.getByLabelText('Filter operator')
     expect(within(operator).getByRole('option', { name: 'Not Contains' })).toBeInTheDocument()
+    expect(within(operator).queryByRole('option', { name: 'Has Items' })).not.toBeInTheDocument()
     fireEvent.change(operator, { target: { value: 'not-contains' } })
     expect(screen.getByLabelText('Filter value')).not.toBeDisabled()
     fireEvent.change(operator, { target: { value: 'does-not-exist' } })
-    expect(screen.getByLabelText('Filter value')).toBeDisabled()
+    expect(screen.queryByLabelText('Filter value')).not.toBeInTheDocument()
     view.unmount()
 
     render(
@@ -894,6 +946,7 @@ describe('QueryBuilderPanel', () => {
     fireEvent.click(within(section('Filters')).getByRole('button', { name: 'Add Filter' }))
     operator = within(section('Filters')).getByLabelText('Condition operator')
     expect(within(operator).queryByRole('option', { name: /not contains/i })).not.toBeInTheDocument()
+    expect(within(operator).queryByRole('option', { name: /has items/i })).not.toBeInTheDocument()
   })
 
   it('renders a SQL SELECT builder with drag targets and compact table controls', () => {

@@ -20,6 +20,7 @@ import type {
   ResultPayload,
   ResultRenderer,
   ScopedQueryTarget,
+  SqlQueryScope,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -101,6 +102,7 @@ import {
 } from './controllers/operation-review'
 import {
   buildQueryTextForBuilderState,
+  compileQueryBuilderState,
   queryScopeForBuilderState,
 } from './controllers/query-builder-routing'
 import { normalizeQueryWindowMode } from './query-window-mode'
@@ -977,6 +979,10 @@ function DesktopWorkspace() {
     : queryWindowMode === 'script' && activeTabSupportsScripting
       ? 'script'
       : 'raw'
+  const activeBuilderCompilation = activeBuilderState && activeQueryWindowMode === 'builder'
+    ? compileQueryBuilderState(activeBuilderState, activeConnection, activeTab)
+    : undefined
+  const activeBuilderInvalid = activeBuilderCompilation?.ok === false
   const activeTabUsesRedisConsole = isRedisConsoleTab(activeTab)
   const activeRedisConsoleVisible =
     activeTabUsesRedisConsole &&
@@ -1459,6 +1465,23 @@ function DesktopWorkspace() {
     snapshot,
   ])
 
+  const changeActiveSqlScope = useCallback(async (sqlScope: SqlQueryScope | undefined) => {
+    if (
+      activeExecutionLocked ||
+      !activeTab ||
+      (activeTab.tabKind && activeTab.tabKind !== 'query') ||
+      JSON.stringify(activeTab.sqlScope) === JSON.stringify(sqlScope)
+    ) {
+      return
+    }
+    const updated = await actions.updateQuerySqlScope({ tabId: activeTab.id, sqlScope })
+    if (!updated) {
+      return
+    }
+    setRendererPreference((current) => current.tabId === activeTab.id ? {} : current)
+    requestIntellisenseRefresh()
+  }, [actions, activeExecutionLocked, activeTab, requestIntellisenseRefresh])
+
   useEffect(() => {
     if (!structure && structureStatus !== 'loading') {
       structureRefreshLoadRef.current = undefined
@@ -1568,6 +1591,21 @@ function DesktopWorkspace() {
       activeConnection
         ? builderStateForTab(activeTab, activeConnection, builderStateDraftRef.current)
         : undefined
+
+    if (builderState && activeQueryWindowMode === 'builder') {
+      const compilation = compileQueryBuilderState(builderState, activeConnection, activeTab)
+      if (!compilation.ok) {
+        actions.addWorkbenchMessage({
+          severity: 'error',
+          message: compilation.errors[0]?.message ?? 'Fix the invalid Query Builder value before running it.',
+          source: 'Query Builder',
+          details: compilation.errors.map((error) =>
+            `${error.field ? `${error.field}: ` : ''}${error.message}`,
+          ).join('\n'),
+        })
+        return
+      }
+    }
 
     if (isRedisKeyBrowserState(builderState)) {
       if (activeQueryWindowMode === 'builder') {
@@ -1877,6 +1915,7 @@ function DesktopWorkspace() {
       const queryHooks = connection
         ? workbenchSliceForEngine(connection.engine)?.query
         : undefined
+
       if (datastoreEditorState && queryHooks?.editorText) {
         await actions.updateDatastoreQueryEditorState({
           tabId,
@@ -2238,11 +2277,21 @@ function DesktopWorkspace() {
       activeTab,
     )?.database
     const scopedBuilderState = queryBuilderStateWithDatabase(builderState, database)
-    const queryText = buildQueryTextForBuilderState(
+    const compilation = compileQueryBuilderState(
       scopedBuilderState,
       activeConnection,
       activeTab,
-    ) ?? resolveQueryText(activeTab)
+    )
+    if (!compilation.ok || !compilation.queryText) {
+      actions.addWorkbenchMessage({
+        severity: 'error',
+        message: compilation.errors[0]?.message ?? 'Fix the invalid Query Builder value before counting.',
+        source: 'Query Builder',
+        details: compilation.errors.map((error) => error.message).join('\n'),
+      })
+      return
+    }
+    const queryText = compilation.queryText
     const countQueryText = buildQueryBuilderCountText(scopedBuilderState, {
       connection: activeConnection,
       database,
@@ -2254,7 +2303,7 @@ function DesktopWorkspace() {
       queryText,
       countQueryText,
     })
-  }, [actions, activeConnection, activeExecutionLocked, activeTab, resolveQueryText])
+  }, [actions, activeConnection, activeExecutionLocked, activeTab])
 
   useEffect(() => {
     if (
@@ -2598,6 +2647,16 @@ function DesktopWorkspace() {
 
   const copyBuilderDraftToQueryEditor = async (builderState: QueryBuilderState) => {
     if (!activeTab || !activeWorkbenchSlice?.query?.editorStateFromBuilder) return
+    const compilation = compileQueryBuilderState(builderState, activeConnection, activeTab)
+    if (!compilation.ok) {
+      actions.addWorkbenchMessage({
+        severity: 'error',
+        message: compilation.errors[0]?.message ?? 'Fix the invalid Query Builder value first.',
+        source: 'Query Builder',
+        details: compilation.errors.map((error) => error.message).join('\n'),
+      })
+      return
+    }
     const nextEditorState =
       activeWorkbenchSlice.query.editorStateFromBuilder(builderState)
     if (!nextEditorState) return
@@ -3660,6 +3719,7 @@ function DesktopWorkspace() {
                     environment={activeEnvironment}
                     enabled={Boolean(snapshot.preferences.datastoreTests?.enabled)}
                     executionStatus={activeExecutionStatus}
+                    theme={resolvedTheme}
                     onEnablePlugin={() => {
                       void actions.updateDatastoreTestsSettings({ enabled: true })
                     }}
@@ -3828,7 +3888,9 @@ function DesktopWorkspace() {
                             : undefined
                       }
                       executeTitle={
-                        activeSelectedText
+                        activeBuilderInvalid
+                          ? activeBuilderCompilation.errors[0]?.message ?? 'Fix the invalid Query Builder value before running.'
+                          : activeSelectedText
                           ? 'Run only the selected text. Shortcut: Ctrl+Enter.'
                           : activeRedisKeyBrowserVisible
                             ? 'Refresh the Redis key browser. Shortcut: Ctrl+Enter.'
@@ -3840,6 +3902,7 @@ function DesktopWorkspace() {
                       }
                       executeDisabled={
                         activeExecutionLocked ||
+                        activeBuilderInvalid ||
                         (
                           activeTabUsesRedisConsole &&
                           !activeRedisConsoleVisible &&
@@ -3875,7 +3938,9 @@ function DesktopWorkspace() {
                           isScopeLoading={isActiveQueryTargetScopeLoading}
                           nodes={explorerSourceNodes}
                           scopedTarget={activeTab.scopedTarget}
+                          sqlScope={activeTab.sqlScope}
                           onChange={(target) => void changeActiveQueryTarget(target)}
+                          onSqlScopeChange={(scope) => void changeActiveSqlScope(scope)}
                           onLoadScope={loadActiveQueryTargetScope}
                           onRefresh={refreshActiveQueryTargets}
                         />
@@ -3901,6 +3966,7 @@ function DesktopWorkspace() {
                             onCount={countQueryBuilderResults}
                             redisRefreshSignal={redisBrowserRefreshSignals[activeTab.id] ?? 0}
                             executionLocked={activeExecutionLocked}
+                            theme={resolvedTheme}
                           />
                         ) : null}
                         <DatastoreQueryEditor
@@ -4001,6 +4067,7 @@ function DesktopWorkspace() {
                 lastExecution={lastExecution}
                 lastExecutionRequest={lastExecutionRequest}
                 capabilities={runtimeCapabilities}
+                theme={resolvedTheme}
                 workbenchMessages={workbenchMessages}
                 onSelectPanelTab={(tab) =>
                   void actions.updateUiState({
@@ -4056,7 +4123,15 @@ function DesktopWorkspace() {
                 onApplyInspectionTemplate={(queryTemplate) =>
                   queryTemplate ? replaceActiveRawQueryText(queryTemplate) : undefined
                 }
-                onRestoreHistory={replaceActiveRawQueryText}
+                onRestoreHistory={(queryText, sqlScope) => {
+                  if (!sqlScope) {
+                    replaceActiveRawQueryText(queryText)
+                    return
+                  }
+                  void changeActiveSqlScope(sqlScope).then(() => {
+                    replaceActiveRawQueryText(queryText)
+                  })
+                }}
                 onExecuteDataEdit={actions.executeDataEdit}
                 onPlanOperation={planDatastoreOperationWithConfirmation}
                 onDismissWorkbenchMessage={actions.dismissWorkbenchMessage}

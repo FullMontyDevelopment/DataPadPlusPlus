@@ -182,6 +182,7 @@ try {
     request: {
       collection: 'products',
       id: 4,
+      previousDocument: insert.response.afterDocument,
       document: { _id: 4, sku: 'marker-004-updated', category: 'fixture', price: 2.5 },
     },
     rowLimit: 2,
@@ -195,6 +196,130 @@ try {
   assert.equal(update.response.afterDocument.sku, 'marker-004-updated')
   assert.equal(update.response.evidence.before.matched, true)
   assert.equal(update.response.evidence.after.matched, true)
+
+  const addField = runSidecar({
+    engine: 'litedb',
+    protocolVersion: 1,
+    databasePath,
+    operation: 'UpdateDocument',
+    request: {
+      collection: 'products',
+      id: 4,
+      previousDocument: update.response.afterDocument,
+      document: { ...update.response.afterDocument, rating: 5 },
+      editKind: 'add-field',
+      path: ['rating'],
+    },
+    rowLimit: 2,
+    readOnly: false,
+  })
+
+  assert.equal(addField.ok, true)
+  assert.equal(addField.response.afterDocument.rating, 5)
+
+  const duplicateAdd = runSidecar({
+    engine: 'litedb',
+    protocolVersion: 1,
+    databasePath,
+    operation: 'UpdateDocument',
+    request: {
+      collection: 'products',
+      id: 4,
+      previousDocument: addField.response.afterDocument,
+      document: { ...addField.response.afterDocument, rating: 6 },
+      editKind: 'add-field',
+      path: ['rating'],
+    },
+    rowLimit: 2,
+    readOnly: false,
+  })
+
+  assert.equal(duplicateAdd.ok, false)
+  assert.equal(duplicateAdd.code, 'litedb-field-exists')
+
+  const staleUpdate = runSidecar({
+    engine: 'litedb',
+    protocolVersion: 1,
+    databasePath,
+    operation: 'UpdateDocument',
+    request: {
+      collection: 'products',
+      id: 4,
+      previousDocument: update.response.afterDocument,
+      document: { ...addField.response.afterDocument, category: 'stale-write' },
+      editKind: 'set-field',
+      path: ['category'],
+    },
+    rowLimit: 2,
+    readOnly: false,
+  })
+
+  assert.equal(staleUpdate.ok, false)
+  assert.equal(staleUpdate.code, 'litedb-concurrency-conflict')
+
+  const typedUpdate = runSidecar({
+    engine: 'litedb',
+    protocolVersion: 1,
+    databasePath,
+    operation: 'UpdateDocument',
+    request: {
+      collection: 'products',
+      id: 4,
+      previousDocument: addField.response.afterDocument,
+      document: {
+        ...addField.response.afterDocument,
+        updatedAt: { $date: '2026-08-08T09:10:11.123Z' },
+        correlationId: { $guid: '9e107d9d-372b-4f7d-bb3a-17d63746f9a0' },
+        objectId: { $oid: '507f1f77bcf86cd799439011' },
+        bytes: { $binary: 'AAECAwQ=' },
+        exactCount: { $numberLong: '9007199254740993' },
+        exactAmount: { $numberDecimal: '1234567890.123456789' },
+      },
+      editKind: 'update-document',
+      path: [],
+    },
+    rowLimit: 2,
+    readOnly: false,
+  })
+
+  assert.equal(typedUpdate.ok, true)
+  assert.deepEqual(typedUpdate.response.afterDocument.updatedAt, {
+    $date: '2026-08-08T09:10:11.1230000Z',
+  })
+  assert.deepEqual(typedUpdate.response.afterDocument.correlationId, {
+    $guid: '9e107d9d-372b-4f7d-bb3a-17d63746f9a0',
+  })
+  assert.deepEqual(typedUpdate.response.afterDocument.objectId, {
+    $oid: '507f1f77bcf86cd799439011',
+  })
+  assert.deepEqual(typedUpdate.response.afterDocument.bytes, { $binary: 'AAECAwQ=' })
+  assert.deepEqual(typedUpdate.response.afterDocument.exactCount, {
+    $numberLong: '9007199254740993',
+  })
+  assert.deepEqual(typedUpdate.response.afterDocument.exactAmount, {
+    $numberDecimal: '1234567890.123456789',
+  })
+
+  const { rating: _removedRating, ...withoutRating } = typedUpdate.response.afterDocument
+  const removeField = runSidecar({
+    engine: 'litedb',
+    protocolVersion: 1,
+    databasePath,
+    operation: 'UpdateDocument',
+    request: {
+      collection: 'products',
+      id: 4,
+      previousDocument: typedUpdate.response.afterDocument,
+      document: withoutRating,
+      editKind: 'unset-field',
+      path: ['rating'],
+    },
+    rowLimit: 2,
+    readOnly: false,
+  })
+
+  assert.equal(removeField.ok, true)
+  assert.equal(Object.hasOwn(removeField.response.afterDocument, 'rating'), false)
 
   const idMismatch = runSidecar({
     engine: 'litedb',
@@ -218,7 +343,11 @@ try {
     protocolVersion: 1,
     databasePath,
     operation: 'DeleteDocument',
-    request: { collection: 'products', id: 4 },
+    request: {
+      collection: 'products',
+      id: 4,
+      previousDocument: removeField.response.afterDocument,
+    },
     rowLimit: 2,
     readOnly: false,
   })

@@ -7,6 +7,7 @@ export interface MongoFindSectionProps {
   draft: MongoFindBuilderState
   filterGroups: MongoFindFilterGroup[]
   updateDraft: BuilderUpdater
+  theme?: string
 }
 
 export function rowId(prefix: string) {

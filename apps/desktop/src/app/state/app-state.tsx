@@ -48,6 +48,7 @@ const defaultActions: Actions = {
   updateQueryBuilderState: noop,
   updateDatastoreQueryEditorState: noop,
   updateQueryTarget: async () => false,
+  updateQuerySqlScope: async () => false,
   updateTestSuiteTab: noop,
   renameTab: noop,
   saveCurrentQuery: noop,

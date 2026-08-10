@@ -5,8 +5,8 @@ use serde_json::json;
 use super::{
     is_read_only_oracle_statement, normalize_oracle_response, oracle_friendly_error,
     oracle_live_statement, oracle_managed_result, oracle_sqlplus_script,
-    oracle_statement_invalidates_metadata, parse_oracle_sqlplus_csv, preview_oracle_response,
-    redact_oracle_sqlplus_output,
+    oracle_sqlplus_script_with_scope, oracle_statement_invalidates_metadata,
+    parse_oracle_sqlplus_csv, preview_oracle_response, redact_oracle_sqlplus_output,
 };
 use crate::domain::models::{ExecutionRequest, OracleConnectionOptions, ResolvedConnectionProfile};
 
@@ -120,6 +120,7 @@ fn oracle_managed_explain_returns_one_first_class_plan_payload() {
         confirmed_guardrail_id: None,
         builder_state: None,
         scoped_target: None,
+        sql_scope: None,
         datastore_execution_input: None,
     };
     let response = json!({
@@ -181,6 +182,27 @@ fn oracle_sqlplus_script_uses_guarded_connect_and_read_transaction() {
     assert!(script.contains("set transaction read only;"));
     assert!(script.contains("set markup csv on quote on"));
     assert!(script.contains("where rownum <= 25;"));
+}
+
+#[test]
+fn oracle_sqlplus_script_applies_quoted_current_schema_before_user_sql() {
+    let connection = connection();
+    let script = oracle_sqlplus_script_with_scope(
+        &connection,
+        Some("Reporting\"Owner"),
+        "select * from accounts",
+        25,
+        false,
+    )
+    .unwrap();
+
+    let scope_index = script
+        .find("alter session set current_schema = \"Reporting\"\"Owner\";")
+        .expect("current schema statement");
+    let query_index = script
+        .find("select * from (\nselect * from accounts")
+        .expect("bounded user query");
+    assert!(scope_index < query_index);
 }
 
 #[test]

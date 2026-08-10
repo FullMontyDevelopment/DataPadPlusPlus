@@ -35,6 +35,7 @@ interface ResultsViewProps {
   rendererPreparing?: boolean
   rendererError?: string
   result?: ExecutionResultEnvelope
+  theme?: string
   documentResetToken?: string
   executionLocked?: boolean
   onSelectRenderer(renderer: string): void
@@ -65,6 +66,7 @@ export function ResultsView({
   rendererPreparing = false,
   rendererError,
   result,
+  theme = 'dark',
   documentResetToken,
   executionLocked = false,
   onSelectRenderer,
@@ -320,6 +322,7 @@ export function ResultsView({
           resultDurationMs={result?.displayDurationMs ?? result?.durationMs}
           resultRuntimeTitle={runtimeTitle}
           resultSummary={result?.summary}
+          theme={theme}
           documentResetToken={documentResetToken}
           executionLocked={executionLocked}
           onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}

@@ -320,7 +320,8 @@ pub(super) async fn execute_oracle_managed(
             "timeoutMs": timeout_ms,
             "fetchSize": fetch_size,
             "readOnly": connection.read_only,
-            "captureDbmsOutput": true
+            "captureDbmsOutput": true,
+            "currentSchema": request.sql_scope.as_ref().and_then(|scope| scope.schema.as_deref())
         }),
         timeout_ms,
         OracleSidecarRequestOrigin::Interactive,

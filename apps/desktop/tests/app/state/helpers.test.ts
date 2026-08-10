@@ -180,6 +180,47 @@ describe('evaluateGuardrails', () => {
 })
 
 describe('migrateWorkspaceSnapshot', () => {
+  it('moves only recognized generated SQL Server USE prefixes into persisted tab scope', () => {
+    const snapshot = structuredClone(createSeedSnapshot())
+    const tab = snapshot.tabs.find((item) => item.id === 'tab-commerce-mysql')!
+    const connection = snapshot.connections.find((item) => item.id === tab.connectionId)!
+    connection.id = 'conn-sqlserver-scope-migration'
+    connection.engine = 'sqlserver'
+    connection.family = 'sql'
+    tab.id = 'tab-sqlserver-scope-migration'
+    tab.connectionId = connection.id
+    tab.queryText = 'USE [archive]]2025];\nselect top 100 * from [dbo].[orders];'
+    tab.sqlScope = undefined
+    tab.history = [
+      {
+        id: 'generated',
+        queryText: 'use [reporting];\nselect db_name() as database_name;',
+        executedAt: '2026-08-09T10:00:00Z',
+        status: 'success',
+      },
+      {
+        id: 'user-authored',
+        queryText: 'USE [custom];\nselect * from customer_written_query;',
+        executedAt: '2026-08-09T10:01:00Z',
+        status: 'success',
+      },
+    ]
+
+    const migrated = migrateWorkspaceSnapshot(snapshot)
+    const migratedTab = migrated.tabs.find((item) => item.id === tab.id)!
+
+    expect(migratedTab.queryText).toBe('select top 100 * from [dbo].[orders];')
+    expect(migratedTab.sqlScope).toEqual({ database: 'archive]2025' })
+    expect(migratedTab.history[0]).toMatchObject({
+      queryText: 'select db_name() as database_name;',
+      sqlScope: { database: 'reporting' },
+    })
+    expect(migratedTab.history[1]?.queryText).toBe(
+      'USE [custom];\nselect * from customer_written_query;',
+    )
+    expect(migratedTab.history[1]?.sqlScope).toBeUndefined()
+  })
+
   it('defaults first install guide preferences to unseen', () => {
     const snapshot = createBlankBootstrapPayload().snapshot
 

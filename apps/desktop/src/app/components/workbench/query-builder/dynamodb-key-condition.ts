@@ -5,6 +5,7 @@ import type {
   DynamoDbKeyConditionBuilderState,
   QueryBuilderState,
 } from '@datapadplusplus/shared-types'
+import { parseQueryBuilderValue } from './query-value-codec'
 
 const COMPARISON_OPERATORS: Record<
   Extract<DynamoDbConditionOperator, 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte'>,
@@ -108,6 +109,22 @@ export function parseDynamoDbKeyConditionQueryText(
 ): DynamoDbKeyConditionBuilderState | undefined {
   try {
     const parsed = JSON.parse(queryText) as Record<string, unknown>
+    const operation = stringField(parsed, 'operation')?.toLowerCase()
+    if (operation && operation !== 'query' && operation !== 'scan') {
+      return undefined
+    }
+    if (
+      stringField(parsed, 'filterExpression')?.trim() ||
+      stringField(parsed, 'FilterExpression')?.trim() ||
+      parsed.select !== undefined ||
+      parsed.Select !== undefined
+    ) {
+      return undefined
+    }
+    const partitionKey = parsePartitionKey(parsed)
+    if (!partitionKey) {
+      return undefined
+    }
     const table =
       stringField(parsed, 'tableName') ??
       stringField(parsed, 'TableName') ??
@@ -117,7 +134,7 @@ export function parseDynamoDbKeyConditionQueryText(
       kind: 'dynamodb-key-condition',
       table,
       indexName: stringField(parsed, 'indexName') ?? stringField(parsed, 'IndexName'),
-      partitionKey: parsePartitionKey(parsed),
+      partitionKey,
       sortKey: undefined,
       filters: [],
       projectionFields: projectionFields(parsed),
@@ -216,9 +233,13 @@ class DynamoExpressionBuilder {
   }
 
   value(value: string, type: DynamoDbBuilderValueType) {
+    return this.attributeValue(toAttributeValue(value, type))
+  }
+
+  attributeValue(value: unknown) {
     const token = `:v${this.nextValue}`
     this.nextValue += 1
-    this.valueValues[token] = toAttributeValue(value, type)
+    this.valueValues[token] = value
     return token
   }
 
@@ -234,6 +255,15 @@ class DynamoExpressionBuilder {
     }
     if (row.operator === 'does-not-exist') {
       return `attribute_not_exists(${name})`
+    }
+    if (row.operator === 'has-items' || row.operator === 'has-no-items' || row.operator === 'has-length') {
+      const listType = this.attributeValue({ S: 'L' })
+      const rawLength = row.operator === 'has-length'
+        ? parseQueryBuilderValue(row.value, 'number', { operator: row.operator })
+        : 0
+      const length = this.attributeValue({ N: String(rawLength) })
+      const comparison = row.operator === 'has-items' ? '>' : '='
+      return `attribute_type(${name}, ${listType}) and size(${name}) ${comparison} ${length}`
     }
 
     const value = this.value(row.value, row.valueType)
@@ -264,19 +294,12 @@ class DynamoExpressionBuilder {
 }
 
 function toAttributeValue(value: string, type: DynamoDbBuilderValueType): unknown {
-  if (type === 'null') {
-    return { NULL: true }
-  }
-  if (type === 'boolean') {
-    return { BOOL: ['true', '1', 'yes'].includes(value.trim().toLowerCase()) }
-  }
-  if (type === 'number') {
-    return { N: Number.isFinite(Number(value)) ? String(Number(value)) : '0' }
-  }
-  if (type === 'json') {
-    return jsonToAttributeValue(parseJson(value))
-  }
-  return { S: value }
+  const parsed = parseQueryBuilderValue(value, type)
+  if (type === 'json') return jsonToAttributeValue(parsed)
+  if (type === 'null') return { NULL: true }
+  if (type === 'boolean') return { BOOL: parsed }
+  if (type === 'number') return { N: String(parsed) }
+  return { S: String(parsed) }
 }
 
 function jsonToAttributeValue(value: unknown): unknown {
@@ -305,27 +328,31 @@ function jsonToAttributeValue(value: unknown): unknown {
   return { S: String(value) }
 }
 
-function parseJson(value: string) {
-  try {
-    return JSON.parse(value) as unknown
-  } catch {
-    return value
-  }
-}
-
-function parsePartitionKey(parsed: Record<string, unknown>) {
+function parsePartitionKey(parsed: Record<string, unknown>): DynamoDbConditionRow | undefined {
   const names = objectField(parsed, 'expressionAttributeNames') ?? objectField(parsed, 'ExpressionAttributeNames')
   const values = objectField(parsed, 'expressionAttributeValues') ?? objectField(parsed, 'ExpressionAttributeValues')
-  const expression = String(parsed.keyConditionExpression ?? parsed.KeyConditionExpression ?? '')
-  const match = /(#[\w]+|[\w.]+)\s*=\s*(:[\w]+)/.exec(expression)
+  const expression = String(parsed.keyConditionExpression ?? parsed.KeyConditionExpression ?? '').trim()
+  if (!expression) {
+    return newDynamoDbCondition('pk', 'eq')
+  }
+
+  const match = /^(#[\w]+|[\w.]+)\s*=\s*(:[\w]+)$/.exec(expression)
   const fieldToken = match?.[1]
   const valueToken = match?.[2]
-  const field = fieldToken && names?.[fieldToken] ? String(names[fieldToken]) : fieldToken ?? 'pk'
-  const rawValue = valueToken && values?.[valueToken] ? attributeValueToString(values[valueToken]) : ''
+  if (!fieldToken || !valueToken || !Object.hasOwn(values ?? {}, valueToken)) {
+    return undefined
+  }
+
+  const field = names?.[fieldToken] ? String(names[fieldToken]) : fieldToken
+  const parsedValue = attributeValueToBuilderValue(values?.[valueToken])
+  if (!parsedValue) {
+    return undefined
+  }
 
   return {
     ...newDynamoDbCondition(field, 'eq'),
-    value: rawValue,
+    value: parsedValue.value,
+    valueType: parsedValue.valueType,
   }
 }
 
@@ -342,20 +369,25 @@ function projectionFields(parsed: Record<string, unknown>) {
     }))
 }
 
-function attributeValueToString(value: unknown) {
+function attributeValueToBuilderValue(
+  value: unknown,
+): { value: string; valueType: DynamoDbBuilderValueType } | undefined {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const object = value as Record<string, unknown>
     if (typeof object.S === 'string') {
-      return object.S
+      return { value: object.S, valueType: 'string' }
     }
     if (typeof object.N === 'string') {
-      return object.N
+      return { value: object.N, valueType: 'number' }
     }
     if (typeof object.BOOL === 'boolean') {
-      return String(object.BOOL)
+      return { value: String(object.BOOL), valueType: 'boolean' }
+    }
+    if (object.NULL === true) {
+      return { value: '', valueType: 'null' }
     }
   }
-  return String(value ?? '')
+  return undefined
 }
 
 function stringField(parsed: Record<string, unknown>, key: string) {

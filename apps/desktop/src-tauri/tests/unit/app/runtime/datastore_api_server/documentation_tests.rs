@@ -241,6 +241,7 @@ fn saved_query_node(
         query_view_mode: Some("raw".into()),
         document_efficiency_mode: None,
         scoped_target: None,
+        sql_scope: None,
         builder_state: None,
         script_text: None,
         test_suite: None,

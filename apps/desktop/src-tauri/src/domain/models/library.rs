@@ -43,6 +43,8 @@ pub struct LibraryNode {
     pub document_efficiency_mode: Option<bool>,
     #[serde(default)]
     pub scoped_target: Option<ScopedQueryTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sql_scope: Option<SqlQueryScope>,
     #[serde(default)]
     pub builder_state: Option<Value>,
     pub script_text: Option<String>,

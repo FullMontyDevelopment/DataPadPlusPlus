@@ -175,6 +175,7 @@ async fn cosmosdb_fetch_page_replays_opaque_continuation_and_session_state() {
         cursor: Some(cursor),
         document_efficiency_mode: None,
         scoped_target: None,
+        sql_scope: None,
     };
 
     let page = fetch_cosmosdb_page(&connection(&format!("http://{address}")), &request)

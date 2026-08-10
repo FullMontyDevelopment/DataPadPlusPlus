@@ -108,9 +108,9 @@ describe('Cosmos SQL query workflow', () => {
     })
     expect(invalid.errors).toEqual(expect.arrayContaining([
       'Cosmos Query Editor accepts one read-only SELECT statement.',
-      '@value: enter valid JSON.',
       'Parameter @value is defined more than once.',
     ]))
+    expect(invalid.errors.some((error) => error.startsWith('@value: Enter valid JSON.'))).toBe(true)
     expect(invalid.input).toBeUndefined()
   })
 

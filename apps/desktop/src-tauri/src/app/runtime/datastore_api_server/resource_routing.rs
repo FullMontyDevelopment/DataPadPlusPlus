@@ -324,6 +324,7 @@ async fn execute_custom_endpoint(
         confirmed_guardrail_id: None,
         builder_state: None,
         scoped_target: None,
+        sql_scope: None,
         datastore_execution_input: None,
     };
     let result = match adapters::execute(
@@ -690,6 +691,7 @@ async fn execute_resource_read(
         confirmed_guardrail_id: None,
         builder_state: None,
         scoped_target: None,
+        sql_scope: None,
         datastore_execution_input: None,
     };
     let result = match adapters::execute(
@@ -997,6 +999,9 @@ fn data_edit_target_for(
         collection: None,
         key: None,
         document_id: None,
+        expected_document: None,
+        partition_key: None,
+        concurrency_token: None,
         item_key: None,
         primary_key: None,
     };

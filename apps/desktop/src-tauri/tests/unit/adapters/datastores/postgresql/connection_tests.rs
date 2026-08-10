@@ -97,3 +97,44 @@ fn postgres_dsn_uses_cloud_sql_socket_host() {
 
     assert_eq!(query, "?host=%2Fcloudsql%2Fproject%3Aregion%3Ainstance");
 }
+
+#[test]
+fn postgres_connect_options_override_connection_string_scope() {
+    let connection = ResolvedConnectionProfile {
+        id: "conn-postgres".into(),
+        name: "PostgreSQL".into(),
+        engine: "postgresql".into(),
+        family: "sql".into(),
+        host: "localhost".into(),
+        port: Some(5432),
+        database: Some("tab_database".into()),
+        username: Some("postgres".into()),
+        password: Some("secret".into()),
+        connection_string: Some("postgres://postgres:secret@localhost/profile_database".into()),
+        redis_options: None,
+        memcached_options: None,
+        sqlite_options: None,
+        postgres_options: Some(PostgresConnectionOptions {
+            search_path: Some("reporting".into()),
+            ..Default::default()
+        }),
+        mysql_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        mongodb_options: None,
+        warehouse_options: None,
+        read_only: false,
+    };
+
+    let options = postgres_connect_options(&connection).expect("options");
+    assert_eq!(options.get_database(), Some("tab_database"));
+    assert!(options
+        .get_options()
+        .is_some_and(|value| value.contains("search_path=reporting")));
+}

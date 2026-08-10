@@ -149,6 +149,12 @@ export interface ScopedQueryTarget {
   preferredBuilder?: QueryBuilderKind
 }
 
+export interface SqlQueryScope {
+  catalog?: string
+  database?: string
+  schema?: string
+}
+
 export type MongoFilterOperator =
   | 'eq'
   | 'ne'
@@ -171,6 +177,9 @@ export type MongoFilterOperator =
   | 'not-starts-with'
   | 'ends-with'
   | 'not-ends-with'
+  | 'has-items'
+  | 'has-no-items'
+  | 'has-length'
 
 export type MongoBuilderValueType =
   | 'string'
@@ -179,6 +188,7 @@ export type MongoBuilderValueType =
   | 'null'
   | 'json'
   | 'date'
+  | 'uuid'
   | 'objectId'
 
 export interface MongoFindFilterRow {
@@ -257,6 +267,9 @@ export type CosmosSqlFilterOperator =
   | 'not-in'
   | 'is-null'
   | 'is-not-null'
+  | 'has-items'
+  | 'has-no-items'
+  | 'has-length'
 
 export type CosmosSqlBuilderValueType =
   | 'string'
@@ -264,6 +277,8 @@ export type CosmosSqlBuilderValueType =
   | 'boolean'
   | 'null'
   | 'json'
+  | 'date'
+  | 'uuid'
 
 export interface CosmosSqlProjectionField {
   id: string
@@ -337,12 +352,15 @@ export type SqlSelectFilterOperator =
   | 'not-in'
   | 'is-null'
   | 'is-not-null'
+  | 'has-items'
+  | 'has-no-items'
+  | 'has-length'
   | 'starts-with'
   | 'not-starts-with'
   | 'ends-with'
   | 'not-ends-with'
 
-export type SqlBuilderValueType = 'string' | 'number' | 'boolean' | 'null'
+export type SqlBuilderValueType = 'string' | 'number' | 'boolean' | 'null' | 'date' | 'uuid'
 
 export interface SqlSelectProjectionField {
   id: string
@@ -389,8 +407,18 @@ export type DynamoDbConditionOperator =
   | 'not-contains'
   | 'exists'
   | 'does-not-exist'
+  | 'has-items'
+  | 'has-no-items'
+  | 'has-length'
 
-export type DynamoDbBuilderValueType = 'string' | 'number' | 'boolean' | 'null' | 'json'
+export type DynamoDbBuilderValueType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'null'
+  | 'json'
+  | 'date'
+  | 'uuid'
 
 export interface DynamoDbConditionRow {
   id: string
@@ -429,7 +457,7 @@ export type CqlConditionOperator =
   | 'in'
   | 'contains'
 
-export type CqlBuilderValueType = 'string' | 'number' | 'boolean' | 'null'
+export type CqlBuilderValueType = 'string' | 'number' | 'boolean' | 'null' | 'date' | 'uuid'
 
 export interface CqlProjectionField {
   id: string
@@ -479,7 +507,7 @@ export type SearchDslFilterOperator =
   | 'range-gte'
   | 'range-lte'
 
-export type SearchDslValueType = 'string' | 'number' | 'boolean'
+export type SearchDslValueType = 'string' | 'number' | 'boolean' | 'date' | 'uuid'
 
 export interface SearchDslFilterRow {
   id: string
@@ -789,10 +817,29 @@ export interface DocumentPayload {
   hydrationMode?: 'full' | 'lazy'
   database?: string
   collection?: string
+  editMetadata?: DocumentEditMetadata
   console?: string
   metadata?: Record<string, unknown>
   efficiencyModeIgnored?: boolean
   efficiencyModeReason?: string
+}
+
+export type DocumentEditAdapterStrategy = 'mongodb' | 'litedb' | 'cosmosdb' | 'arango'
+
+export interface DocumentEditIdentityMetadata {
+  field: string
+  value?: unknown
+}
+
+export interface DocumentEditMetadata {
+  adapterStrategy: DocumentEditAdapterStrategy
+  identity?: DocumentEditIdentityMetadata
+  protectedPaths: string[][]
+  partitionKeyPaths?: string[][]
+  shardKeyPaths?: string[][]
+  concurrencyTokenField?: string
+  maxDocumentBytes?: number
+  unavailableReason?: string
 }
 
 export interface KeyValuePayload {
@@ -1022,6 +1069,7 @@ export interface QueryHistoryEntry {
   queryText: string
   executedAt: string
   status: QueryExecutionState
+  sqlScope?: SqlQueryScope
 }
 
 export interface UserFacingError {
@@ -1036,6 +1084,7 @@ export interface QueryTabState extends QueryTabDefinition {
   scriptText?: string
   documentEfficiencyMode?: boolean
   scopedTarget?: ScopedQueryTarget
+  sqlScope?: SqlQueryScope
   builderState?: QueryBuilderState
   queryEditorState?: DatastoreQueryEditorState
   metricsState?: MetricsTabState
@@ -1093,6 +1142,7 @@ export interface LibraryNode {
   queryViewMode?: QueryViewMode
   documentEfficiencyMode?: boolean
   scopedTarget?: ScopedQueryTarget
+  sqlScope?: SqlQueryScope
   builderState?: QueryBuilderState
   queryEditorState?: DatastoreQueryEditorState
   scriptText?: string

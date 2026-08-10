@@ -8,7 +8,9 @@ use std::str::FromStr;
 
 use super::super::super::*;
 
-const MAX_BSON_JSON_DEPTH: usize = 32;
+// MongoDB accepts at most 100 levels of document nesting. Keep the conversion
+// limit above that boundary so valid documents can be hydrated losslessly.
+const MAX_BSON_JSON_DEPTH: usize = 128;
 
 pub(super) fn mongodb_json_to_document(
     value: &Value,
@@ -126,15 +128,23 @@ fn bson_to_json_at_depth(value: &Bson, depth: usize) -> Value {
             Some(uuid) => json!({ "$uuid": uuid }),
             None => json!({
                 "$binary": {
-                    "byteLength": binary.bytes.len(),
-                    "subType": format!("{:?}", binary.subtype),
+                    "base64": BASE64.encode(&binary.bytes),
+                    "subType": format!("{:02x}", u8::from(binary.subtype)),
                 }
             }),
         },
         Bson::ObjectId(object_id) => json!({ "$oid": object_id.to_hex() }),
-        Bson::DateTime(date_time) => {
-            json!({ "$date": { "$numberLong": date_time.timestamp_millis().to_string() } })
-        }
+        Bson::DateTime(date_time) => chrono::DateTime::from_timestamp_millis(
+            date_time.timestamp_millis(),
+        )
+        .map(|value| {
+            json!({
+                "$date": value.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+            })
+        })
+        .unwrap_or_else(
+            || json!({ "$date": { "$numberLong": date_time.timestamp_millis().to_string() } }),
+        ),
         Bson::Symbol(value) => json!({ "$symbol": value }),
         Bson::Decimal128(value) => json!({ "$numberDecimal": value.to_string() }),
         Bson::Undefined => json!({ "$undefined": true }),
@@ -234,6 +244,12 @@ fn native_extended_json_scalar(
             .get("subType")
             .and_then(Value::as_str)
             .unwrap_or("00");
+        if subtype.len() != 2 {
+            return Err(CommandError::new(
+                code,
+                "MongoDB binary subtype must contain exactly two hexadecimal characters.",
+            ));
+        }
         let subtype = u8::from_str_radix(subtype, 16).map_err(|error| {
             CommandError::new(code, format!("MongoDB binary subtype is invalid: {error}"))
         })?;
@@ -282,12 +298,16 @@ fn native_extended_json_scalar(
         let pattern = regex
             .get("pattern")
             .and_then(Value::as_str)
-            .unwrap_or_default()
+            .ok_or_else(|| {
+                CommandError::new(code, "MongoDB regular expression pattern must be a string.")
+            })?
             .to_string();
         let options = regex
             .get("options")
             .and_then(Value::as_str)
-            .unwrap_or_default()
+            .ok_or_else(|| {
+                CommandError::new(code, "MongoDB regular expression options must be a string.")
+            })?
             .to_string();
         return Ok(Some(Bson::RegularExpression(Regex { pattern, options })));
     }
@@ -297,12 +317,22 @@ fn native_extended_json_scalar(
             .get("t")
             .and_then(Value::as_u64)
             .and_then(|value| u32::try_from(value).ok())
-            .unwrap_or_default();
+            .ok_or_else(|| {
+                CommandError::new(
+                    code,
+                    "MongoDB timestamp t must be an unsigned 32-bit integer.",
+                )
+            })?;
         let increment = timestamp
             .get("i")
             .and_then(Value::as_u64)
             .and_then(|value| u32::try_from(value).ok())
-            .unwrap_or_default();
+            .ok_or_else(|| {
+                CommandError::new(
+                    code,
+                    "MongoDB timestamp i must be an unsigned 32-bit integer.",
+                )
+            })?;
         return Ok(Some(Bson::Timestamp(Timestamp { time, increment })));
     }
 

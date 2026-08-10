@@ -6,7 +6,7 @@ use crate::domain::{
 };
 
 use super::common::*;
-use super::workspace::validate_scoped_query_target;
+use super::workspace::{validate_scoped_query_target, validate_sql_query_scope};
 
 pub(in crate::app::runtime) fn validate_execution_request(
     request: &mut ExecutionRequest,
@@ -41,6 +41,9 @@ pub(in crate::app::runtime) fn validate_execution_request(
     }
     if let Some(scoped_target) = &request.scoped_target {
         validate_scoped_query_target(scoped_target)?;
+    }
+    if let Some(sql_scope) = &request.sql_scope {
+        validate_sql_query_scope(sql_scope)?;
     }
     if request.mode.as_deref() == Some("count") && request.builder_state.is_none() {
         return Err(invalid_request(
@@ -86,6 +89,9 @@ pub(in crate::app::runtime) fn validate_result_page_request(
     if let Some(scoped_target) = &request.scoped_target {
         validate_scoped_query_target(scoped_target)?;
     }
+    if let Some(sql_scope) = &request.sql_scope {
+        validate_sql_query_scope(sql_scope)?;
+    }
     clamp_optional_u32(&mut request.page_size, 1, MAX_RESULT_PAGE_SIZE);
     clamp_optional_u32(&mut request.page_index, 0, MAX_RESULT_PAGE_INDEX);
     Ok(())
@@ -111,10 +117,21 @@ pub(in crate::app::runtime) fn validate_document_node_children_request(
         validate_query_text(query_text, "Query text")?;
     }
     const MAX_DOCUMENT_PATH_SEGMENTS: usize = 100;
-    if request.path.is_empty() || request.path.len() > MAX_DOCUMENT_PATH_SEGMENTS {
+    if (request.path.is_empty() && request.mode.as_deref() != Some("full-value"))
+        || request.path.len() > MAX_DOCUMENT_PATH_SEGMENTS
+    {
         return Err(invalid_request(format!(
-            "Document field path must contain 1 to {MAX_DOCUMENT_PATH_SEGMENTS} segments."
+            "Document field path must contain 1 to {MAX_DOCUMENT_PATH_SEGMENTS} segments unless full-value hydration targets the root."
         )));
+    }
+    if request
+        .mode
+        .as_deref()
+        .is_some_and(|mode| mode != "children" && mode != "full-value")
+    {
+        return Err(invalid_request(
+            "Document hydration mode must be `children` or `full-value`.",
+        ));
     }
     for segment in &request.path {
         if segment.as_str().is_none() && segment.as_u64().is_none() {

@@ -94,6 +94,7 @@ export function useQueryExecutionActions({
           confirmedGuardrailId,
           builderState,
           scopedTarget: tab.scopedTarget,
+          sqlScope: tab.sqlScope,
           datastoreExecutionInput,
         }
 

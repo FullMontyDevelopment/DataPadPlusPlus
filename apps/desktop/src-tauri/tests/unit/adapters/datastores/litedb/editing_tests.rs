@@ -103,6 +103,44 @@ fn litedb_plan_requires_confirmation_and_configured_sidecar_for_live_execution()
     );
 }
 
+#[test]
+fn litedb_field_edits_use_the_atomic_update_document_sidecar_operation() {
+    for edit_kind in [
+        "add-field",
+        "set-field",
+        "unset-field",
+        "rename-field",
+        "change-field-type",
+        "update-document",
+    ] {
+        assert_eq!(
+            litedb_data_edit_operation(edit_kind),
+            Some("UpdateDocument")
+        );
+    }
+}
+
+#[test]
+fn litedb_add_field_forwards_the_guarded_path_to_the_sidecar() {
+    let mut add_request = request("add-field");
+    add_request.target.path = vec!["profile".into(), "timezone".into()];
+    add_request.target.expected_document = Some(json!({
+        "_id": 42,
+        "sku": "tea-042",
+        "category": "pantry"
+    }));
+
+    let sidecar_request =
+        litedb_mutation_request(&add_request, "UpdateDocument").expect("add field sidecar request");
+
+    assert_eq!(sidecar_request["editKind"], "add-field");
+    assert_eq!(sidecar_request["path"], json!(["profile", "timezone"]));
+    assert_eq!(
+        sidecar_request["previousDocument"],
+        add_request.target.expected_document.unwrap()
+    );
+}
+
 #[tokio::test]
 async fn litedb_data_edit_uses_sidecar_fixture_with_before_after_metadata() {
     let adapter = LiteDbAdapter;

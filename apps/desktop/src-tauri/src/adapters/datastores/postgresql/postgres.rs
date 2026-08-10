@@ -105,7 +105,7 @@ impl DatastoreAdapter for PostgresAdapter {
         let started = Instant::now();
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(&postgres_dsn(connection))
+            .connect_with(postgres_connect_options(connection)?)
             .await?;
         let _: i64 = sqlx::query_scalar("select 1::bigint")
             .fetch_one(&pool)

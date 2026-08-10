@@ -159,6 +159,30 @@ await record('Cosmos DB emulator: count query returns seeded volume', () => {
   expect(/[3-9]\d*/.test(output), `orders count query did not show seeded rows:\n${output}`)
 })
 
+await record('Cosmos DB emulator: guarded native array-length predicates', () => {
+  try {
+    const documents = [
+      '{"id":"query-array-populated","accountId":"query-array-1","items":[1,2]}',
+      '{"id":"query-array-empty","accountId":"query-array-2","items":[]}',
+      '{"id":"query-array-missing","accountId":"query-array-3"}',
+      '{"id":"query-array-null","accountId":"query-array-4","items":null}',
+      '{"id":"query-array-scalar","accountId":"query-array-5","items":"scalar"}',
+    ]
+    for (const document of documents) {
+      cosmosShell(`mkitem --database=datapadplusplus --container=orders '${document}'`)
+    }
+
+    const countMatches = (predicate) => cosmosShell(
+      `query "SELECT VALUE COUNT(1) FROM c WHERE STARTSWITH(c.id, 'query-array-') AND ${predicate}" --database=datapadplusplus --container=orders`,
+    )
+    expectOutput(countMatches('IS_ARRAY(c.items) AND ARRAY_LENGTH(c.items) > 0'), /\b1\b/, 'Has Items query')
+    expectOutput(countMatches('IS_ARRAY(c.items) AND ARRAY_LENGTH(c.items) = 0'), /\b1\b/, 'Has No Items query')
+    expectOutput(countMatches('IS_ARRAY(c.items) AND ARRAY_LENGTH(c.items) = 2'), /\b1\b/, 'Has Length query')
+  } finally {
+    cosmosShell('rm query-array-* --key=id --database=datapadplusplus --container=orders')
+  }
+})
+
 const failures = checks.filter((check) => !check.ok)
 
 for (const check of checks) {

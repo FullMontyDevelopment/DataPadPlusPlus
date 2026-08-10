@@ -23,6 +23,7 @@ export const DATA_EDIT_KINDS = new Set([
   'update-row',
   'delete-row',
   'set-field',
+  'add-field',
   'unset-field',
   'rename-field',
   'change-field-type',

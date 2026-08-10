@@ -47,7 +47,7 @@ import {
   validateRequiredId,
   validateRequiredText,
 } from './datastores/common/request-validation-core'
-import { validateScopedQueryTarget } from './request-validation-workspace'
+import { validateScopedQueryTarget, validateSqlQueryScope } from './request-validation-workspace'
 export * from './request-validation-library'
 export * from './request-validation-workspace'
 export * from './datastores/common/document/request-validation-documents'
@@ -294,6 +294,7 @@ export function validateExecutionRequest(request: ExecutionRequest): ExecutionRe
     language,
     mode,
     scopedTarget,
+    sqlScope: validateSqlQueryScope(request.sqlScope),
     rowLimit: clampOptionalInteger(request.rowLimit, 'Execution row limit', 1, MAX_ROW_LIMIT),
   }
 }
@@ -352,6 +353,7 @@ export function validateResultPageRequest(request: ResultPageRequest): ResultPag
     ...request,
     language,
     scopedTarget,
+    sqlScope: validateSqlQueryScope(request.sqlScope),
     pageSize: clampOptionalInteger(
       request.pageSize,
       'Result page size',

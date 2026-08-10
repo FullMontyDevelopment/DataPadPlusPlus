@@ -214,6 +214,15 @@ pub fn update_query_tab_target(
 }
 
 #[tauri::command]
+pub fn update_query_tab_sql_scope(
+    state: State<'_, SharedAppState>,
+    request: UpdateQueryTabSqlScopeRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.update_query_tab_sql_scope(request)
+}
+
+#[tauri::command]
 pub fn rename_query_tab(
     state: State<'_, SharedAppState>,
     tab_id: String,

@@ -20,7 +20,7 @@ export function mongoDataEditRequest(request: DataEditPlanRequest) {
         database: request.target.database ?? '<database>',
         collection: request.target.collection ?? '<collection>',
         operation: 'deleteOne',
-        filter: { _id: request.target.documentId ?? '<_id>' },
+        filter: mongoDocumentFilter(request),
       },
       null,
       2,
@@ -33,7 +33,7 @@ export function mongoDataEditRequest(request: DataEditPlanRequest) {
         database: request.target.database ?? '<database>',
         collection: request.target.collection ?? '<collection>',
         operation: 'replaceOne',
-        filter: { _id: request.target.documentId ?? '<_id>' },
+        filter: mongoDocumentFilter(request),
         replacement: request.changes[0]?.value ?? {},
       },
       null,
@@ -52,13 +52,29 @@ export function mongoDataEditRequest(request: DataEditPlanRequest) {
     {
       database: request.target.database ?? '<database>',
       collection: request.target.collection ?? '<collection>',
-      filter: { _id: request.target.documentId ?? '<_id>' },
+      filter: mongoDocumentFilter(request),
       update,
       multi: false,
     },
     null,
     2,
   )
+}
+
+function mongoDocumentFilter(request: DataEditPlanRequest) {
+  const filter: Record<string, unknown> = {
+    _id: request.target.documentId ?? '<_id>',
+  }
+  if (request.target.expectedDocument) {
+    filter.$expr = {
+      $eq: ['$$ROOT', { $literal: request.target.expectedDocument }],
+    }
+  }
+  if (request.editKind === 'add-field') {
+    const change = request.changes[0]
+    filter[dataEditPath(change?.field, change?.path)] = { $exists: false }
+  }
+  return filter
 }
 
 function documentValueObject(request: DataEditPlanRequest) {

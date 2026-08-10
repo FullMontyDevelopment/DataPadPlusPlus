@@ -348,6 +348,7 @@ impl ManagedAppState {
                 ),
                 executed_at: now,
                 status: tab.status.clone(),
+                sql_scope: tab.sql_scope.clone(),
             },
         );
         tab.error = if status == "passed" {
@@ -505,6 +506,7 @@ impl ManagedAppState {
             script_text: None,
             document_efficiency_mode: None,
             scoped_target: Some(scoped_target),
+            sql_scope: None,
             builder_state: None,
             metrics_state: None,
             object_view_state: None,

@@ -6,6 +6,12 @@ import type {
   MongoFindFilterRow,
   QueryBuilderState,
 } from '@datapadplusplus/shared-types'
+import {
+  normalizeObjectId,
+  normalizeUuid,
+  parseQueryBuilderValue,
+  QueryBuilderValueError,
+} from './query-value-codec'
 export { defaultFilterGroup, normalizeFilterGroups } from './mongo-find-defaults'
 export { parseMongoFindQueryText } from './mongo-find-parser'
 
@@ -153,11 +159,9 @@ function buildMongoFilterExpression(row: MongoFindFilterRow): Record<string, unk
     return {}
   }
 
-  const value = coerceMongoValue(row.value, row.valueType, row.operator)
-
   switch (row.operator) {
     case 'eq':
-      return { [field]: value }
+      return { [field]: coerceMongoValue(row.value, row.valueType, row.operator) }
     case 'contains':
       return { [field]: mongoFriendlyRegex(`.*${escapeMongoRegex(row.value)}.*`) }
     case 'not-contains':
@@ -182,8 +186,19 @@ function buildMongoFilterExpression(row: MongoFindFilterRow): Record<string, unk
       return { [field]: { $type: mongoTypeValue(row.value) } }
     case 'not-type':
       return { [field]: { $not: { $type: mongoTypeValue(row.value) } } }
+    case 'has-items':
+      return { [field]: { $type: 'array', $not: { $size: 0 } } }
+    case 'has-no-items':
+      return { [field]: { $size: 0 } }
+    case 'has-length':
+      return {
+        [field]: {
+          $size: parseQueryBuilderValue(row.value, 'number', { operator: 'has-length' }),
+        },
+      }
     default: {
       const operator = COMPARISON_OPERATOR_MAP[row.operator]
+      const value = coerceMongoValue(row.value, row.valueType, row.operator)
       return operator ? { [field]: { [operator]: value } } : {}
     }
   }
@@ -201,19 +216,38 @@ function combineFilterExpressions(
     return expressions.length === 1 ? expressions[0] ?? {} : { $or: expressions }
   }
 
-  return expressions.reduce<Record<string, unknown>>((merged, expression) => {
+  const merged: Record<string, unknown> = {}
+
+  for (const expression of expressions) {
     for (const [field, value] of Object.entries(expression)) {
       const existing = merged[field]
 
-      if (isPlainObject(existing) && isPlainObject(value)) {
+      if (existing === undefined) {
+        merged[field] = value
+      } else if (
+        isMergeableMongoOperatorObject(existing) &&
+        isMergeableMongoOperatorObject(value) &&
+        Object.keys(value).every((operator) => !Object.hasOwn(existing, operator))
+      ) {
         merged[field] = { ...existing, ...value }
       } else {
-        merged[field] = value
+        return { $and: expressions }
       }
     }
+  }
 
-    return merged
-  }, {})
+  return merged
+}
+
+const MERGEABLE_MONGO_OPERATORS = new Set([
+  '$ne', '$gt', '$gte', '$lt', '$lte', '$regex', '$options', '$exists',
+  '$in', '$nin', '$type', '$not', '$size',
+])
+
+function isMergeableMongoOperatorObject(value: unknown): value is Record<string, unknown> {
+  return isPlainObject(value) &&
+    Object.keys(value).length > 0 &&
+    Object.keys(value).every((key) => MERGEABLE_MONGO_OPERATORS.has(key))
 }
 
 function buildMongoProjection(
@@ -248,85 +282,18 @@ function coerceMongoValue(
   valueType: MongoBuilderValueType,
   operator: MongoFilterOperator,
 ): unknown {
-  if (operator === 'in' || operator === 'not-in') {
-    return parseInValue(value, valueType)
+  const parsed = parseQueryBuilderValue(value, valueType, { operator })
+  if (Array.isArray(parsed)) {
+    return parsed.map((item) => mongoNativeValue(item, valueType))
   }
+  return mongoNativeValue(parsed, valueType)
+}
 
-  if (valueType === 'null') {
-    return null
-  }
-
-  if (valueType === 'number') {
-    const parsed = Number(value)
-    return Number.isFinite(parsed) ? parsed : value
-  }
-
-  if (valueType === 'boolean') {
-    return parseBoolean(value, false)
-  }
-
-  if (valueType === 'json') {
-    try {
-      return JSON.parse(value)
-    } catch {
-      return value
-    }
-  }
-
-  if (valueType === 'date') {
-    return { $date: normalizeMongoDateInput(value) }
-  }
-
-  if (valueType === 'objectId') {
-    return { $oid: normalizeMongoObjectIdInput(value) }
-  }
-
+function mongoNativeValue(value: unknown, valueType: MongoBuilderValueType) {
+  if (valueType === 'date') return { $date: String(value) }
+  if (valueType === 'uuid') return { $uuid: normalizeUuid(String(value)) }
+  if (valueType === 'objectId') return { $oid: normalizeObjectId(String(value)) }
   return value
-}
-
-function parseInValue(value: string, valueType: MongoBuilderValueType): unknown[] {
-  if (valueType === 'json') {
-    try {
-      const parsed = JSON.parse(value)
-      return Array.isArray(parsed) ? parsed : [parsed]
-    } catch {
-      return [value]
-    }
-  }
-
-  return value
-    .split(',')
-    .map((part) => coerceMongoValue(part.trim(), valueType, 'eq'))
-    .filter((part) => part !== '')
-}
-
-function parseBoolean(value: string, fallback: boolean) {
-  const normalized = value.trim().toLowerCase()
-
-  if (['true', '1', 'yes'].includes(normalized)) {
-    return true
-  }
-
-  if (['false', '0', 'no'].includes(normalized)) {
-    return false
-  }
-
-  return fallback
-}
-
-function normalizeMongoDateInput(value: string) {
-  const trimmed = value.trim()
-  const isoDate = trimmed.match(/^ISODate\("([^"]+)"\)$/)
-  const normalized = isoDate?.[1] ?? trimmed
-  return /^\d{4}-\d{2}-\d{2}$/.test(normalized)
-    ? `${normalized}T00:00:00.000Z`
-    : normalized
-}
-
-function normalizeMongoObjectIdInput(value: string) {
-  const trimmed = value.trim()
-  const objectId = trimmed.match(/^ObjectId\("([^"]+)"\)$/)
-  return objectId?.[1] ?? trimmed
 }
 
 function escapeMongoRegex(value: string) {
@@ -339,6 +306,9 @@ function mongoFriendlyRegex(pattern: string) {
 
 function mongoTypeValue(value: string) {
   const trimmed = value.trim()
+  if (!trimmed) {
+    throw new QueryBuilderValueError('Enter a BSON type name or numeric BSON type code.')
+  }
   const numeric = Number(trimmed)
   return trimmed && Number.isInteger(numeric) ? numeric : trimmed
 }

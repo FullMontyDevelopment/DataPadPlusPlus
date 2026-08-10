@@ -24,7 +24,7 @@ export function createSqlServerExplorerNodes(connection: ConnectionProfile, scop
           `database:${name}`,
           [connection.name, 'Databases'],
           true,
-          `use [${name.replace(/]/g, ']]')}];\nselect db_name() as database_name;`,
+          'select db_name() as database_name;',
         ),
       )
   }
@@ -53,7 +53,7 @@ export function sqlServerInspectQueryTemplate(connection: ConnectionProfile, nod
   const { database, schema, objectName } = parseSqlServerNodeId(connection, nodeId)
 
   if (['table:', 'view:'].some((prefix) => nodeId.startsWith(prefix)) && objectName) {
-    return `use [${database}];\nselect top 100 * from [${schema}].[${objectName}];`
+    return `select top 100 * from [${schema}].[${objectName}];`
   }
 
   const sourceQuery = sqlServerSourceInspectQueryTemplate(nodeId, database, schema, objectName)
@@ -62,15 +62,15 @@ export function sqlServerInspectQueryTemplate(connection: ConnectionProfile, nod
   }
 
   if (nodeId.includes('query-store')) {
-    return `use [${database}];\nselect top 50 * from sys.query_store_runtime_stats order by last_execution_time desc;`
+    return 'select top 50 * from sys.query_store_runtime_stats order by last_execution_time desc;'
   }
 
   if (nodeId.includes('performance') || nodeId.includes('sessions')) {
-    return `use [${database}];\nselect session_id, status, command, wait_type, blocking_session_id from sys.dm_exec_requests;`
+    return 'select session_id, status, command, wait_type, blocking_session_id from sys.dm_exec_requests;'
   }
 
   if (nodeId.includes('locks')) {
-    return `use [${database}];\nselect request_session_id, resource_type, request_mode, request_status from sys.dm_tran_locks;`
+    return 'select request_session_id, resource_type, request_mode, request_status from sys.dm_tran_locks;'
   }
 
   if (nodeId.includes('waits')) {
@@ -78,14 +78,14 @@ export function sqlServerInspectQueryTemplate(connection: ConnectionProfile, nod
   }
 
   if (nodeId.includes('missing-indexes')) {
-    return `use [${database}];\nselect top 50 * from sys.dm_db_missing_index_details;`
+    return 'select top 50 * from sys.dm_db_missing_index_details;'
   }
 
   if (nodeId.includes('security') || nodeId.includes('users') || nodeId.includes('roles')) {
-    return `use [${database}];\nselect name, type_desc from sys.database_principals order by name;`
+    return 'select name, type_desc from sys.database_principals order by name;'
   }
 
-  return `use [${database}];\nselect db_name() as database_name;`
+  return 'select db_name() as database_name;'
 }
 
 function sqlServerDatabaseFolders(connection: ConnectionProfile, database: string): ExplorerNode[] {
@@ -117,13 +117,13 @@ function sqlServerObjectsForSection(
 
   if (section === 'tables') {
     return ['accounts', 'orders', 'products'].map((table) =>
-      sqlServerNode(connection, `table:${database}:dbo:${table}`, `dbo.${table}`, 'table', 'base table', `table:${database}:dbo:${table}`, path, true, `use [${database}];\nselect top 100 * from [dbo].[${table}];`),
+      sqlServerNode(connection, `table:${database}:dbo:${table}`, `dbo.${table}`, 'table', 'base table', `table:${database}:dbo:${table}`, path, true, `select top 100 * from [dbo].[${table}];`),
     )
   }
 
   if (section === 'views') {
     return [
-      sqlServerNode(connection, `view:${database}:dbo:active_accounts`, 'dbo.active_accounts', 'view', 'view', undefined, path, false, `use [${database}];\nselect top 100 * from [dbo].[active_accounts];`),
+      sqlServerNode(connection, `view:${database}:dbo:active_accounts`, 'dbo.active_accounts', 'view', 'view', undefined, path, false, 'select top 100 * from [dbo].[active_accounts];'),
     ]
   }
 

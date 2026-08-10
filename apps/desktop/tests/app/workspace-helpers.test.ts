@@ -60,6 +60,45 @@ describe('workspace query helpers', () => {
     })
   })
 
+  it('restores Mongo AND/OR filter groups from raw query text', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.id === 'conn-catalog')
+    const tab = createTab(JSON.stringify({
+      collection: 'orders',
+      filter: {
+        $and: [
+          { tenantId: 'tenant-a' },
+          { $or: [{ status: 'open' }, { status: 'paused' }] },
+        ],
+      },
+      limit: 25,
+    }))
+
+    expect(builderStateForTab(tab, connection!, {})).toMatchObject({
+      kind: 'mongo-find',
+      filters: [
+        { field: 'tenantId', operator: 'eq', value: 'tenant-a' },
+        { field: 'status', operator: 'eq', value: 'open' },
+        { field: 'status', operator: 'eq', value: 'paused' },
+      ],
+      filterGroups: [{ logic: 'and' }, { logic: 'or' }],
+    })
+  })
+
+  it('keeps unsupported Mongo logical shapes raw-only', () => {
+    const tab = createTab(JSON.stringify({
+      collection: 'orders',
+      filter: {
+        $or: [
+          { $and: [{ status: 'open' }, { total: { $gte: 100 } }] },
+          { status: 'paused' },
+        ],
+      },
+    }))
+
+    expect(builderStateForTab(tab, mongoConnection(), {})).toBeUndefined()
+  })
+
   it('prefers draft builder state over persisted tab state', () => {
     const snapshot = createSeedSnapshot()
     const connection = snapshot.connections.find((item) => item.id === 'conn-catalog')
@@ -102,6 +141,14 @@ describe('workspace query helpers', () => {
     expect(builderStateForTab(tab, connection!, {})).toBeUndefined()
   })
 
+  it('keeps SQL WHERE clauses raw-only instead of dropping their predicates', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find((item) => item.engine === 'postgresql')
+    const tab = createTab("select * from public.orders where status = 'active' or priority >= 10;")
+
+    expect(builderStateForTab(tab, connection!, {})).toBeUndefined()
+  })
+
   it('builds a DynamoDB key-condition builder from request JSON', () => {
     const connection = dynamoDbConnection()
     const tab = createTab(`{
@@ -121,6 +168,22 @@ describe('workspace query helpers', () => {
     })
   })
 
+  it('keeps unsupported DynamoDB filter expressions raw-only', () => {
+    const tab = createTab(JSON.stringify({
+      operation: 'Query',
+      tableName: 'Orders',
+      keyConditionExpression: '#pk = :pk',
+      filterExpression: '#status = :status',
+      expressionAttributeNames: { '#pk': 'pk', '#status': 'status' },
+      expressionAttributeValues: {
+        ':pk': { S: 'CUSTOMER#123' },
+        ':status': { S: 'active' },
+      },
+    }))
+
+    expect(builderStateForTab(tab, dynamoDbConnection(), {})).toBeUndefined()
+  })
+
   it('builds a Cassandra CQL partition builder from table-shaped CQL', () => {
     const connection = cassandraConnection()
     const tab = createTab(
@@ -135,6 +198,14 @@ describe('workspace query helpers', () => {
       partitionKeys: [{ field: 'customer_id', value: 'CUSTOMER#123' }],
       limit: 25,
     })
+  })
+
+  it('keeps unsupported Cassandra OR conditions raw-only', () => {
+    const tab = createTab(
+      "select * from app.events where tenant_id = 'a' or tenant_id = 'b';",
+    )
+
+    expect(builderStateForTab(tab, cassandraConnection(), {})).toBeUndefined()
   })
 
   it('builds a Search Query DSL builder from wrapped JSON', () => {
@@ -156,6 +227,24 @@ describe('workspace query helpers', () => {
     })
   })
 
+  it('keeps unsupported Search bool shapes raw-only', () => {
+    const tab = createTab(JSON.stringify({
+      index: 'products',
+      body: {
+        query: {
+          bool: {
+            should: [
+              { term: { 'status.keyword': 'active' } },
+              { term: { 'status.keyword': 'paused' } },
+            ],
+          },
+        },
+      },
+    }))
+
+    expect(builderStateForTab(tab, searchConnection(), {})).toBeUndefined()
+  })
+
   it('builds a Cosmos DB SQL builder for NoSQL requests', () => {
     const tab = createTab(`{
       "operation": "QueryDocuments",
@@ -172,6 +261,18 @@ describe('workspace query helpers', () => {
       container: 'products',
       limit: 25,
     })
+  })
+
+  it('keeps unsupported Cosmos DB WHERE expressions raw-only', () => {
+    const tab = createTab(JSON.stringify({
+      operation: 'QueryDocuments',
+      database: 'catalog',
+      container: 'products',
+      query: 'SELECT * FROM c WHERE c.status = @status',
+      parameters: [{ name: '@status', value: 'active' }],
+    }))
+
+    expect(builderStateForTab(tab, cosmosConnection(), {})).toBeUndefined()
   })
 
   it('does not expose the SQL builder for non-NoSQL Cosmos APIs', () => {

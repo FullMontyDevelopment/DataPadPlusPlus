@@ -258,10 +258,7 @@ fn database_node(connection: &ResolvedConnectionProfile, database: &str) -> Expl
             }
             .into(),
         ]),
-        query_template: Some(format!(
-            "use {};\nselect database() as database_name;",
-            mysql_quote_identifier(database)
-        )),
+        query_template: Some("select database() as database_name;".into()),
         expandable: Some(true),
     }
 }

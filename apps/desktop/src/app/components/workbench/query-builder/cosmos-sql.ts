@@ -7,6 +7,7 @@ import type {
   CosmosSqlQueryEditorState,
   QueryBuilderState,
 } from '@datapadplusplus/shared-types'
+import { parseQueryBuilderValue } from './query-value-codec'
 
 interface CosmosSqlQueryBuildOptions {
   count?: boolean
@@ -270,15 +271,22 @@ export function cosmosSqlEditorStateFromBuilder(
   builderState: CosmosSqlBuilderState,
 ): CosmosSqlQueryEditorState {
   const request = buildCosmosSqlRequest(builderState)
+  const parameterTypes = builderState.filters
+    .filter((filter) =>
+      (filter.enabled ?? true) &&
+      Boolean(filter.field.trim()) &&
+      !['is-null', 'is-not-null', 'has-items', 'has-no-items', 'has-length'].includes(filter.operator),
+    )
+    .map((filter) => filter.operator === 'in' || filter.operator === 'not-in' ? 'json' : filter.valueType)
   return {
     kind: 'cosmos-sql',
     sql: request.query,
     parameters: request.parameters.map((parameter, index) =>
-      editorParameterFromValue(parameter.name, parameter.value, `builder-${index}`),
+      editorParameterFromValue(parameter.name, parameter.value, `builder-${index}`, parameterTypes[index]),
     ),
     partitionKeyEnabled: Object.prototype.hasOwnProperty.call(request, 'partitionKey'),
     partitionKeyValue: cosmosSqlDisplayValue(request.partitionKey).value,
-    partitionKeyValueType: cosmosSqlDisplayValue(request.partitionKey).type,
+    partitionKeyValueType: builderState.partitionKeyValueType ?? cosmosSqlDisplayValue(request.partitionKey).type,
     enableCrossPartitionQueries: request.enableCrossPartitionQueries,
     source: 'builder',
   }
@@ -451,13 +459,14 @@ function editorParameterFromValue(
   name: string,
   value: unknown,
   id: string,
+  preferredType?: CosmosSqlBuilderValueType,
 ): CosmosSqlQueryEditorParameter {
   const display = cosmosSqlDisplayValue(value)
   return {
     id,
     name,
     value: display.value,
-    valueType: display.type,
+    valueType: preferredType ?? display.type,
   }
 }
 
@@ -465,25 +474,13 @@ function parseCosmosTypedValue(
   value: string,
   type: CosmosSqlBuilderValueType,
 ): { ok: true; value: unknown } | { ok: false; error: string } {
-  if (type === 'null') return { ok: true, value: null }
-  if (isEnvironmentToken(value)) return { ok: true, value }
-  if (type === 'string') return { ok: true, value }
-  if (type === 'boolean') {
-    if (!/^(true|false)$/i.test(value.trim())) {
-      return { ok: false, error: 'enter true or false.' }
-    }
-    return { ok: true, value: value.trim().toLowerCase() === 'true' }
-  }
-  if (type === 'number') {
-    const number = Number(value)
-    return Number.isFinite(number)
-      ? { ok: true, value: number }
-      : { ok: false, error: 'enter a finite number.' }
-  }
   try {
-    return { ok: true, value: JSON.parse(value) }
-  } catch {
-    return { ok: false, error: 'enter valid JSON.' }
+    return {
+      ok: true,
+      value: parseQueryBuilderValue(value, type, { allowEnvironmentToken: true }),
+    }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Enter a valid value.' }
   }
 }
 
@@ -500,16 +497,14 @@ function cosmosSqlReferencedParameters(sql: string) {
   return Array.from(new Set(sql.match(/@[A-Za-z_][A-Za-z0-9_]*/g) ?? []))
 }
 
-function isEnvironmentToken(value: string) {
-  return /^\s*\{\{[A-Za-z_][A-Za-z0-9_]*\}\}\s*$/.test(value)
-}
-
 function isCosmosValueType(value: unknown): value is CosmosSqlBuilderValueType {
   return value === 'string' ||
     value === 'number' ||
     value === 'boolean' ||
     value === 'null' ||
-    value === 'json'
+    value === 'json' ||
+    value === 'date' ||
+    value === 'uuid'
 }
 
 function cosmosProjection(state: CosmosSqlBuilderState) {
@@ -535,6 +530,16 @@ function cosmosPredicate(
   }
   if (row.operator === 'is-not-null') {
     return `NOT IS_NULL(${expression})`
+  }
+  if (row.operator === 'has-items') {
+    return `IS_ARRAY(${expression}) AND ARRAY_LENGTH(${expression}) > 0`
+  }
+  if (row.operator === 'has-no-items') {
+    return `IS_ARRAY(${expression}) AND ARRAY_LENGTH(${expression}) = 0`
+  }
+  if (row.operator === 'has-length') {
+    const length = parseQueryBuilderValue(row.value, 'number', { operator: row.operator })
+    return `IS_ARRAY(${expression}) AND ARRAY_LENGTH(${expression}) = ${length}`
   }
 
   const name = `@p${parameters.length}`
@@ -610,36 +615,11 @@ function cosmosFieldSegments(path: string) {
 }
 
 function cosmosSqlListValue(value: string, valueType: CosmosSqlBuilderValueType) {
-  if (valueType === 'json') {
-    const parsed = parseJson(value)
-    return Array.isArray(parsed) ? parsed : [parsed]
-  }
-  return value
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => cosmosSqlValue(item, valueType))
+  return parseQueryBuilderValue(value, valueType, { operator: 'in' })
 }
 
 function cosmosSqlValue(value: string, valueType: CosmosSqlBuilderValueType): unknown {
-  if (valueType === 'null') return null
-  if (valueType === 'boolean') {
-    return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase())
-  }
-  if (valueType === 'number') {
-    const number = Number(value)
-    return Number.isFinite(number) ? number : null
-  }
-  if (valueType === 'json') return parseJson(value)
-  return value
-}
-
-function parseJson(value: string) {
-  try {
-    return JSON.parse(value)
-  } catch {
-    return value
-  }
+  return parseQueryBuilderValue(value, valueType, { allowEnvironmentToken: true })
 }
 
 function simpleCosmosSqlShape(sql: string) {

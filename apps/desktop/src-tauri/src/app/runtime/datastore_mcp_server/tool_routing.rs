@@ -603,6 +603,7 @@ async fn execute_mcp_query(
         confirmed_guardrail_id: None,
         builder_state: None,
         scoped_target: None,
+        sql_scope: None,
         datastore_execution_input: None,
     };
     let result = adapters::execute(&resolved_connection, &execution_request, execution_notices)

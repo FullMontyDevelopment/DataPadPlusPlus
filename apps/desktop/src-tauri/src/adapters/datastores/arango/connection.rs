@@ -64,6 +64,77 @@ pub(super) async fn arango_delete(
     arango_request(connection, "DELETE", path, None).await
 }
 
+pub(super) async fn arango_guarded_put_document(
+    connection: &ResolvedConnectionProfile,
+    path_and_query: &str,
+    body: &str,
+    revision: &str,
+) -> Result<ArangoResponse, CommandError> {
+    arango_guarded_document_request(
+        connection,
+        Method::PUT,
+        path_and_query,
+        Some(body),
+        revision,
+    )
+    .await
+}
+
+pub(super) async fn arango_guarded_delete_document(
+    connection: &ResolvedConnectionProfile,
+    path_and_query: &str,
+    revision: &str,
+) -> Result<ArangoResponse, CommandError> {
+    arango_guarded_document_request(connection, Method::DELETE, path_and_query, None, revision)
+        .await
+}
+
+async fn arango_guarded_document_request(
+    connection: &ResolvedConnectionProfile,
+    method: Method,
+    path_and_query: &str,
+    body: Option<&str>,
+    revision: &str,
+) -> Result<ArangoResponse, CommandError> {
+    let endpoint = ArangoEndpoint::from_connection(connection)?;
+    let url = endpoint.url(path_and_query);
+    let client = graph_http_client(connection)?;
+    let etag = if revision.starts_with('"') {
+        revision.to_string()
+    } else {
+        format!("\"{revision}\"")
+    };
+    let mut request = graph_http_request(&client, method, &url, connection)
+        .header(header::ACCEPT, "application/json")
+        .header(header::IF_MATCH, etag);
+    if let Some(body) = body {
+        request = request
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(body.to_string());
+    }
+    let response = request.send().await.map_err(|error| {
+        CommandError::new(
+            "arango-document-outcome-uncertain",
+            format!("ArangoDB document request outcome is uncertain: {error}"),
+        )
+    })?;
+    if response.status().as_u16() == 412 {
+        return Err(CommandError::new(
+            "arango-revision-conflict",
+            "ArangoDB rejected the document edit because the revision changed.",
+        ));
+    }
+    let response = graph_http_response(
+        response,
+        "arango-document-http-error",
+        "ArangoDB document request failed.",
+    )
+    .await?;
+    Ok(ArangoResponse {
+        body: response.body,
+    })
+}
+
 async fn arango_request(
     connection: &ResolvedConnectionProfile,
     method: &str,

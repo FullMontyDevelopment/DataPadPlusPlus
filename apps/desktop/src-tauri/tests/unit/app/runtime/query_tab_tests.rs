@@ -6,6 +6,7 @@ use super::{
         build_environment_tab, build_metrics_tab, build_query_tab, default_query_text,
         default_script_text,
     },
+    query_tabs_scoped::build_scoped_query_tab,
     tabs::{
         apply_query_target_update, close_query_tabs_in_snapshot, tab_close_persistence_warning,
     },
@@ -15,8 +16,9 @@ use super::{
 use crate::domain::{
     error::CommandError,
     models::{
-        ConnectionAuth, ConnectionProfile, EnvironmentProfile, QueryHistoryEntry,
-        QueryTabActiveExecution, ScopedQueryTarget, UpdateQueryTabTargetRequest, UserFacingError,
+        ConnectionAuth, ConnectionProfile, CreateScopedQueryTabRequest, EnvironmentProfile,
+        QueryHistoryEntry, QueryTabActiveExecution, ScopedQueryTarget, UpdateQueryTabTargetRequest,
+        UserFacingError,
     },
 };
 
@@ -126,6 +128,7 @@ fn target_update_is_atomic_and_clears_stale_execution_state() {
         query_text: "select * from public.accounts".into(),
         executed_at: "2026-07-20T10:00:00Z".into(),
         status: "success".into(),
+        sql_scope: None,
     });
     let tab_id = tab.id.clone();
 
@@ -310,6 +313,35 @@ fn environment_tab_is_saveable_and_scoped_to_environment() {
     assert_eq!(tab.query_text, "");
     assert!(!tab.dirty);
     assert!(tab.save_target.is_none());
+}
+
+#[test]
+fn oracle_scoped_tab_decodes_the_object_schema() {
+    let connection = test_connection("conn-oracle", "Oracle", "oracle", "sql");
+    let snapshot = blank_workspace_snapshot();
+    let tab = build_scoped_query_tab(
+        &snapshot,
+        &connection,
+        CreateScopedQueryTabRequest {
+            connection_id: connection.id.clone(),
+            environment_id: Some("env-dev".into()),
+            target: ScopedQueryTarget {
+                kind: "table".into(),
+                label: "Quarterly Report".into(),
+                path: vec!["Databases".into(), "FREEPDB1".into(), "Tables".into()],
+                scope: Some(
+                    "oracle:object:table:database:FREEPDB1:Sales%20Ops:Quarterly%20Report".into(),
+                ),
+                query_template: None,
+                preferred_builder: None,
+            },
+        },
+    );
+
+    assert_eq!(
+        tab.sql_scope.and_then(|scope| scope.schema),
+        Some("Sales Ops".into())
+    );
 }
 
 fn test_connection(id: &str, name: &str, engine: &str, family: &str) -> ConnectionProfile {

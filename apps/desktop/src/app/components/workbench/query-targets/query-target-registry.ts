@@ -4,6 +4,7 @@ import type {
   ExplorerNode,
   QueryBuilderState,
   ScopedQueryTarget,
+  SqlQueryScope,
 } from '@datapadplusplus/shared-types'
 import { explorerNodeTarget } from '../SideBar.helpers'
 import { parseOracleObjectTarget } from './oracle-query-target'
@@ -134,6 +135,24 @@ export const QUERY_TARGET_REGISTRY: Record<DatastoreEngine, QueryTargetRegistryE
   },
 }
 
+const NATIVE_SQL_SCOPE_LEVELS: Partial<Record<DatastoreEngine, readonly string[]>> = {
+  postgresql: ['database', 'schema'],
+  cockroachdb: ['database', 'schema'],
+  timescaledb: ['database', 'schema'],
+  sqlserver: ['database'],
+  mysql: ['database'],
+  mariadb: ['database'],
+  oracle: ['schema'],
+  duckdb: ['schema'],
+  clickhouse: ['database'],
+  snowflake: ['database', 'schema'],
+  bigquery: ['catalog', 'schema'],
+}
+
+export function nativeSqlScopeLevelIds(connection: ConnectionProfile): ReadonlySet<string> {
+  return new Set(NATIVE_SQL_SCOPE_LEVELS[connection.engine] ?? [])
+}
+
 export function queryTargetRegistryForEngine(engine: DatastoreEngine) {
   return QUERY_TARGET_REGISTRY[engine]
 }
@@ -143,6 +162,7 @@ export function queryTargetOptions(
   nodes: ExplorerNode[],
   currentTarget: ScopedQueryTarget | undefined,
   builderState: QueryBuilderState | undefined,
+  sqlScope?: SqlQueryScope,
   selectableLevelIds?: ReadonlySet<string>,
 ) {
   const registry = queryTargetRegistryForEngine(connection.engine)
@@ -190,6 +210,7 @@ export function queryTargetOptions(
     currentTarget,
     builderState,
     registry,
+    sqlScope,
   )
   return {
     levels: registry.levels,
@@ -273,6 +294,7 @@ function currentQueryTargetValues(
   target: ScopedQueryTarget | undefined,
   builderState: QueryBuilderState | undefined,
   registry: QueryTargetRegistryEntry,
+  sqlScope?: SqlQueryScope,
 ) {
   const values = target ? queryTargetValues(connection, target, registry) : registry.levels.map(() => '')
   const set = (levelId: string, value: string | number | undefined) => {
@@ -338,7 +360,42 @@ function currentQueryTargetValues(
       break
   }
 
+  set('catalog', sqlScope?.catalog)
+  set('database', sqlScope?.database)
+  set('schema', sqlScope?.schema)
+
   return values
+}
+
+export function sqlQueryScopeFromValues(
+  connection: ConnectionProfile,
+  values: string[],
+): SqlQueryScope | undefined {
+  const registry = queryTargetRegistryForEngine(connection.engine)
+  const supported = nativeSqlScopeLevelIds(connection)
+  const value = (levelId: string) => {
+    const index = registry.levels.findIndex((level) => level.id === levelId)
+    return index >= 0 ? values[index]?.trim() : undefined
+  }
+  const scope: SqlQueryScope = {
+    ...(supported.has('catalog') && value('catalog') ? { catalog: value('catalog') } : {}),
+    ...(supported.has('database') && value('database') ? { database: value('database') } : {}),
+    ...(supported.has('schema') && value('schema') ? { schema: value('schema') } : {}),
+  }
+  return scope.catalog || scope.database || scope.schema ? scope : undefined
+}
+
+export function defaultSqlQueryScope(
+  connection: ConnectionProfile,
+  target?: ScopedQueryTarget,
+): SqlQueryScope | undefined {
+  const registry = queryTargetRegistryForEngine(connection.engine)
+  const values = currentQueryTargetValues(connection, target, undefined, registry)
+  const schemaIndex = registry.levels.findIndex((level) => level.id === 'schema')
+  if (connection.engine === 'oracle' && schemaIndex >= 0 && !values[schemaIndex]) {
+    values[schemaIndex] = connection.auth.username?.trim() ?? ''
+  }
+  return sqlQueryScopeFromValues(connection, values)
 }
 
 function targetLevelHints(connection: ConnectionProfile, target: ScopedQueryTarget) {
