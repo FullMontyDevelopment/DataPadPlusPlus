@@ -27,5 +27,11 @@ describe('query builder layout styles', () => {
     expect(styles).toMatch(
       /\.query-builder-row-actions\s*\{[^}]*display:\s*inline-flex;[^}]*gap:\s*3px;/s,
     )
+    expect(styles).toMatch(
+      /\.query-builder-date-picker\s*\{[^}]*width:\s*28px;[^}]*overflow:\s*hidden;/s,
+    )
+    expect(styles).toMatch(
+      /\.query-builder-date-picker__input\s*\{[^}]*position:\s*absolute;[^}]*opacity:\s*0;/s,
+    )
   })
 })

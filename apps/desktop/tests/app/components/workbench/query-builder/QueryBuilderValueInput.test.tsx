@@ -33,6 +33,15 @@ describe('QueryBuilderValueInput', () => {
       target: { value: '2026-08-09T12:30' },
     })
     expect(onChange).toHaveBeenCalledWith(new Date('2026-08-09T12:30').toISOString())
+
+    const picker = screen.getByLabelText('Date value date picker').closest('label')
+    expect(picker).toHaveClass('query-builder-date-picker')
+    expect(picker).toHaveAttribute('title', 'Date value date picker')
+    expect(picker).toHaveTextContent('')
+    expect(picker?.querySelector('svg')).toHaveClass(
+      'lucide-calendar-days',
+      'query-builder-date-picker__icon',
+    )
   })
 
   it('requires the current JSON dialog draft to pass explicit validation before applying', () => {
@@ -106,7 +115,7 @@ describe('QueryBuilderValueInput', () => {
     expect(screen.queryByLabelText('Unary value')).not.toBeInTheDocument()
   })
 
-  it('marks invalid values so the host row can keep its controls top-aligned', () => {
+  it('shows invalid values only after the specific value control is visited', () => {
     const { rerender } = render(
       <QueryBuilderValueInput
         ariaLabel="Array length"
@@ -118,7 +127,13 @@ describe('QueryBuilderValueInput', () => {
       />,
     )
 
-    expect(screen.getByLabelText('Array length').closest('.query-builder-typed-value')).toHaveClass('has-error')
+    const input = screen.getByLabelText('Array length')
+    expect(input.closest('.query-builder-typed-value')).not.toHaveClass('has-error')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    fireEvent.blur(input)
+
+    expect(input.closest('.query-builder-typed-value')).toHaveClass('has-error')
     expect(screen.getByRole('alert')).toHaveTextContent('non-negative whole-number')
 
     rerender(
@@ -133,6 +148,46 @@ describe('QueryBuilderValueInput', () => {
     )
 
     expect(screen.getByLabelText('Array length').closest('.query-builder-typed-value')).not.toHaveClass('has-error')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('hides stale validation when the operator or value type changes', () => {
+    const { rerender } = render(
+      <QueryBuilderValueInput
+        ariaLabel="Filter value"
+        theme="dark"
+        value=""
+        valueType="date"
+        onChange={vi.fn()}
+      />,
+    )
+
+    fireEvent.blur(screen.getByLabelText('Filter value'))
+    expect(screen.getByRole('alert')).toHaveTextContent('ISO-8601')
+
+    rerender(
+      <QueryBuilderValueInput
+        ariaLabel="Filter value"
+        theme="dark"
+        value=""
+        valueType="number"
+        onChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Filter value').closest('.query-builder-typed-value')).not.toHaveClass('has-error')
+
+    rerender(
+      <QueryBuilderValueInput
+        ariaLabel="Filter value"
+        theme="dark"
+        value=""
+        valueType="date"
+        onChange={vi.fn()}
+      />,
+    )
+
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

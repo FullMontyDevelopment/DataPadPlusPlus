@@ -77,6 +77,39 @@ describe('QueryBuilderPanel', () => {
     expect(screen.queryByLabelText('Collection')).not.toBeInTheDocument()
   })
 
+  it('keeps invalid value feedback on the affected filter instead of showing a global banner', () => {
+    const state = {
+      ...createDefaultMongoFindBuilderState('products'),
+      filters: [{
+        id: 'created-at',
+        field: 'createdAt',
+        operator: 'eq' as const,
+        value: '',
+        valueType: 'date' as const,
+      }],
+    }
+
+    render(
+      <BuilderHarness
+        initialBuilderState={state}
+        onBuilderStateChange={vi.fn()}
+        onCount={vi.fn()}
+        tab={mongoTab()}
+      />,
+    )
+
+    const valueInput = screen.getByLabelText('Filter value')
+    expect(screen.queryByText('Fix the builder value before running this query.')).not.toBeInTheDocument()
+    expect(document.querySelector('.query-builder-validation-summary')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Count' })).toBeDisabled()
+
+    fireEvent.blur(valueInput)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('ISO-8601')
+    expect(valueInput.closest('.query-builder-typed-value')).toHaveClass('has-error')
+  })
+
   it('edits Cosmos SQL fields, filters, paging, and partition routing', () => {
     const onBuilderStateChange = vi.fn()
     const onUseBuilderInEditor = vi.fn()

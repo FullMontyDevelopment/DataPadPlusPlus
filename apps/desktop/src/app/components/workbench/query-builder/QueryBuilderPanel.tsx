@@ -235,18 +235,6 @@ export function QueryBuilderPanel({
       className={`query-builder-workspace${locked ? ' is-execution-locked' : ''}`}
       aria-disabled={locked}
     >
-      {compilation?.ok === false ? (
-        <div className="query-builder-validation-summary" role="alert">
-          <strong>Fix the builder value before running this query.</strong>
-          <ul>
-            {compilation.errors.map((error, index) => (
-              <li key={`${error.rowId ?? 'builder'}-${index}`}>
-                {error.field ? `${error.field}: ` : ''}{error.message}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
       <fieldset className="query-builder-execution-fieldset" disabled={locked}>
         {panel}
         {!countIsInsideBuilder ? (

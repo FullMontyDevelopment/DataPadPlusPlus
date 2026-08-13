@@ -6,6 +6,7 @@ import {
   utcIsoToDateTimeLocal,
   validateQueryBuilderValue,
 } from './query-value-codec'
+import { CalendarIcon } from '../icons'
 import { QueryBuilderIconButton } from './QueryBuilderIconButton'
 import { QueryBuilderJsonValueDialog } from './QueryBuilderJsonValueDialog'
 
@@ -31,16 +32,29 @@ export function QueryBuilderValueInput({
   const [jsonEditorOpen, setJsonEditorOpen] = useState(false)
   const arity = queryBuilderOperatorArity(operator)
   const validation = validateQueryBuilderValue(value, valueType, { operator })
+  const validationKey = `${operator}\u0000${valueType}`
+  const [validationState, setValidationState] = useState(() => ({
+    key: validationKey,
+    visible: false,
+  }))
+
+  if (validationState.key !== validationKey) {
+    setValidationState({ key: validationKey, visible: false })
+  }
 
   if (arity === 'none' || valueType === 'null') return null
 
-  const error = validation.ok ? undefined : validation.error
+  const error = validationState.key === validationKey && validationState.visible && !validation.ok
+    ? validation.error
+    : undefined
+  const revealValidation = () => setValidationState({ key: validationKey, visible: true })
   const commonProps = {
     'aria-invalid': Boolean(error) || undefined,
     'aria-label': ariaLabel,
     disabled,
     value,
     onChange: (event: React.ChangeEvent<HTMLInputElement>) => onChange(event.target.value),
+    onBlur: revealValidation,
   }
 
   return (
@@ -51,6 +65,7 @@ export function QueryBuilderValueInput({
           disabled={disabled}
           value={value.trim().toLowerCase() === 'true' ? 'true' : value.trim().toLowerCase() === 'false' ? 'false' : ''}
           onChange={(event) => onChange(event.target.value)}
+          onBlur={revealValidation}
         >
           <option value="" disabled>Select…</option>
           <option value="true">True</option>
@@ -65,16 +80,20 @@ export function QueryBuilderValueInput({
         />
       )}
       {valueType === 'date' && arity === 'single' ? (
-        <input
-          aria-label={`${ariaLabel} date picker`}
-          className="query-builder-date-picker"
-          disabled={disabled}
-          type="datetime-local"
-          value={dateTimeLocalValue(value)}
-          onChange={(event) => {
-            if (event.target.value) onChange(dateTimeLocalToUtcIso(event.target.value))
-          }}
-        />
+        <label className="query-builder-date-picker" title={`${ariaLabel} date picker`}>
+          <CalendarIcon className="query-builder-date-picker__icon" />
+          <input
+            aria-label={`${ariaLabel} date picker`}
+            className="query-builder-date-picker__input"
+            disabled={disabled}
+            type="datetime-local"
+            value={dateTimeLocalValue(value)}
+            onBlur={revealValidation}
+            onChange={(event) => {
+              if (event.target.value) onChange(dateTimeLocalToUtcIso(event.target.value))
+            }}
+          />
+        </label>
       ) : null}
       {valueType === 'json' ? (
         <QueryBuilderIconButton

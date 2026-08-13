@@ -2709,20 +2709,25 @@ describe('App', () => {
     fireEvent.change(within(builder).getByLabelText('Value type'), {
       target: { value: 'number' },
     })
-    fireEvent.change(within(builder).getByLabelText('Filter value'), {
+    const filterValue = within(builder).getByLabelText('Filter value')
+    fireEvent.change(filterValue, {
       target: { value: 'not-a-number' },
     })
 
     await waitFor(() => {
-      expect(screen.getAllByText(/enter a finite number/i).length).toBeGreaterThan(0)
       expect(screen.getByRole('button', { name: 'Count' })).toBeDisabled()
       expect(screen.getByRole('button', { name: 'Run query' })).toBeDisabled()
     })
+    expect(screen.queryByText(/enter a finite number/i)).not.toBeInTheDocument()
+
+    fireEvent.blur(filterValue)
+
+    await waitFor(() => {
+      expect(within(builder).getByText(/enter a finite number/i)).toBeInTheDocument()
+    })
 
     fireEvent.click(screen.getByRole('button', { name: 'Run query' }))
-    await waitFor(() => {
-      expect(screen.getAllByText(/enter a finite number/i).length).toBeGreaterThan(0)
-    })
+    expect(within(builder).getByText(/enter a finite number/i)).toBeInTheDocument()
     expect(executeSpy).not.toHaveBeenCalled()
   })
 

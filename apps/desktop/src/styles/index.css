@@ -10548,23 +10548,10 @@ button:disabled:hover {
 
 .query-builder-workspace {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   height: 100%;
   background: var(--panel-bg);
-}
-
-.query-builder-validation-summary {
-  padding: 7px 10px;
-  border-bottom: 1px solid rgba(244, 135, 113, 0.45);
-  background: rgba(244, 135, 113, 0.08);
-  color: var(--danger);
-  font-size: 11px;
-}
-
-.query-builder-validation-summary ul {
-  margin: 3px 0 0;
-  padding-left: 18px;
 }
 
 .query-builder-execution-fieldset {
@@ -10959,9 +10946,51 @@ button:disabled:hover {
 }
 
 .query-builder-date-picker {
-  width: 36px;
-  padding: 0 3px !important;
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  min-width: 28px;
+  height: 26px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--panel-bg-elevated);
+  color: var(--muted);
   color-scheme: dark;
+}
+
+.query-builder-date-picker__icon {
+  width: 13px;
+  height: 13px;
+  pointer-events: none;
+}
+
+.query-builder-date-picker__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0 !important;
+  border: 0 !important;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.query-builder-date-picker:hover:not(:has(input:disabled)),
+.query-builder-date-picker:focus-within {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--heading);
+}
+
+.query-builder-date-picker:focus-within {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.query-builder-date-picker:has(input:disabled) {
+  opacity: 0.42;
 }
 
 .query-builder-icon-button {

@@ -17,6 +17,7 @@ import {
   Boxes,
   Braces,
   Brackets,
+  CalendarDays,
   CaseSensitive,
   ChartLine,
   ChevronDown,
@@ -112,6 +113,7 @@ export const TestsIcon = adapt(FlaskConical)
 export const TestSuiteIcon = adapt(TestTubes)
 export const TestCaseIcon = adapt(TestTubeDiagonal)
 export const SearchIcon = adapt(Search)
+export const CalendarIcon = adapt(CalendarDays)
 export const CaseSensitiveIcon = adapt(CaseSensitive)
 export const WholeWordIcon = adapt(WholeWord)
 export const SettingsIcon = adapt(Settings)
