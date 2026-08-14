@@ -41,6 +41,19 @@ pub struct ConnectionAuth {
     pub cloud_provider: Option<String>,
     pub principal: Option<String>,
     pub secret_ref: Option<SecretRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_string_secret_ref: Option<SecretRef>,
+    /// Schema <= 11 compatibility only. New snapshots never serialize component bindings.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) connection_string_secret_bindings: Vec<ConnectionStringSecretBinding>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ConnectionStringSecretBinding {
+    pub(crate) placeholder: String,
+    pub(crate) encoding_strategy: String,
+    pub(crate) secret_ref: SecretRef,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default, Debug)]
@@ -710,6 +723,16 @@ pub struct ConnectionTestRequest {
     pub environment_id: String,
     #[serde(default)]
     pub secret: Option<String>,
+    #[serde(default)]
+    pub connection_string: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionUpsertRequest {
+    pub profile: ConnectionProfile,
+    #[serde(default)]
+    pub connection_string: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

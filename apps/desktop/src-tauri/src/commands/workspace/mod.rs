@@ -24,8 +24,8 @@ use crate::{
         models::{
             AdapterDiagnosticsRequest, AdapterDiagnosticsResponse, BootstrapPayload,
             CancelExecutionRequest, CancelExecutionResult, CancelTestRunRequest,
-            CloseQueryTabsRequest, CloseQueryTabsResponse, ConnectionProfile,
-            ConnectionTestRequest, ConnectionTestResult, CreateObjectViewTabRequest,
+            CloseQueryTabsRequest, CloseQueryTabsResponse, ConnectionTestRequest,
+            ConnectionTestResult, ConnectionUpsertRequest, CreateObjectViewTabRequest,
             CreateScopedQueryTabRequest, CreateTestSuiteTabRequest, DataEditExecutionRequest,
             DataEditExecutionResponse, DataEditPlanRequest, DataEditPlanResponse,
             DatastoreApiServerAddCustomEndpointRequest, DatastoreApiServerAddResourcesRequest,
@@ -72,16 +72,19 @@ use crate::{
             SavedWorkItem, StructureRequest, StructureResponse,
             UpdateDatastoreQueryEditorStateRequest, UpdateQueryBuilderStateRequest,
             UpdateQueryTabSqlScopeRequest, UpdateQueryTabTargetRequest, UpdateTestSuiteTabRequest,
-            UpdateUiStateRequest, UserFacingError, WorkspaceBackupDeleteRequest,
+            UpdateUiStateRequest, UserFacingError, WorkspaceActivationResponse,
+            WorkspaceBackupDeleteRequest, WorkspaceBackupFileAnalysisRequest,
             WorkspaceBackupRestoreRequest, WorkspaceBackupRunRequest, WorkspaceBackupRunResponse,
             WorkspaceBackupSettingsRequest, WorkspaceBackupSummary,
             WorkspaceBundleFileExportRequest, WorkspaceBundleFileExportResponse,
-            WorkspaceBundleFileImportRequest, WorkspaceCreateRequest, WorkspaceRenameRequest,
-            WorkspaceSearchSettingsRequest, WorkspaceSwitchRequest,
-            WorkspaceSwitcherSettingsRequest, WorkspaceSwitcherStatus, WorkspaceTabDragSession,
-            WorkspaceTabDragSessionRequest, WorkspaceTabTransferRequest,
-            WorkspaceTabTransferResponse, WorkspaceWindowCloseRequest, WorkspaceWindowContext,
-            WorkspaceWindowGeometryRequest, WorkspaceWindowListResponse,
+            WorkspaceBundleFileImportRequest, WorkspaceCreateRequest, WorkspaceImportCancelRequest,
+            WorkspaceImportCommitRequest, WorkspaceImportCommitResponse, WorkspaceImportPreview,
+            WorkspaceImportPreviewRequest, WorkspaceImportSelection, WorkspaceRenameRequest,
+            WorkspaceSearchSettingsRequest, WorkspaceStorageAnalysisRequest,
+            WorkspaceStorageReport, WorkspaceSwitchRequest, WorkspaceSwitcherSettingsRequest,
+            WorkspaceSwitcherStatus, WorkspaceTabDragSession, WorkspaceTabDragSessionRequest,
+            WorkspaceTabTransferRequest, WorkspaceTabTransferResponse, WorkspaceWindowCloseRequest,
+            WorkspaceWindowContext, WorkspaceWindowGeometryRequest, WorkspaceWindowListResponse,
         },
     },
     infrastructure,
@@ -427,10 +430,19 @@ fn breadcrumb_key_hash(key: &str) -> u64 {
     hasher.finish()
 }
 
-fn default_workspace_bundle_file_name() -> String {
+fn default_workspace_bundle_file_name(workspace_name: &str) -> String {
+    let timestamp = timestamp_now();
+    let date = timestamp
+        .parse::<i64>()
+        .ok()
+        .and_then(|seconds| chrono::DateTime::<chrono::Utc>::from_timestamp(seconds, 0))
+        .map(|date_time| date_time.format("%Y-%m-%d").to_string())
+        .unwrap_or(timestamp);
+
     format!(
-        "datapadplusplus-workspace-{}.datapadpp-workspace",
-        timestamp_now()
+        "{}-{}.datapadpp-workspace",
+        safe_file_stem(workspace_name, "datapadplusplus-workspace"),
+        date
     )
 }
 

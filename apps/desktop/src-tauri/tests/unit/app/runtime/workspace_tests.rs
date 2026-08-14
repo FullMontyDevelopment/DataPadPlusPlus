@@ -6,23 +6,171 @@ use super::{
         workspace_is_empty,
     },
     generate_id,
+    profiles::migrate_profile_connection_string_secret,
     query_tabs::build_query_tab,
     tabs::reorder_query_tabs_in_place,
     timestamp_now,
-    workspace::{migrate_snapshot, sanitize_snapshot},
+    workspace::{migrate_snapshot, sanitize_snapshot, workspace_bundle_authenticated_metadata},
     workspace_bundle::{
         collect_workspace_bundle_secrets, parse_workspace_bundle_payload,
-        validate_bundle_passphrase, validate_bundle_payload_size,
-        workspace_bundle_payload_with_integrity,
+        strip_workspace_secret_references, validate_bundle_passphrase,
+        validate_bundle_payload_size, workspace_bundle_payload_with_integrity,
+        workspace_bundle_payload_with_source_name,
     },
 };
 use crate::domain::models::{
-    ConnectionProfile, DatastoreMcpServerConfig, DatastoreMcpServerTokenConfig,
-    FirstInstallGuidePreferences, QueryHistoryEntry, QueryTabState, SecretRef,
+    ConnectionProfile, DatastoreMcpServerConfig, DatastoreMcpServerTokenConfig, ExportBundle,
+    FirstInstallGuidePreferences, QueryHistoryEntry, QueryTabActiveExecution, QueryTabState,
+    SecretRef, UserFacingError, WorkspaceBundleCipherMetadata, WorkspaceBundleKdfMetadata,
 };
 use std::{fs, path::PathBuf, sync::Mutex as TestMutex};
 
 static ENV_LOCK: TestMutex<()> = TestMutex::new(());
+
+#[test]
+fn workspace_schema_migration_advances_legacy_and_rejects_future_versions() {
+    let mut missing_value =
+        serde_json::to_value(blank_workspace_snapshot()).expect("workspace should serialize");
+    missing_value
+        .as_object_mut()
+        .expect("workspace should be an object")
+        .remove("schemaVersion");
+    let missing: crate::domain::models::WorkspaceSnapshot =
+        serde_json::from_value(missing_value).expect("missing legacy schema should deserialize");
+    assert_eq!(missing.schema_version, 0);
+    assert_eq!(
+        migrate_snapshot(missing).schema_version,
+        crate::persistence::SCHEMA_VERSION
+    );
+
+    let mut legacy = blank_workspace_snapshot();
+    legacy.schema_version = 0;
+    assert_eq!(
+        migrate_snapshot(legacy).schema_version,
+        crate::persistence::SCHEMA_VERSION
+    );
+
+    let current = blank_workspace_snapshot();
+    assert_eq!(
+        migrate_snapshot(current).schema_version,
+        crate::persistence::SCHEMA_VERSION
+    );
+
+    assert!(crate::persistence::validate_workspace_schema_version(
+        crate::persistence::SCHEMA_VERSION + 1
+    )
+    .is_err());
+}
+
+#[test]
+fn workspace_migration_keeps_vault_backed_connection_string_mode() {
+    let mut snapshot = blank_workspace_snapshot();
+    let mut connection = ConnectionProfile {
+        id: "conn-mongo-vault".into(),
+        name: "MongoDB QA".into(),
+        engine: "mongodb".into(),
+        family: "document".into(),
+        connection_mode: Some("connection-string".into()),
+        ..Default::default()
+    };
+    connection.auth.connection_string_secret_ref = Some(SecretRef {
+        id: "connection-string-ref".into(),
+        provider: "desktop-secret-store".into(),
+        service: "DataPadPlusPlus".into(),
+        account: "connection-string:conn-mongo-vault:ref".into(),
+        label: "MongoDB QA connection string".into(),
+    });
+    snapshot.connections.push(connection);
+
+    let migrated = migrate_snapshot(snapshot);
+
+    assert_eq!(
+        migrated.connections[0].connection_mode.as_deref(),
+        Some("connection-string")
+    );
+    assert!(migrated.connections[0].connection_string.is_none());
+}
+
+#[test]
+fn opaque_connection_strings_round_trip_exactly_through_the_secret_store() {
+    let _guard = ENV_LOCK.lock().expect("env test lock");
+    let path = temp_secret_file_path();
+    std::env::set_var("DATAPADPLUSPLUS_SECRET_STORE", "file");
+    std::env::set_var("DATAPADPLUSPLUS_SECRET_FILE", &path);
+    let exact =
+        "mongodb://user:p%40ss@host-a:27017,host-b:27018/数据库?quoted=\"yes\"\nappName=DataPad++";
+    let mut connection = ConnectionProfile {
+        id: "conn-opaque".into(),
+        name: "Opaque MongoDB".into(),
+        engine: "mongodb".into(),
+        family: "document".into(),
+        connection_mode: Some("connection-string".into()),
+        connection_string: Some(exact.into()),
+        ..Default::default()
+    };
+
+    let changes = migrate_profile_connection_string_secret(&mut connection)
+        .expect("opaque connection string should migrate");
+    let stored = crate::security::resolve_secret_value(
+        connection
+            .auth
+            .connection_string_secret_ref
+            .as_ref()
+            .expect("vault reference should be persisted"),
+    )
+    .expect("vault value should resolve");
+
+    assert_eq!(stored, exact);
+    assert!(connection.connection_string.is_none());
+    let mut snapshot = blank_workspace_snapshot();
+    snapshot.connections.push(connection);
+    let exported = collect_workspace_bundle_secrets(&snapshot)
+        .expect("secret-inclusive export should resolve the complete string");
+    assert_eq!(exported.len(), 1);
+    assert_eq!(exported[0].value, exact);
+    let persisted = serde_json::to_string(&sanitize_snapshot(&snapshot, true))
+        .expect("workspace should serialize");
+    assert!(!persisted.contains(exact));
+    let secret_free =
+        strip_workspace_secret_references(snapshot).expect("secret-free workspace should sanitize");
+    assert!(secret_free.connections[0]
+        .auth
+        .connection_string_secret_ref
+        .is_none());
+    changes.rollback_created();
+    std::env::remove_var("DATAPADPLUSPLUS_SECRET_STORE");
+    std::env::remove_var("DATAPADPLUSPLUS_SECRET_FILE");
+    let _ = fs::remove_file(path);
+}
+
+#[test]
+fn workspace_bundle_authenticated_metadata_matches_webcrypto_field_order() {
+    let bundle = ExportBundle {
+        format: "datapadplusplus-bundle".into(),
+        version: 2,
+        format_version: Some(2),
+        workspace_schema_version: Some(8),
+        created_at: Some("1".into()),
+        compression: Some("gzip".into()),
+        kdf: Some(WorkspaceBundleKdfMetadata {
+            algorithm: "pbkdf2-sha256".into(),
+            iterations: 600_000,
+            salt: "salt".into(),
+        }),
+        cipher: Some(WorkspaceBundleCipherMetadata {
+            algorithm: "aes-256-gcm".into(),
+            nonce: "nonce".into(),
+        }),
+        encrypted_payload: String::new(),
+        includes_secrets: false,
+        secret_count: Some(0),
+    };
+
+    assert_eq!(
+        String::from_utf8(workspace_bundle_authenticated_metadata(&bundle).unwrap()).unwrap(),
+        r#"{"format":"datapadplusplus-bundle","formatVersion":2,"workspaceSchemaVersion":8,"createdAt":"1","compression":"gzip","includesSecrets":false,"secretCount":0,"kdf":{"algorithm":"pbkdf2-sha256","iterations":600000,"salt":"salt"},"cipher":{"algorithm":"aes-256-gcm","nonce":"nonce"}}"#,
+    );
+}
 
 #[test]
 fn normal_blank_workspace_has_no_fixture_user_data() {
@@ -732,6 +880,28 @@ fn workspace_bundle_payload_adds_and_verifies_integrity_metadata() {
 }
 
 #[test]
+fn workspace_bundle_payload_authenticates_the_source_workspace_name() {
+    let snapshot = blank_workspace_snapshot();
+    let payload = workspace_bundle_payload_with_source_name(
+        snapshot,
+        Vec::new(),
+        Some("QA Workspace".into()),
+    )
+    .expect("create named workspace bundle");
+    let serialized = serde_json::to_string(&payload).expect("serialize named workspace bundle");
+    let parsed = parse_workspace_bundle_payload(&serialized).expect("parse named workspace bundle");
+
+    assert_eq!(
+        parsed.source_workspace_name.as_deref(),
+        Some("QA Workspace")
+    );
+
+    let mut tampered = serde_json::from_str::<serde_json::Value>(&serialized).unwrap();
+    tampered["sourceWorkspaceName"] = serde_json::json!("Tampered Workspace");
+    assert!(parse_workspace_bundle_payload(&tampered.to_string()).is_err());
+}
+
+#[test]
 fn workspace_export_sanitizer_strips_mcp_token_metadata() {
     let mut snapshot = blank_workspace_snapshot();
     snapshot.preferences.datastore_mcp_server.enabled = true;
@@ -814,6 +984,143 @@ fn workspace_export_sanitizer_keeps_mcp_token_metadata_when_including_secrets() 
 }
 
 #[test]
+fn workspace_persistence_strips_refreshable_tab_payloads_but_keeps_targets() {
+    let mut snapshot = blank_workspace_snapshot();
+    let mut tab = QueryTabState {
+        id: "tab-object".into(),
+        title: "Orders".into(),
+        tab_kind: Some("object-view".into()),
+        connection_id: "conn-orders".into(),
+        environment_id: "env-dev".into(),
+        family: "sql".into(),
+        language: "sql".into(),
+        status: "running".into(),
+        active_execution: Some(QueryTabActiveExecution {
+            execution_id: "execution-1".into(),
+            phase: "running".into(),
+            started_at: "10".into(),
+            message: Some("Executing".into()),
+        }),
+        error: Some(UserFacingError {
+            code: "temporary".into(),
+            message: "Temporary failure".into(),
+        }),
+        object_view_state: Some(serde_json::json!({
+            "connectionId": "conn-orders",
+            "environmentId": "env-dev",
+            "nodeId": "orders",
+            "label": "Orders",
+            "kind": "table",
+            "path": ["public", "orders"],
+            "summary": "Orders table",
+            "queryTemplate": "select * from orders",
+            "payload": { "large": "x".repeat(1024) },
+            "warnings": ["cached warning"]
+        })),
+        metrics_state: Some(serde_json::json!({
+            "connectionId": "conn-orders",
+            "environmentId": "env-dev",
+            "diagnostics": { "metrics": [{ "payload": "x".repeat(1024) }] },
+            "warnings": ["cached metric warning"]
+        })),
+        test_run: Some(serde_json::json!({ "actual": "x".repeat(1024) })),
+        ..QueryTabState::default()
+    };
+    tab.query_text = "select * from orders".into();
+    snapshot.tabs.push(tab);
+
+    let sanitized = sanitize_snapshot(&snapshot, true);
+    let tab = &sanitized.tabs[0];
+    let object = tab
+        .object_view_state
+        .as_ref()
+        .and_then(serde_json::Value::as_object)
+        .expect("object target should remain");
+    let metrics = tab
+        .metrics_state
+        .as_ref()
+        .and_then(serde_json::Value::as_object)
+        .expect("metrics target should remain");
+
+    assert_eq!(
+        object.get("nodeId").and_then(|value| value.as_str()),
+        Some("orders")
+    );
+    assert_eq!(
+        object
+            .get("refreshRequired")
+            .and_then(|value| value.as_bool()),
+        Some(true)
+    );
+    assert!(!object.contains_key("payload"));
+    assert!(!object.contains_key("queryTemplate"));
+    assert!(!object.contains_key("warnings"));
+    assert_eq!(
+        metrics
+            .get("refreshRequired")
+            .and_then(|value| value.as_bool()),
+        Some(true)
+    );
+    assert!(!metrics.contains_key("diagnostics"));
+    assert!(tab.test_run.is_none());
+    assert!(tab.active_execution.is_none());
+    assert!(tab.error.is_none());
+    assert_eq!(tab.status, "idle");
+    assert_eq!(tab.query_text, "select * from orders");
+    assert!(sanitized.adapter_manifests.is_empty());
+}
+
+#[test]
+fn workspace_persistence_bounds_history_by_count_and_serialized_bytes() {
+    let mut snapshot = blank_workspace_snapshot();
+    for tab_index in 0..2 {
+        let mut tab = QueryTabState {
+            id: format!("tab-{tab_index}"),
+            title: format!("Tab {tab_index}"),
+            ..QueryTabState::default()
+        };
+        tab.history = (0..400)
+            .map(|entry_index| QueryHistoryEntry {
+                id: format!("history-{tab_index}-{entry_index}"),
+                query_text: format!("select '{}'", "x".repeat(8_000)),
+                executed_at: format!("{entry_index:04}-{tab_index}"),
+                status: "success".into(),
+                sql_scope: None,
+            })
+            .collect();
+        snapshot.tabs.push(tab);
+    }
+
+    let sanitized = sanitize_snapshot(&snapshot, true);
+    let histories = sanitized
+        .tabs
+        .iter()
+        .flat_map(|tab| tab.history.iter())
+        .collect::<Vec<_>>();
+    let serialized_bytes = histories
+        .iter()
+        .map(|entry| serde_json::to_vec(entry).expect("serialize history").len())
+        .sum::<usize>();
+
+    assert!(histories.len() <= 500);
+    assert!(serialized_bytes <= 2 * 1024 * 1024);
+    assert!(histories
+        .iter()
+        .any(|entry| entry.executed_at.starts_with("0399")));
+    assert!(!histories
+        .iter()
+        .any(|entry| entry.executed_at.starts_with("0000")));
+
+    let migrated = migrate_snapshot(snapshot);
+    assert!(migrated.history_retention_notice_pending);
+    assert!(!serde_json::to_value(migrated)
+        .expect("serialize migrated workspace")
+        .as_object()
+        .expect("workspace object")
+        .contains_key("historyRetentionNoticePending"));
+}
+
+#[test]
 fn workspace_bundle_secret_collection_includes_mcp_token_verifier_when_allowed() {
     let _guard = ENV_LOCK.lock().expect("env test lock");
     let path = temp_secret_file_path();
@@ -864,6 +1171,46 @@ fn workspace_bundle_secret_collection_includes_mcp_token_verifier_when_allowed()
     assert_eq!(secrets[0].secret_ref.id, "secret-mcp-token");
     assert_eq!(secrets[0].value, "hashed-verifier");
 
+    std::env::remove_var("DATAPADPLUSPLUS_SECRET_STORE");
+    std::env::remove_var("DATAPADPLUSPLUS_SECRET_FILE");
+    let _ = fs::remove_file(path);
+}
+
+#[test]
+fn missing_connection_string_export_errors_identify_the_connection() {
+    let _guard = ENV_LOCK.lock().expect("env test lock");
+    let path = temp_secret_file_path();
+    std::env::set_var("DATAPADPLUSPLUS_SECRET_STORE", "file");
+    std::env::set_var("DATAPADPLUSPLUS_SECRET_FILE", &path);
+    let mut snapshot = blank_workspace_snapshot();
+    let mut connection = ConnectionProfile {
+        id: "conn-broken-oracle".into(),
+        name: "Broken Oracle".into(),
+        engine: "oracle".into(),
+        family: "sql".into(),
+        connection_mode: Some("connection-string".into()),
+        ..Default::default()
+    };
+    connection.auth.connection_string_secret_ref = Some(SecretRef {
+        id: "missing-opaque-string".into(),
+        provider: "desktop-secret-store".into(),
+        service: "DataPadPlusPlus".into(),
+        account: "connection-string:conn-broken-oracle:missing".into(),
+        label: "sensitive label that should not be needed".into(),
+    });
+    snapshot.connections.push(connection);
+
+    let error = collect_workspace_bundle_secrets(&snapshot)
+        .err()
+        .expect("missing vault value should block a secret-inclusive export");
+
+    assert_eq!(error.code, "workspace-bundle-secret-missing");
+    assert!(error
+        .message
+        .contains("Connection 'Broken Oracle' (oracle)"));
+    assert!(!error
+        .message
+        .contains("connection-string:conn-broken-oracle"));
     std::env::remove_var("DATAPADPLUSPLUS_SECRET_STORE");
     std::env::remove_var("DATAPADPLUSPLUS_SECRET_FILE");
     let _ = fs::remove_file(path);

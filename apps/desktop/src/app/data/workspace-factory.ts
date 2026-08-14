@@ -6,11 +6,14 @@ import type {
   DiagnosticsReport,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
-import { DATAPADPLUSPLUS_ADAPTER_MANIFESTS } from '@datapadplusplus/shared-types'
+import {
+  CURRENT_WORKSPACE_SCHEMA_VERSION,
+  DATAPADPLUSPLUS_ADAPTER_MANIFESTS,
+} from '@datapadplusplus/shared-types'
 import { buildDiagnosticsReport, resolveEnvironment } from '../state/helpers'
 import { defaultKeyboardShortcuts } from '../keyboard-shortcuts'
 
-export const EMPTY_WORKSPACE_SCHEMA_VERSION = 11
+export const EMPTY_WORKSPACE_SCHEMA_VERSION = CURRENT_WORKSPACE_SCHEMA_VERSION
 
 export const adapterManifests: AdapterManifest[] = DATAPADPLUSPLUS_ADAPTER_MANIFESTS
 

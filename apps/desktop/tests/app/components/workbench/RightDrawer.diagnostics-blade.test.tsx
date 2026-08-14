@@ -1,61 +1,20 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import type {
-  AppHealth,
-  DiagnosticsReport,
-  ExportBundle,
-} from '@datapadplusplus/shared-types'
+import type { AppHealth, DiagnosticsReport } from '@datapadplusplus/shared-types'
 import { describe, expect, it, vi } from 'vitest'
 import { DiagnosticsBlade } from '../../../../src/app/components/workbench/RightDrawer.diagnostics-blade'
 
 describe('DiagnosticsBlade', () => {
-  it('keeps encrypted backup bundle text hidden until requested', () => {
-    render(
-      <DiagnosticsBlade
-        diagnostics={diagnostics}
-        exportBundle={exportBundle}
-        exportPassphrase="correct horse"
-        health={health}
-        importPayload=""
-        theme="dark"
-        onClose={vi.fn()}
-        onExportPassphraseChange={vi.fn()}
-        onExportWorkspace={vi.fn()}
-        onImportPayloadChange={vi.fn()}
-        onImportWorkspace={vi.fn()}
-        onRefreshDiagnostics={vi.fn()}
-        onToggleTheme={vi.fn()}
-      />,
-    )
+  it('keeps workspace transfer controls out of the diagnostics drawer', () => {
+    renderDiagnostics()
 
-    expect(screen.getByText('Backup bundle ready')).toBeInTheDocument()
-    expect(screen.getByText('The bundle is encrypted and ready to download or copy.')).toBeInTheDocument()
-    expect(screen.getByText('Secrets are not included.')).toBeInTheDocument()
-    expect(screen.queryByText(/ciphertext-secret-looking-value/)).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Show encrypted bundle text' }))
-
-    expect(screen.getByLabelText('Encrypted workspace bundle')).toHaveTextContent('ciphertext-secret-looking-value')
-    expect(screen.getByRole('button', { name: 'Hide encrypted bundle text' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Create Backup Bundle' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Restore Workspace' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Encrypted workspace bundle')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Include connection passwords/i)).not.toBeInTheDocument()
   })
 
   it('renders Settings status values as user-facing labels', () => {
-    render(
-      <DiagnosticsBlade
-        diagnostics={diagnostics}
-        exportBundle={undefined}
-        exportPassphrase=""
-        health={{ ...health, secretStorage: 'planned' }}
-        importPayload=""
-        theme="system"
-        onClose={vi.fn()}
-        onExportPassphraseChange={vi.fn()}
-        onExportWorkspace={vi.fn()}
-        onImportPayloadChange={vi.fn()}
-        onImportWorkspace={vi.fn()}
-        onRefreshDiagnostics={vi.fn()}
-        onToggleTheme={vi.fn()}
-      />,
-    )
+    renderDiagnostics({ health: { ...health, secretStorage: 'planned' }, theme: 'system' })
 
     expect(screen.getByText('Current theme')).toBeInTheDocument()
     expect(screen.getByText('Use system setting')).toBeInTheDocument()
@@ -66,114 +25,42 @@ describe('DiagnosticsBlade', () => {
     expect(screen.queryByText('planned')).not.toBeInTheDocument()
   })
 
-  it('allows short backup passphrases but blocks common guessed passwords', () => {
-    const onExportPassphraseChange = vi.fn()
+  it('keeps appearance and health actions available', () => {
+    const onRefreshDiagnostics = vi.fn()
+    const onToggleTheme = vi.fn()
 
-    const { rerender } = render(
-      <DiagnosticsBlade
-        diagnostics={diagnostics}
-        exportBundle={undefined}
-        exportPassphrase="x"
-        health={health}
-        importPayload=""
-        theme="dark"
-        onClose={vi.fn()}
-        onExportPassphraseChange={onExportPassphraseChange}
-        onExportWorkspace={vi.fn()}
-        onImportPayloadChange={vi.fn()}
-        onImportWorkspace={vi.fn()}
-        onRefreshDiagnostics={vi.fn()}
-        onToggleTheme={vi.fn()}
-      />,
-    )
+    renderDiagnostics({ onRefreshDiagnostics, onToggleTheme })
 
-    expect(screen.getByRole('button', { name: 'Create Backup Bundle' })).toBeEnabled()
-    expect(screen.getByText('Weak')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Switch theme' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
 
-    rerender(
-      <DiagnosticsBlade
-        diagnostics={diagnostics}
-        exportBundle={undefined}
-        exportPassphrase="12345"
-        health={health}
-        importPayload=""
-        theme="dark"
-        onClose={vi.fn()}
-        onExportPassphraseChange={onExportPassphraseChange}
-        onExportWorkspace={vi.fn()}
-        onImportPayloadChange={vi.fn()}
-        onImportWorkspace={vi.fn()}
-        onRefreshDiagnostics={vi.fn()}
-        onToggleTheme={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByRole('button', { name: 'Create Backup Bundle' })).toBeDisabled()
-    expect(screen.getByText('Blocked')).toBeInTheDocument()
-    expect(screen.getByText('Choose a less common workspace backup passphrase.')).toBeInTheDocument()
-  })
-
-  it('passes the encrypted secret opt-in when creating a backup bundle', () => {
-    const onExportWorkspace = vi.fn()
-
-    render(
-      <DiagnosticsBlade
-        diagnostics={diagnostics}
-        exportBundle={undefined}
-        exportPassphrase="Correct-Horse-2026!"
-        health={health}
-        importPayload=""
-        theme="dark"
-        onClose={vi.fn()}
-        onExportPassphraseChange={vi.fn()}
-        onExportWorkspace={onExportWorkspace}
-        onImportPayloadChange={vi.fn()}
-        onImportWorkspace={vi.fn()}
-        onRefreshDiagnostics={vi.fn()}
-        onToggleTheme={vi.fn()}
-      />,
-    )
-
-    fireEvent.click(screen.getByLabelText('Include connection passwords and secret variables in this encrypted bundle'))
-    fireEvent.click(screen.getByRole('button', { name: 'Create Backup Bundle' }))
-
-    expect(onExportWorkspace).toHaveBeenCalledWith(true)
-  })
-
-  it('confirms workspace restore in-app before replacing the workspace', () => {
-    const onImportWorkspace = vi.fn()
-    const confirmSpy = vi.spyOn(window, 'confirm')
-
-    render(
-      <DiagnosticsBlade
-        diagnostics={diagnostics}
-        exportBundle={undefined}
-        exportPassphrase="correct horse"
-        health={health}
-        importPayload={JSON.stringify(exportBundle)}
-        theme="dark"
-        onClose={vi.fn()}
-        onExportPassphraseChange={vi.fn()}
-        onExportWorkspace={vi.fn()}
-        onImportPayloadChange={vi.fn()}
-        onImportWorkspace={onImportWorkspace}
-        onRefreshDiagnostics={vi.fn()}
-        onToggleTheme={vi.fn()}
-      />,
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: 'Restore Workspace' }))
-
-    expect(screen.getByRole('dialog', { name: 'Restore workspace backup?' })).toBeInTheDocument()
-    expect(confirmSpy).not.toHaveBeenCalled()
-    expect(onImportWorkspace).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
-
-    expect(onImportWorkspace).toHaveBeenCalledWith(exportBundle.encryptedPayload)
-    confirmSpy.mockRestore()
+    expect(onToggleTheme).toHaveBeenCalledOnce()
+    expect(onRefreshDiagnostics).toHaveBeenCalledOnce()
   })
 })
+
+function renderDiagnostics({
+  health: healthOverride = health,
+  theme = 'dark',
+  onRefreshDiagnostics = vi.fn(),
+  onToggleTheme = vi.fn(),
+}: {
+  health?: AppHealth
+  theme?: 'dark' | 'light' | 'system'
+  onRefreshDiagnostics?: () => void
+  onToggleTheme?: () => void
+} = {}) {
+  return render(
+    <DiagnosticsBlade
+      diagnostics={diagnostics}
+      health={healthOverride}
+      theme={theme}
+      onClose={vi.fn()}
+      onRefreshDiagnostics={onRefreshDiagnostics}
+      onToggleTheme={onToggleTheme}
+    />,
+  )
+}
 
 const health: AppHealth = {
   runtime: 'tauri',
@@ -197,10 +84,4 @@ const diagnostics: DiagnosticsReport = {
   warnings: [],
   windowLifecyclePath: 'C:\\logs\\datapadplusplus-window-lifecycle.log',
   createdAt: '2026-05-22T00:00:00.000Z',
-}
-
-const exportBundle: ExportBundle = {
-  format: 'datapadplusplus-bundle',
-  version: 1,
-  encryptedPayload: 'ciphertext-secret-looking-value',
 }

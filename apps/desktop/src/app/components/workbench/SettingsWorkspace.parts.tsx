@@ -92,9 +92,9 @@ export function BackupList({
         <div key={backup.id} className="settings-table-row" role="row">
           <span>{formatDate(backup.createdAt)}</span>
           <span>{formatBytes(backup.sizeBytes)}</span>
-          <span>{backup.includesSecrets ? backup.secretCount ?? 'Yes' : 'No'}</span>
+          <span>{backup.isCorrupt ? 'Corrupt' : backup.includesSecrets ? backup.secretCount ?? 'Yes' : 'No'}</span>
           <span className="settings-table-actions">
-            <button type="button" className="icon-button" aria-label={`Restore ${backup.fileName}`} onClick={() => onRestore(backup.id)}>
+            <button type="button" className="icon-button" disabled={backup.isCorrupt} aria-label={`Restore ${backup.fileName}`} onClick={() => onRestore(backup.id)}>
               <UploadIcon className="panel-inline-icon" />
             </button>
             <button type="button" className="icon-button" aria-label={`Delete ${backup.fileName}`} onClick={() => onDelete(backup.id)}>
@@ -110,15 +110,19 @@ export function BackupList({
 export function RestoreBackupConfirmation({
   backupId,
   passphrase,
+  importSecrets,
   onCancel,
   onConfirm,
   onPassphraseChange,
+  onImportSecretsChange,
 }: {
   backupId: string
   passphrase: string
+  importSecrets: boolean
   onCancel(): void
-  onConfirm(backupId: string, passphrase: string): void
+  onConfirm(backupId: string, passphrase: string, importSecrets: boolean): void
   onPassphraseChange(value: string): void
+  onImportSecretsChange(value: boolean): void
 }) {
   return (
     <div className="settings-confirm-panel">
@@ -131,12 +135,20 @@ export function RestoreBackupConfirmation({
           placeholder="Backup password"
         />
       </label>
+      <label className="settings-check-row">
+        <input
+          type="checkbox"
+          checked={importSecrets}
+          onChange={(event) => onImportSecretsChange(event.target.checked)}
+        />
+        <span>Import included passwords and secrets</span>
+      </label>
       <DeleteConfirmationPanel
         title="Restore backup?"
         body="This replaces the current workspace with the selected backup."
         confirmLabel="Restore"
         onCancel={onCancel}
-        onConfirm={() => onConfirm(backupId, passphrase)}
+        onConfirm={() => onConfirm(backupId, passphrase, importSecrets)}
       />
     </div>
   )

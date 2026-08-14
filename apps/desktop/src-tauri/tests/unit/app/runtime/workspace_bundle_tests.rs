@@ -4,7 +4,8 @@ use crate::{
     domain::models::{
         DatastoreApiServerConfig, DatastoreApiServerCustomEndpointConfig,
         DatastoreApiServerCustomEndpointParameterConfig, DatastoreApiServerResourceConfig,
-        DatastoreMcpServerConfig, DatastoreMcpServerTokenConfig, SecretRef,
+        DatastoreMcpServerConfig, DatastoreMcpServerTokenConfig, QueryHistoryEntry, QueryTabState,
+        SecretRef,
     },
 };
 
@@ -177,4 +178,78 @@ fn sanitized_bundle_payload_strips_mcp_tokens_without_secrets() {
     assert_eq!(server.name, "Local MCP");
     assert_eq!(server.connection_ids, vec!["conn-users"]);
     assert!(server.tokens.is_empty());
+}
+
+#[test]
+fn bundle_payload_interns_repeated_history_queries_and_restores_them() {
+    let mut snapshot = blank_workspace_snapshot();
+    let query = "select * from audit_log where actor_id = 42";
+    let mut tab = QueryTabState {
+        id: "tab-history".into(),
+        title: "Audit".into(),
+        ..QueryTabState::default()
+    };
+    tab.history = vec![
+        QueryHistoryEntry {
+            id: "history-1".into(),
+            query_text: query.into(),
+            executed_at: "2".into(),
+            status: "success".into(),
+            sql_scope: None,
+        },
+        QueryHistoryEntry {
+            id: "history-2".into(),
+            query_text: query.into(),
+            executed_at: "1".into(),
+            status: "success".into(),
+            sql_scope: None,
+        },
+    ];
+    snapshot.tabs.push(tab);
+
+    let payload = workspace_bundle_payload_with_integrity(snapshot, Vec::new()).unwrap();
+    assert_eq!(payload.history_query_texts, vec![query]);
+    assert!(payload.snapshot.tabs[0]
+        .history
+        .iter()
+        .all(|entry| entry.query_text == "@q:0"));
+
+    let serialized = serde_json::to_string(&payload).unwrap();
+    let parsed = parse_workspace_bundle_payload(&serialized).unwrap();
+    assert!(parsed.snapshot.tabs[0]
+        .history
+        .iter()
+        .all(|entry| entry.query_text == query));
+}
+
+#[test]
+fn imported_legacy_bundle_ignores_local_auto_backup_passphrase() {
+    let mut snapshot = blank_workspace_snapshot();
+    let secret_ref = SecretRef {
+        id: "workspace-auto-backup-passphrase".into(),
+        provider: "desktop-secret-store".into(),
+        service: "datapadplusplus.workspace-backup".into(),
+        account: "workspace:auto-backup".into(),
+        label: "Workspace auto-backup passphrase".into(),
+    };
+    snapshot.preferences.workspace_backups.enabled = true;
+    snapshot.preferences.workspace_backups.passphrase_secret_ref = Some(secret_ref.clone());
+
+    let (imported, secrets) = prepare_imported_workspace_secrets(
+        snapshot,
+        vec![WorkspaceBundleSecret {
+            secret_ref,
+            value: "local-only-passphrase".into(),
+        }],
+        true,
+    )
+    .unwrap();
+
+    assert!(secrets.is_empty());
+    assert!(!imported.preferences.workspace_backups.enabled);
+    assert!(imported
+        .preferences
+        .workspace_backups
+        .passphrase_secret_ref
+        .is_none());
 }

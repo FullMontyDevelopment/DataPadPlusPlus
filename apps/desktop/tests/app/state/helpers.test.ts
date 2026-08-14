@@ -11,7 +11,7 @@ import {
 
 describe('resolveEnvironment', () => {
   it('resolves inherited variables for prod', () => {
-    const snapshot = createSeedSnapshot()
+    const snapshot = structuredClone(createSeedSnapshot())
     const resolved = resolveEnvironment(snapshot.environments, 'env-prod')
 
     expect(resolved.variables.DB_HOST).toBe('analytics-prod.internal')
@@ -181,6 +181,45 @@ describe('evaluateGuardrails', () => {
 })
 
 describe('migrateWorkspaceSnapshot', () => {
+  it('advances missing and legacy schemas to 12 without downgrading future workspaces', () => {
+    const missing = createSeedSnapshot()
+    delete (missing as { schemaVersion?: number }).schemaVersion
+    expect(migrateWorkspaceSnapshot(missing).schemaVersion).toBe(12)
+
+    const current = createSeedSnapshot()
+    current.schemaVersion = 12
+    expect(migrateWorkspaceSnapshot(current).schemaVersion).toBe(12)
+
+    const future = createSeedSnapshot()
+    future.schemaVersion = 13
+    expect(() => migrateWorkspaceSnapshot(future)).toThrow(
+      'created by a newer DataPad++ version',
+    )
+  })
+
+  it('keeps vault-backed profiles in connection-string mode without plaintext', () => {
+    const snapshot = structuredClone(createSeedSnapshot())
+    const connection = snapshot.connections[0]!
+    connection.id = 'conn-custom-vault'
+    connection.engine = 'mongodb'
+    connection.family = 'document'
+    connection.connectionMode = 'connection-string'
+    connection.connectionString = undefined
+    connection.auth.connectionStringSecretRef = {
+      id: 'connection-string-ref',
+      provider: 'desktop-secret-store',
+      service: 'DataPadPlusPlus',
+      account: 'connection-string:connection-1:ref',
+      label: 'MongoDB QA connection string',
+    }
+
+    const migrated = migrateWorkspaceSnapshot(snapshot)
+
+    const migratedConnection = migrated.connections.find((item) => item.id === connection.id)
+    expect(migratedConnection?.connectionMode).toBe('connection-string')
+    expect(migratedConnection?.connectionString).toBeUndefined()
+  })
+
   it('moves only recognized generated SQL Server USE prefixes into persisted tab scope', () => {
     const snapshot = structuredClone(createSeedSnapshot())
     const tab = snapshot.tabs.find((item) => item.id === 'tab-commerce-mysql')!
@@ -350,7 +389,7 @@ describe('migrateWorkspaceSnapshot', () => {
 
     const migrated = migrateWorkspaceSnapshot(legacy)
 
-    expect(migrated.schemaVersion).toBe(11)
+    expect(migrated.schemaVersion).toBe(12)
     expect(migrated.ui.activeActivity).toBe('library')
     expect(migrated.ui.activeSidebarPane).toBe('library')
     expect(migrated.ui.sidebarWidth).toBe(280)
@@ -451,7 +490,7 @@ describe('migrateWorkspaceSnapshot', () => {
     })
   })
 
-  it('migrates connection strings into the connection-string method', () => {
+  it('migrates the connection method without changing the opaque connection string', () => {
     const snapshot = createSeedSnapshot()
     const migrated = migrateWorkspaceSnapshot({
       ...snapshot,
@@ -469,7 +508,7 @@ describe('migrateWorkspaceSnapshot', () => {
 
     expect(migrated.connections[0]?.connectionMode).toBe('connection-string')
     expect(migrated.connections[0]?.connectionString).toBe(
-      'postgresql://user:{{PASSWORD}}@localhost:5432/app',
+      'postgresql://user:${PASSWORD}@localhost:5432/app',
     )
     expect(
       migrated.libraryNodes.some(
@@ -739,7 +778,7 @@ describe('migrateWorkspaceSnapshot', () => {
     const migrated = migrateWorkspaceSnapshot(snapshot)
 
     expect(migrated.preferences.datastoreTests).toEqual({ enabled: false })
-    expect(migrated.schemaVersion).toBe(11)
+    expect(migrated.schemaVersion).toBe(12)
   })
 
   it('migrates legacy tabs into one synthetic main window with the plugin disabled', () => {

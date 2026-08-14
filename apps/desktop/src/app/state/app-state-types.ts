@@ -117,15 +117,24 @@ import type {
   UpdateQueryTabTargetRequest,
   UpdateUiStateRequest,
   WorkspaceBackupDeleteRequest,
+  WorkspaceBackupFileAnalysisRequest,
   WorkspaceBackupRestoreRequest,
   WorkspaceBackupRunRequest,
   WorkspaceBackupRunResponse,
   WorkspaceBackupSettingsRequest,
   WorkspaceBackupSummary,
+  WorkspaceStorageAnalysisRequest,
+  WorkspaceStorageReport,
   WorkspaceBundleFileExportRequest,
   WorkspaceBundleFileExportResponse,
   WorkspaceBundleFileImportRequest,
   WorkspaceCreateRequest,
+  WorkspaceImportCancelRequest,
+  WorkspaceImportCommitRequest,
+  WorkspaceImportCommitResponse,
+  WorkspaceImportPreview,
+  WorkspaceImportPreviewRequest,
+  WorkspaceImportSelection,
   WorkspaceRenameRequest,
   WorkspaceSearchSettingsRequest,
   WorkspaceSnapshot,
@@ -269,6 +278,16 @@ export type AppAction =
   | { type: 'APP_UPDATE_INSTALLED' }
   | { type: 'APP_UPDATE_INSTALL_ERROR'; message: string }
   | { type: 'WORKSPACE_SWITCHER_STATUS_READY'; status: WorkspaceSwitcherStatus }
+  | {
+      type: 'WORKSPACE_CONTEXT_COMMITTED'
+      payload: BootstrapPayload
+      status?: WorkspaceSwitcherStatus
+    }
+
+export type WorkspaceTransferOutcome<T> =
+  | { status: 'completed'; value: T }
+  | { status: 'canceled' }
+  | { status: 'failed'; message: string }
 
 export interface Actions {
   selectConnection(connectionId: string): Promise<void>
@@ -408,8 +427,16 @@ export interface Actions {
   importWorkspace(passphrase: string, encryptedPayload: string): Promise<void>
   exportWorkspaceFile(
     request: WorkspaceBundleFileExportRequest,
-  ): Promise<WorkspaceBundleFileExportResponse | undefined>
-  importWorkspaceFile(request: WorkspaceBundleFileImportRequest): Promise<void>
+  ): Promise<WorkspaceTransferOutcome<WorkspaceBundleFileExportResponse>>
+  importWorkspaceFile(request: WorkspaceBundleFileImportRequest): Promise<boolean>
+  selectWorkspaceImportFile(): Promise<WorkspaceTransferOutcome<WorkspaceImportSelection>>
+  previewWorkspaceImportFile(
+    request: WorkspaceImportPreviewRequest,
+  ): Promise<WorkspaceTransferOutcome<WorkspaceImportPreview>>
+  commitWorkspaceImport(
+    request: WorkspaceImportCommitRequest,
+  ): Promise<WorkspaceTransferOutcome<WorkspaceImportCommitResponse>>
+  cancelWorkspaceImport(request: WorkspaceImportCancelRequest): Promise<boolean>
   getWorkspaceSwitcherStatus(): Promise<WorkspaceSwitcherStatus | undefined>
   setWorkspaceSwitcherEnabled(request: WorkspaceSwitcherSettingsRequest): Promise<boolean>
   updateMultiWindowTabsSettings(request: MultiWindowTabsSettingsRequest): Promise<boolean>
@@ -474,10 +501,16 @@ export interface Actions {
     request: DatastoreMcpClientSetupApplyRequest,
   ): Promise<DatastoreMcpClientSetupApplyResponse | undefined>
   listWorkspaceBackups(): Promise<WorkspaceBackupSummary[] | undefined>
+  analyzeWorkspaceStorage(
+    request?: WorkspaceStorageAnalysisRequest,
+  ): Promise<WorkspaceStorageReport | undefined>
+  analyzeWorkspaceBackupFile(
+    request: WorkspaceBackupFileAnalysisRequest,
+  ): Promise<WorkspaceStorageReport | undefined>
   createWorkspaceBackupNow(
     request: WorkspaceBackupRunRequest,
   ): Promise<WorkspaceBackupRunResponse | undefined>
-  restoreWorkspaceBackup(request: WorkspaceBackupRestoreRequest): Promise<void>
+  restoreWorkspaceBackup(request: WorkspaceBackupRestoreRequest): Promise<boolean>
   deleteWorkspaceBackup(
     request: WorkspaceBackupDeleteRequest,
   ): Promise<WorkspaceBackupSummary[] | undefined>

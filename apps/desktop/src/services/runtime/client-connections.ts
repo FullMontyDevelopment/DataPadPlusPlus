@@ -38,7 +38,13 @@ export const clientConnections = {
   async upsertConnection(profile: ConnectionProfile): Promise<BootstrapPayload> {
     profile = validateConnectionProfile(profile)
     if (isTauriRuntime()) {
-      return invokeDesktop<BootstrapPayload>('upsert_connection_profile', { profile })
+      const connectionString = profile.connectionString
+      return invokeDesktop<BootstrapPayload>('upsert_connection_profile', {
+        request: {
+          profile: { ...profile, connectionString: undefined },
+          connectionString,
+        },
+      })
     }
 
     const snapshot = upsertConnection(loadBrowserSnapshot(), profile)
@@ -95,7 +101,14 @@ export const clientConnections = {
   ): Promise<ConnectionTestResult> {
     request = validateConnectionTestRequest(request)
     if (isTauriRuntime()) {
-      return invokeDesktop<ConnectionTestResult>('test_connection', { request })
+      const connectionString = request.connectionString ?? request.profile.connectionString
+      return invokeDesktop<ConnectionTestResult>('test_connection', {
+        request: {
+          ...request,
+          profile: { ...request.profile, connectionString: undefined },
+          connectionString,
+        },
+      })
     }
 
     const snapshot = loadBrowserSnapshot()

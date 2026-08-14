@@ -1266,6 +1266,338 @@ button:disabled:hover {
   color: var(--muted);
 }
 
+.workspace-transfer-overlay {
+  padding: 16px;
+}
+
+.workspace-transfer-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 32px));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.38);
+}
+
+.workspace-transfer-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 22px 14px;
+}
+
+.workspace-transfer-header h2 {
+  margin: 2px 0 0;
+  font-size: 20px;
+}
+
+.workspace-transfer-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  color: var(--accent);
+}
+
+.workspace-transfer-icon svg,
+.workspace-transfer-file-summary > span svg {
+  width: 16px;
+  height: 16px;
+}
+
+.workspace-transfer-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  margin: 0;
+  padding: 0 22px 14px;
+  list-style: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-transfer-steps li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.workspace-transfer-steps li span {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font-size: 10px;
+}
+
+.workspace-transfer-steps li.is-active {
+  color: var(--heading);
+}
+
+.workspace-transfer-steps li.is-active span {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-foreground, #111);
+}
+
+.workspace-transfer-body {
+  min-height: 220px;
+  overflow: auto;
+  padding: 20px 22px;
+}
+
+.workspace-transfer-section {
+  display: grid;
+  gap: 14px;
+}
+
+.workspace-transfer-file-summary {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+}
+
+.workspace-transfer-file-summary > span {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.workspace-transfer-file-summary div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.workspace-transfer-file-summary strong {
+  overflow: hidden;
+  color: var(--heading);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-transfer-file-summary small,
+.workspace-transfer-field small,
+.workspace-transfer-hint {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.workspace-transfer-field {
+  display: grid;
+  gap: 6px;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.workspace-transfer-field > input,
+.workspace-transfer-secret-input input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.workspace-transfer-secret-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+}
+
+.workspace-transfer-secret-input input {
+  border-right: 0;
+}
+
+.workspace-transfer-secret-input button {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--muted);
+}
+
+.workspace-transfer-secret-input button:hover,
+.workspace-transfer-secret-input button:focus-visible {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+
+.workspace-transfer-secret-input svg {
+  width: 14px;
+  height: 14px;
+}
+
+.workspace-transfer-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border-top: 1px solid var(--border);
+}
+
+.workspace-transfer-summary div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-transfer-summary div:nth-child(odd) {
+  border-right: 1px solid var(--border);
+}
+
+.workspace-transfer-summary dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.workspace-transfer-summary dd {
+  margin: 0;
+  color: var(--heading);
+  font-size: 11px;
+}
+
+.workspace-transfer-modes {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.workspace-transfer-modes legend {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.workspace-transfer-modes label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--border);
+}
+
+.workspace-transfer-modes label.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.workspace-transfer-modes label.is-destructive {
+  border-color: color-mix(in srgb, var(--danger) 58%, var(--border));
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+}
+
+.workspace-transfer-modes label span {
+  display: grid;
+  gap: 3px;
+}
+
+.workspace-transfer-modes strong {
+  color: var(--heading);
+  font-size: 12px;
+}
+
+.workspace-transfer-modes small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.workspace-transfer-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.workspace-transfer-warning,
+.workspace-transfer-error,
+.workspace-transfer-destructive-copy {
+  padding: 8px 10px;
+  border-left: 2px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  color: var(--text) !important;
+  font-size: 11px;
+}
+
+.workspace-transfer-error,
+.workspace-transfer-destructive-copy {
+  border-left-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+.workspace-transfer-security-summary {
+  display: grid;
+  gap: 3px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.workspace-transfer-security-summary strong {
+  color: var(--heading);
+  font-size: 11px;
+}
+
+.workspace-transfer-actions {
+  margin: 0;
+  padding: 14px 22px;
+  border-top: 1px solid var(--border);
+}
+
+.workspace-transfer-toast {
+  position: fixed;
+  right: 18px;
+  bottom: 38px;
+  z-index: 40;
+  max-width: min(420px, calc(100vw - 36px));
+  padding: 10px 13px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--panel-bg-elevated);
+  color: var(--heading);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
+  font-size: 11px;
+}
+
+@media (max-width: 560px) {
+  .workspace-transfer-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-transfer-summary div:nth-child(odd) {
+    border-right: 0;
+  }
+
+  .workspace-transfer-steps li {
+    font-size: 0;
+  }
+
+  .workspace-transfer-steps li span {
+    font-size: 10px;
+  }
+}
+
 .library-text-input-dialog {
   width: min(460px, calc(100vw - 32px));
   display: grid;
@@ -12011,6 +12343,49 @@ body.is-results-side-resizing .editor-workspace {
 .connection-mode-help {
   margin: -2px 0 2px;
   line-height: 1.4;
+}
+
+.connection-string-secret-field {
+  position: relative;
+  display: grid;
+}
+
+.connection-string-secret-field textarea {
+  min-height: 58px;
+  padding-right: 34px;
+}
+
+.connection-string-secret-field textarea.is-secret-hidden:not(:placeholder-shown) {
+  -webkit-text-security: disc;
+}
+
+.connection-string-reveal-button {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--panel-bg-alt);
+  color: var(--muted);
+}
+
+.connection-string-reveal-button:hover,
+.connection-string-reveal-button:focus-visible {
+  color: var(--heading);
+  border-color: var(--accent);
+}
+
+.connection-string-reveal-button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.connection-string-vault-status {
+  color: var(--success);
 }
 
 .local-database-create-grid {

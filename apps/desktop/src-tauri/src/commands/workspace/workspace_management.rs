@@ -48,9 +48,14 @@ pub fn set_workspace_switcher_enabled(
 pub fn create_workspace(
     state: State<'_, SharedAppState>,
     request: WorkspaceCreateRequest,
-) -> Result<BootstrapPayload, CommandError> {
+) -> Result<WorkspaceActivationResponse, CommandError> {
     let mut state = lock_state(&state)?;
-    state.create_workspace(request)
+    let payload = state.create_workspace(request)?;
+    let workspace_switcher_status = state.workspace_switcher_status()?;
+    Ok(WorkspaceActivationResponse {
+        payload,
+        workspace_switcher_status,
+    })
 }
 
 #[tauri::command]
@@ -66,9 +71,14 @@ pub fn rename_workspace(
 pub fn switch_workspace(
     state: State<'_, SharedAppState>,
     request: WorkspaceSwitchRequest,
-) -> Result<BootstrapPayload, CommandError> {
+) -> Result<WorkspaceActivationResponse, CommandError> {
     let mut state = lock_state(&state)?;
-    state.switch_workspace(request)
+    let payload = state.switch_workspace(request)?;
+    let workspace_switcher_status = state.workspace_switcher_status()?;
+    Ok(WorkspaceActivationResponse {
+        payload,
+        workspace_switcher_status,
+    })
 }
 
 #[tauri::command]
@@ -77,6 +87,15 @@ pub fn list_workspace_backups(
 ) -> Result<Vec<WorkspaceBackupSummary>, CommandError> {
     let state = lock_state(&state)?;
     state.list_workspace_backups()
+}
+
+#[tauri::command]
+pub fn analyze_workspace_storage(
+    state: State<'_, SharedAppState>,
+    request: WorkspaceStorageAnalysisRequest,
+) -> Result<WorkspaceStorageReport, CommandError> {
+    let state = lock_state(&state)?;
+    state.analyze_workspace_storage(request)
 }
 
 #[tauri::command]

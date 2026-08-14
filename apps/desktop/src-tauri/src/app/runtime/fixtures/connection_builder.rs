@@ -70,6 +70,8 @@ pub(super) fn build_fixture_connection(
                 cloud_provider: None,
                 principal: None,
                 secret_ref,
+                connection_string_secret_ref: None,
+                connection_string_secret_bindings: Vec::new(),
             },
             created_at: created_at.into(),
             updated_at: created_at.into(),

@@ -1,4 +1,5 @@
 import type { DatastoreEngine, DatastoreFamily } from './connection'
+import type { BootstrapPayload } from './app'
 import type { AdapterDiagnostics } from './runtime'
 
 export const RESULT_RENDERERS = [
@@ -103,6 +104,7 @@ export interface MetricsTabState {
   lastRefreshedAt?: string
   diagnostics?: AdapterDiagnostics
   warnings: string[]
+  refreshRequired?: boolean
 }
 
 export interface ObjectViewTabState {
@@ -117,6 +119,7 @@ export interface ObjectViewTabState {
   payload?: unknown
   lastRefreshedAt?: string
   warnings: string[]
+  refreshRequired?: boolean
 }
 
 export interface CreateObjectViewTabRequest {
@@ -1226,11 +1229,15 @@ export interface WorkspaceBundleFileExportResponse {
 
 export interface WorkspaceBundleFileImportRequest {
   passphrase: string
+  importSecrets?: boolean
+  importAsNew?: boolean
+  workspaceName?: string
 }
 
 export interface WorkspaceSummary {
   id: string
   name: string
+  schemaVersion: number
   createdAt: string
   updatedAt: string
   lastOpenedAt?: string
@@ -1265,6 +1272,11 @@ export interface WorkspaceSwitchRequest {
   workspaceId: string
 }
 
+export interface WorkspaceActivationResponse {
+  payload: BootstrapPayload
+  workspaceSwitcherStatus: WorkspaceSwitcherStatus
+}
+
 export interface WorkspaceBackupSettingsRequest {
   enabled: boolean
   passphrase?: string
@@ -1285,6 +1297,10 @@ export interface WorkspaceBackupSummary {
   includesSecrets: boolean
   secretCount?: number
   version?: number
+  formatVersion?: number
+  workspaceSchemaVersion?: number
+  isCorrupt?: boolean
+  errorCode?: string
 }
 
 export interface WorkspaceBackupRunResponse {
@@ -1297,10 +1313,105 @@ export interface WorkspaceBackupRunResponse {
 export interface WorkspaceBackupRestoreRequest {
   backupId: string
   passphrase?: string
+  importSecrets?: boolean
 }
 
 export interface WorkspaceBackupDeleteRequest {
   backupId: string
+}
+
+export interface WorkspaceStorageSection {
+  key: string
+  label: string
+  sizeBytes: number
+  itemCount: number
+}
+
+export interface WorkspaceTabStorageContribution {
+  tabId: string
+  title: string
+  closed: boolean
+  totalBytes: number
+  draftBytes: number
+  historyBytes: number
+  objectBytes: number
+  metricsBytes: number
+  testBytes: number
+}
+
+export interface WorkspaceStorageReport {
+  schemaVersion: number
+  workspaceBytes: number
+  recoveryBytes: number
+  backupCount: number
+  backupTotalBytes: number
+  backupAverageBytes: number
+  invalidBackupCount: number
+  projectedPlaintextBytes: number
+  projectedCompressedBytes: number
+  projectedEncryptedBytes: number
+  secretCount?: number
+  secretBytes?: number
+  sections: WorkspaceStorageSection[]
+  largestTabs: WorkspaceTabStorageContribution[]
+}
+
+export interface WorkspaceStorageAnalysisRequest {
+  includeSecretSizes?: boolean
+}
+
+export interface WorkspaceBackupFileAnalysisRequest {
+  passphrase: string
+  includeSecretSizes?: boolean
+}
+
+export interface WorkspaceImportSelection {
+  selectionId: string
+  fileName: string
+  encryptedSizeBytes: number
+}
+
+export interface WorkspaceImportPreviewRequest {
+  selectionId: string
+  passphrase: string
+}
+
+export interface WorkspaceImportPreview {
+  selectionId: string
+  fileName: string
+  suggestedWorkspaceName: string
+  workspaceRevision: number
+  formatVersion: number
+  workspaceSchemaVersion: number
+  createdAt?: string
+  includesSecrets: boolean
+  secretCount: number
+  encryptedSizeBytes: number
+  decryptedSizeBytes: number
+  connections: number
+  environments: number
+  openTabs: number
+  closedTabs: number
+  savedItems: number
+  warnings: string[]
+}
+
+export interface WorkspaceImportCommitRequest {
+  selectionId: string
+  workspaceRevision: number
+  importSecrets?: boolean
+  importAsNew?: boolean
+  workspaceName?: string
+}
+
+export interface WorkspaceImportCommitResponse {
+  payload: BootstrapPayload
+  workspaceSwitcherStatus?: WorkspaceSwitcherStatus
+  registryRefreshWarning?: string
+}
+
+export interface WorkspaceImportCancelRequest {
+  selectionId: string
 }
 
 export interface ExplorerNode {
@@ -1378,6 +1489,7 @@ export interface StructureEdge {
 
 export interface DiagnosticsReport {
   createdAt: string
+  schemaVersion: number
   runtime: string
   platform: string
   appVersion: string

@@ -1,3 +1,6 @@
+use super::connection_string_secrets::{
+    connection_string_secret_ref, resolve_legacy_connection_string_secrets,
+};
 use super::environments::{
     build_resolution_warnings, has_unresolved_tokens, interpolate_value,
     normalize_environment_profile, resolve_environment_for_execution,
@@ -32,7 +35,7 @@ use crate::{
         error::CommandError,
         models::{
             BootstrapPayload, ConnectionProfile, ConnectionTestRequest, ConnectionTestResult,
-            EnvironmentProfile, ResolvedConnectionProfile, ResolvedEnvironment,
+            EnvironmentProfile, ResolvedConnectionProfile, ResolvedEnvironment, SecretRef,
         },
     },
     security,
@@ -44,6 +47,35 @@ use tokio::time::{timeout, Duration};
 const CONNECTION_TEST_DEFAULT_TIMEOUT_MS: u64 = 20_000;
 const CONNECTION_TEST_MIN_TIMEOUT_MS: u64 = 1_000;
 const CONNECTION_TEST_MAX_TIMEOUT_MS: u64 = 120_000;
+
+#[derive(Default)]
+pub(super) struct ConnectionStringSecretChanges {
+    pub(super) created: Vec<SecretRef>,
+    pub(super) retired: Vec<SecretRef>,
+}
+
+impl ConnectionStringSecretChanges {
+    fn extend(&mut self, mut other: Self) {
+        self.created.append(&mut other.created);
+        self.retired.append(&mut other.retired);
+    }
+
+    pub(super) fn rollback_created(&self) {
+        for secret_ref in &self.created {
+            let _ = security::delete_secret_value(secret_ref);
+        }
+    }
+
+    pub(super) fn retire_superseded(&self) {
+        for secret_ref in &self.retired {
+            let _ = security::delete_secret_value(secret_ref);
+        }
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.created.is_empty() && self.retired.is_empty()
+    }
+}
 
 impl ManagedAppState {
     pub fn set_active_connection(
@@ -81,9 +113,54 @@ impl ManagedAppState {
 
     pub fn upsert_connection(
         &mut self,
-        profile: ConnectionProfile,
+        mut profile: ConnectionProfile,
     ) -> Result<BootstrapPayload, CommandError> {
         validators::validate_connection_profile(&profile)?;
+        let previous_profile = self
+            .snapshot
+            .connections
+            .iter()
+            .find(|item| item.id == profile.id)
+            .cloned();
+        if previous_profile
+            .as_ref()
+            .is_some_and(|item| item.connection_mode.as_deref() == Some("connection-string"))
+            && profile.connection_mode.as_deref() != Some("connection-string")
+        {
+            profile.auth.connection_string_secret_ref = None;
+            profile.auth.connection_string_secret_bindings.clear();
+        }
+        if profile.connection_mode.as_deref() == Some("connection-string")
+            && profile
+                .connection_string
+                .as_deref()
+                .is_none_or(str::is_empty)
+            && profile.auth.connection_string_secret_ref.is_none()
+        {
+            profile.auth.connection_string_secret_ref = previous_profile
+                .as_ref()
+                .and_then(|item| item.auth.connection_string_secret_ref.clone());
+        }
+        if profile.connection_mode.as_deref() == Some("connection-string")
+            && profile
+                .connection_string
+                .as_deref()
+                .is_none_or(str::is_empty)
+            && profile.auth.connection_string_secret_ref.is_none()
+        {
+            return Err(connection_string_profile_error(
+                &profile,
+                CommandError::new(
+                    "connection-string-required",
+                    "Enter the complete connection string.",
+                ),
+            ));
+        }
+        let mut secret_changes = migrate_profile_connection_string_secret(&mut profile)?;
+        if let Some(previous) = &previous_profile {
+            collect_replaced_connection_string_refs(previous, &profile, &mut secret_changes);
+        }
+        let previous_snapshot = self.snapshot.clone();
 
         if let Some(index) = self
             .snapshot
@@ -98,8 +175,31 @@ impl ManagedAppState {
 
         ensure_connection_library_nodes(&mut self.snapshot);
         self.snapshot.updated_at = timestamp_now();
-        self.persist()?;
+        if let Err(error) = self.persist() {
+            self.snapshot = previous_snapshot;
+            secret_changes.rollback_created();
+            return Err(error);
+        }
+        secret_changes.retire_superseded();
         Ok(self.bootstrap_payload())
+    }
+
+    pub(super) fn migrate_embedded_connection_string_secrets(
+        &mut self,
+    ) -> Result<ConnectionStringSecretChanges, CommandError> {
+        let mut connections = self.snapshot.connections.clone();
+        let mut changes = ConnectionStringSecretChanges::default();
+        for profile in &mut connections {
+            match migrate_profile_connection_string_secret(profile) {
+                Ok(next) => changes.extend(next),
+                Err(error) => {
+                    changes.rollback_created();
+                    return Err(error);
+                }
+            }
+        }
+        self.snapshot.connections = connections;
+        Ok(changes)
     }
 
     pub fn delete_connection(
@@ -113,14 +213,16 @@ impl ManagedAppState {
             .snapshot
             .connections
             .iter()
-            .any(|connection| connection.id == connection_id);
+            .find(|connection| connection.id == connection_id)
+            .cloned();
 
-        if !deleted {
+        let Some(deleted) = deleted else {
             return Err(CommandError::new(
                 "connection-missing",
                 "Connection was not found.",
             ));
-        }
+        };
+        let previous_snapshot = self.snapshot.clone();
 
         self.snapshot
             .connections
@@ -158,7 +260,11 @@ impl ManagedAppState {
             self.snapshot.ui.right_drawer = "none".into();
         }
         self.snapshot.updated_at = timestamp_now();
-        self.persist()?;
+        if let Err(error) = self.persist() {
+            self.snapshot = previous_snapshot;
+            return Err(error);
+        }
+        delete_connection_string_refs(&deleted);
         Ok(self.bootstrap_payload())
     }
 
@@ -384,11 +490,34 @@ impl ManagedAppState {
 
         let resolved_database = profile.database.as_deref().map(interpolate);
         let resolved_username = profile.auth.username.as_deref().map(interpolate);
-        let resolved_connection_string = profile
+        let connection_string = if !profile.auth.connection_string_secret_bindings.is_empty() {
+            profile
+                .connection_string
+                .as_deref()
+                .map(|value| {
+                    resolve_legacy_connection_string_secrets(
+                        value,
+                        &profile.auth.connection_string_secret_bindings,
+                    )
+                    .map_err(|error| connection_string_profile_error(profile, error))
+                })
+                .transpose()?
+        } else if let Some(value) = profile
             .connection_string
             .as_deref()
-            .map(interpolate)
-            .or_else(|| {
+            .filter(|value| !value.is_empty())
+        {
+            Some(value.to_string())
+        } else if let Some(secret_ref) = &profile.auth.connection_string_secret_ref {
+            Some(
+                security::resolve_secret_value(secret_ref)
+                    .map_err(|error| connection_string_profile_error(profile, error))?,
+            )
+        } else {
+            None
+        };
+        let resolved_connection_string =
+            connection_string.as_deref().map(interpolate).or_else(|| {
                 build_mongodb_native_connection_string(
                     profile,
                     resolved_database.as_deref(),
@@ -478,10 +607,13 @@ impl ManagedAppState {
 
     pub async fn test_connection(
         &self,
-        request: ConnectionTestRequest,
+        mut request: ConnectionTestRequest,
     ) -> Result<ConnectionTestResult, CommandError> {
         self.ensure_unlocked()?;
         validators::validate_connection_test_request(&request)?;
+        if request.connection_string.is_some() {
+            request.profile.connection_string = request.connection_string.take();
+        }
         let started = Instant::now();
         let (resolved, resolved_environment, warnings) = self
             .resolve_connection_profile_with_secret(
@@ -489,10 +621,14 @@ impl ManagedAppState {
                 &request.environment_id,
                 request.secret.as_deref(),
             )?;
-        let extra_secret_values = [request.secret.clone(), resolved.password.clone()]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
+        let extra_secret_values = [
+            request.secret.clone(),
+            resolved.password.clone(),
+            resolved.connection_string.clone(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
 
         if has_unresolved_tokens(&resolved.host)
             || resolved
@@ -553,6 +689,112 @@ impl ManagedAppState {
             )),
         }
     }
+}
+
+pub(super) fn migrate_profile_connection_string_secret(
+    profile: &mut ConnectionProfile,
+) -> Result<ConnectionStringSecretChanges, CommandError> {
+    let mut changes = ConnectionStringSecretChanges::default();
+    let legacy_refs = profile
+        .auth
+        .connection_string_secret_bindings
+        .iter()
+        .map(|binding| binding.secret_ref.clone())
+        .collect::<Vec<_>>();
+    let supplied = profile
+        .connection_string
+        .take()
+        .filter(|value| !value.is_empty());
+    let complete_value = if !legacy_refs.is_empty() {
+        let sanitized = supplied.as_deref().ok_or_else(|| {
+            connection_string_profile_error(
+                profile,
+                CommandError::new(
+                    "connection-string-secret-migration-invalid",
+                    "The legacy connection string template is missing.",
+                ),
+            )
+        })?;
+        Some(
+            resolve_legacy_connection_string_secrets(
+                sanitized,
+                &profile.auth.connection_string_secret_bindings,
+            )
+            .map_err(|error| connection_string_profile_error(profile, error))?,
+        )
+    } else {
+        supplied
+    };
+
+    if let Some(mut value) = complete_value {
+        let secret_ref = connection_string_secret_ref(&profile.id, &profile.name);
+        if let Err(error) = security::store_secret_value(&secret_ref, &value) {
+            value.clear();
+            return Err(connection_string_profile_error(profile, error));
+        }
+        value.clear();
+        if let Some(previous) = profile
+            .auth
+            .connection_string_secret_ref
+            .replace(secret_ref.clone())
+        {
+            changes.retired.push(previous);
+        }
+        changes.retired.extend(legacy_refs);
+        changes.created.push(secret_ref);
+    }
+    profile.auth.connection_string_secret_bindings.clear();
+    Ok(changes)
+}
+
+fn collect_replaced_connection_string_refs(
+    previous: &ConnectionProfile,
+    next: &ConnectionProfile,
+    changes: &mut ConnectionStringSecretChanges,
+) {
+    if let Some(secret_ref) = &previous.auth.connection_string_secret_ref {
+        if next
+            .auth
+            .connection_string_secret_ref
+            .as_ref()
+            .map(|item| &item.id)
+            != Some(&secret_ref.id)
+            && !changes.retired.iter().any(|item| item.id == secret_ref.id)
+        {
+            changes.retired.push(secret_ref.clone());
+        }
+    }
+    for binding in &previous.auth.connection_string_secret_bindings {
+        if !changes
+            .retired
+            .iter()
+            .any(|item| item.id == binding.secret_ref.id)
+        {
+            changes.retired.push(binding.secret_ref.clone());
+        }
+    }
+}
+
+fn delete_connection_string_refs(profile: &ConnectionProfile) {
+    if let Some(secret_ref) = &profile.auth.connection_string_secret_ref {
+        let _ = security::delete_secret_value(secret_ref);
+    }
+    for binding in &profile.auth.connection_string_secret_bindings {
+        let _ = security::delete_secret_value(&binding.secret_ref);
+    }
+}
+
+fn connection_string_profile_error(
+    profile: &ConnectionProfile,
+    error: CommandError,
+) -> CommandError {
+    CommandError::new(
+        error.code,
+        format!(
+            "Connection '{}' ({}) could not store or resolve its connection string securely. {}",
+            profile.name, profile.engine, error.message
+        ),
+    )
 }
 
 fn connection_test_timeout_duration(connection: &ResolvedConnectionProfile) -> Duration {

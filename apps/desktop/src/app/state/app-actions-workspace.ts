@@ -1,7 +1,9 @@
 import { useCallback, useMemo } from 'react'
+import type { BootstrapPayload } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
 import { ensureWorkspaceUnlocked } from './app-state-factories'
 import { createId } from './helpers'
+import { toUserError } from './app-state-selectors'
 import type { Actions, AppActionContext } from './app-state-types'
 
 type WorkspaceActions = Pick<
@@ -26,6 +28,10 @@ type WorkspaceActions = Pick<
   | 'importWorkspace'
   | 'exportWorkspaceFile'
   | 'importWorkspaceFile'
+  | 'selectWorkspaceImportFile'
+  | 'previewWorkspaceImportFile'
+  | 'commitWorkspaceImport'
+  | 'cancelWorkspaceImport'
   | 'getWorkspaceSwitcherStatus'
   | 'setWorkspaceSwitcherEnabled'
   | 'updateMultiWindowTabsSettings'
@@ -70,6 +76,8 @@ type WorkspaceActions = Pick<
   | 'previewDatastoreMcpClientSetup'
   | 'applyDatastoreMcpClientSetup'
   | 'listWorkspaceBackups'
+  | 'analyzeWorkspaceStorage'
+  | 'analyzeWorkspaceBackupFile'
   | 'createWorkspaceBackupNow'
   | 'restoreWorkspaceBackup'
   | 'deleteWorkspaceBackup'
@@ -275,28 +283,64 @@ export function useWorkspaceActions({
     [dispatch, handleError, state.payload],
   )
 
+  const applyWorkspaceTransferResult = useCallback(
+    async (
+      payload: BootstrapPayload,
+      warningSource: string,
+      warningMessage: string,
+      warningDetails: string,
+    ) => {
+      try {
+        const status = await desktopClient.getWorkspaceSwitcherStatus()
+        dispatch({ type: 'WORKSPACE_CONTEXT_COMMITTED', payload, status })
+      } catch {
+        dispatch({ type: 'WORKSPACE_CONTEXT_COMMITTED', payload })
+        addWorkbenchMessage({
+          severity: 'warning',
+          source: warningSource,
+          message: warningMessage,
+          details: warningDetails,
+        })
+      }
+    },
+    [addWorkbenchMessage, dispatch],
+  )
+
   const importWorkspace = useCallback<Actions['importWorkspace']>(
     async (passphrase, encryptedPayload) => {
       try {
         ensureWorkspaceUnlocked(state.payload)
-        applyPayload(
-          await desktopClient.importWorkspaceBundle(passphrase, encryptedPayload),
+        const importedPayload = await desktopClient.importWorkspaceBundle(
+          passphrase,
+          encryptedPayload,
+        )
+        await applyWorkspaceTransferResult(
+          importedPayload,
+          'Workspace Import',
+          'Workspace imported, but the workspace list refresh is delayed.',
+          'The import completed successfully. Reopen the workspace list to try refreshing it again.',
         )
       } catch (error) {
         handleError(error)
       }
     },
-    [applyPayload, handleError, state.payload],
+    [applyWorkspaceTransferResult, handleError, state.payload],
   )
 
   const exportWorkspaceFile = useCallback<Actions['exportWorkspaceFile']>(
     async (request) => {
       try {
         ensureWorkspaceUnlocked(state.payload)
-        return await desktopClient.exportWorkspaceBundleFile(request)
+        const response = await desktopClient.exportWorkspaceBundleFile(request)
+        return response.saved
+          ? { status: 'completed', value: response }
+          : { status: 'canceled' }
       } catch (error) {
         handleError(error)
-        return undefined
+        return {
+          status: 'failed',
+          message: toUserError(error, 'Unable to export the workspace.').message,
+        }
       }
     },
     [handleError, state.payload],
@@ -306,12 +350,103 @@ export function useWorkspaceActions({
     async (request) => {
       try {
         ensureWorkspaceUnlocked(state.payload)
-        applyPayload(await desktopClient.importWorkspaceBundleFile(request))
+        const importedPayload = await desktopClient.importWorkspaceBundleFile(request)
+        await applyWorkspaceTransferResult(
+          importedPayload,
+          'Workspace Import',
+          'Workspace imported, but the workspace list refresh is delayed.',
+          'The import completed successfully. Reopen the workspace list to try refreshing it again.',
+        )
+        return true
       } catch (error) {
         handleError(error)
+        return false
       }
     },
-    [applyPayload, handleError, state.payload],
+    [applyWorkspaceTransferResult, handleError, state.payload],
+  )
+
+  const previewWorkspaceImportFile = useCallback<Actions['previewWorkspaceImportFile']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        const preview = await desktopClient.previewWorkspaceImportFile(request)
+        return preview
+          ? { status: 'completed', value: preview }
+          : { status: 'canceled' }
+      } catch (error) {
+        handleError(error)
+        return {
+          status: 'failed',
+          message: toUserError(error, 'Unable to unlock the workspace file.').message,
+        }
+      }
+    },
+    [handleError, state.payload],
+  )
+
+  const selectWorkspaceImportFile = useCallback<Actions['selectWorkspaceImportFile']>(
+    async () => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        const selection = await desktopClient.selectWorkspaceImportFile()
+        return selection
+          ? { status: 'completed', value: selection }
+          : { status: 'canceled' }
+      } catch (error) {
+        handleError(error)
+        return {
+          status: 'failed',
+          message: toUserError(error, 'Unable to select the workspace file.').message,
+        }
+      }
+    },
+    [handleError, state.payload],
+  )
+
+  const commitWorkspaceImport = useCallback<Actions['commitWorkspaceImport']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        const response = await desktopClient.commitWorkspaceImport(request)
+        if (response.workspaceSwitcherStatus) {
+          dispatch({
+            type: 'WORKSPACE_CONTEXT_COMMITTED',
+            payload: response.payload,
+            status: response.workspaceSwitcherStatus,
+          })
+        } else {
+          dispatch({ type: 'WORKSPACE_CONTEXT_COMMITTED', payload: response.payload })
+          addWorkbenchMessage({
+            severity: 'warning',
+            source: 'Workspace Import',
+            message: 'Workspace imported, but the workspace list refresh is delayed.',
+            details: response.registryRefreshWarning
+              ?? 'Reopen the workspace list to try refreshing it again.',
+          })
+        }
+        return { status: 'completed', value: response }
+      } catch (error) {
+        handleError(error)
+        return {
+          status: 'failed',
+          message: toUserError(error, 'Unable to import the workspace.').message,
+        }
+      }
+    },
+    [addWorkbenchMessage, dispatch, handleError, state.payload],
+  )
+
+  const cancelWorkspaceImport = useCallback<Actions['cancelWorkspaceImport']>(
+    async (request) => {
+      try {
+        return await desktopClient.cancelWorkspaceImport(request)
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [handleError],
   )
 
   const getWorkspaceSwitcherStatus = useCallback<Actions['getWorkspaceSwitcherStatus']>(
@@ -327,11 +462,6 @@ export function useWorkspaceActions({
     },
     [dispatch, handleError],
   )
-
-  const refreshWorkspaceSwitcherStatus = useCallback(async () => {
-    const status = await desktopClient.getWorkspaceSwitcherStatus()
-    dispatch({ type: 'WORKSPACE_SWITCHER_STATUS_READY', status })
-  }, [dispatch])
 
   const setWorkspaceSwitcherEnabled = useCallback<Actions['setWorkspaceSwitcherEnabled']>(
     async (request) => {
@@ -365,15 +495,19 @@ export function useWorkspaceActions({
     async (request) => {
       try {
         ensureWorkspaceUnlocked(state.payload)
-        applyPayload(await desktopClient.createWorkspace(request))
-        await refreshWorkspaceSwitcherStatus()
+        const response = await desktopClient.createWorkspace(request)
+        dispatch({
+          type: 'WORKSPACE_CONTEXT_COMMITTED',
+          payload: response.payload,
+          status: response.workspaceSwitcherStatus,
+        })
         return true
       } catch (error) {
         handleError(error)
         return false
       }
     },
-    [applyPayload, handleError, refreshWorkspaceSwitcherStatus, state.payload],
+    [dispatch, handleError, state.payload],
   )
 
   const renameWorkspace = useCallback<Actions['renameWorkspace']>(
@@ -394,15 +528,19 @@ export function useWorkspaceActions({
     async (request) => {
       try {
         ensureWorkspaceUnlocked(state.payload)
-        applyPayload(await desktopClient.switchWorkspace(request))
-        await refreshWorkspaceSwitcherStatus()
+        const response = await desktopClient.switchWorkspace(request)
+        dispatch({
+          type: 'WORKSPACE_CONTEXT_COMMITTED',
+          payload: response.payload,
+          status: response.workspaceSwitcherStatus,
+        })
         return true
       } catch (error) {
         handleError(error)
         return false
       }
     },
-    [applyPayload, handleError, refreshWorkspaceSwitcherStatus, state.payload],
+    [dispatch, handleError, state.payload],
   )
 
   const updateWorkspaceBackupSettings = useCallback<Actions['updateWorkspaceBackupSettings']>(
@@ -912,6 +1050,32 @@ export function useWorkspaceActions({
     [handleError],
   )
 
+  const analyzeWorkspaceStorage = useCallback<Actions['analyzeWorkspaceStorage']>(
+    async (request = {}) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        return await desktopClient.analyzeWorkspaceStorage(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError, state.payload],
+  )
+
+  const analyzeWorkspaceBackupFile = useCallback<Actions['analyzeWorkspaceBackupFile']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        return await desktopClient.analyzeWorkspaceBackupFile(request)
+      } catch (error) {
+        handleError(error)
+        return undefined
+      }
+    },
+    [handleError, state.payload],
+  )
+
   const createWorkspaceBackupNow = useCallback<Actions['createWorkspaceBackupNow']>(
     async (request) => {
       try {
@@ -929,12 +1093,20 @@ export function useWorkspaceActions({
     async (request) => {
       try {
         ensureWorkspaceUnlocked(state.payload)
-        applyPayload(await desktopClient.restoreWorkspaceBackup(request))
+        const restoredPayload = await desktopClient.restoreWorkspaceBackup(request)
+        await applyWorkspaceTransferResult(
+          restoredPayload,
+          'Workspace Restore',
+          'Backup restored, but the workspace list refresh is delayed.',
+          'The restore completed successfully. Reopen the workspace list to try refreshing it again.',
+        )
+        return true
       } catch (error) {
         handleError(error)
+        return false
       }
     },
-    [applyPayload, handleError, state.payload],
+    [applyWorkspaceTransferResult, handleError, state.payload],
   )
 
   const deleteWorkspaceBackup = useCallback<Actions['deleteWorkspaceBackup']>(
@@ -972,6 +1144,10 @@ export function useWorkspaceActions({
       importWorkspace,
       exportWorkspaceFile,
       importWorkspaceFile,
+      previewWorkspaceImportFile,
+      selectWorkspaceImportFile,
+      commitWorkspaceImport,
+      cancelWorkspaceImport,
       getWorkspaceSwitcherStatus,
       setWorkspaceSwitcherEnabled,
       updateMultiWindowTabsSettings,
@@ -1016,6 +1192,8 @@ export function useWorkspaceActions({
       previewDatastoreMcpClientSetup,
       applyDatastoreMcpClientSetup,
       listWorkspaceBackups,
+      analyzeWorkspaceStorage,
+      analyzeWorkspaceBackupFile,
       createWorkspaceBackupNow,
       restoreWorkspaceBackup,
       deleteWorkspaceBackup,
@@ -1031,6 +1209,10 @@ export function useWorkspaceActions({
       getWorkspaceSwitcherStatus,
       importWorkspace,
       importWorkspaceFile,
+      previewWorkspaceImportFile,
+      selectWorkspaceImportFile,
+      commitWorkspaceImport,
+      cancelWorkspaceImport,
       updateWorkspaceBackupSettings,
       updateWorkspaceSearchSettings,
       updateDatastoreTestsSettings,
@@ -1069,6 +1251,8 @@ export function useWorkspaceActions({
       previewDatastoreMcpClientSetup,
       applyDatastoreMcpClientSetup,
       listWorkspaceBackups,
+      analyzeWorkspaceStorage,
+      analyzeWorkspaceBackupFile,
       createWorkspaceBackupNow,
       restoreWorkspaceBackup,
       renameWorkspace,

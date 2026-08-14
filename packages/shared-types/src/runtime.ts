@@ -964,6 +964,8 @@ export interface ConnectionTestRequest {
   profile: ConnectionProfile
   environmentId: string
   secret?: string
+  /** Write-only complete connection string used for this test request. */
+  connectionString?: string
 }
 
 export interface ConnectionTestResult {

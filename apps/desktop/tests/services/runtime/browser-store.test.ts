@@ -7,6 +7,7 @@ import {
   findEnvironment,
   findTab,
   getBrowserWorkspaceSwitcherStatus,
+  importBrowserWorkspace,
   loadBrowserSnapshot,
   normalizeUiStatePatch,
   renameBrowserWorkspace,
@@ -58,7 +59,7 @@ describe('browser workspace storage', () => {
     ).toBe(tab.result)
   })
 
-  it('persists raw connection strings with embedded credentials', () => {
+  it('keeps complete connection strings in memory without writing them to browser storage', () => {
     const snapshot = createBlankSnapshot()
     snapshot.connections = [
       {
@@ -103,7 +104,8 @@ describe('browser workspace storage', () => {
     saveBrowserSnapshot(snapshot)
 
     const stored = window.localStorage.getItem('datapadplusplus.workspace.v2') ?? ''
-    expect(stored).toContain('plain-secret')
+    expect(stored).not.toContain('plain-secret')
+    expect(stored).not.toContain('Server=localhost;Password=')
     const storedSnapshot = JSON.parse(stored) as typeof snapshot
     expect(storedSnapshot.connections.find((connection) => connection.id === 'conn-secret')?.connectionMode)
       .toBe('connection-string')
@@ -114,12 +116,12 @@ describe('browser workspace storage', () => {
     expect(loaded.connections.find((connection) => connection.id === 'conn-secret')?.connectionMode)
       .toBe('connection-string')
     expect(loaded.connections.find((connection) => connection.id === 'conn-placeholder')?.connectionString)
-      .toBe('Server=localhost;Password={{DB_PASSWORD}};')
+      .toBe('Server=localhost;Password=${DB_PASSWORD};')
     expect(loaded.connections.find((connection) => connection.id === 'conn-placeholder')?.connectionMode)
       .toBe('connection-string')
   })
 
-  it('preserves plaintext secrets from old browser snapshots when loaded', () => {
+  it('removes plaintext connection strings from old browser snapshots after loading them', () => {
     const snapshot = createBlankSnapshot()
     snapshot.connections = [
       {
@@ -149,6 +151,8 @@ describe('browser workspace storage', () => {
     expect(loaded.connections[0]?.connectionString)
       .toBe('mongodb://user:old-secret@localhost:27017/catalog')
     expect(loaded.connections[0]?.connectionMode).toBe('connection-string')
+    expect(window.localStorage.getItem('datapadplusplus.workspace.v2') ?? '')
+      .not.toContain('mongodb://user:old-secret')
   })
 
   it('does not persist plaintext environment secret variables in browser storage', () => {
@@ -310,6 +314,43 @@ describe('browser workspace storage', () => {
     expect(
       status.workspaces.find((workspace) => workspace.id === secondWorkspaceId)?.name,
     ).toBe('QA workspace')
+  })
+
+  it('imports a named browser workspace and refreshes its active registry summary', () => {
+    setBrowserWorkspaceSwitcherEnabled({ enabled: true })
+    const imported = createBlankSnapshot()
+    imported.connections.push({
+      id: 'conn-imported',
+      name: 'Imported database',
+      engine: 'postgresql',
+      family: 'sql',
+      host: 'localhost',
+      port: 5432,
+      database: 'imported',
+      environmentIds: [],
+      tags: [],
+      favorite: false,
+      readOnly: false,
+      icon: 'postgresql',
+      auth: {},
+      createdAt: '2026-08-14T00:00:00.000Z',
+      updatedAt: '2026-08-14T00:00:00.000Z',
+    })
+
+    const result = importBrowserWorkspace(imported, 'Imported QA', true)
+
+    expect(result.status.workspaces).toHaveLength(2)
+    expect(result.status.activeWorkspaceId).not.toBe('default')
+    expect(
+      result.status.workspaces.find(
+        (workspace) => workspace.id === result.status.activeWorkspaceId,
+      ),
+    ).toMatchObject({
+      name: 'Imported QA',
+      counts: { connections: 1 },
+      schemaVersion: imported.schemaVersion,
+    })
+    expect(loadBrowserSnapshot().connections[0]?.name).toBe('Imported database')
   })
 })
 

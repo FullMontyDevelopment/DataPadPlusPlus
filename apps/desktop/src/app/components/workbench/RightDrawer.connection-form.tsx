@@ -189,6 +189,7 @@ function connectionPatchForMode(
       connectionString: undefined,
       auth: {
         ...draft.auth,
+        connectionStringSecretRef: undefined,
         username: undefined,
         sslMode: undefined,
         cloudProvider: undefined,
@@ -201,6 +202,10 @@ function connectionPatchForMode(
     host: draft.host || 'localhost',
     port: preservePort ? draft.port ?? defaultPortForEngine(engine) : defaultPortForEngine(engine),
     connectionString: undefined,
+    auth: {
+      ...draft.auth,
+      connectionStringSecretRef: undefined,
+    },
   }
 }
 

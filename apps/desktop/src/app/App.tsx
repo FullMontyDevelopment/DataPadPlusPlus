@@ -46,6 +46,10 @@ import { comparableEnvironment } from './components/workbench/EnvironmentWorkspa
 import { useReviewConfirmation } from './components/workbench/use-review-confirmation'
 import { StatusBar } from './components/workbench/StatusBar'
 import { SettingsWorkspace } from './components/workbench/SettingsWorkspace'
+import {
+  WorkspaceExportDialog,
+  WorkspaceImportDialog,
+} from './components/workbench/WorkspaceTransferDialogs'
 import type { SettingsSection } from './components/workbench/SettingsWorkspace.constants'
 import {
   isRedisKeyBrowserState,
@@ -255,7 +259,6 @@ function DesktopWorkspace() {
     status,
     payload,
     diagnostics,
-    exportBundle,
     explorerCache,
     explorerError,
     explorerErrors,
@@ -285,8 +288,8 @@ function DesktopWorkspace() {
   const [workspaceWindowContext, setWorkspaceWindowContext] = useState<WorkspaceWindowContext>()
   const [workspaceWindowTargets, setWorkspaceWindowTargets] = useState<WorkspaceWindowTarget[]>([])
   useTaskbarQueryActivity(executionsByTab, workspaceWindowContext?.role === 'main')
-  const [exportPassphrase, setExportPassphrase] = useState('')
-  const [importPayload, setImportPayload] = useState('')
+  const [workspaceTransferDialog, setWorkspaceTransferDialog] = useState<'export' | 'import'>()
+  const [workspaceTransferNotice, setWorkspaceTransferNotice] = useState('')
   const [rendererPreference, setRendererPreference] = useState<{
     renderer?: ResultRenderer
     tabId?: string
@@ -515,6 +518,15 @@ function DesktopWorkspace() {
   const snapshotConnections = snapshot?.connections
   const snapshotEnvironments = snapshot?.environments
   const snapshotTabs = snapshot?.tabs
+  const currentWorkspaceName = workspaceSwitcherStatus?.workspaces.find(
+    (workspace) => workspace.id === workspaceSwitcherStatus.activeWorkspaceId,
+  )?.name ?? 'Current Workspace'
+
+  useEffect(() => {
+    if (!workspaceTransferNotice) return
+    const timer = window.setTimeout(() => setWorkspaceTransferNotice(''), 4500)
+    return () => window.clearTimeout(timer)
+  }, [workspaceTransferNotice])
   const workspaceWindowState = snapshot && workspaceWindowContext
     ? snapshot.ui.workspaceWindows?.find((item) => item.id === workspaceWindowContext.windowId)
       ?? (workspaceWindowContext.role === 'main'
@@ -3143,10 +3155,6 @@ function DesktopWorkspace() {
   }
 
   const closeDrawer = () => {
-    if (snapshot.ui.rightDrawer === 'diagnostics') {
-      setExportPassphrase('')
-      setImportPayload('')
-    }
     setConnectionDraft(undefined)
     setConnectionDraftParentId(undefined)
     void actions.updateUiState({
@@ -3665,6 +3673,39 @@ function DesktopWorkspace() {
         />
       ) : null}
 
+      {workspaceWindowContext.role === 'main' && workspaceTransferDialog === 'import' ? (
+        <WorkspaceImportDialog
+          canImportSecrets={payload.health.runtime === 'tauri'}
+          currentWorkspaceName={currentWorkspaceName}
+          onSelectFile={actions.selectWorkspaceImportFile}
+          onPreview={actions.previewWorkspaceImportFile}
+          onCommit={actions.commitWorkspaceImport}
+          onCancelSelection={(selectionId) =>
+            actions.cancelWorkspaceImport({ selectionId })
+          }
+          onClose={() => setWorkspaceTransferDialog(undefined)}
+          onCompleted={(workspaceName, refreshWarning) =>
+            setWorkspaceTransferNotice(
+              refreshWarning
+                ? `“${workspaceName}” was imported. ${refreshWarning}`
+                : `“${workspaceName}” was imported and is now active.`,
+            )
+          }
+        />
+      ) : null}
+
+      {workspaceWindowContext.role === 'main' && workspaceTransferDialog === 'export' ? (
+        <WorkspaceExportDialog
+          canIncludeSecrets={payload.health.runtime === 'tauri'}
+          workspaceName={currentWorkspaceName}
+          onExport={(passphrase, includeSecrets) =>
+            actions.exportWorkspaceFile({ passphrase, includeSecrets })
+          }
+          onClose={() => setWorkspaceTransferDialog(undefined)}
+          onCompleted={() => setWorkspaceTransferNotice('Workspace export saved.')}
+        />
+      ) : null}
+
       {pendingCreateTestSuite ? (
         <CreateTestSuiteDialog
           connections={snapshot.connections}
@@ -3950,26 +3991,24 @@ function DesktopWorkspace() {
                     onCreateBackup={async (automatic = false) => {
                       return actions.createWorkspaceBackupNow({ automatic })
                     }}
+                    onAnalyzeWorkspaceStorage={(includeSecretSizes = false) =>
+                      actions.analyzeWorkspaceStorage({ includeSecretSizes })
+                    }
+                    onAnalyzeWorkspaceBackup={(passphrase, includeSecretSizes = false) =>
+                      actions.analyzeWorkspaceBackupFile({ passphrase, includeSecretSizes })
+                    }
                     onDeleteBackup={(backupId) =>
                       actions.deleteWorkspaceBackup({ backupId })
                     }
                     onDeleteLogFile={actions.deleteAppLogFile}
-                    onExportWorkspaceFile={async (passphrase, includeSecrets) => {
-                      const response = await actions.exportWorkspaceFile({
-                        passphrase,
-                        includeSecrets,
-                      })
-                      return response?.path
-                    }}
-                    onImportWorkspaceFile={(passphrase) =>
-                      actions.importWorkspaceFile({ passphrase })
-                    }
+                    onOpenWorkspaceExport={() => setWorkspaceTransferDialog('export')}
+                    onOpenWorkspaceImport={() => setWorkspaceTransferDialog('import')}
                     onInstallUpdate={() => void actions.installAppUpdate()}
                     onListBackups={actions.listWorkspaceBackups}
                     onListLogFiles={actions.listAppLogFiles}
                     onReadLogFile={actions.readAppLogFile}
-                    onRestoreBackup={(backupId, passphrase) =>
-                      actions.restoreWorkspaceBackup({ backupId, passphrase })
+                    onRestoreBackup={(backupId, passphrase, importSecrets) =>
+                      actions.restoreWorkspaceBackup({ backupId, passphrase, importSecrets })
                     }
                     onSetKeyboardShortcut={actions.setKeyboardShortcut}
                     onSetSafeMode={(enabled) => void actions.setSafeModeEnabled(enabled)}
@@ -4497,7 +4536,7 @@ function DesktopWorkspace() {
                 ) : (
                   <WelcomeSurface
                     onCreateConnection={openNewConnectionDraft}
-                    onImportWorkspace={openDiagnosticsDrawer}
+                    onImportWorkspace={() => setWorkspaceTransferDialog('import')}
                     onOpenDiagnostics={openDiagnosticsDrawer}
                     onStartTutorial={startFirstInstallGuide}
                   />
@@ -4623,12 +4662,7 @@ function DesktopWorkspace() {
               connectionTest={connectionTest}
               diagnostics={diagnostics}
               explorerInspection={explorerInspection}
-              exportBundle={exportBundle}
               capabilities={runtimeCapabilities}
-              exportPassphrase={exportPassphrase}
-              importPayload={importPayload}
-              onExportPassphraseChange={setExportPassphrase}
-              onImportPayloadChange={setImportPayload}
               onClose={closeDrawer}
               onSaveConnection={saveConnectionProfile}
               onTestConnection={(profile, environmentId, secret) =>
@@ -4639,12 +4673,6 @@ function DesktopWorkspace() {
                 )
               }
               onRefreshDiagnostics={() => void actions.refreshDiagnostics()}
-              onExportWorkspace={(includeSecrets) =>
-                void actions.exportWorkspace(exportPassphrase, includeSecrets)
-              }
-              onImportWorkspace={(encryptedPayload) =>
-                void actions.importWorkspace(exportPassphrase, encryptedPayload)
-              }
               onApplyTemplate={(queryTemplate) =>
                 queryTemplate && activeTab
                   ? replaceActiveRawQueryText(queryTemplate)
@@ -4753,6 +4781,11 @@ function DesktopWorkspace() {
         onOpenDiagnostics={openDiagnosticsDrawer}
         onOpenUpdates={() => openDiagnosticsDrawer('updates')}
       />
+      {workspaceTransferNotice ? (
+        <div className="workspace-transfer-toast" role="status">
+          {workspaceTransferNotice}
+        </div>
+      ) : null}
     </div>
   )
 }

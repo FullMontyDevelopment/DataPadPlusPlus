@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clientWorkspace } from '../../../src/services/runtime/client-workspace'
 import {
+  createBrowserWorkspaceBundleV2,
+  decryptBrowserWorkspaceBundleV2,
   decryptBrowserWorkspacePayload,
   encryptBrowserWorkspacePayload,
 } from '../../../src/services/runtime/client-workspace-bundles'
-import { createBrowserWorkspaceBundlePayloadText } from '../../../src/services/runtime/client-workspace-integrity'
+import {
+  createBrowserWorkspaceBundlePayloadText,
+  parseBrowserWorkspacePayloadWithMetadata,
+} from '../../../src/services/runtime/client-workspace-integrity'
 import { loadBrowserSnapshot, saveBrowserSnapshot } from '../../../src/services/runtime/browser-store'
 
 const invoke = vi.fn()
@@ -123,20 +128,62 @@ describe('client workspace import validation', () => {
     })
   })
 
+  it.runIf(
+    globalThis.crypto?.subtle &&
+    typeof CompressionStream !== 'undefined' &&
+    typeof DecompressionStream !== 'undefined',
+  )('creates compact authenticated v2 files with Rust-compatible WebCrypto metadata', async () => {
+    const snapshot = loadBrowserSnapshot()
+    const bundle = await createBrowserWorkspaceBundleV2(
+      'correct horse',
+      await createBrowserWorkspaceBundlePayloadText(snapshot),
+      snapshot.schemaVersion,
+    )
+
+    expect(bundle).toMatchObject({
+      version: 2,
+      formatVersion: 2,
+      workspaceSchemaVersion: snapshot.schemaVersion,
+      compression: 'gzip',
+      includesSecrets: false,
+      secretCount: 0,
+      kdf: { algorithm: 'pbkdf2-sha256', iterations: 600_000 },
+      cipher: { algorithm: 'aes-256-gcm' },
+    })
+    await expect(
+      decryptBrowserWorkspaceBundleV2('correct horse', bundle),
+    ).resolves.toMatchObject({ schemaVersion: snapshot.schemaVersion })
+
+    await expect(
+      decryptBrowserWorkspaceBundleV2('correct horse', {
+        ...bundle,
+        createdAt: 'tampered',
+      }),
+    ).rejects.toThrow()
+  }, 45_000)
+
   it.runIf(globalThis.crypto?.subtle)('adds encrypted integrity metadata to browser-preview bundles', async () => {
-    const payloadText = await createBrowserWorkspaceBundlePayloadText(loadBrowserSnapshot())
+    const payloadText = await createBrowserWorkspaceBundlePayloadText(
+      loadBrowserSnapshot(),
+      'QA Workspace',
+    )
     const payload = JSON.parse(payloadText) as {
       integrity?: { algorithm?: string; scope?: string; digest?: string }
       secrets?: unknown[]
       snapshot?: unknown
+      sourceWorkspaceName?: string
     }
 
     expect(payload.snapshot).toBeTruthy()
     expect(payload.secrets).toEqual([])
+    expect(payload.sourceWorkspaceName).toBe('QA Workspace')
     expect(payload.integrity).toMatchObject({
       algorithm: 'sha256',
       scope: 'workspace-bundle-payload-v1',
       digest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    })
+    await expect(parseBrowserWorkspacePayloadWithMetadata(payloadText)).resolves.toMatchObject({
+      sourceWorkspaceName: 'QA Workspace',
     })
 
     const encryptedPayload = await encryptBrowserWorkspacePayload('correct horse', payloadText)

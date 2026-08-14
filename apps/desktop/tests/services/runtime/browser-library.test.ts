@@ -3,6 +3,7 @@ import type {
   QueryTabState,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
+import { CURRENT_WORKSPACE_SCHEMA_VERSION } from '@datapadplusplus/shared-types'
 import { describe, expect, it } from 'vitest'
 import {
   duplicateLibraryNode,
@@ -635,7 +636,7 @@ function workspaceSnapshot(): WorkspaceSnapshot {
   }
 
   return {
-    schemaVersion: 3,
+    schemaVersion: CURRENT_WORKSPACE_SCHEMA_VERSION,
     connections: [connection],
     environments: [],
     tabs: [existingTab],

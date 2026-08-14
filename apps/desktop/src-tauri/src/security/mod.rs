@@ -24,6 +24,8 @@ pub(crate) use mongodb_script::{analyze_mongodb_script, analyze_resolved_mongodb
 pub const SAFE_MODE_LABEL: &str = "production-safe-mode";
 const EXPORT_KDF: &str = "pbkdf2-sha256";
 const EXPORT_KDF_ITERATIONS: u32 = 210_000;
+pub const EXPORT_KDF_V2_ITERATIONS: u32 = 600_000;
+pub const MAX_EXPORT_KDF_ITERATIONS: u32 = 1_000_000;
 const FILE_SECRET_VERSION: u8 = 1;
 #[cfg(not(test))]
 const FILE_SECRET_MASTER_SERVICE: &str = "DataPadPlusPlus";
@@ -33,6 +35,7 @@ const FILE_SECRET_MASTER_ACCOUNT: &str = "encrypted-file-secret-store-master-key
 pub trait SecretStore {
     fn store_secret(&self, secret_ref: &SecretRef, secret: &str) -> Result<(), CommandError>;
     fn resolve_secret(&self, secret_ref: &SecretRef) -> Result<String, CommandError>;
+    fn delete_secret(&self, secret_ref: &SecretRef) -> Result<(), CommandError>;
 }
 
 pub struct KeyringSecretStore;
@@ -61,6 +64,14 @@ impl SecretStore for KeyringSecretStore {
             .map_err(|error| CommandError::new("secret-store", error.to_string()))?;
         entry
             .get_password()
+            .map_err(|error| CommandError::new("secret-store", error.to_string()))
+    }
+
+    fn delete_secret(&self, secret_ref: &SecretRef) -> Result<(), CommandError> {
+        let entry = Entry::new(&secret_ref.service, &secret_ref.account)
+            .map_err(|error| CommandError::new("secret-store", error.to_string()))?;
+        entry
+            .delete_credential()
             .map_err(|error| CommandError::new("secret-store", error.to_string()))
     }
 }
@@ -99,6 +110,16 @@ impl SecretStore for FileSecretStore {
 
         Err(CommandError::new("secret-store", "Secret was not found."))
     }
+
+    fn delete_secret(&self, secret_ref: &SecretRef) -> Result<(), CommandError> {
+        let path = file_secret_path();
+        let mut secrets = read_file_secrets(&path)?;
+        secrets.remove(&file_secret_key(secret_ref));
+        if path.exists() {
+            fs::write(path, serde_json::to_string_pretty(&secrets)?)?;
+        }
+        Ok(())
+    }
 }
 
 pub fn using_file_secret_store() -> bool {
@@ -124,6 +145,14 @@ pub fn resolve_secret_value(secret_ref: &SecretRef) -> Result<String, CommandErr
         FileSecretStore.resolve_secret(secret_ref)
     } else {
         KeyringSecretStore.resolve_secret(secret_ref)
+    }
+}
+
+pub fn delete_secret_value(secret_ref: &SecretRef) -> Result<(), CommandError> {
+    if using_file_secret_store() {
+        FileSecretStore.delete_secret(secret_ref)
+    } else {
+        KeyringSecretStore.delete_secret(secret_ref)
     }
 }
 
@@ -903,6 +932,78 @@ pub fn encrypt_export_payload(passphrase: &str, payload: &str) -> Result<String,
     ))
 }
 
+pub fn encrypt_export_payload_v2(
+    passphrase: &str,
+    payload: &[u8],
+    authenticated_metadata: &[u8],
+    salt: &[u8],
+    nonce_bytes: &[u8; 12],
+    iterations: u32,
+) -> Result<Vec<u8>, CommandError> {
+    if salt.len() != 16 || !(1..=MAX_EXPORT_KDF_ITERATIONS).contains(&iterations) {
+        return Err(CommandError::new(
+            "export-encryption",
+            "Workspace bundle encryption metadata is invalid.",
+        ));
+    }
+
+    let mut key = derive_export_key(passphrase, salt, iterations);
+    let cipher = Aes256Gcm::new_from_slice(&key)
+        .map_err(|error| CommandError::new("export-encryption", error.to_string()))?;
+    key.fill(0);
+    let nonce = Nonce::from(*nonce_bytes);
+    cipher
+        .encrypt(
+            &nonce,
+            Payload {
+                msg: payload,
+                aad: authenticated_metadata,
+            },
+        )
+        .map_err(|_| {
+            CommandError::new(
+                "export-encryption",
+                "Unable to encrypt the workspace bundle.",
+            )
+        })
+}
+
+pub fn decrypt_export_payload_v2(
+    passphrase: &str,
+    ciphertext: &[u8],
+    authenticated_metadata: &[u8],
+    salt: &[u8],
+    nonce_bytes: &[u8; 12],
+    iterations: u32,
+) -> Result<Vec<u8>, CommandError> {
+    if salt.len() != 16 || !(1..=MAX_EXPORT_KDF_ITERATIONS).contains(&iterations) {
+        return Err(CommandError::new(
+            "export-decryption",
+            "Workspace bundle KDF metadata is outside the supported safety limits.",
+        ));
+    }
+
+    let mut key = derive_export_key(passphrase, salt, iterations);
+    let cipher = Aes256Gcm::new_from_slice(&key)
+        .map_err(|error| CommandError::new("export-decryption", error.to_string()))?;
+    key.fill(0);
+    let nonce = Nonce::from(*nonce_bytes);
+    cipher
+        .decrypt(
+            &nonce,
+            Payload {
+                msg: ciphertext,
+                aad: authenticated_metadata,
+            },
+        )
+        .map_err(|_| {
+            CommandError::new(
+                "export-decryption",
+                "The passphrase is incorrect or the workspace bundle was modified.",
+            )
+        })
+}
+
 pub fn decrypt_export_payload(
     passphrase: &str,
     encrypted_payload: &str,
@@ -930,7 +1031,7 @@ pub fn decrypt_export_payload(
         let iterations = package["iterations"]
             .as_u64()
             .and_then(|value| u32::try_from(value).ok())
-            .filter(|value| *value > 0)
+            .filter(|value| (1..=MAX_EXPORT_KDF_ITERATIONS).contains(value))
             .ok_or_else(|| CommandError::new("export-decryption", "Invalid KDF iterations."))?;
         let salt = BASE64
             .decode(salt_b64)

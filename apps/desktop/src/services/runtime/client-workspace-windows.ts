@@ -17,6 +17,7 @@ export const WORKSPACE_CHANGED_EVENT = 'datapad://workspace-changed'
 
 export interface WorkspaceChangedEvent {
   revision: number
+  contextChanged?: boolean
 }
 
 export async function currentWorkspaceWindowId() {

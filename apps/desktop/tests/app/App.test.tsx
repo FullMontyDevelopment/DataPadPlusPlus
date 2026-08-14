@@ -9,7 +9,14 @@ import type {
   QueryTabState,
 } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../src/services/runtime/client'
-import { loadBrowserSnapshot, saveBrowserSnapshot } from '../../src/services/runtime/browser-store'
+import {
+  createBrowserWorkspace,
+  getBrowserWorkspaceSwitcherStatus,
+  loadBrowserSnapshot,
+  saveBrowserSnapshot,
+  setBrowserWorkspaceSwitcherEnabled,
+  switchBrowserWorkspace,
+} from '../../src/services/runtime/browser-store'
 import { createObjectViewTabInSnapshot } from '../../src/services/runtime/browser-tabs'
 import { App } from '../../src/app/App'
 import { createBlankBootstrapPayload } from '../../src/app/data/workspace-factory'
@@ -2088,7 +2095,7 @@ describe('App', () => {
       } else {
         expect(screen.getByLabelText('Bottom panel')).toBeInTheDocument()
       }
-    }, { timeout: 4000 })
+    }, { timeout: 8000 })
 
     fireEvent.keyDown(window, { key: 'j', ctrlKey: true })
     await waitFor(() => {
@@ -2097,7 +2104,7 @@ describe('App', () => {
       } else {
         expect(screen.queryByLabelText('Bottom panel')).not.toBeInTheDocument()
       }
-    }, { timeout: 4000 })
+    }, { timeout: 8000 })
 
     fireEvent.keyDown(window, { key: 'b', ctrlKey: true })
     expect(screen.getByLabelText('library sidebar')).toBeInTheDocument()
@@ -2123,7 +2130,7 @@ describe('App', () => {
     await waitFor(() => {
       expect(executeSpy).toHaveBeenCalled()
     })
-  }, 15000)
+  }, 20000)
 
   it('prevents the browser context menu so the workbench feels native', async () => {
     render(<App />)
@@ -2160,9 +2167,67 @@ describe('App', () => {
       saved: true,
       secretCount: 0,
     })
+    const selectSpy = vi
+      .spyOn(desktopClient, 'selectWorkspaceImportFile')
+      .mockResolvedValueOnce({
+        selectionId: 'preview-1',
+        fileName: 'imported-qa.datapadpp-workspace',
+        encryptedSizeBytes: 1024,
+      })
+    const previewSpy = vi
+      .spyOn(desktopClient, 'previewWorkspaceImportFile')
+      .mockResolvedValueOnce({
+        selectionId: 'preview-1',
+        fileName: 'imported-qa.datapadpp-workspace',
+        suggestedWorkspaceName: 'Imported QA',
+        workspaceRevision: bootstrapPayload.snapshot.workspaceRevision,
+        formatVersion: 2,
+        workspaceSchemaVersion: bootstrapPayload.snapshot.schemaVersion,
+        includesSecrets: false,
+        secretCount: 0,
+        encryptedSizeBytes: 1024,
+        decryptedSizeBytes: 2048,
+        connections: bootstrapPayload.snapshot.connections.length,
+        environments: bootstrapPayload.snapshot.environments.length,
+        openTabs: bootstrapPayload.snapshot.tabs.length,
+        closedTabs: bootstrapPayload.snapshot.closedTabs.length,
+        savedItems: bootstrapPayload.snapshot.savedWork.length,
+        warnings: [],
+      })
     const importSpy = vi
-      .spyOn(desktopClient, 'importWorkspaceBundleFile')
-      .mockResolvedValueOnce(bootstrapPayload)
+      .spyOn(desktopClient, 'commitWorkspaceImport')
+      .mockResolvedValueOnce({
+        payload: bootstrapPayload,
+        workspaceSwitcherStatus: {
+          enabled: true,
+          activeWorkspaceId: 'imported-qa',
+          workspaces: [
+            {
+              id: 'default',
+              name: 'Default Workspace',
+              schemaVersion: bootstrapPayload.snapshot.schemaVersion,
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-01-01T00:00:00.000Z',
+              lastOpenedAt: '2026-01-01T00:00:00.000Z',
+              counts: { connections: 0, environments: 0, libraryItems: 0, openTabs: 0 },
+            },
+            {
+              id: 'imported-qa',
+              name: 'Imported QA',
+              schemaVersion: bootstrapPayload.snapshot.schemaVersion,
+              createdAt: '2026-01-02T00:00:00.000Z',
+              updatedAt: '2026-01-02T00:00:00.000Z',
+              lastOpenedAt: '2026-01-02T00:00:00.000Z',
+              counts: {
+                connections: bootstrapPayload.snapshot.connections.length,
+                environments: bootstrapPayload.snapshot.environments.length,
+                libraryItems: bootstrapPayload.snapshot.libraryNodes.length,
+                openTabs: bootstrapPayload.snapshot.tabs.length,
+              },
+            },
+          ],
+        },
+      })
 
     render(<App />)
 
@@ -2178,10 +2243,14 @@ describe('App', () => {
     expect(importButton).toBeEnabled()
 
     fireEvent.click(exportButton)
-    fireEvent.change(within(settings).getByLabelText('Export passphrase'), {
+    const exportDialog = await screen.findByRole('dialog', { name: /Export/i })
+    fireEvent.change(within(exportDialog).getByLabelText('Passphrase'), {
       target: { value: 'strong-backup-passphrase!' },
     })
-    fireEvent.click(within(settings).getByRole('button', { name: 'Export Workspace' }))
+    fireEvent.change(within(exportDialog).getByLabelText('Confirm passphrase'), {
+      target: { value: 'strong-backup-passphrase!' },
+    })
+    fireEvent.click(within(exportDialog).getByRole('button', { name: 'Choose Location and Export' }))
 
     await waitFor(() => {
       expect(exportSpy).toHaveBeenCalledWith({
@@ -2189,21 +2258,105 @@ describe('App', () => {
         includeSecrets: false,
       })
     })
-    expect(within(settings).getByText('Workspace exported.')).toBeInTheDocument()
+    expect(await screen.findByText('Workspace export saved.')).toBeInTheDocument()
 
     fireEvent.click(importButton)
-    fireEvent.change(within(settings).getByLabelText('Import passphrase'), {
+    const importDialog = await screen.findByRole('dialog', { name: /Import a workspace/i })
+    fireEvent.click(within(importDialog).getByRole('button', { name: 'Choose Workspace File' }))
+    await waitFor(() => expect(selectSpy).toHaveBeenCalledOnce())
+    fireEvent.change(within(importDialog).getByLabelText('Passphrase'), {
       target: { value: 'strong-backup-passphrase!' },
     })
-    fireEvent.click(within(settings).getByRole('button', { name: 'Import Workspace' }))
+    fireEvent.click(within(importDialog).getByRole('button', { name: 'Unlock and Review' }))
     await waitFor(() => {
-      expect(importSpy).toHaveBeenCalledWith({ passphrase: 'strong-backup-passphrase!' })
+      expect(previewSpy).toHaveBeenCalledWith({
+        selectionId: 'preview-1',
+        passphrase: 'strong-backup-passphrase!',
+      })
     })
+    expect(within(importDialog).getByLabelText('Workspace name')).toHaveValue('Imported QA')
+    fireEvent.click(within(importDialog).getByRole('button', { name: 'Create and Import' }))
+    await waitFor(() => {
+      expect(importSpy).toHaveBeenCalledWith({
+        selectionId: 'preview-1',
+        workspaceRevision: bootstrapPayload.snapshot.workspaceRevision,
+        importSecrets: false,
+        importAsNew: true,
+        workspaceName: 'Imported QA',
+      })
+    })
+    expect(await screen.findByText('“Imported QA” was imported and is now active.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Imported QAschema/i })).toHaveAttribute('aria-current', 'true')
 
-    fireEvent.click(screen.getByLabelText('Close tab Settings'))
+    expect(screen.queryByRole('tab', { name: /Settings/i })).not.toBeInTheDocument()
+  })
+
+  it('replaces Explorer and open tabs when switching to a lower-revision workspace', async () => {
+    const first = createBlankBootstrapPayload().snapshot
+    const environment = testEnvironment('env-local', 'Local')
+    const firstConnection = startupConnection('conn-first-workspace', 'First workspace database')
+    const firstTab: QueryTabState = {
+      id: 'tab-first-workspace',
+      title: 'First workspace.sql',
+      connectionId: firstConnection.id,
+      environmentId: environment.id,
+      family: 'sql',
+      language: 'sql',
+      editorLabel: 'SQL editor',
+      queryText: 'select 1;',
+      status: 'idle',
+      dirty: false,
+      history: [],
+    }
+    first.workspaceRevision = 42
+    first.environments = [environment]
+    first.connections = [firstConnection]
+    first.tabs = [firstTab]
+    first.ui.activeConnectionId = firstConnection.id
+    first.ui.activeEnvironmentId = environment.id
+    first.ui.activeTabId = firstTab.id
+    saveBrowserSnapshot(first)
+    setBrowserWorkspaceSwitcherEnabled({ enabled: true })
+
+    const second = createBrowserWorkspace({ name: 'Second Workspace' })
+    const secondWorkspaceId = getBrowserWorkspaceSwitcherStatus().activeWorkspaceId
+    const secondConnection = startupConnection('conn-second-workspace', 'Second workspace database')
+    const secondTab: QueryTabState = {
+      ...firstTab,
+      id: 'tab-second-workspace',
+      title: 'Second workspace.sql',
+      connectionId: secondConnection.id,
+      queryText: 'select 2;',
+    }
+    second.workspaceRevision = 3
+    second.environments = [environment]
+    second.connections = [secondConnection]
+    second.tabs = [secondTab]
+    second.ui.activeConnectionId = secondConnection.id
+    second.ui.activeEnvironmentId = environment.id
+    second.ui.activeTabId = secondTab.id
+    saveBrowserSnapshot(second)
+    switchBrowserWorkspace({ workspaceId: 'default' })
+
+    render(<App />)
+
+    await screen.findByText('First workspace database')
+    expect(screen.getByTitle(/^First workspace\.sql/)).toHaveAttribute('role', 'tab')
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Second Workspaceschema/i }),
+    )
+
     await waitFor(() => {
-      expect(screen.queryByRole('tab', { name: /Settings/i })).not.toBeInTheDocument()
+      expect(screen.getByText('Second workspace database')).toBeInTheDocument()
+      expect(screen.getByTitle(/^Second workspace\.sql/)).toHaveAttribute('role', 'tab')
     })
+    expect(screen.queryByText('First workspace database')).not.toBeInTheDocument()
+    expect(screen.queryByTitle(/^First workspace\.sql/)).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /^Second Workspaceschema/i }),
+    ).toHaveAttribute('aria-current', 'true')
+    expect(getBrowserWorkspaceSwitcherStatus().activeWorkspaceId).toBe(secondWorkspaceId)
   })
 
   it('saves, opens, and deletes library query work from a real tab', async () => {

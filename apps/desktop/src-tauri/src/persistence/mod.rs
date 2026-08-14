@@ -17,7 +17,8 @@ mod durable_write;
 pub const SNAPSHOT_FORMAT: &str = "datapadplusplus-pack-v1";
 pub const LEGACY_DATANAUT_SNAPSHOT_FORMAT: &str = "datanaut-pack-v1";
 pub const LEGACY_SNAPSHOT_FORMAT: &str = "universality-pack-v1";
-pub const SCHEMA_VERSION: u32 = 8;
+include!(concat!(env!("OUT_DIR"), "/workspace_schema_version.rs"));
+pub const CONSOLIDATED_LEGACY_SCHEMA_VERSION: u32 = 11;
 const DEFAULT_WORKSPACE_ID: &str = "default";
 const DEFAULT_WORKSPACE_NAME: &str = "Default Workspace";
 
@@ -120,22 +121,60 @@ pub fn load_snapshot(app: &AppHandle) -> Result<Option<WorkspaceSnapshot>, Comma
 
 fn read_snapshot_with_backup(path: &Path) -> Result<Option<WorkspaceSnapshot>, CommandError> {
     let content = fs::read_to_string(path)?;
-    match serde_json::from_str::<WorkspaceSnapshot>(&content) {
+    match parse_workspace_snapshot(&content) {
         Ok(snapshot) => Ok(Some(snapshot)),
-        Err(primary_error) => {
+        Err(primary_error)
+            if primary_error.code != "workspace-schema-version-invalid"
+                && primary_error.code != "workspace-newer-version" =>
+        {
             let backup_path = path.with_extension("json.bak");
             if !backup_path.exists() {
-                return Err(primary_error.into());
+                return Err(primary_error);
             }
 
             let backup_content = fs::read_to_string(backup_path)?;
-            let snapshot = serde_json::from_str::<WorkspaceSnapshot>(&backup_content)?;
+            let snapshot = parse_workspace_snapshot(&backup_content)?;
             Ok(Some(snapshot))
         }
+        Err(error) => Err(error),
     }
 }
 
+fn parse_workspace_snapshot(content: &str) -> Result<WorkspaceSnapshot, CommandError> {
+    let value = serde_json::from_str::<serde_json::Value>(content)?;
+    let schema_version = match value.get("schemaVersion") {
+        None | Some(serde_json::Value::Null) => 0,
+        Some(value) => value
+            .as_u64()
+            .and_then(|version| u32::try_from(version).ok())
+            .ok_or_else(|| {
+                CommandError::new(
+                    "workspace-schema-version-invalid",
+                    "Workspace schemaVersion must be a non-negative whole number.",
+                )
+            })?,
+    };
+    validate_workspace_schema_version(schema_version)?;
+    let snapshot = serde_json::from_value::<WorkspaceSnapshot>(value)?;
+    if snapshot.schema_version != schema_version {
+        return Err(CommandError::new(
+            "workspace-schema-version-invalid",
+            "Workspace schemaVersion could not be read consistently.",
+        ));
+    }
+    Ok(snapshot)
+}
+
 pub fn save_snapshot(app: &AppHandle, snapshot: &WorkspaceSnapshot) -> Result<(), CommandError> {
+    if snapshot.schema_version != SCHEMA_VERSION {
+        return Err(CommandError::new(
+            "workspace-schema-version-invalid",
+            format!(
+                "DataPad++ refused to save workspace schema version {}. Expected version {SCHEMA_VERSION}.",
+                snapshot.schema_version
+            ),
+        ));
+    }
     let mut registry = ensure_workspace_registry(app, snapshot)?;
     let active_workspace_id = registry.active_workspace_id.clone();
     let path = workspace_snapshot_path(app, &active_workspace_id);
@@ -193,6 +232,31 @@ pub fn create_workspace_profile(
     ));
     write_snapshot_file(&workspace_snapshot_path(app, workspace_id), snapshot)?;
     save_workspace_registry(app, &registry)?;
+    Ok(())
+}
+
+pub fn rollback_imported_workspace_profile(
+    app: &AppHandle,
+    current_snapshot: &WorkspaceSnapshot,
+    imported_workspace_id: &str,
+    previous_workspace_id: &str,
+) -> Result<(), CommandError> {
+    let mut registry = ensure_workspace_registry(app, current_snapshot)?;
+    registry
+        .workspaces
+        .retain(|workspace| workspace.id != imported_workspace_id);
+    if registry
+        .workspaces
+        .iter()
+        .any(|workspace| workspace.id == previous_workspace_id)
+    {
+        registry.active_workspace_id = previous_workspace_id.into();
+    }
+    save_workspace_registry(app, &registry)?;
+    let path = workspace_snapshot_path(app, imported_workspace_id);
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
     Ok(())
 }
 
@@ -356,6 +420,7 @@ fn update_workspace_summary(
                 workspace.name = name.into();
             }
             workspace.updated_at = timestamp.clone();
+            workspace.schema_version = snapshot.schema_version;
             workspace.counts = workspace_counts(snapshot);
         }
     }
@@ -372,11 +437,24 @@ fn workspace_summary(
     WorkspaceSummary {
         id: workspace_id.into(),
         name: name.into(),
+        schema_version: snapshot.schema_version,
         created_at: timestamp.clone(),
         updated_at: timestamp,
         last_opened_at,
         counts: workspace_counts(snapshot),
     }
+}
+
+pub fn validate_workspace_schema_version(schema_version: u32) -> Result<(), CommandError> {
+    if schema_version > SCHEMA_VERSION {
+        return Err(CommandError::new(
+            "workspace-newer-version",
+            format!(
+                "This workspace uses schema version {schema_version} and was created by a newer DataPad++ version. Update DataPad++ before opening it."
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn workspace_counts(snapshot: &WorkspaceSnapshot) -> WorkspaceSummaryCounts {
@@ -442,3 +520,7 @@ fn env_value(keys: &[&str]) -> Option<String> {
             .filter(|value| !value.trim().is_empty())
     })
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/persistence/workspace_schema_tests.rs"]
+mod workspace_schema_tests;

@@ -105,8 +105,8 @@ pub fn get_app_health(state: State<'_, SharedAppState>) -> Result<AppHealth, Com
 
 #[tauri::command]
 pub fn bootstrap_app(state: State<'_, SharedAppState>) -> Result<BootstrapPayload, CommandError> {
-    let state = lock_state(&state)?;
-    Ok(state.bootstrap_payload())
+    let mut state = lock_state(&state)?;
+    Ok(state.take_bootstrap_payload())
 }
 
 #[tauri::command]

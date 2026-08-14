@@ -28,8 +28,9 @@ describe('client connection command validation', () => {
     expect(invoke).toHaveBeenCalledWith(
       'upsert_connection_profile',
       expect.objectContaining({
-        profile: expect.objectContaining({
+        request: expect.objectContaining({
           connectionString: 'mongodb://user:secret@localhost/catalog',
+          profile: expect.objectContaining({ connectionString: undefined }),
         }),
       }),
     )
@@ -54,17 +55,38 @@ describe('client connection command validation', () => {
     expect(invoke).toHaveBeenCalledWith(
       'upsert_connection_profile',
       expect.objectContaining({
-        profile: expect.objectContaining({
-          host: 'datapadplusplus.kkravqn.mongodb.net',
-          mongodbOptions: expect.objectContaining({
-            connectionScheme: 'mongodb+srv',
-            authSource: 'admin',
-            appName: 'DataPadPlusPlus',
-            tls: true,
+        request: expect.objectContaining({
+          profile: expect.objectContaining({
+            host: 'datapadplusplus.kkravqn.mongodb.net',
+            mongodbOptions: expect.objectContaining({
+              connectionScheme: 'mongodb+srv',
+              authSource: 'admin',
+              appName: 'DataPadPlusPlus',
+              tls: true,
+            }),
           }),
         }),
       }),
     )
+  }, 15000)
+
+  it('sends an exact multiline connection string outside the test profile', async () => {
+    window.__TAURI_INTERNALS__ = {}
+    invoke.mockResolvedValueOnce({ ok: true })
+    const { clientConnections } = await import('../../../src/services/runtime/client-connections')
+    const connectionString = 'Data Source=(DESCRIPTION=\n  (ADDRESS=(HOST=数据库))\n);Password=" p@ss ";'
+
+    await clientConnections.testConnection({
+      profile: { ...connectionProfile(), connectionString },
+      environmentId: 'env-qa',
+    })
+
+    expect(invoke).toHaveBeenCalledWith('test_connection', {
+      request: expect.objectContaining({
+        connectionString,
+        profile: expect.objectContaining({ connectionString: undefined }),
+      }),
+    })
   }, 15000)
 
   it('rejects plaintext secret environment variables before invoking desktop commands', async () => {

@@ -3,15 +3,25 @@ import type {
   DiagnosticsReport,
   ExportBundle,
   WorkspaceBackupDeleteRequest,
+  WorkspaceBackupFileAnalysisRequest,
   WorkspaceBackupRestoreRequest,
   WorkspaceBackupRunRequest,
   WorkspaceBackupRunResponse,
   WorkspaceBackupSettingsRequest,
   WorkspaceBackupSummary,
+  WorkspaceActivationResponse,
+  WorkspaceStorageAnalysisRequest,
+  WorkspaceStorageReport,
   WorkspaceBundleFileExportRequest,
   WorkspaceBundleFileExportResponse,
   WorkspaceBundleFileImportRequest,
   WorkspaceCreateRequest,
+  WorkspaceImportCancelRequest,
+  WorkspaceImportCommitRequest,
+  WorkspaceImportCommitResponse,
+  WorkspaceImportPreview,
+  WorkspaceImportPreviewRequest,
+  WorkspaceImportSelection,
   WorkspaceRenameRequest,
   DatastoreSecurityCheckSnapshot,
   DatastoreSecurityChecksRefreshRequest,
@@ -39,6 +49,7 @@ import {
   cloneSnapshot,
   createBrowserWorkspace,
   getBrowserWorkspaceSwitcherStatus,
+  importBrowserWorkspace,
   loadBrowserSnapshot,
   normalizeUiStatePatch,
   renameBrowserWorkspace,
@@ -49,6 +60,9 @@ import {
 } from './browser-store'
 import {
   browserBackupSummaries,
+  createBrowserWorkspaceBundleV2,
+  decryptBrowserWorkspaceBundleV2,
+  decryptBrowserWorkspaceBundleV2WithMetadata,
   decryptBrowserWorkspacePayload,
   downloadBrowserWorkspaceBundle,
   encryptBrowserWorkspacePayload,
@@ -70,6 +84,19 @@ const FIRST_INSTALL_GUIDE_STEP_IDS: FirstInstallGuideStepId[] = [
   'query',
   'settings',
 ]
+
+interface BrowserPendingWorkspaceImport {
+  bundle: ExportBundle
+  fileName: string
+  encryptedSizeBytes: number
+  workspaceRevision: number
+  createdAt: number
+  snapshot?: WorkspaceSnapshot
+  sourceWorkspaceName?: string
+}
+
+const browserPendingWorkspaceImports = new Map<string, BrowserPendingWorkspaceImport>()
+const BROWSER_PENDING_IMPORT_TTL_MS = 10 * 60 * 1000
 
 function isFirstInstallGuideStepId(
   value: FirstInstallGuideStepId | undefined,
@@ -126,12 +153,15 @@ export const clientWorkspace = {
     return setBrowserWorkspaceSwitcherEnabled(request)
   },
 
-  async createWorkspace(request: WorkspaceCreateRequest): Promise<BootstrapPayload> {
+  async createWorkspace(request: WorkspaceCreateRequest): Promise<WorkspaceActivationResponse> {
     if (isTauriRuntime()) {
-      return invokeDesktop<BootstrapPayload>('create_workspace', { request })
+      return invokeDesktop<WorkspaceActivationResponse>('create_workspace', { request })
     }
 
-    return buildBrowserPayload(createBrowserWorkspace(request))
+    return {
+      payload: buildBrowserPayload(createBrowserWorkspace(request)),
+      workspaceSwitcherStatus: getBrowserWorkspaceSwitcherStatus(),
+    }
   },
 
   async renameWorkspace(request: WorkspaceRenameRequest): Promise<WorkspaceSwitcherStatus> {
@@ -142,12 +172,15 @@ export const clientWorkspace = {
     return renameBrowserWorkspace(request)
   },
 
-  async switchWorkspace(request: WorkspaceSwitchRequest): Promise<BootstrapPayload> {
+  async switchWorkspace(request: WorkspaceSwitchRequest): Promise<WorkspaceActivationResponse> {
     if (isTauriRuntime()) {
-      return invokeDesktop<BootstrapPayload>('switch_workspace', { request })
+      return invokeDesktop<WorkspaceActivationResponse>('switch_workspace', { request })
     }
 
-    return buildBrowserPayload(switchBrowserWorkspace(request))
+    return {
+      payload: buildBrowserPayload(switchBrowserWorkspace(request)),
+      workspaceSwitcherStatus: getBrowserWorkspaceSwitcherStatus(),
+    }
   },
 
   async setTheme(theme: WorkspaceSnapshot['preferences']['theme']): Promise<BootstrapPayload> {
@@ -315,6 +348,7 @@ export const clientWorkspace = {
         passphrase,
         await createBrowserWorkspaceBundlePayloadText(
           migrateWorkspaceSnapshot(loadBrowserSnapshot()),
+          activeBrowserWorkspaceName(),
         ),
       ),
     }
@@ -334,8 +368,13 @@ export const clientWorkspace = {
       })
     }
 
-    const bundle = await clientWorkspace.exportWorkspaceBundle(request.passphrase, false)
-    downloadBrowserWorkspaceBundle(bundle)
+    const snapshot = migrateWorkspaceSnapshot(loadBrowserSnapshot())
+    const fileBundle = await createBrowserWorkspaceBundleV2(
+      request.passphrase,
+      await createBrowserWorkspaceBundlePayloadText(snapshot, activeBrowserWorkspaceName()),
+      snapshot.schemaVersion,
+    )
+    downloadBrowserWorkspaceBundle(fileBundle, activeBrowserWorkspaceName())
     return {
       saved: true,
       includesSecrets: false,
@@ -420,9 +459,151 @@ export const clientWorkspace = {
       })
     }
 
-    const fileText = await pickBrowserWorkspaceBundleFile()
-    const parsed = JSON.parse(fileText) as ExportBundle
+    const selection = await pickBrowserWorkspaceBundleFile()
+    if (!selection) {
+      return buildBrowserPayload(loadBrowserSnapshot())
+    }
+    const parsed = JSON.parse(selection.text) as ExportBundle
+    if (parsed.formatVersion === 2) {
+      const snapshot = migrateWorkspaceSnapshot(
+        await decryptBrowserWorkspaceBundleV2(request.passphrase, parsed),
+      )
+      saveBrowserSnapshot(snapshot)
+      return buildBrowserPayload(snapshot)
+    }
     return clientWorkspace.importWorkspaceBundle(request.passphrase, parsed.encryptedPayload)
+  },
+
+  async previewWorkspaceImportFile(
+    request: WorkspaceImportPreviewRequest,
+  ): Promise<WorkspaceImportPreview | undefined> {
+    validateWorkspaceBundlePassphrase(request.passphrase)
+    if (isTauriRuntime()) {
+      return (await invokeDesktop<WorkspaceImportPreview | null>('preview_workspace_import_file', {
+        request: {
+          ...request,
+          passphrase: toDesktopWorkspaceBundlePassphrase(request.passphrase),
+        },
+      })) ?? undefined
+    }
+
+    const pending = browserPendingWorkspaceImports.get(request.selectionId)
+    if (!pending || Date.now() - pending.createdAt > BROWSER_PENDING_IMPORT_TTL_MS) {
+      browserPendingWorkspaceImports.delete(request.selectionId)
+      throw new Error('The workspace import selection expired. Choose the file again.')
+    }
+    const parsed = await decryptBrowserWorkspaceBundleV2WithMetadata(
+      request.passphrase,
+      pending.bundle,
+    )
+    const snapshot = migrateWorkspaceSnapshot(parsed.snapshot)
+    const workspaceRevision = loadBrowserSnapshot().workspaceRevision ?? 0
+    pending.snapshot = snapshot
+    pending.sourceWorkspaceName = parsed.sourceWorkspaceName
+    pending.workspaceRevision = workspaceRevision
+    pending.createdAt = Date.now()
+    browserPendingWorkspaceImports.set(request.selectionId, pending)
+    const serializedSize = new TextEncoder().encode(JSON.stringify(snapshot)).byteLength
+
+    return {
+      selectionId: request.selectionId,
+      fileName: pending.fileName,
+      suggestedWorkspaceName: suggestedBrowserWorkspaceName(
+        parsed.sourceWorkspaceName,
+        pending.fileName,
+      ),
+      workspaceRevision,
+      formatVersion: pending.bundle.formatVersion ?? 1,
+      workspaceSchemaVersion: snapshot.schemaVersion,
+      createdAt: pending.bundle.createdAt,
+      includesSecrets: false,
+      secretCount: 0,
+      encryptedSizeBytes: pending.encryptedSizeBytes,
+      decryptedSizeBytes: serializedSize,
+      connections: snapshot.connections.length,
+      environments: snapshot.environments.length,
+      openTabs: snapshot.tabs.length,
+      closedTabs: snapshot.closedTabs.length,
+      savedItems: snapshot.libraryNodes.length,
+      warnings: [],
+    }
+  },
+
+  async selectWorkspaceImportFile(): Promise<WorkspaceImportSelection | undefined> {
+    if (isTauriRuntime()) {
+      return (await invokeDesktop<WorkspaceImportSelection | null>(
+        'select_workspace_import_file',
+      )) ?? undefined
+    }
+
+    const file = await pickBrowserWorkspaceBundleFile()
+    if (!file) return undefined
+    const bundle = JSON.parse(file.text) as ExportBundle
+    if (
+      bundle.format !== 'datapadplusplus-bundle'
+      || bundle.formatVersion !== 2
+      || typeof bundle.encryptedPayload !== 'string'
+      || !bundle.encryptedPayload
+      || !bundle.kdf
+      || !bundle.cipher
+    ) {
+      throw new Error('This file is not a supported DataPad++ workspace bundle.')
+    }
+    if (bundle.includesSecrets || (bundle.secretCount ?? 0) > 0) {
+      throw new Error('Browser preview cannot import workspace bundles that include passwords.')
+    }
+    const selectionId = browserWorkspaceImportSelectionId()
+    browserPendingWorkspaceImports.set(selectionId, {
+      bundle,
+      fileName: file.fileName,
+      encryptedSizeBytes: file.sizeBytes,
+      workspaceRevision: loadBrowserSnapshot().workspaceRevision ?? 0,
+      createdAt: Date.now(),
+    })
+    return { selectionId, fileName: file.fileName, encryptedSizeBytes: file.sizeBytes }
+  },
+
+  async commitWorkspaceImport(
+    request: WorkspaceImportCommitRequest,
+  ): Promise<WorkspaceImportCommitResponse> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<WorkspaceImportCommitResponse>('commit_workspace_import', { request })
+    }
+
+    const pending = browserPendingWorkspaceImports.get(request.selectionId)
+    if (!pending || Date.now() - pending.createdAt > BROWSER_PENDING_IMPORT_TTL_MS) {
+      browserPendingWorkspaceImports.delete(request.selectionId)
+      throw new Error('The workspace import selection expired. Choose the file again.')
+    }
+    if (!pending.snapshot) {
+      throw new Error('Unlock and review the selected workspace before importing it.')
+    }
+    if (
+      pending.workspaceRevision !== request.workspaceRevision
+      || (loadBrowserSnapshot().workspaceRevision ?? 0) !== request.workspaceRevision
+    ) {
+      throw new Error('The workspace changed after the import preview. Review the file again.')
+    }
+    if (request.importSecrets) {
+      throw new Error('Browser preview cannot import workspace passwords.')
+    }
+    const imported = importBrowserWorkspace(
+      pending.snapshot,
+      request.workspaceName,
+      request.importAsNew ?? true,
+    )
+    browserPendingWorkspaceImports.delete(request.selectionId)
+    return {
+      payload: buildBrowserPayload(imported.snapshot),
+      workspaceSwitcherStatus: imported.status,
+    }
+  },
+
+  async cancelWorkspaceImport(request: WorkspaceImportCancelRequest): Promise<boolean> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<boolean>('cancel_workspace_import', { request })
+    }
+    return browserPendingWorkspaceImports.delete(request.selectionId)
   },
 
   async updateWorkspaceBackupSettings(
@@ -591,6 +772,81 @@ export const clientWorkspace = {
     return browserBackupSummaries()
   },
 
+  async analyzeWorkspaceStorage(
+    request: WorkspaceStorageAnalysisRequest = {},
+  ): Promise<WorkspaceStorageReport> {
+    if (isTauriRuntime()) {
+      return invokeDesktop<WorkspaceStorageReport>('analyze_workspace_storage', { request })
+    }
+
+    const snapshot = loadBrowserSnapshot()
+    const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength
+    const backups = browserBackupSummaries()
+    const backupTotalBytes = backups.reduce((total, backup) => total + backup.sizeBytes, 0)
+    const tabContribution = (tab: WorkspaceSnapshot['tabs'][number], closed: boolean) => ({
+      tabId: tab.id,
+      title: tab.title,
+      closed,
+      totalBytes: bytes(tab),
+      draftBytes: bytes({
+        queryText: tab.queryText,
+        sqlScope: tab.sqlScope,
+        builderState: tab.builderState,
+        queryEditorState: tab.queryEditorState,
+        testSuite: tab.testSuite,
+      }),
+      historyBytes: bytes(tab.history),
+      objectBytes: bytes(tab.objectViewState?.payload),
+      metricsBytes: bytes(tab.metricsState?.diagnostics),
+      testBytes: bytes(tab.testRun),
+    })
+    const largestTabs = [
+      ...snapshot.tabs.map((tab) => tabContribution(tab, false)),
+      ...snapshot.closedTabs.map((tab) => tabContribution(tab, true)),
+    ].sort((left, right) => right.totalBytes - left.totalBytes).slice(0, 10)
+    const projectedPlaintextBytes = bytes(snapshot)
+
+    return {
+      schemaVersion: snapshot.schemaVersion,
+      workspaceBytes: projectedPlaintextBytes,
+      recoveryBytes: 0,
+      backupCount: backups.length,
+      backupTotalBytes,
+      backupAverageBytes: backups.length ? Math.floor(backupTotalBytes / backups.length) : 0,
+      invalidBackupCount: backups.filter((backup) => backup.isCorrupt).length,
+      projectedPlaintextBytes,
+      projectedCompressedBytes: projectedPlaintextBytes,
+      projectedEncryptedBytes: Math.ceil(projectedPlaintextBytes * 4 / 3),
+      sections: [
+        { key: 'connections', label: 'Connections', sizeBytes: bytes(snapshot.connections), itemCount: snapshot.connections.length },
+        { key: 'environments', label: 'Environments', sizeBytes: bytes(snapshot.environments), itemCount: snapshot.environments.length },
+        { key: 'open-tabs', label: 'Open tabs', sizeBytes: bytes(snapshot.tabs), itemCount: snapshot.tabs.length },
+        { key: 'closed-tabs', label: 'Closed tabs', sizeBytes: bytes(snapshot.closedTabs), itemCount: snapshot.closedTabs.length },
+        { key: 'saved-work', label: 'Saved work', sizeBytes: bytes([snapshot.libraryNodes, snapshot.savedWork]), itemCount: snapshot.libraryNodes.length + snapshot.savedWork.length },
+        { key: 'adapter-manifests', label: 'Adapter manifests', sizeBytes: bytes(snapshot.adapterManifests), itemCount: snapshot.adapterManifests.length },
+      ],
+      largestTabs,
+    }
+  },
+
+  async analyzeWorkspaceBackupFile(
+    request: WorkspaceBackupFileAnalysisRequest,
+  ): Promise<WorkspaceStorageReport | undefined> {
+    validateWorkspaceBundlePassphrase(request.passphrase)
+    if (isTauriRuntime()) {
+      return (await invokeDesktop<WorkspaceStorageReport | null>(
+        'analyze_workspace_backup_file',
+        {
+          request: {
+            ...request,
+            passphrase: toDesktopWorkspaceBundlePassphrase(request.passphrase),
+          },
+        },
+      )) ?? undefined
+    }
+    throw new Error('Backup file analysis is available in the desktop app.')
+  },
+
   async createWorkspaceBackupNow(
     request: WorkspaceBackupRunRequest,
   ): Promise<WorkspaceBackupRunResponse> {
@@ -677,4 +933,24 @@ export const clientWorkspace = {
     return buildBrowserPayload(snapshot)
   },
 
+}
+
+function activeBrowserWorkspaceName() {
+  const status = getBrowserWorkspaceSwitcherStatus()
+  return status.workspaces.find((workspace) => workspace.id === status.activeWorkspaceId)?.name
+}
+
+function browserWorkspaceImportSelectionId() {
+  return globalThis.crypto?.randomUUID?.() ?? `workspace-import-${Date.now()}`
+}
+
+function suggestedBrowserWorkspaceName(sourceWorkspaceName: string | undefined, fileName: string) {
+  const source = sourceWorkspaceName?.trim()
+  if (source) return source.slice(0, 80)
+
+  const cleaned = fileName
+    .replace(/\.datapadpp-workspace$/i, '')
+    .replace(/[-_]+/g, ' ')
+    .trim()
+  return (cleaned || 'Imported Workspace').slice(0, 80)
 }

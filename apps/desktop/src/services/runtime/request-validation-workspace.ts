@@ -55,6 +55,7 @@ const MAX_TAGS = 32
 const MAX_TAG_LENGTH = 80
 const MAX_ENVIRONMENT_VARIABLES = 256
 const MAX_TAB_REORDER_ITEMS = 200
+const MAX_CONNECTION_STRING_LENGTH = 64 * 1024
 const QUERY_VIEW_MODES = new Set<QueryViewMode>(['builder', 'raw', 'script'])
 const ENVIRONMENT_RISKS = new Set(['low', 'medium', 'high', 'critical'])
 
@@ -83,11 +84,7 @@ export function validateConnectionProfile(profile: ConnectionProfile): Connectio
   const color = validateOptionalText(profile.color, 'Connection color', 80)
   validatePort(profile.port)
 
-  const connectionString = validateOptionalText(
-    profile.connectionString,
-    'Connection string',
-    MAX_SCOPE_LENGTH,
-  )?.trim()
+  const connectionString = validateOpaqueConnectionString(profile.connectionString)
 
   const auth = validateConnectionAuth(profile.auth)
   return {
@@ -120,6 +117,18 @@ export function validateConnectionProfile(profile: ConnectionProfile): Connectio
   }
 }
 
+function validateOpaqueConnectionString(value: string | undefined) {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string') throw new Error('Connection string must be text.')
+  if (value.length > MAX_CONNECTION_STRING_LENGTH) {
+    throw new Error(`Connection string must be ${MAX_CONNECTION_STRING_LENGTH} characters or fewer.`)
+  }
+  if (value.includes('\0')) {
+    throw new Error('Connection string cannot contain null characters.')
+  }
+  return value
+}
+
 export function validateConnectionTestRequest(
   request: ConnectionTestRequest,
 ): ConnectionTestRequest {
@@ -128,7 +137,15 @@ export function validateConnectionTestRequest(
   if (request.secret !== undefined && request.secret !== null) {
     validateQueryText(request.secret, 'Connection secret')
   }
-  return { ...request, profile, secret: request.secret ?? undefined }
+  const connectionString = validateOpaqueConnectionString(
+    request.connectionString ?? profile.connectionString,
+  )
+  return {
+    ...request,
+    profile,
+    secret: request.secret ?? undefined,
+    connectionString,
+  }
 }
 
 export function validateEnvironmentProfile(profile: EnvironmentProfile): EnvironmentProfile {

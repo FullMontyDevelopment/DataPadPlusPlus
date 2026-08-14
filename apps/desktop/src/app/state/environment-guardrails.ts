@@ -365,6 +365,7 @@ export function buildDiagnosticsReport(
 
   return {
     createdAt: new Date().toISOString(),
+    schemaVersion: snapshot.schemaVersion,
     runtime: health.runtime,
     platform: health.platform,
     appVersion: '0.1.0',

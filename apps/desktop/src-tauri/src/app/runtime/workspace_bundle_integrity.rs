@@ -38,7 +38,11 @@ pub(super) fn validate_workspace_bundle_integrity(
         ));
     }
 
-    if workspace_bundle_digest(payload)? != integrity.digest.to_ascii_lowercase() {
+    let expected = integrity.digest.to_ascii_lowercase();
+    let current_matches = workspace_bundle_digest(payload)? == expected;
+    let legacy_matches = payload.history_query_texts.is_empty()
+        && legacy_workspace_bundle_digest(payload)? == expected;
+    if !current_matches && !legacy_matches {
         return Err(CommandError::new(
             "workspace-bundle-integrity-mismatch",
             "Workspace bundle integrity check failed. The file may be corrupt or modified.",
@@ -48,11 +52,27 @@ pub(super) fn validate_workspace_bundle_integrity(
     Ok(())
 }
 
-fn workspace_bundle_digest(payload: &WorkspaceBundlePayload) -> Result<String, CommandError> {
+fn legacy_workspace_bundle_digest(
+    payload: &WorkspaceBundlePayload,
+) -> Result<String, CommandError> {
     let value = serde_json::json!({
         "snapshot": &payload.snapshot,
         "secrets": &payload.secrets,
     });
+    let canonical = canonical_json(&value)?;
+    let digest = Sha256::digest(canonical.as_bytes());
+    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn workspace_bundle_digest(payload: &WorkspaceBundlePayload) -> Result<String, CommandError> {
+    let mut value = serde_json::json!({
+        "snapshot": &payload.snapshot,
+        "historyQueryTexts": &payload.history_query_texts,
+        "secrets": &payload.secrets,
+    });
+    if let Some(source_workspace_name) = &payload.source_workspace_name {
+        value["sourceWorkspaceName"] = Value::String(source_workspace_name.clone());
+    }
     let canonical = canonical_json(&value)?;
     let digest = Sha256::digest(canonical.as_bytes());
     Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())

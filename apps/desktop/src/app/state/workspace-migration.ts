@@ -10,6 +10,8 @@ import type {
   WorkspaceWindowState,
 } from '@datapadplusplus/shared-types'
 import {
+  CONSOLIDATED_LEGACY_WORKSPACE_SCHEMA_VERSION,
+  CURRENT_WORKSPACE_SCHEMA_VERSION,
   DATAPADPLUSPLUS_ADAPTER_MANIFESTS,
   datastoreBacklogByEngine,
 } from '@datapadplusplus/shared-types'
@@ -42,7 +44,6 @@ const MAX_RESULTS_SIDE_WIDTH = 2400
 const MIN_MONGO_SCRIPT_GUIDE_WIDTH = 280
 const DEFAULT_MONGO_SCRIPT_GUIDE_WIDTH = 360
 const MAX_MONGO_SCRIPT_GUIDE_WIDTH = 520
-const WORKSPACE_SCHEMA_VERSION = 11
 const FIRST_INSTALL_GUIDE_STEP_IDS: FirstInstallGuideStepId[] = [
   'welcome',
   'folder',
@@ -323,6 +324,7 @@ function normalizeWindowBounds(bounds: WorkspaceWindowState['bounds']) {
 }
 
 export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  assertSupportedWorkspaceSchemaVersion(snapshot.schemaVersion)
   const next = JSON.parse(JSON.stringify(snapshot)) as WorkspaceSnapshot
   next.lockState ??= { isLocked: false }
   next.lockState.isLocked = false
@@ -352,7 +354,7 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   migrateTabKinds(next.closedTabs)
   migrateTabSaveTargets(next.tabs)
   migrateTabSaveTargets(next.closedTabs)
-  next.schemaVersion = WORKSPACE_SCHEMA_VERSION
+  migrateV11SnapshotToV12(next)
   next.workspaceRevision ??= 0
   next.ui = normalizeUiState(next)
 
@@ -365,6 +367,24 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   }
 
   return next
+}
+
+function migrateV11SnapshotToV12(snapshot: WorkspaceSnapshot) {
+  if ((snapshot.schemaVersion ?? 0) <= CONSOLIDATED_LEGACY_WORKSPACE_SCHEMA_VERSION) {
+    snapshot.schemaVersion = CURRENT_WORKSPACE_SCHEMA_VERSION
+  }
+}
+
+function assertSupportedWorkspaceSchemaVersion(version: unknown) {
+  if (version === undefined || version === null) return
+  if (!Number.isInteger(version) || Number(version) < 0) {
+    throw new Error('Workspace schema version is invalid.')
+  }
+  if (Number(version) > CURRENT_WORKSPACE_SCHEMA_VERSION) {
+    throw new Error(
+      `This workspace was created by a newer DataPad++ version (schema ${version}).`,
+    )
+  }
 }
 
 const GENERATED_SQLSERVER_TEMPLATE_PREFIXES = [
@@ -602,18 +622,20 @@ function migrateConnectionModes(connections: ConnectionProfile[]) {
     const legacyMode = persistedMode === 'file'
       ? 'local-file'
       : connection.connectionMode
+    const hasConnectionString = Boolean(
+      connection.connectionString?.trim() || connection.auth.connectionStringSecretRef,
+    )
 
     if (
       legacyMode &&
-      supportedModes.includes(legacyMode) &&
-      (legacyMode !== 'connection-string' || connection.connectionString?.trim())
+      supportedModes.includes(legacyMode)
     ) {
       connection.connectionMode = legacyMode
       return
     }
 
     if (
-      connection.connectionString?.trim() &&
+      hasConnectionString &&
       supportedModes.includes('connection-string')
     ) {
       connection.connectionMode = 'connection-string'

@@ -5,11 +5,16 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { getWorkspaceBundlePassphraseBlockReason } from '../../app/security/workspace-passphrase'
 import { decodeBase64, hashPassphrase } from './browser-store'
-import { parseBrowserWorkspacePayload } from './client-workspace-integrity'
+import {
+  parseBrowserWorkspacePayload,
+  parseBrowserWorkspacePayloadWithMetadata,
+} from './client-workspace-integrity'
 
 const MAX_WORKSPACE_BUNDLE_BYTES = 25 * 1024 * 1024
+const MAX_DECOMPRESSED_WORKSPACE_BYTES = 50 * 1024 * 1024
 const EXPORT_KDF = 'pbkdf2-sha256'
 const EXPORT_KDF_ITERATIONS = 210_000
+const EXPORT_KDF_V2_ITERATIONS = 600_000
 const SHORT_DESKTOP_PASSPHRASE_COMPAT_PREFIX =
   'datapadplusplus-workspace-backup-short-passphrase-v2:'
 
@@ -54,30 +59,166 @@ export function extractBrowserWorkspaceSnapshot(value: unknown) {
   return value as WorkspaceSnapshot
 }
 
-export function downloadBrowserWorkspaceBundle(bundle: ExportBundle) {
-  const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+export function downloadBrowserWorkspaceBundle(bundle: ExportBundle, workspaceName?: string) {
+  const blob = new Blob([JSON.stringify(bundle)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = `datapadplusplus-workspace-${new Date()
-    .toISOString()
-    .slice(0, 10)}.datapadpp-workspace`
+  const stem = workspaceName
+    ?.trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'datapadplusplus-workspace'
+  anchor.download = `${stem}-${new Date().toISOString().slice(0, 10)}.datapadpp-workspace`
   anchor.click()
   URL.revokeObjectURL(url)
 }
 
-export function pickBrowserWorkspaceBundleFile(): Promise<string> {
+export async function createBrowserWorkspaceBundleV2(
+  passphrase: string,
+  payload: string,
+  workspaceSchemaVersion: number,
+): Promise<ExportBundle> {
+  const crypto = browserCrypto()
+  const salt = new Uint8Array(16)
+  const nonce = new Uint8Array(12)
+  crypto.getRandomValues(salt)
+  crypto.getRandomValues(nonce)
+
+  const bundle: ExportBundle = {
+    format: 'datapadplusplus-bundle',
+    version: 2,
+    formatVersion: 2,
+    workspaceSchemaVersion,
+    createdAt: `${Math.floor(Date.now() / 1000)}`,
+    compression: 'gzip',
+    kdf: {
+      algorithm: EXPORT_KDF,
+      iterations: EXPORT_KDF_V2_ITERATIONS,
+      salt: bytesToBase64(salt),
+    },
+    cipher: {
+      algorithm: 'aes-256-gcm',
+      nonce: bytesToBase64(nonce),
+    },
+    encryptedPayload: '',
+    includesSecrets: false,
+    secretCount: 0,
+  }
+  const key = await deriveBrowserExportKey(passphrase, salt, EXPORT_KDF_V2_ITERATIONS)
+  const compressed = await gzipBytes(new TextEncoder().encode(payload))
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt(
+      {
+        name: 'AES-GCM',
+        iv: toArrayBuffer(nonce),
+        additionalData: workspaceBundleAuthenticatedMetadata(bundle),
+      },
+      key,
+      toArrayBuffer(compressed),
+    ),
+  )
+  bundle.encryptedPayload = bytesToBase64(ciphertext)
+  return bundle
+}
+
+export async function decryptBrowserWorkspaceBundleV2(
+  passphrase: string,
+  bundle: ExportBundle,
+): Promise<WorkspaceSnapshot> {
+  if (
+    bundle.formatVersion !== 2 ||
+    bundle.compression !== 'gzip' ||
+    bundle.kdf?.algorithm !== EXPORT_KDF ||
+    bundle.kdf.iterations !== EXPORT_KDF_V2_ITERATIONS ||
+    bundle.cipher?.algorithm !== 'aes-256-gcm' ||
+    bundle.includesSecrets ||
+    (bundle.secretCount ?? 0) !== 0
+  ) {
+    throw new Error('Workspace bundle uses unsupported security or compression settings.')
+  }
+
+  const salt = exactBytes(bundle.kdf.salt, 16, 'Workspace bundle salt is invalid.')
+  const nonce = exactBytes(bundle.cipher.nonce, 12, 'Workspace bundle nonce is invalid.')
+  const ciphertext = requiredBase64Bytes(
+    bundle.encryptedPayload,
+    'Workspace bundle ciphertext is invalid.',
+  )
+  const key = await deriveBrowserExportKey(passphrase, salt, bundle.kdf.iterations)
+  const compressed = await browserCrypto().subtle.decrypt(
+    {
+      name: 'AES-GCM',
+      iv: toArrayBuffer(nonce),
+      additionalData: workspaceBundleAuthenticatedMetadata(bundle),
+    },
+    key,
+    toArrayBuffer(ciphertext),
+  )
+  const plaintext = await gunzipBytes(new Uint8Array(compressed))
+  return parseBrowserWorkspacePayload(new TextDecoder().decode(plaintext))
+}
+
+export async function decryptBrowserWorkspaceBundleV2WithMetadata(
+  passphrase: string,
+  bundle: ExportBundle,
+) {
+  if (
+    bundle.formatVersion !== 2 ||
+    bundle.compression !== 'gzip' ||
+    bundle.kdf?.algorithm !== EXPORT_KDF ||
+    bundle.kdf.iterations !== EXPORT_KDF_V2_ITERATIONS ||
+    bundle.cipher?.algorithm !== 'aes-256-gcm' ||
+    bundle.includesSecrets ||
+    (bundle.secretCount ?? 0) !== 0
+  ) {
+    throw new Error('Workspace bundle uses unsupported security or compression settings.')
+  }
+
+  const salt = exactBytes(bundle.kdf.salt, 16, 'Workspace bundle salt is invalid.')
+  const nonce = exactBytes(bundle.cipher.nonce, 12, 'Workspace bundle nonce is invalid.')
+  const ciphertext = requiredBase64Bytes(
+    bundle.encryptedPayload,
+    'Workspace bundle ciphertext is invalid.',
+  )
+  const key = await deriveBrowserExportKey(passphrase, salt, bundle.kdf.iterations)
+  const compressed = await browserCrypto().subtle.decrypt(
+    {
+      name: 'AES-GCM',
+      iv: toArrayBuffer(nonce),
+      additionalData: workspaceBundleAuthenticatedMetadata(bundle),
+    },
+    key,
+    toArrayBuffer(ciphertext),
+  )
+  const plaintext = await gunzipBytes(new Uint8Array(compressed))
+  return parseBrowserWorkspacePayloadWithMetadata(new TextDecoder().decode(plaintext))
+}
+
+export interface BrowserWorkspaceBundleFileSelection {
+  text: string
+  fileName: string
+  sizeBytes: number
+}
+
+export function pickBrowserWorkspaceBundleFile(): Promise<BrowserWorkspaceBundleFileSelection | undefined> {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.datapadpp-workspace,application/json'
+    input.oncancel = () => resolve(undefined)
     input.onchange = () => {
       const file = input.files?.[0]
       if (!file) {
-        reject(new Error('Choose a workspace bundle before importing.'))
+        resolve(undefined)
         return
       }
-      void file.text().then(resolve, reject)
+      if (file.size > MAX_WORKSPACE_BUNDLE_BYTES) {
+        reject(new Error('Workspace bundle is too large to import safely.'))
+        return
+      }
+      void file.text().then(
+        (text) => resolve({ text, fileName: file.name, sizeBytes: file.size }),
+        reject,
+      )
     }
     input.click()
   })
@@ -257,6 +398,84 @@ function requiredBase64Bytes(value: unknown, message: string) {
     throw new Error(message)
   }
   return base64ToBytes(value)
+}
+
+function exactBytes(value: unknown, length: number, message: string) {
+  const bytes = requiredBase64Bytes(value, message)
+  if (bytes.byteLength !== length) throw new Error(message)
+  return bytes
+}
+
+function workspaceBundleAuthenticatedMetadata(bundle: ExportBundle) {
+  return new TextEncoder().encode(JSON.stringify({
+    format: bundle.format,
+    formatVersion: bundle.formatVersion,
+    workspaceSchemaVersion: bundle.workspaceSchemaVersion,
+    createdAt: bundle.createdAt,
+    compression: bundle.compression,
+    includesSecrets: bundle.includesSecrets ?? false,
+    secretCount: bundle.secretCount,
+    kdf: bundle.kdf,
+    cipher: bundle.cipher,
+  }))
+}
+
+async function gzipBytes(bytes: Uint8Array) {
+  if (typeof CompressionStream === 'undefined') {
+    throw new Error('This browser cannot compress workspace bundles.')
+  }
+  const stream = byteStream(bytes).pipeThrough(
+    new CompressionStream('gzip') as unknown as ReadableWritablePair<
+      Uint8Array,
+      Uint8Array
+    >,
+  )
+  return readBoundedStream(stream, MAX_WORKSPACE_BUNDLE_BYTES)
+}
+
+async function gunzipBytes(bytes: Uint8Array) {
+  if (typeof DecompressionStream === 'undefined') {
+    throw new Error('This browser cannot decompress workspace bundles.')
+  }
+  const stream = byteStream(bytes).pipeThrough(
+    new DecompressionStream('gzip') as unknown as ReadableWritablePair<
+      Uint8Array,
+      Uint8Array
+    >,
+  )
+  return readBoundedStream(stream, MAX_DECOMPRESSED_WORKSPACE_BYTES)
+}
+
+function byteStream(bytes: Uint8Array) {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes)
+      controller.close()
+    },
+  })
+}
+
+async function readBoundedStream(stream: ReadableStream<Uint8Array>, limit: number) {
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    length += value.byteLength
+    if (length > limit) {
+      await reader.cancel()
+      throw new Error('Workspace bundle expands beyond the safe import limit.')
+    }
+    chunks.push(value)
+  }
+  const result = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) {
+    result.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return result
 }
 
 function toArrayBuffer(bytes: Uint8Array) {

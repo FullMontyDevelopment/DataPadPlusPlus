@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type {
   CloudProvider,
   ConnectionMode,
@@ -5,6 +6,7 @@ import type {
   LocalDatabaseCreateRequest,
   LocalDatabaseManifest,
 } from '@datapadplusplus/shared-types'
+import { HideIcon, ShowIcon } from './icons'
 import { CassandraAdvancedFields } from './RightDrawer.cassandra-connection-fields'
 import { CosmosDbConnectionFields } from './RightDrawer.cosmosdb-connection-fields'
 import { DynamoDbConnectionFields } from './RightDrawer.dynamodb-connection-fields'
@@ -565,21 +567,49 @@ function ConnectionStringFields({
   connectionDraft: ConnectionProfile
   onUpdateConnectionDraft: UpdateConnectionDraft
 }) {
+  const [revealed, setRevealed] = useState(false)
+  const hasStoredValue = Boolean(connectionDraft.auth.connectionStringSecretRef)
+
   return (
     <>
       <FormField label="Connection string">
-        <textarea
-          aria-label="Connection string"
-          value={connectionDraft.connectionString ?? ''}
-          placeholder={connectionStringPlaceholder(connectionDraft.engine)}
-          onChange={(event) =>
-            onUpdateConnectionDraft({ connectionString: event.target.value })
-          }
-        />
+        <div className="connection-string-secret-field">
+          <textarea
+            aria-label="Connection string"
+            className={revealed ? undefined : 'is-secret-hidden'}
+            value={connectionDraft.connectionString ?? ''}
+            placeholder={
+              hasStoredValue
+                ? 'Stored in OS credential vault — leave blank to keep it'
+                : connectionStringPlaceholder(connectionDraft.engine)
+            }
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) =>
+              onUpdateConnectionDraft({ connectionString: event.target.value })
+            }
+          />
+          <button
+            type="button"
+            className="connection-string-reveal-button"
+            aria-label={revealed ? 'Hide connection string' : 'Reveal connection string'}
+            title={revealed ? 'Hide connection string' : 'Reveal connection string'}
+            onClick={() => setRevealed((current) => !current)}
+          >
+            {revealed ? <HideIcon /> : <ShowIcon />}
+          </button>
+        </div>
       </FormField>
+      {hasStoredValue && !connectionDraft.connectionString ? (
+        <p className="connection-mode-help connection-string-vault-status">
+          Stored in OS credential vault. Leave this field blank to preserve it; enter a complete
+          replacement string to update it.
+        </p>
+      ) : null}
       <p className="connection-mode-help">
-        Reference variables such as ${'{{DB_PASSWORD}}'} for sensitive values. Native
-        host, port, user, and database fields are ignored while this method is active.
+        The complete string is stored unchanged as one secret. Variables such as
+        {' {{DB_HOST}}'} are resolved only in memory. Native host, port, user, and database fields
+        are ignored while this method is active.
       </p>
     </>
   )

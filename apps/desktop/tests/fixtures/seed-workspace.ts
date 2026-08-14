@@ -12,7 +12,10 @@ import type {
   SavedWorkItem,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
-import { DATAPADPLUSPLUS_ADAPTER_MANIFESTS } from '@datapadplusplus/shared-types'
+import {
+  CURRENT_WORKSPACE_SCHEMA_VERSION,
+  DATAPADPLUSPLUS_ADAPTER_MANIFESTS,
+} from '@datapadplusplus/shared-types'
 import { buildDiagnosticsReport, resolveEnvironment } from '../../src/app/state/helpers'
 
 const adapterManifests = DATAPADPLUSPLUS_ADAPTER_MANIFESTS
@@ -507,7 +510,7 @@ const guardrails: GuardrailDecision[] = [
 
 export function createSeedSnapshot(): WorkspaceSnapshot {
   return {
-    schemaVersion: 3,
+    schemaVersion: CURRENT_WORKSPACE_SCHEMA_VERSION,
     connections,
     environments,
     tabs,

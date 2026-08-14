@@ -90,6 +90,14 @@ export interface ConnectionAuth {
   cloudProvider?: CloudProvider
   principal?: string
   secretRef?: SecretRef
+  /** Complete opaque connection string stored in the desktop credential vault. */
+  connectionStringSecretRef?: SecretRef
+}
+
+export interface ConnectionUpsertRequest {
+  profile: ConnectionProfile
+  /** Write-only complete connection string. Blank preserves the existing vault value. */
+  connectionString?: string
 }
 
 export type SqliteOpenMode =
@@ -827,6 +835,7 @@ export interface ConnectionProfile {
   host: string
   port?: number
   database?: string
+  /** Write-only connection draft. Persisted/bootstrap profiles omit this value. */
   connectionString?: string
   connectionMode?: ConnectionMode
   environmentIds: string[]

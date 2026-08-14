@@ -185,6 +185,7 @@ fn fixture_workspace_seed_for_profile_options(
     let mut snapshot = WorkspaceSnapshot {
         schema_version: persistence::SCHEMA_VERSION,
         workspace_revision: 0,
+        history_retention_notice_pending: false,
         connections,
         environments,
         tabs,

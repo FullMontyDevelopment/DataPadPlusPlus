@@ -49,6 +49,12 @@ pub struct WorkspaceBundleFileExportResponse {
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceBundleFileImportRequest {
     pub passphrase: String,
+    #[serde(default)]
+    pub import_secrets: bool,
+    #[serde(default)]
+    pub import_as_new: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_name: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -65,6 +71,8 @@ pub struct WorkspaceSummaryCounts {
 pub struct WorkspaceSummary {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub schema_version: u32,
     pub created_at: String,
     pub updated_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -105,6 +113,13 @@ pub struct WorkspaceSwitchRequest {
     pub workspace_id: String,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceActivationResponse {
+    pub payload: BootstrapPayload,
+    pub workspace_switcher_status: WorkspaceSwitcherStatus,
+}
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceBackupSettingsRequest {
@@ -135,6 +150,14 @@ pub struct WorkspaceBackupSummary {
     pub secret_count: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_schema_version: Option<u32>,
+    #[serde(default)]
+    pub is_corrupt: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -151,12 +174,139 @@ pub struct WorkspaceBackupRunResponse {
 pub struct WorkspaceBackupRestoreRequest {
     pub backup_id: String,
     pub passphrase: Option<String>,
+    #[serde(default)]
+    pub import_secrets: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceBackupDeleteRequest {
     pub backup_id: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceStorageSection {
+    pub key: String,
+    pub label: String,
+    pub size_bytes: u64,
+    pub item_count: usize,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceTabStorageContribution {
+    pub tab_id: String,
+    pub title: String,
+    pub closed: bool,
+    pub total_bytes: u64,
+    pub draft_bytes: u64,
+    pub history_bytes: u64,
+    pub object_bytes: u64,
+    pub metrics_bytes: u64,
+    pub test_bytes: u64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceStorageReport {
+    pub schema_version: u32,
+    pub workspace_bytes: u64,
+    pub recovery_bytes: u64,
+    pub backup_count: usize,
+    pub backup_total_bytes: u64,
+    pub backup_average_bytes: u64,
+    pub invalid_backup_count: usize,
+    pub projected_plaintext_bytes: u64,
+    pub projected_compressed_bytes: u64,
+    pub projected_encrypted_bytes: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_bytes: Option<u64>,
+    pub sections: Vec<WorkspaceStorageSection>,
+    pub largest_tabs: Vec<WorkspaceTabStorageContribution>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceStorageAnalysisRequest {
+    #[serde(default)]
+    pub include_secret_sizes: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBackupFileAnalysisRequest {
+    pub passphrase: String,
+    #[serde(default)]
+    pub include_secret_sizes: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceImportPreviewRequest {
+    pub selection_id: String,
+    pub passphrase: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceImportSelection {
+    pub selection_id: String,
+    pub file_name: String,
+    pub encrypted_size_bytes: u64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceImportPreview {
+    pub selection_id: String,
+    pub file_name: String,
+    pub suggested_workspace_name: String,
+    pub workspace_revision: u64,
+    pub format_version: u32,
+    pub workspace_schema_version: u32,
+    pub created_at: Option<String>,
+    pub includes_secrets: bool,
+    pub secret_count: usize,
+    pub encrypted_size_bytes: u64,
+    pub decrypted_size_bytes: u64,
+    pub connections: usize,
+    pub environments: usize,
+    pub open_tabs: usize,
+    pub closed_tabs: usize,
+    pub saved_items: usize,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceImportCommitRequest {
+    pub selection_id: String,
+    pub workspace_revision: u64,
+    #[serde(default)]
+    pub import_secrets: bool,
+    #[serde(default)]
+    pub import_as_new: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_name: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceImportCommitResponse {
+    pub payload: BootstrapPayload,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_switcher_status: Option<WorkspaceSwitcherStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry_refresh_warning: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceImportCancelRequest {
+    pub selection_id: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -203,9 +353,12 @@ pub struct DatastoreTestsPreferences {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSnapshot {
+    #[serde(default)]
     pub schema_version: u32,
     #[serde(default)]
     pub workspace_revision: u64,
+    #[serde(skip)]
+    pub history_retention_notice_pending: bool,
     pub connections: Vec<ConnectionProfile>,
     pub environments: Vec<EnvironmentProfile>,
     pub tabs: Vec<QueryTabState>,
@@ -244,9 +397,36 @@ pub struct BootstrapPayload {
 pub struct ExportBundle {
     pub format: String,
     pub version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_schema_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compression: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kdf: Option<WorkspaceBundleKdfMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cipher: Option<WorkspaceBundleCipherMetadata>,
     pub encrypted_payload: String,
     #[serde(default)]
     pub includes_secrets: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secret_count: Option<usize>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBundleKdfMetadata {
+    pub algorithm: String,
+    pub iterations: u32,
+    pub salt: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBundleCipherMetadata {
+    pub algorithm: String,
+    pub nonce: String,
 }

@@ -84,10 +84,12 @@ function renderSettingsProps(overrides: Partial<ComponentProps<typeof SettingsWo
       created: true,
       message: 'Workspace backup created.',
     }),
+    onAnalyzeWorkspaceStorage: vi.fn().mockResolvedValue(undefined),
+    onAnalyzeWorkspaceBackup: vi.fn().mockResolvedValue(undefined),
     onDeleteBackup: vi.fn().mockResolvedValue([]),
     onDeleteLogFile: vi.fn().mockResolvedValue([]),
-    onExportWorkspaceFile: vi.fn().mockResolvedValue('workspace.datapadpp-workspace'),
-    onImportWorkspaceFile: vi.fn().mockResolvedValue(undefined),
+    onOpenWorkspaceExport: vi.fn(),
+    onOpenWorkspaceImport: vi.fn(),
     onInstallUpdate: vi.fn(),
     onListBackups: vi.fn().mockResolvedValue([]),
     onListLogFiles: vi.fn().mockResolvedValue([]),
@@ -101,7 +103,7 @@ function renderSettingsProps(overrides: Partial<ComponentProps<typeof SettingsWo
         sizeBytes: 8,
       },
     }),
-    onRestoreBackup: vi.fn().mockResolvedValue(undefined),
+    onRestoreBackup: vi.fn().mockResolvedValue(true),
     onSetKeyboardShortcut: vi.fn().mockResolvedValue(undefined),
     onSetSafeMode: vi.fn(),
     onSetTheme: vi.fn(),
@@ -411,36 +413,15 @@ describe('SettingsWorkspace', () => {
     })
   })
 
-  it('exports and imports workspace files with the selected passphrase and secret option', async () => {
+  it('opens the shared workspace export and import dialogs', () => {
     const props = renderSettings()
     fireEvent.click(screen.getByRole('button', { name: 'Workspace + Backups' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Export' }))
-    fireEvent.change(screen.getByLabelText('Export passphrase'), {
-      target: { value: 'correct-horse-battery-staple' },
-    })
-    fireEvent.click(screen.getByLabelText('Include passwords'))
-    fireEvent.click(screen.getByRole('button', { name: 'Export Workspace' }))
-
-    await waitFor(() => {
-      expect(props.onExportWorkspaceFile).toHaveBeenCalledWith(
-        'correct-horse-battery-staple',
-        true,
-      )
-    })
-    expect(screen.getByText('Workspace exported.')).toBeInTheDocument()
-    expect(screen.getByText('Workspace exported.')).toHaveClass('settings-inline-message--success')
-
     fireEvent.click(screen.getByRole('button', { name: 'Import' }))
-    fireEvent.change(screen.getByLabelText('Import passphrase'), {
-      target: { value: 'correct-horse-battery-staple' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Import Workspace' }))
-    await waitFor(() => {
-      expect(props.onImportWorkspaceFile).toHaveBeenCalledWith(
-        'correct-horse-battery-staple',
-      )
-    })
+
+    expect(props.onOpenWorkspaceExport).toHaveBeenCalledOnce()
+    expect(props.onOpenWorkspaceImport).toHaveBeenCalledOnce()
   })
 
   it('manages backup rows with restore and delete confirmation', async () => {
@@ -464,7 +445,7 @@ describe('SettingsWorkspace', () => {
     fireEvent.click(within(table).getByLabelText('Restore backup.datapadpp-workspace'))
     fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
     await waitFor(() => {
-      expect(props.onRestoreBackup).toHaveBeenCalledWith('backup', '')
+      expect(props.onRestoreBackup).toHaveBeenCalledWith('backup', '', false)
     })
 
     fireEvent.click(within(table).getByLabelText('Delete backup.datapadpp-workspace'))

@@ -2309,6 +2309,7 @@ function hexToRgba(hex: string, alpha: number) {
 
 function formatWorkspaceCounts(workspace: WorkspaceSummary) {
   const parts = [
+    `schema v${workspace.schemaVersion}`,
     countLabel(workspace.counts.connections, 'connection'),
     countLabel(workspace.counts.libraryItems, 'library item'),
   ]

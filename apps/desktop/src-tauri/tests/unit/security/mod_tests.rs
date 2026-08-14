@@ -409,3 +409,49 @@ fn export_decryption_accepts_legacy_sha256_bundles() {
         decrypt_export_payload("legacy", &encrypted).expect("legacy bundle should decrypt");
     assert_eq!(decrypted, "{\"legacy\":true}");
 }
+
+#[test]
+fn authenticated_export_v2_rejects_metadata_tampering_and_excessive_kdf_work() {
+    let salt = [3_u8; 16];
+    let nonce = [7_u8; 12];
+    let metadata = br#"{"formatVersion":2,"compression":"gzip"}"#;
+    let ciphertext = encrypt_export_payload_v2(
+        "correct horse battery staple",
+        b"compressed payload",
+        metadata,
+        &salt,
+        &nonce,
+        EXPORT_KDF_V2_ITERATIONS,
+    )
+    .expect("v2 encryption should succeed");
+
+    let plaintext = decrypt_export_payload_v2(
+        "correct horse battery staple",
+        &ciphertext,
+        metadata,
+        &salt,
+        &nonce,
+        EXPORT_KDF_V2_ITERATIONS,
+    )
+    .expect("v2 decryption should succeed");
+    assert_eq!(plaintext, b"compressed payload");
+
+    assert!(decrypt_export_payload_v2(
+        "correct horse battery staple",
+        &ciphertext,
+        br#"{"formatVersion":2,"compression":"none"}"#,
+        &salt,
+        &nonce,
+        EXPORT_KDF_V2_ITERATIONS,
+    )
+    .is_err());
+    assert!(decrypt_export_payload_v2(
+        "correct horse battery staple",
+        &ciphertext,
+        metadata,
+        &salt,
+        &nonce,
+        MAX_EXPORT_KDF_ITERATIONS + 1,
+    )
+    .is_err());
+}

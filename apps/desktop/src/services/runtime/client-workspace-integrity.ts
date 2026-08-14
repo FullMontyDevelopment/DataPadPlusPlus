@@ -5,6 +5,8 @@ const WORKSPACE_BUNDLE_HASH_SCOPE = 'workspace-bundle-payload-v1'
 
 interface BrowserWorkspaceBundlePayload {
   snapshot: WorkspaceSnapshot
+  sourceWorkspaceName?: string
+  historyQueryTexts?: string[]
   secrets?: unknown[]
   integrity?: WorkspaceBundleIntegrity
 }
@@ -17,9 +19,13 @@ interface WorkspaceBundleIntegrity {
 
 export async function createBrowserWorkspaceBundlePayloadText(
   snapshot: WorkspaceSnapshot,
+  sourceWorkspaceName?: string,
 ) {
+  const interned = internWorkspaceHistoryQueries(snapshot)
   const payload: BrowserWorkspaceBundlePayload = {
-    snapshot,
+    snapshot: interned.snapshot,
+    sourceWorkspaceName: sourceWorkspaceName?.trim() || undefined,
+    historyQueryTexts: interned.historyQueryTexts,
     secrets: [],
   }
   payload.integrity = await createWorkspaceBundleIntegrity(payload)
@@ -27,6 +33,10 @@ export async function createBrowserWorkspaceBundlePayloadText(
 }
 
 export async function parseBrowserWorkspacePayload(value: string) {
+  return (await parseBrowserWorkspacePayloadWithMetadata(value)).snapshot
+}
+
+export async function parseBrowserWorkspacePayloadWithMetadata(value: string) {
   const parsed = JSON.parse(value) as WorkspaceSnapshot | BrowserWorkspaceBundlePayload
 
   if (
@@ -37,10 +47,13 @@ export async function parseBrowserWorkspacePayload(value: string) {
   ) {
     const payload = parsed as BrowserWorkspaceBundlePayload
     await validateWorkspaceBundleIntegrity(payload)
-    return payload.snapshot
+    return {
+      snapshot: restoreWorkspaceHistoryQueries(payload),
+      sourceWorkspaceName: payload.sourceWorkspaceName,
+    }
   }
 
-  return parsed as WorkspaceSnapshot
+  return { snapshot: parsed as WorkspaceSnapshot }
 }
 
 async function createWorkspaceBundleIntegrity(payload: BrowserWorkspaceBundlePayload) {
@@ -66,18 +79,32 @@ async function validateWorkspaceBundleIntegrity(payload: BrowserWorkspaceBundleP
     throw new Error('Workspace bundle integrity metadata is unsupported.')
   }
 
-  if ((await workspaceBundleDigest(payload)) !== integrity.digest.toLowerCase()) {
+  const digest = integrity.digest.toLowerCase()
+  const validCurrentDigest = (await workspaceBundleDigest(payload)) === digest
+  const validLegacyDigest = payload.historyQueryTexts === undefined
+    && (await workspaceBundleDigest(payload, true)) === digest
+  if (!validCurrentDigest && !validLegacyDigest) {
     throw new Error(
       'Workspace bundle integrity check failed. The file may be corrupt or modified.',
     )
   }
 }
 
-async function workspaceBundleDigest(payload: BrowserWorkspaceBundlePayload) {
-  const canonical = canonicalJson({
+async function workspaceBundleDigest(
+  payload: BrowserWorkspaceBundlePayload,
+  legacy = false,
+) {
+  const digestPayload: Record<string, unknown> = {
     snapshot: payload.snapshot,
     secrets: payload.secrets ?? [],
-  })
+  }
+  if (!legacy) {
+    digestPayload.historyQueryTexts = payload.historyQueryTexts ?? []
+    if (payload.sourceWorkspaceName) {
+      digestPayload.sourceWorkspaceName = payload.sourceWorkspaceName
+    }
+  }
+  const canonical = canonicalJson(digestPayload)
   const digest = await browserCrypto().subtle.digest(
     'SHA-256',
     new TextEncoder().encode(canonical),
@@ -86,6 +113,45 @@ async function workspaceBundleDigest(payload: BrowserWorkspaceBundlePayload) {
   return Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, '0'),
   ).join('')
+}
+
+function internWorkspaceHistoryQueries(snapshot: WorkspaceSnapshot) {
+  const cloned = JSON.parse(JSON.stringify(snapshot)) as WorkspaceSnapshot
+  const historyQueryTexts: string[] = []
+  const indexes = new Map<string, number>()
+
+  for (const tab of [...cloned.tabs, ...cloned.closedTabs]) {
+    for (const entry of tab.history) {
+      let index = indexes.get(entry.queryText)
+      if (index === undefined) {
+        index = historyQueryTexts.length
+        indexes.set(entry.queryText, index)
+        historyQueryTexts.push(entry.queryText)
+      }
+      entry.queryText = `@q:${index}`
+    }
+  }
+
+  return { snapshot: cloned, historyQueryTexts }
+}
+
+function restoreWorkspaceHistoryQueries(payload: BrowserWorkspaceBundlePayload) {
+  const historyQueryTexts = payload.historyQueryTexts ?? []
+  if (historyQueryTexts.length === 0) return payload.snapshot
+
+  for (const tab of [...payload.snapshot.tabs, ...payload.snapshot.closedTabs]) {
+    for (const entry of tab.history) {
+      const match = /^@q:(\d+)$/.exec(entry.queryText)
+      if (!match) continue
+      const queryText = historyQueryTexts[Number(match[1])]
+      if (queryText === undefined) {
+        throw new Error('Workspace bundle history string table is invalid.')
+      }
+      entry.queryText = queryText
+    }
+  }
+
+  return payload.snapshot
 }
 
 function canonicalJson(value: unknown): string {

@@ -10,9 +10,6 @@ export function migrateLegacyVariableTokens(snapshot: WorkspaceSnapshot) {
     connection.auth.username = connection.auth.username
       ? legacyToBraceVariables(connection.auth.username)
       : connection.auth.username
-    connection.connectionString = connection.connectionString
-      ? legacyToBraceVariables(connection.connectionString)
-      : connection.connectionString
     connection.redisOptions = migrateJsonVariableTokens(connection.redisOptions)
     connection.sqliteOptions = migrateJsonVariableTokens(connection.sqliteOptions)
     connection.mysqlOptions = migrateJsonVariableTokens(connection.mysqlOptions)

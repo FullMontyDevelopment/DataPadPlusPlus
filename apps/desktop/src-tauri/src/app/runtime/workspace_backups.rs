@@ -8,18 +8,30 @@ use crate::{
     domain::{
         error::CommandError,
         models::{
-            BootstrapPayload, ExportBundle, SecretRef, WorkspaceBackupDeleteRequest,
+            BootstrapPayload, ExportBundle, QueryTabState, SecretRef, WorkspaceBackupDeleteRequest,
             WorkspaceBackupPreferences, WorkspaceBackupRestoreRequest, WorkspaceBackupRunRequest,
             WorkspaceBackupRunResponse, WorkspaceBackupSettingsRequest, WorkspaceBackupSummary,
+            WorkspaceBundleCipherMetadata, WorkspaceBundleKdfMetadata,
+            WorkspaceStorageAnalysisRequest, WorkspaceStorageReport, WorkspaceStorageSection,
+            WorkspaceTabStorageContribution,
         },
     },
     persistence, security,
 };
 
-use super::{timestamp_now, ManagedAppState};
+use super::{
+    timestamp_now,
+    workspace::{gzip_workspace_payload, sanitize_snapshot},
+    workspace_bundle::{
+        collect_workspace_bundle_secrets, strip_workspace_secret_references,
+        workspace_bundle_payload_with_integrity,
+    },
+    ManagedAppState,
+};
 
 const BACKUP_EXTENSION: &str = "datapadpp-workspace";
 const AUTO_BACKUP_SECRET_ID: &str = "workspace-auto-backup-passphrase";
+const MAX_BACKUP_FILE_BYTES: u64 = 32 * 1024 * 1024;
 
 impl ManagedAppState {
     pub fn update_workspace_backup_settings(
@@ -78,6 +90,14 @@ impl ManagedAppState {
         list_backup_summaries(&self.app)
     }
 
+    pub fn analyze_workspace_storage(
+        &self,
+        request: WorkspaceStorageAnalysisRequest,
+    ) -> Result<WorkspaceStorageReport, CommandError> {
+        self.ensure_unlocked()?;
+        build_workspace_storage_report(self, request.include_secret_sizes)
+    }
+
     pub fn create_workspace_backup(
         &mut self,
         request: WorkspaceBackupRunRequest,
@@ -110,6 +130,22 @@ impl ManagedAppState {
         let backup = write_backup_bundle(&self.app, &bundle)?;
         rotate_backups(&self.app, preferences.max_backups)?;
         let backups = self.list_workspace_backups()?;
+        let message = if backup.size_bytes > 5 * 1024 * 1024 {
+            let report = build_workspace_storage_report(self, false)?;
+            let largest_sections = report
+                .sections
+                .iter()
+                .filter(|section| section.size_bytes > 0)
+                .map(|section| format!("{}={} bytes", section.label, section.size_bytes))
+                .take(8)
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "Workspace backup created, but it remains unusually large. Section sizes: {largest_sections}."
+            )
+        } else {
+            "Workspace backup created.".into()
+        };
 
         self.snapshot.preferences.workspace_backups.last_backup_at =
             Some(backup.created_at.clone());
@@ -124,7 +160,7 @@ impl ManagedAppState {
             created: true,
             backup: Some(backup),
             backups,
-            message: "Workspace backup created.".into(),
+            message,
         })
     }
 
@@ -142,7 +178,7 @@ impl ManagedAppState {
             Some(passphrase) => passphrase.to_string(),
             None => resolve_auto_backup_passphrase(&self.snapshot.preferences.workspace_backups)?,
         };
-        self.import_bundle(&passphrase, &bundle.encrypted_payload)
+        self.import_export_bundle(&passphrase, &bundle, request.import_secrets, false, None)
     }
 
     pub fn delete_workspace_backup(
@@ -156,6 +192,312 @@ impl ManagedAppState {
         }
         self.list_workspace_backups()
     }
+}
+
+fn build_workspace_storage_report(
+    state: &ManagedAppState,
+    include_secret_sizes: bool,
+) -> Result<WorkspaceStorageReport, CommandError> {
+    let workspace_path = persistence::workspace_file_path(&state.app);
+    let recovery_path = workspace_path.with_extension("json.bak");
+    let backups = list_backup_summaries(&state.app)?;
+    let backup_total_bytes = backups.iter().map(|backup| backup.size_bytes).sum::<u64>();
+    let invalid_backup_count = backups.iter().filter(|backup| backup.is_corrupt).count();
+
+    let mut sanitized = sanitize_snapshot(&state.snapshot, include_secret_sizes);
+    sanitized
+        .preferences
+        .workspace_backups
+        .passphrase_secret_ref = None;
+    let sanitized = if include_secret_sizes {
+        sanitized
+    } else {
+        strip_workspace_secret_references(sanitized)?
+    };
+    let secret_entries = if include_secret_sizes {
+        collect_workspace_bundle_secrets(&sanitized)?
+    } else {
+        Vec::new()
+    };
+    let secret_count = include_secret_sizes.then_some(secret_entries.len());
+    let secret_bytes = include_secret_sizes.then_some(
+        secret_entries
+            .iter()
+            .map(|secret| secret.value.len() as u64)
+            .sum(),
+    );
+    let mut payload = workspace_bundle_payload_with_integrity(sanitized, secret_entries)?;
+    let plaintext = serde_json::to_vec(&payload)?;
+    for secret in &mut payload.secrets {
+        secret.value.clear();
+    }
+    let compressed = gzip_workspace_payload(&plaintext)?;
+    let projected_encrypted_bytes = projected_bundle_file_bytes(compressed.len())?;
+
+    let open_tabs_bytes = serialized_size(&state.snapshot.tabs)?;
+    let closed_tabs_bytes = serialized_size(&state.snapshot.closed_tabs)?;
+    let history_bytes = state
+        .snapshot
+        .tabs
+        .iter()
+        .map(|tab| serialized_size(&tab.history))
+        .chain(
+            state
+                .snapshot
+                .closed_tabs
+                .iter()
+                .map(|closed| serialized_size(&closed.tab.history)),
+        )
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .sum();
+    let cached_payload_bytes = cached_payload_size(&state.snapshot)?;
+    let saved_work_bytes = serialized_size(&serde_json::json!({
+        "libraryNodes": &state.snapshot.library_nodes,
+        "savedWork": &state.snapshot.saved_work,
+    }))?;
+    let sections = vec![
+        storage_section(
+            "connections",
+            "Connections",
+            serialized_size(&state.snapshot.connections)?,
+            state.snapshot.connections.len(),
+        ),
+        storage_section(
+            "environments",
+            "Environments",
+            serialized_size(&state.snapshot.environments)?,
+            state.snapshot.environments.len(),
+        ),
+        storage_section(
+            "open-tabs",
+            "Open tabs",
+            open_tabs_bytes,
+            state.snapshot.tabs.len(),
+        ),
+        storage_section(
+            "closed-tabs",
+            "Closed tabs",
+            closed_tabs_bytes,
+            state.snapshot.closed_tabs.len(),
+        ),
+        storage_section(
+            "saved-work",
+            "Saved work",
+            saved_work_bytes,
+            state.snapshot.library_nodes.len() + state.snapshot.saved_work.len(),
+        ),
+        storage_section(
+            "histories",
+            "Execution histories",
+            history_bytes,
+            history_entry_count(&state.snapshot),
+        ),
+        storage_section(
+            "adapter-manifests",
+            "Adapter manifests",
+            serialized_size(&state.snapshot.adapter_manifests)?,
+            state.snapshot.adapter_manifests.len(),
+        ),
+        storage_section(
+            "cached-payloads",
+            "Refreshable cached payloads",
+            cached_payload_bytes,
+            cached_payload_count(&state.snapshot),
+        ),
+    ];
+
+    let mut largest_tabs = state
+        .snapshot
+        .tabs
+        .iter()
+        .map(|tab| tab_storage_contribution(tab, false))
+        .chain(
+            state
+                .snapshot
+                .closed_tabs
+                .iter()
+                .map(|closed| tab_storage_contribution(&closed.tab, true)),
+        )
+        .collect::<Result<Vec<_>, _>>()?;
+    largest_tabs.sort_by_key(|tab| std::cmp::Reverse(tab.total_bytes));
+    largest_tabs.truncate(10);
+
+    Ok(WorkspaceStorageReport {
+        schema_version: state.snapshot.schema_version,
+        workspace_bytes: file_size(&workspace_path),
+        recovery_bytes: file_size(&recovery_path),
+        backup_count: backups.len(),
+        backup_total_bytes,
+        backup_average_bytes: if backups.is_empty() {
+            0
+        } else {
+            backup_total_bytes / backups.len() as u64
+        },
+        invalid_backup_count,
+        projected_plaintext_bytes: plaintext.len() as u64,
+        projected_compressed_bytes: compressed.len() as u64,
+        projected_encrypted_bytes,
+        secret_count,
+        secret_bytes,
+        sections,
+        largest_tabs,
+    })
+}
+
+fn projected_bundle_file_bytes(compressed_bytes: usize) -> Result<u64, CommandError> {
+    let ciphertext_bytes = compressed_bytes.saturating_add(16);
+    let encoded_bytes = ciphertext_bytes.div_ceil(3).saturating_mul(4);
+    let bundle = ExportBundle {
+        format: "datapadplusplus-bundle".into(),
+        version: 2,
+        format_version: Some(2),
+        workspace_schema_version: Some(persistence::SCHEMA_VERSION),
+        created_at: Some(timestamp_now()),
+        compression: Some("gzip".into()),
+        kdf: Some(WorkspaceBundleKdfMetadata {
+            algorithm: "pbkdf2-sha256".into(),
+            iterations: security::EXPORT_KDF_V2_ITERATIONS,
+            salt: "A".repeat(24),
+        }),
+        cipher: Some(WorkspaceBundleCipherMetadata {
+            algorithm: "aes-256-gcm".into(),
+            nonce: "A".repeat(16),
+        }),
+        encrypted_payload: "A".repeat(encoded_bytes),
+        includes_secrets: false,
+        secret_count: None,
+    };
+    Ok(serde_json::to_vec(&bundle)?.len() as u64)
+}
+
+fn storage_section(
+    key: &str,
+    label: &str,
+    size_bytes: u64,
+    item_count: usize,
+) -> WorkspaceStorageSection {
+    WorkspaceStorageSection {
+        key: key.into(),
+        label: label.into(),
+        size_bytes,
+        item_count,
+    }
+}
+
+fn tab_storage_contribution(
+    tab: &QueryTabState,
+    closed: bool,
+) -> Result<WorkspaceTabStorageContribution, CommandError> {
+    let value = serde_json::to_value(tab)?;
+    let draft_bytes = json_fields_size(
+        &value,
+        &[
+            "queryText",
+            "sqlScope",
+            "builderState",
+            "queryEditorState",
+            "testSuite",
+        ],
+    )?;
+    Ok(WorkspaceTabStorageContribution {
+        tab_id: tab.id.clone(),
+        title: tab.title.clone(),
+        closed,
+        total_bytes: serialized_size(tab)?,
+        draft_bytes,
+        history_bytes: serialized_size(&tab.history)?,
+        object_bytes: json_nested_fields_size(
+            &value,
+            "objectViewState",
+            &["payload", "queryTemplate", "warnings"],
+        )?,
+        metrics_bytes: json_nested_fields_size(
+            &value,
+            "metricsState",
+            &["diagnostics", "warnings"],
+        )?,
+        test_bytes: json_fields_size(&value, &["testRun"])?,
+    })
+}
+
+fn cached_payload_size(
+    snapshot: &crate::domain::models::WorkspaceSnapshot,
+) -> Result<u64, CommandError> {
+    let tabs = snapshot
+        .tabs
+        .iter()
+        .chain(snapshot.closed_tabs.iter().map(|closed| &closed.tab));
+    let mut total = serialized_size(&snapshot.datastore_security_checks)?;
+    for tab in tabs {
+        let value = serde_json::to_value(tab)?;
+        total += json_fields_size(&value, &["result", "testRun", "activeExecution", "error"])?;
+        total += json_nested_fields_size(
+            &value,
+            "objectViewState",
+            &["payload", "queryTemplate", "warnings"],
+        )?;
+        total += json_nested_fields_size(&value, "metricsState", &["diagnostics", "warnings"])?;
+    }
+    Ok(total)
+}
+
+fn cached_payload_count(snapshot: &crate::domain::models::WorkspaceSnapshot) -> usize {
+    let mut count = usize::from(snapshot.datastore_security_checks.is_some());
+    for tab in snapshot
+        .tabs
+        .iter()
+        .chain(snapshot.closed_tabs.iter().map(|closed| &closed.tab))
+    {
+        count += usize::from(tab.result.is_some());
+        count += usize::from(tab.test_run.is_some());
+        count += usize::from(tab.object_view_state.is_some());
+        count += usize::from(tab.metrics_state.is_some());
+    }
+    count
+}
+
+fn history_entry_count(snapshot: &crate::domain::models::WorkspaceSnapshot) -> usize {
+    snapshot
+        .tabs
+        .iter()
+        .map(|tab| tab.history.len())
+        .sum::<usize>()
+        + snapshot
+            .closed_tabs
+            .iter()
+            .map(|closed| closed.tab.history.len())
+            .sum::<usize>()
+}
+
+fn json_fields_size(value: &serde_json::Value, fields: &[&str]) -> Result<u64, CommandError> {
+    let Some(object) = value.as_object() else {
+        return Ok(0);
+    };
+    fields
+        .iter()
+        .filter_map(|field| object.get(*field))
+        .map(serialized_size)
+        .collect::<Result<Vec<_>, _>>()
+        .map(|sizes| sizes.into_iter().sum())
+}
+
+fn json_nested_fields_size(
+    value: &serde_json::Value,
+    parent: &str,
+    fields: &[&str],
+) -> Result<u64, CommandError> {
+    value
+        .get(parent)
+        .map_or(Ok(0), |nested| json_fields_size(nested, fields))
+}
+
+fn serialized_size<T: serde::Serialize + ?Sized>(value: &T) -> Result<u64, CommandError> {
+    Ok(serde_json::to_vec(value)?.len() as u64)
+}
+
+fn file_size(path: &Path) -> u64 {
+    fs::metadata(path).map_or(0, |metadata| metadata.len())
 }
 
 fn auto_backup_secret_ref() -> SecretRef {
@@ -198,7 +540,7 @@ fn write_backup_bundle(
     let id = backup_id_now();
     let file_name = format!("{id}.{BACKUP_EXTENSION}");
     let path = directory.join(&file_name);
-    fs::write(&path, serde_json::to_string_pretty(bundle)?)?;
+    fs::write(&path, serde_json::to_vec(bundle)?)?;
     summarize_backup_file(&path)
 }
 
@@ -207,6 +549,12 @@ fn read_backup_bundle(
     backup_id: &str,
 ) -> Result<ExportBundle, CommandError> {
     let path = backup_path_for_id(app, backup_id)?;
+    if fs::metadata(&path)?.len() > MAX_BACKUP_FILE_BYTES {
+        return Err(CommandError::new(
+            "workspace-bundle-too-large",
+            "Workspace backup is too large to read safely.",
+        ));
+    }
     let text = fs::read_to_string(path)?;
     serde_json::from_str::<ExportBundle>(&text).map_err(CommandError::from)
 }
@@ -246,9 +594,9 @@ fn list_backup_summaries(
             continue;
         }
 
-        if let Ok(summary) = summarize_backup_file(&path) {
-            backups.push(summary);
-        }
+        backups.push(
+            summarize_backup_file(&path).unwrap_or_else(|_| summarize_corrupt_backup_file(&path)),
+        );
     }
 
     backups.sort_by(|left, right| right.created_at.cmp(&left.created_at));
@@ -257,6 +605,12 @@ fn list_backup_summaries(
 
 fn summarize_backup_file(path: &Path) -> Result<WorkspaceBackupSummary, CommandError> {
     let metadata = fs::metadata(path)?;
+    if metadata.len() > MAX_BACKUP_FILE_BYTES {
+        return Err(CommandError::new(
+            "workspace-bundle-too-large",
+            "Workspace backup is too large to inspect safely.",
+        ));
+    }
     let text = fs::read_to_string(path)?;
     let bundle = serde_json::from_str::<ExportBundle>(&text)?;
     let file_name = path
@@ -268,11 +622,13 @@ fn summarize_backup_file(path: &Path) -> Result<WorkspaceBackupSummary, CommandE
         .strip_suffix(&format!(".{BACKUP_EXTENSION}"))
         .unwrap_or(&file_name)
         .to_string();
-    let created_at = metadata
-        .modified()
-        .ok()
-        .and_then(system_time_to_seconds)
-        .unwrap_or_else(timestamp_now);
+    let created_at = bundle.created_at.clone().unwrap_or_else(|| {
+        metadata
+            .modified()
+            .ok()
+            .and_then(system_time_to_seconds)
+            .unwrap_or_else(timestamp_now)
+    });
 
     Ok(WorkspaceBackupSummary {
         id,
@@ -281,8 +637,42 @@ fn summarize_backup_file(path: &Path) -> Result<WorkspaceBackupSummary, CommandE
         size_bytes: metadata.len(),
         includes_secrets: bundle.includes_secrets,
         secret_count: bundle.secret_count,
-        version: Some(bundle.version),
+        version: bundle.workspace_schema_version.or(Some(bundle.version)),
+        format_version: bundle.format_version.or(Some(bundle.version)),
+        workspace_schema_version: bundle.workspace_schema_version,
+        is_corrupt: false,
+        error_code: None,
     })
+}
+
+fn summarize_corrupt_backup_file(path: &Path) -> WorkspaceBackupSummary {
+    let metadata = fs::metadata(path).ok();
+    let file_name = path
+        .file_name()
+        .and_then(|file_name| file_name.to_str())
+        .unwrap_or("workspace-backup.datapadpp-workspace")
+        .to_string();
+    let id = file_name
+        .strip_suffix(&format!(".{BACKUP_EXTENSION}"))
+        .unwrap_or(&file_name)
+        .to_string();
+    WorkspaceBackupSummary {
+        id,
+        file_name,
+        created_at: metadata
+            .as_ref()
+            .and_then(|value| value.modified().ok())
+            .and_then(system_time_to_seconds)
+            .unwrap_or_else(timestamp_now),
+        size_bytes: metadata.as_ref().map_or(0, fs::Metadata::len),
+        includes_secrets: false,
+        secret_count: None,
+        version: None,
+        format_version: None,
+        workspace_schema_version: None,
+        is_corrupt: true,
+        error_code: Some("workspace-backup-corrupt".into()),
+    }
 }
 
 fn rotate_backups(app: &tauri::AppHandle, max_backups: u32) -> Result<(), CommandError> {

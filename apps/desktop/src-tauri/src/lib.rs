@@ -324,9 +324,9 @@ pub fn run() {
     let run_result = tauri::Builder::default()
         .setup(|app| {
             infrastructure::log_info("app", "Tauri setup started.");
-            app.manage(std::sync::Mutex::new(app::runtime::ManagedAppState::load(
-                app.handle().clone(),
-            )));
+            let managed_state = app::runtime::ManagedAppState::load(app.handle().clone())
+                .map_err(|error| std::io::Error::other(error.message))?;
+            app.manage(std::sync::Mutex::new(managed_state));
             app.manage(std::sync::Mutex::new(
                 app::runtime::ActiveExecutionRegistry::default(),
             ));
@@ -463,11 +463,15 @@ pub fn run() {
             commands::app::set_app_update_settings,
             commands::app::set_taskbar_query_activity,
             commands::app::store_secret,
+            commands::workspace::analyze_workspace_backup_file,
+            commands::workspace::analyze_workspace_storage,
             commands::workspace::cancel_execution_request,
+            commands::workspace::cancel_workspace_import,
             commands::workspace::cancel_test_run,
             commands::workspace::close_query_tab,
             commands::workspace::close_query_tabs,
             commands::workspace::collect_adapter_diagnostics,
+            commands::workspace::commit_workspace_import,
             commands::workspace::create_library_folder,
             commands::workspace::create_local_database,
             commands::workspace::create_workspace,
@@ -502,6 +506,8 @@ pub fn run() {
             commands::workspace::execute_datastore_operation,
             commands::workspace::execute_test_suite,
             commands::workspace::plan_test_suite_run,
+            commands::workspace::preview_workspace_import_file,
+            commands::workspace::select_workspace_import_file,
             commands::workspace::export_result_file,
             commands::workspace::export_datastore_api_server_project_file,
             commands::workspace::export_workspace_bundle,

@@ -105,8 +105,12 @@ const defaultActions: Actions = {
   exportResultFile: async () => undefined,
   exportWorkspace: noop,
   importWorkspace: noop,
-  exportWorkspaceFile: async () => undefined,
-  importWorkspaceFile: noop,
+  exportWorkspaceFile: async () => ({ status: 'failed', message: 'Unavailable.' }),
+  importWorkspaceFile: noopFalse,
+  selectWorkspaceImportFile: async () => ({ status: 'failed', message: 'Unavailable.' }),
+  previewWorkspaceImportFile: async () => ({ status: 'failed', message: 'Unavailable.' }),
+  commitWorkspaceImport: async () => ({ status: 'failed', message: 'Unavailable.' }),
+  cancelWorkspaceImport: noopFalse,
   getWorkspaceSwitcherStatus: async () => undefined,
   setWorkspaceSwitcherEnabled: noopFalse,
   updateMultiWindowTabsSettings: noopFalse,
@@ -151,8 +155,10 @@ const defaultActions: Actions = {
   previewDatastoreMcpClientSetup: async () => undefined,
   applyDatastoreMcpClientSetup: async () => undefined,
   listWorkspaceBackups: async () => undefined,
+  analyzeWorkspaceStorage: async () => undefined,
+  analyzeWorkspaceBackupFile: async () => undefined,
   createWorkspaceBackupNow: async () => undefined,
-  restoreWorkspaceBackup: noop,
+  restoreWorkspaceBackup: noopFalse,
   deleteWorkspaceBackup: async () => undefined,
   getAppUpdateSettings: async () => undefined,
   setAppUpdateSettings: noop,
@@ -252,8 +258,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     let disposed = false
     let unlisten: (() => void) | undefined
 
-    void desktopClient.listenForWorkspaceChanges(({ revision }) => {
-      if (disposed || revision <= (stateRef.current.payload?.snapshot.workspaceRevision ?? 0)) {
+    void desktopClient.listenForWorkspaceChanges(({ revision, contextChanged }) => {
+      if (
+        disposed
+        || (!contextChanged && revision <= (stateRef.current.payload?.snapshot.workspaceRevision ?? 0))
+      ) {
         return
       }
       if (workspaceRefreshTimerRef.current !== undefined) {
@@ -261,12 +270,18 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       }
       workspaceRefreshTimerRef.current = window.setTimeout(() => {
         workspaceRefreshTimerRef.current = undefined
-        void desktopClient.bootstrapApp().then((nextPayload) => {
-          if (providerMountedRef.current) {
+        void desktopClient.bootstrapApp().then(async (nextPayload) => {
+          if (!providerMountedRef.current) {
+            return
+          }
+          if (contextChanged) {
+            const status = await desktopClient.getWorkspaceSwitcherStatus().catch(() => undefined)
+            dispatch({ type: 'WORKSPACE_CONTEXT_COMMITTED', payload: nextPayload, status })
+          } else {
             dispatchBootstrapPayload(dispatch, nextPayload)
           }
         }).catch(() => {
-          // A command response may already carry the authoritative revision.
+          // A command response may already carry the authoritative workspace context.
         })
       }, 40)
     }).then((stopListening) => {

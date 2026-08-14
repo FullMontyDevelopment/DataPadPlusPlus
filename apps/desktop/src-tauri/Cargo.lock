@@ -1933,6 +1933,7 @@ dependencies = [
  "bigdecimal",
  "chrono",
  "duckdb",
+ "flate2",
  "futures-util",
  "hmac 0.13.0",
  "httpdate",
@@ -1940,6 +1941,7 @@ dependencies = [
  "mongodb",
  "neo4rs",
  "pbkdf2",
+ "percent-encoding",
  "rand 0.10.2",
  "redis",
  "reqwest",
@@ -1968,6 +1970,7 @@ dependencies = [
  "url",
  "webpki-roots 1.0.9",
  "windows-sys 0.61.2",
+ "zeroize",
  "zip 8.6.0",
 ]
 

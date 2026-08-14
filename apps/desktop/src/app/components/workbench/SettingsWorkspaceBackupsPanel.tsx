@@ -4,6 +4,7 @@ import type {
   WorkspaceBackupRunResponse,
   WorkspaceBackupSummary,
   WorkspaceSnapshot,
+  WorkspaceStorageReport,
 } from '@datapadplusplus/shared-types'
 import { canUseWorkspaceBundlePassphrase } from '../../security/workspace-passphrase'
 import { ClockIcon, DownloadIcon, HistoryIcon, RefreshIcon, UploadIcon } from './icons'
@@ -17,17 +18,17 @@ import {
   SettingsPanel,
 } from './SettingsWorkspace.parts'
 
-type BundleTask = 'export' | 'import'
-
 export interface SettingsWorkspaceBackupsProps {
   health: AppHealth
   preferences: WorkspaceSnapshot['preferences']
   onCreateBackup(automatic?: boolean): Promise<WorkspaceBackupRunResponse | undefined>
+  onAnalyzeWorkspaceStorage(includeSecretSizes?: boolean): Promise<WorkspaceStorageReport | undefined>
+  onAnalyzeWorkspaceBackup(passphrase: string, includeSecretSizes?: boolean): Promise<WorkspaceStorageReport | undefined>
   onDeleteBackup(backupId: string): Promise<WorkspaceBackupSummary[] | undefined>
-  onExportWorkspaceFile(passphrase: string, includeSecrets: boolean): Promise<string | undefined>
-  onImportWorkspaceFile(passphrase: string): Promise<void>
+  onOpenWorkspaceExport(): void
+  onOpenWorkspaceImport(): void
   onListBackups(): Promise<WorkspaceBackupSummary[] | undefined>
-  onRestoreBackup(backupId: string, passphrase: string): Promise<void>
+  onRestoreBackup(backupId: string, passphrase: string, importSecrets: boolean): Promise<boolean>
   onUpdateBackupSettings(request: {
     enabled: boolean
     passphrase?: string
@@ -37,27 +38,95 @@ export interface SettingsWorkspaceBackupsProps {
   }): Promise<boolean>
 }
 
+function formatBytes(value: number) {
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${(value / 1024 / 1024).toFixed(1)} MB`
+}
+
+function WorkspaceStorageAnalysis({
+  report,
+  onIncludeSecretSizes,
+}: {
+  report: WorkspaceStorageReport
+  onIncludeSecretSizes(): void
+}) {
+  return (
+    <section className="settings-subpanel" aria-label="Workspace size analysis">
+      <h3>Workspace size analysis</h3>
+      <div className="settings-metric-grid">
+        <div className="settings-metric-card"><span>Workspace schema</span><strong>v{report.schemaVersion}</strong></div>
+        <div className="settings-metric-card"><span>Live workspace</span><strong>{formatBytes(report.workspaceBytes)}</strong></div>
+        <div className="settings-metric-card"><span>Recovery file</span><strong>{formatBytes(report.recoveryBytes)}</strong></div>
+        <div className="settings-metric-card"><span>Projected plaintext</span><strong>{formatBytes(report.projectedPlaintextBytes)}</strong></div>
+        <div className="settings-metric-card"><span>After compression</span><strong>{formatBytes(report.projectedCompressedBytes)}</strong></div>
+        <div className="settings-metric-card"><span>Projected backup</span><strong>{formatBytes(report.projectedEncryptedBytes)}</strong></div>
+        <div className="settings-metric-card"><span>Backup storage</span><strong>{formatBytes(report.backupTotalBytes)}</strong></div>
+      </div>
+      {report.invalidBackupCount > 0 ? (
+        <div className="settings-empty">{report.invalidBackupCount} corrupt backup file{report.invalidBackupCount === 1 ? '' : 's'} detected.</div>
+      ) : null}
+      <div className="settings-table" role="table" aria-label="Workspace storage sections">
+        <div className="settings-table-row settings-table-row--header" role="row">
+          <span>Section</span><span>Items</span><span>Size</span><span />
+        </div>
+        {report.sections.map((section) => (
+          <div key={section.key} className="settings-table-row" role="row">
+            <span>{section.label}</span><span>{section.itemCount}</span><span>{formatBytes(section.sizeBytes)}</span><span />
+          </div>
+        ))}
+      </div>
+      {report.largestTabs.length ? (
+        <div className="settings-table" role="table" aria-label="Largest workspace tabs">
+          <div className="settings-table-row settings-table-row--header" role="row">
+            <span>Largest tabs</span><span>State</span><span>Size</span><span />
+          </div>
+          {report.largestTabs.map((tab) => (
+            <div key={`${tab.closed ? 'closed' : 'open'}-${tab.tabId}`} className="settings-table-row" role="row">
+              <span>{tab.title}</span><span>{tab.closed ? 'Closed' : 'Open'}</span><span>{formatBytes(tab.totalBytes)}</span><span />
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {report.secretCount === undefined ? (
+        <button type="button" className="drawer-button" onClick={onIncludeSecretSizes}>
+          Include secret byte totals
+        </button>
+      ) : (
+        <div className="settings-empty">
+          {report.secretCount} secrets | {formatBytes(report.secretBytes ?? 0)} total secret bytes
+        </div>
+      )}
+      <p className="settings-empty">This report contains byte counts only; it never displays queries, payloads, or credential values.</p>
+    </section>
+  )
+}
+
 export function SettingsWorkspaceBackupsPanel({
   health,
   preferences,
   onCreateBackup,
+  onAnalyzeWorkspaceStorage,
+  onAnalyzeWorkspaceBackup,
   onDeleteBackup,
-  onExportWorkspaceFile,
-  onImportWorkspaceFile,
+  onOpenWorkspaceExport,
+  onOpenWorkspaceImport,
   onListBackups,
   onRestoreBackup,
   onUpdateBackupSettings,
 }: SettingsWorkspaceBackupsProps) {
-  const [bundleTask, setBundleTask] = useState<BundleTask>()
+  const [analyzePromptOpen, setAnalyzePromptOpen] = useState(false)
   const [bundlePassphrase, setBundlePassphrase] = useState('')
-  const [includeSecrets, setIncludeSecrets] = useState(false)
   const [backupPassphrase, setBackupPassphrase] = useState('')
   const [backupPromptOpen, setBackupPromptOpen] = useState(false)
   const [restorePassphrase, setRestorePassphrase] = useState('')
+  const [restoreSecrets, setRestoreSecrets] = useState(false)
   const [restoreBackupId, setRestoreBackupId] = useState<string>()
   const [deleteBackupId, setDeleteBackupId] = useState<string>()
   const [backups, setBackups] = useState<WorkspaceBackupSummary[]>([])
   const [notice, setNotice] = useState<SettingsNoticeMessage>()
+  const [storageReport, setStorageReport] = useState<WorkspaceStorageReport>()
+  const [analyzing, setAnalyzing] = useState(false)
   const canIncludeSecrets = health.runtime === 'tauri'
   const backupPreferences = preferences.workspaceBackups ?? {
     enabled: false,
@@ -96,21 +165,16 @@ export function SettingsWorkspaceBackupsPanel({
     return items
   }
 
-  const finishBundleTask = async () => {
-    if (!bundleTask) return
-
-    if (bundleTask === 'export') {
-      const path = await onExportWorkspaceFile(bundlePassphrase, canIncludeSecrets && includeSecrets)
-      setNotice(path
-        ? { text: 'Workspace exported.', tone: 'success' }
-        : { text: 'Export canceled.', tone: 'info' })
+  const analyzeBackup = async () => {
+    const report = await onAnalyzeWorkspaceBackup(bundlePassphrase, false)
+    if (report) {
+      setStorageReport(report)
+      setNotice({ text: 'Backup size analysis is ready.', tone: 'success' })
     } else {
-      await onImportWorkspaceFile(bundlePassphrase)
-      setNotice({ text: 'Workspace import finished.', tone: 'success' })
+      setNotice({ text: 'Backup analysis canceled.', tone: 'info' })
     }
-    setBundleTask(undefined)
+    setAnalyzePromptOpen(false)
     setBundlePassphrase('')
-    setIncludeSecrets(false)
   }
 
   const updateBackups = async (enabled: boolean, passphrase?: string) => {
@@ -153,19 +217,34 @@ export function SettingsWorkspaceBackupsPanel({
     }
   }
 
+  const analyzeWorkspace = async (includeSecretSizes = false) => {
+    setAnalyzing(true)
+    const report = await onAnalyzeWorkspaceStorage(includeSecretSizes)
+    setAnalyzing(false)
+    if (report) {
+      setStorageReport(report)
+      setNotice({ text: 'Workspace size analysis is ready.', tone: 'success' })
+    } else {
+      setNotice({ text: 'Workspace size could not be analyzed.', tone: 'error' })
+    }
+  }
+
   return (
     <SettingsPanel title="Workspace + Backups" icon={<HistoryIcon className="panel-inline-icon" />}>
       <div className="settings-split-grid">
         <section className="settings-subpanel" aria-label="Workspace transfer">
           <h3>Workspace</h3>
           <div className="settings-action-row">
-            <button type="button" className="drawer-button drawer-button--primary" onClick={() => setBundleTask('export')}>
+            <button type="button" className="drawer-button drawer-button--primary" onClick={onOpenWorkspaceExport}>
               <DownloadIcon className="drawer-inline-icon" />
               Export
             </button>
-            <button type="button" className="drawer-button" onClick={() => setBundleTask('import')}>
+            <button type="button" className="drawer-button" onClick={onOpenWorkspaceImport}>
               <UploadIcon className="drawer-inline-icon" />
               Import
+            </button>
+            <button type="button" className="drawer-button" onClick={() => setAnalyzePromptOpen(true)}>
+              Analyze Backup
             </button>
           </div>
         </section>
@@ -190,6 +269,9 @@ export function SettingsWorkspaceBackupsPanel({
               <RefreshIcon className="drawer-inline-icon" />
               Refresh
             </button>
+            <button type="button" className="drawer-button" disabled={analyzing} onClick={() => void analyzeWorkspace(false)}>
+              {analyzing ? 'Analyzing...' : 'Analyze Workspace Size'}
+            </button>
           </div>
           <label className="settings-check-row">
             <input
@@ -213,10 +295,10 @@ export function SettingsWorkspaceBackupsPanel({
         </section>
       </div>
 
-      {bundleTask ? (
+      {analyzePromptOpen ? (
         <div className="settings-confirm-panel">
           <label className="settings-field">
-            <span>{bundleTask === 'export' ? 'Export passphrase' : 'Import passphrase'}</span>
+            <span>Backup passphrase</span>
             <input
               type="password"
               value={bundlePassphrase}
@@ -225,22 +307,11 @@ export function SettingsWorkspaceBackupsPanel({
             />
           </label>
           <PassphraseStrength value={bundlePassphrase} />
-          {bundleTask === 'export' ? (
-            <label className="settings-check-row">
-              <input
-                type="checkbox"
-                checked={canIncludeSecrets && includeSecrets}
-                disabled={!canIncludeSecrets}
-                onChange={(event) => setIncludeSecrets(event.target.checked)}
-              />
-              <span>Include passwords</span>
-            </label>
-          ) : null}
           <div className="settings-action-row">
-            <button type="button" className="drawer-button drawer-button--primary" disabled={!bundleReady} onClick={() => void finishBundleTask()}>
-              {bundleTask === 'export' ? 'Export Workspace' : 'Import Workspace'}
+            <button type="button" className="drawer-button drawer-button--primary" disabled={!bundleReady} onClick={() => void analyzeBackup()}>
+              Choose Backup to Analyze
             </button>
-            <button type="button" className="drawer-button" onClick={() => setBundleTask(undefined)}>
+            <button type="button" className="drawer-button" onClick={() => setAnalyzePromptOpen(false)}>
               Cancel
             </button>
           </div>
@@ -275,17 +346,32 @@ export function SettingsWorkspaceBackupsPanel({
         onDelete={(backupId) => setDeleteBackupId(backupId)}
         onRestore={(backupId) => setRestoreBackupId(backupId)}
       />
+      <div className="settings-empty">
+        {backups.length
+          ? `${backups.length} backups | ${formatBytes(backups.reduce((total, backup) => total + backup.sizeBytes, 0))} total | ${formatBytes(Math.floor(backups.reduce((total, backup) => total + backup.sizeBytes, 0) / backups.length))} average`
+          : 'No backup disk usage yet.'}
+      </div>
+      {storageReport ? (
+        <WorkspaceStorageAnalysis report={storageReport} onIncludeSecretSizes={() => void analyzeWorkspace(true)} />
+      ) : null}
       {restoreBackupId ? (
         <RestoreBackupConfirmation
           backupId={restoreBackupId}
           passphrase={restorePassphrase}
+          importSecrets={restoreSecrets}
           onCancel={() => setRestoreBackupId(undefined)}
           onPassphraseChange={setRestorePassphrase}
-          onConfirm={(backupId, passphrase) => {
-            void onRestoreBackup(backupId, passphrase).then(() => {
-              setRestoreBackupId(undefined)
-              setRestorePassphrase('')
-              setNotice({ text: 'Backup restored.', tone: 'success' })
+          onImportSecretsChange={setRestoreSecrets}
+          onConfirm={(backupId, passphrase, includeImportedSecrets) => {
+            void onRestoreBackup(backupId, passphrase, includeImportedSecrets).then((restored) => {
+              if (restored) {
+                setRestoreBackupId(undefined)
+                setRestorePassphrase('')
+                setRestoreSecrets(false)
+              }
+              setNotice(restored
+                ? { text: 'Backup restored.', tone: 'success' }
+                : { text: 'Backup was not restored.', tone: 'warning' })
             })
           }}
         />

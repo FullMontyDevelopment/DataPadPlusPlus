@@ -1,4 +1,5 @@
 import type { AppAction, StateShape } from './app-state-types'
+import type { BootstrapPayload, WorkspaceSwitcherStatus } from '@datapadplusplus/shared-types'
 import { preserveActiveExecutionsOnPayload } from './app-state-execution-payload'
 import {
   applyExecutionToPayload,
@@ -453,7 +454,44 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         ...state,
         workspaceSwitcherStatus: action.status,
       }
+    case 'WORKSPACE_CONTEXT_COMMITTED':
+      return replaceWorkspaceContext(state, action.payload, action.status)
     default:
       return state
+  }
+}
+
+function replaceWorkspaceContext(
+  state: StateShape,
+  payload: BootstrapPayload,
+  status?: WorkspaceSwitcherStatus,
+): StateShape {
+  return {
+    ...state,
+    status: 'ready',
+    payload,
+    diagnostics: payload.diagnostics,
+    startupErrorMessage: undefined,
+    exportBundle: undefined,
+    explorerStatus: 'idle',
+    explorer: undefined,
+    explorerCache: undefined,
+    explorerLoadingRequests: {},
+    explorerErrors: {},
+    explorerError: undefined,
+    explorerInspection: undefined,
+    structureStatus: 'idle',
+    structure: undefined,
+    structureError: undefined,
+    structureRequestId: undefined,
+    structureRequest: undefined,
+    executionStatus: 'idle',
+    executionsByTab: {},
+    latestExecutionsByTab: {},
+    lastExecution: undefined,
+    lastExecutionRequest: undefined,
+    connectionTests: {},
+    connectionHealthByKey: {},
+    workspaceSwitcherStatus: status ?? state.workspaceSwitcherStatus,
   }
 }

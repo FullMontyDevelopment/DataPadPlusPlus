@@ -148,6 +148,19 @@ export interface PersistenceWarning {
 export interface ExportBundle {
   format: 'datapadplusplus-bundle'
   version: number
+  formatVersion?: number
+  workspaceSchemaVersion?: number
+  createdAt?: string
+  compression?: 'gzip'
+  kdf?: {
+    algorithm: 'pbkdf2-sha256'
+    iterations: number
+    salt: string
+  }
+  cipher?: {
+    algorithm: 'aes-256-gcm'
+    nonce: string
+  }
   encryptedPayload: string
   includesSecrets?: boolean
   secretCount?: number

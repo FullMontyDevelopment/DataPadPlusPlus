@@ -27,6 +27,101 @@ describe('workspace revision ordering', () => {
     expect(reducer(state, { type: 'COMMAND_SUCCESS', payload: stale })).toBe(state)
     expect(reducer(state, { type: 'BOOTSTRAP_SUCCESS', payload: stale })).toBe(state)
   })
+
+  it('replaces the complete workspace context even when the selected workspace has a lower revision', () => {
+    const current = createSeedBootstrapPayload()
+    current.snapshot.workspaceRevision = 42
+    const switched = structuredClone(current)
+    switched.snapshot.workspaceRevision = 3
+    switched.snapshot.connections = []
+    switched.snapshot.tabs = []
+    switched.snapshot.ui.activeConnectionId = undefined
+    switched.snapshot.ui.activeTabId = undefined
+    const status = {
+      enabled: true,
+      activeWorkspaceId: 'workspace-clean',
+      workspaces: [
+        {
+          id: 'workspace-clean',
+          name: 'Clean Workspace',
+          schemaVersion: switched.snapshot.schemaVersion,
+          createdAt: '2026-08-14T00:00:00.000Z',
+          updatedAt: '2026-08-14T00:00:00.000Z',
+          counts: { connections: 0, environments: 1, libraryItems: 3, openTabs: 0 },
+        },
+      ],
+    }
+    const state: StateShape = {
+      ...initialState,
+      status: 'ready',
+      payload: current,
+      explorerStatus: 'ready',
+      explorer: {} as ExplorerResponse,
+      explorerCache: {
+        stale: {
+          connectionId: 'connection-stale',
+          environmentId: 'environment-stale',
+          response: {} as ExplorerResponse,
+          scopes: {},
+        },
+      },
+      structureStatus: 'ready',
+      structure: {} as StructureResponse,
+      executionsByTab: { stale: {} as NonNullable<QueryTabState['activeExecution']> },
+      connectionTests: { stale: {} as never },
+      connectionHealthByKey: { stale: {} as never },
+    }
+
+    const next = reducer(state, {
+      type: 'WORKSPACE_CONTEXT_COMMITTED',
+      payload: switched,
+      status,
+    })
+
+    expect(next.payload?.snapshot.connections).toEqual([])
+    expect(next.payload?.snapshot.tabs).toEqual([])
+    expect(next.payload?.snapshot.workspaceRevision).toBe(3)
+    expect(next.workspaceSwitcherStatus).toBe(status)
+    expect(next.explorerStatus).toBe('idle')
+    expect(next.explorer).toBeUndefined()
+    expect(next.explorerCache).toBeUndefined()
+    expect(next.structureStatus).toBe('idle')
+    expect(next.structure).toBeUndefined()
+    expect(next.executionsByTab).toEqual({})
+    expect(next.connectionTests).toEqual({})
+    expect(next.connectionHealthByKey).toEqual({})
+  })
+
+  it('applies an imported payload and its authoritative workspace registry together', () => {
+    const current = createSeedBootstrapPayload()
+    current.snapshot.workspaceRevision = 4
+    const imported = structuredClone(current)
+    imported.snapshot.workspaceRevision = 5
+    imported.snapshot.connections = []
+    const status = {
+      enabled: true,
+      activeWorkspaceId: 'imported',
+      workspaces: [
+        {
+          id: 'imported',
+          name: 'Imported Workspace',
+          schemaVersion: imported.snapshot.schemaVersion,
+          createdAt: '2026-08-14T00:00:00.000Z',
+          updatedAt: '2026-08-14T00:00:00.000Z',
+          lastOpenedAt: '2026-08-14T00:00:00.000Z',
+          counts: { connections: 0, environments: 1, libraryItems: 3, openTabs: 1 },
+        },
+      ],
+    }
+
+    const next = reducer(
+      { ...initialState, status: 'ready', payload: current },
+      { type: 'WORKSPACE_CONTEXT_COMMITTED', payload: imported, status },
+    )
+
+    expect(next.payload?.snapshot.connections).toEqual([])
+    expect(next.workspaceSwitcherStatus).toBe(status)
+  })
 })
 
 describe('app-state command error routing', () => {

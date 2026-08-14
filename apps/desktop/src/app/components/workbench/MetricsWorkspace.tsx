@@ -111,8 +111,9 @@ export function MetricsWorkspace({
           <MetricsIcon className="metrics-empty-icon" />
           <strong>No live metrics yet</strong>
           <span>
-            Refresh the tab. If this message stays here, DataPad++ could connect but the
-            database did not expose metrics to the current user.
+            {tab.metricsState?.refreshRequired
+              ? 'Refresh to load current data.'
+              : 'Refresh the tab. If this message stays here, DataPad++ could connect but the database did not expose metrics to the current user.'}
           </span>
         </div>
       ) : null}

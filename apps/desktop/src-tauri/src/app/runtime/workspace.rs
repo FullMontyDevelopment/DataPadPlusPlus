@@ -1,5 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    io::{Read, Write},
+};
 
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use tauri::{AppHandle, Emitter};
 
 use super::{
@@ -14,8 +19,9 @@ use super::{
     ui::{normalize_ui_state, normalize_workspace_windows},
     workspace_bundle::{
         collect_workspace_bundle_secrets, parse_workspace_bundle_payload,
+        prepare_imported_workspace_secrets, strip_workspace_secret_references,
         validate_bundle_passphrase, validate_bundle_payload_size,
-        workspace_bundle_payload_with_integrity,
+        workspace_bundle_payload_with_source_name, WorkspaceBundlePayload,
     },
     ManagedAppState,
 };
@@ -28,7 +34,8 @@ use crate::{
             DatastoreApiServerConfig, DatastoreApiServerPreferences, DatastoreMcpServerPreferences,
             DatastoreMcpServerTokenConfig, DatastoreSecurityChecksPreferences,
             DatastoreTestsSettingsRequest, DiagnosticsCounts, DiagnosticsReport, ExportBundle,
-            LockState, QueryTabState, ResolvedEnvironment, SqlQueryScope, UiState,
+            LockState, PersistenceWarning, QueryHistoryEntry, QueryTabState, ResolvedEnvironment,
+            SqlQueryScope, UiState, WorkspaceBundleCipherMetadata, WorkspaceBundleKdfMetadata,
             WorkspaceCreateRequest, WorkspaceRenameRequest, WorkspaceSearchSettingsRequest,
             WorkspaceSnapshot, WorkspaceSwitchRequest, WorkspaceSwitcherSettingsRequest,
             WorkspaceSwitcherStatus,
@@ -38,6 +45,12 @@ use crate::{
 };
 
 const MAX_DECRYPTED_WORKSPACE_BYTES: usize = 50 * 1024 * 1024;
+const WORKSPACE_BUNDLE_FORMAT_VERSION: u32 = 2;
+const WORKSPACE_BUNDLE_COMPRESSION: &str = "gzip";
+const WORKSPACE_BUNDLE_CIPHER: &str = "aes-256-gcm";
+const WORKSPACE_BUNDLE_KDF: &str = "pbkdf2-sha256";
+const MAX_PERSISTED_HISTORY_ENTRIES: usize = 500;
+const MAX_PERSISTED_HISTORY_BYTES: usize = 2 * 1024 * 1024;
 const API_SERVER_HOST: &str = "127.0.0.1";
 const DEFAULT_API_SERVER_ID: &str = "api-server-default";
 const DEFAULT_API_SERVER_PORT: u16 = 17640;
@@ -45,11 +58,8 @@ const MCP_SERVER_HOST: &str = "127.0.0.1";
 const DEFAULT_MCP_SERVER_PORT: u16 = 17641;
 
 impl ManagedAppState {
-    pub fn load(app: AppHandle) -> Self {
-        let loaded_snapshot = persistence::load_snapshot(&app)
-            .ok()
-            .flatten()
-            .map(migrate_snapshot);
+    pub fn load(app: AppHandle) -> Result<Self, CommandError> {
+        let loaded_snapshot = persistence::load_snapshot(&app)?;
         let seed_fixture_workspace =
             fixture_debug_enabled() && loaded_snapshot.as_ref().is_none_or(workspace_is_empty);
         let snapshot = if seed_fixture_workspace {
@@ -59,10 +69,20 @@ impl ManagedAppState {
         } else {
             loaded_snapshot.unwrap_or_else(blank_workspace_snapshot)
         };
-        let managed = Self { app, snapshot };
-        let _ =
-            persistence::save_snapshot(&managed.app, &sanitize_snapshot(&managed.snapshot, true));
-        managed
+        persistence::validate_workspace_schema_version(snapshot.schema_version)?;
+        let mut managed = Self {
+            app,
+            snapshot: migrate_snapshot(snapshot),
+        };
+        let secret_changes = managed.migrate_embedded_connection_string_secrets()?;
+        if let Err(error) =
+            persistence::save_snapshot(&managed.app, &sanitize_snapshot(&managed.snapshot, true))
+        {
+            secret_changes.rollback_created();
+            return Err(error);
+        }
+        secret_changes.retire_superseded();
+        Ok(managed)
     }
 
     pub fn health(&self) -> AppHealth {
@@ -97,6 +117,7 @@ impl ManagedAppState {
 
         DiagnosticsReport {
             created_at: timestamp_now(),
+            schema_version: self.snapshot.schema_version,
             runtime: self.health().runtime,
             platform: self.health().platform,
             app_version: env!("CARGO_PKG_VERSION").into(),
@@ -128,6 +149,10 @@ impl ManagedAppState {
 
     pub fn bootstrap_payload(&self) -> BootstrapPayload {
         let mut snapshot = self.snapshot.clone();
+        for connection in &mut snapshot.connections {
+            connection.connection_string = None;
+            connection.auth.connection_string_secret_bindings.clear();
+        }
         snapshot.ui.workspace_windows = normalize_workspace_windows(&snapshot);
         let transient_result_ids = snapshot
             .tabs
@@ -152,15 +177,45 @@ impl ManagedAppState {
         }
     }
 
+    pub fn take_bootstrap_payload(&mut self) -> BootstrapPayload {
+        let mut payload = self.bootstrap_payload();
+        if std::mem::take(&mut self.snapshot.history_retention_notice_pending) {
+            payload.persistence_warning = Some(PersistenceWarning {
+                code: "workspace-history-retention-applied".into(),
+                message: "Older execution history was reduced to keep this workspace fast and its backups size-bounded. Saved queries and current drafts were preserved.".into(),
+            });
+        }
+        payload
+    }
+
     pub fn persist(&mut self) -> Result<(), CommandError> {
+        let previous_snapshot = self.snapshot.clone();
+        let secret_changes = self.migrate_embedded_connection_string_secrets()?;
         self.snapshot.workspace_revision = self.snapshot.workspace_revision.saturating_add(1);
         self.snapshot.ui.workspace_windows = normalize_workspace_windows(&self.snapshot);
-        persistence::save_snapshot(&self.app, &sanitize_snapshot(&self.snapshot, true))?;
+        if let Err(error) =
+            persistence::save_snapshot(&self.app, &sanitize_snapshot(&self.snapshot, true))
+        {
+            secret_changes.rollback_created();
+            self.snapshot = previous_snapshot;
+            return Err(error);
+        }
+        secret_changes.retire_superseded();
         let _ = self.app.emit(
             "datapad://workspace-changed",
             serde_json::json!({ "revision": self.snapshot.workspace_revision }),
         );
         Ok(())
+    }
+
+    fn emit_workspace_context_changed(&self) {
+        let _ = self.app.emit(
+            "datapad://workspace-changed",
+            serde_json::json!({
+                "revision": self.snapshot.workspace_revision,
+                "contextChanged": true,
+            }),
+        );
     }
 
     pub fn ensure_unlocked(&self) -> Result<(), CommandError> {
@@ -174,30 +229,100 @@ impl ManagedAppState {
         }
     }
 
+    fn ensure_workspace_context_change_allowed(&self) -> Result<(), CommandError> {
+        if self.snapshot.tabs.iter().any(|tab| {
+            tab.active_execution.is_some() || matches!(tab.status.as_str(), "queued" | "running")
+        }) {
+            return Err(CommandError::new(
+                "workspace-context-execution-active",
+                "Wait for running or queued work to finish, or cancel it, before changing workspaces.",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn export_bundle(
-        &self,
+        &mut self,
         passphrase: &str,
         include_secrets: bool,
     ) -> Result<ExportBundle, CommandError> {
         self.ensure_unlocked()?;
         validate_bundle_passphrase(passphrase)?;
-        let sanitized = sanitize_snapshot(&self.snapshot, include_secrets);
+        let previous_snapshot = self.snapshot.clone();
+        let secret_changes = self.migrate_embedded_connection_string_secrets()?;
+        if !secret_changes.is_empty() {
+            self.snapshot.updated_at = timestamp_now();
+            if let Err(error) = self.persist() {
+                self.snapshot = previous_snapshot;
+                secret_changes.rollback_created();
+                return Err(error);
+            }
+            secret_changes.retire_superseded();
+        }
+        let mut sanitized = sanitize_snapshot(&self.snapshot, include_secrets);
+        sanitized
+            .preferences
+            .workspace_backups
+            .passphrase_secret_ref = None;
+        let sanitized = if include_secrets {
+            sanitized
+        } else {
+            strip_workspace_secret_references(sanitized)?
+        };
         let secret_entries = if include_secrets {
             collect_workspace_bundle_secrets(&sanitized)?
         } else {
             Vec::new()
         };
         let secret_count = secret_entries.len();
-        let payload = workspace_bundle_payload_with_integrity(sanitized, secret_entries)?;
-        let serialized = serde_json::to_string_pretty(&payload)?;
-        let encrypted_payload = security::encrypt_export_payload(passphrase, &serialized)?;
-        Ok(ExportBundle {
+        let workspace_status = self.workspace_switcher_status()?;
+        let source_workspace_name = workspace_status
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.id == workspace_status.active_workspace_id)
+            .map(|workspace| workspace.name.clone());
+        let payload = workspace_bundle_payload_with_source_name(
+            sanitized,
+            secret_entries,
+            source_workspace_name,
+        )?;
+        let serialized = serde_json::to_vec(&payload)?;
+        let compressed = gzip_workspace_payload(&serialized)?;
+        let mut salt = [0_u8; 16];
+        let mut nonce = [0_u8; 12];
+        rand::fill(&mut salt);
+        rand::fill(&mut nonce);
+        let mut bundle = ExportBundle {
             format: "datapadplusplus-bundle".into(),
-            version: persistence::SCHEMA_VERSION,
-            encrypted_payload,
+            version: WORKSPACE_BUNDLE_FORMAT_VERSION,
+            format_version: Some(WORKSPACE_BUNDLE_FORMAT_VERSION),
+            workspace_schema_version: Some(persistence::SCHEMA_VERSION),
+            created_at: Some(timestamp_now()),
+            compression: Some(WORKSPACE_BUNDLE_COMPRESSION.into()),
+            kdf: Some(WorkspaceBundleKdfMetadata {
+                algorithm: WORKSPACE_BUNDLE_KDF.into(),
+                iterations: security::EXPORT_KDF_V2_ITERATIONS,
+                salt: BASE64.encode(salt),
+            }),
+            cipher: Some(WorkspaceBundleCipherMetadata {
+                algorithm: WORKSPACE_BUNDLE_CIPHER.into(),
+                nonce: BASE64.encode(nonce),
+            }),
+            encrypted_payload: String::new(),
             includes_secrets: include_secrets,
             secret_count: include_secrets.then_some(secret_count),
-        })
+        };
+        let authenticated_metadata = workspace_bundle_authenticated_metadata(&bundle)?;
+        let ciphertext = security::encrypt_export_payload_v2(
+            passphrase,
+            &compressed,
+            &authenticated_metadata,
+            &salt,
+            &nonce,
+            security::EXPORT_KDF_V2_ITERATIONS,
+        )?;
+        bundle.encrypted_payload = BASE64.encode(ciphertext);
+        Ok(bundle)
     }
 
     pub fn import_bundle(
@@ -216,13 +341,177 @@ impl ManagedAppState {
             ));
         }
         let bundle_payload = parse_workspace_bundle_payload(&decrypted)?;
-        for secret in bundle_payload.secrets {
-            security::store_secret_value(&secret.secret_ref, &secret.value)?;
+        self.commit_imported_bundle(bundle_payload, false, false, None)
+    }
+
+    pub fn import_export_bundle(
+        &mut self,
+        passphrase: &str,
+        bundle: &ExportBundle,
+        import_secrets: bool,
+        import_as_new: bool,
+        workspace_name: Option<&str>,
+    ) -> Result<BootstrapPayload, CommandError> {
+        self.ensure_unlocked()?;
+        let bundle_payload = decode_workspace_export_bundle(passphrase, bundle)?;
+        self.commit_imported_bundle(
+            bundle_payload,
+            import_secrets,
+            import_as_new,
+            workspace_name,
+        )
+    }
+
+    pub fn analyze_export_bundle(
+        &self,
+        passphrase: &str,
+        bundle: &ExportBundle,
+        include_secret_sizes: bool,
+    ) -> Result<crate::domain::models::WorkspaceStorageReport, CommandError> {
+        self.preview_export_bundle(passphrase, bundle, include_secret_sizes)
+            .map(|(report, _)| report)
+    }
+
+    pub fn preview_export_bundle(
+        &self,
+        passphrase: &str,
+        bundle: &ExportBundle,
+        include_secret_sizes: bool,
+    ) -> Result<
+        (
+            crate::domain::models::WorkspaceStorageReport,
+            Option<String>,
+        ),
+        CommandError,
+    > {
+        self.ensure_unlocked()?;
+        let mut payload = decode_workspace_export_bundle(passphrase, bundle)?;
+        let source_workspace_name = payload.source_workspace_name.take();
+        let secret_count = include_secret_sizes.then_some(payload.secrets.len());
+        let secret_bytes = include_secret_sizes.then_some(
+            payload
+                .secrets
+                .iter()
+                .map(|secret| secret.value.len() as u64)
+                .sum(),
+        );
+        for secret in &mut payload.secrets {
+            secret.value.clear();
         }
-        let snapshot = bundle_payload.snapshot;
-        self.snapshot = migrate_snapshot(snapshot);
-        self.persist()?;
-        Ok(self.bootstrap_payload())
+        let mut temporary_state = ManagedAppState {
+            app: self.app.clone(),
+            snapshot: payload.snapshot,
+        };
+        let mut report = temporary_state.analyze_workspace_storage(Default::default())?;
+        report.secret_count = secret_count;
+        report.secret_bytes = secret_bytes;
+        report.workspace_bytes = serde_json::to_vec(&temporary_state.snapshot)?.len() as u64;
+        temporary_state.snapshot.connections.clear();
+        Ok((report, source_workspace_name))
+    }
+
+    fn commit_imported_bundle(
+        &mut self,
+        bundle_payload: WorkspaceBundlePayload,
+        import_secrets: bool,
+        import_as_new: bool,
+        workspace_name: Option<&str>,
+    ) -> Result<BootstrapPayload, CommandError> {
+        self.ensure_workspace_context_change_allowed()?;
+        let import_workspace_name = import_as_new
+            .then(|| {
+                normalize_workspace_profile_name(workspace_name.unwrap_or("Imported Workspace"))
+            })
+            .transpose()?;
+        let (snapshot, mut imported_secrets) = prepare_imported_workspace_secrets(
+            bundle_payload.snapshot,
+            bundle_payload.secrets,
+            import_secrets,
+        )?;
+        let previous_snapshot = self.snapshot.clone();
+        let mut stored_refs = Vec::new();
+
+        for secret in &mut imported_secrets {
+            if let Err(error) = security::store_secret_value(&secret.secret_ref, &secret.value) {
+                secret.value.clear();
+                for stored_ref in &stored_refs {
+                    let _ = security::delete_secret_value(stored_ref);
+                }
+                return Err(error);
+            }
+            secret.value.clear();
+            stored_refs.push(secret.secret_ref.clone());
+        }
+
+        persistence::validate_workspace_schema_version(snapshot.schema_version)?;
+        let mut next_snapshot = migrate_snapshot(snapshot);
+        let mut imported_state = ManagedAppState {
+            app: self.app.clone(),
+            snapshot: next_snapshot,
+        };
+        let secret_changes = match imported_state.migrate_embedded_connection_string_secrets() {
+            Ok(changes) => changes,
+            Err(error) => {
+                for stored_ref in &stored_refs {
+                    let _ = security::delete_secret_value(stored_ref);
+                }
+                return Err(error);
+            }
+        };
+        stored_refs.extend(secret_changes.created.iter().cloned());
+        next_snapshot = imported_state.snapshot;
+        if import_as_new {
+            next_snapshot.workspace_revision = next_snapshot.workspace_revision.saturating_add(1);
+            let workspace_id = generate_id("workspace");
+            let previous_workspace_id =
+                persistence::workspace_switcher_status(&self.app, &previous_snapshot)?
+                    .active_workspace_id;
+            if let Err(error) = persistence::create_workspace_profile(
+                &self.app,
+                &sanitize_snapshot(&self.snapshot, true),
+                &workspace_id,
+                import_workspace_name
+                    .as_deref()
+                    .unwrap_or("Imported Workspace"),
+                &sanitize_snapshot(&next_snapshot, true),
+            ) {
+                for stored_ref in &stored_refs {
+                    let _ = security::delete_secret_value(stored_ref);
+                }
+                return Err(error);
+            }
+            self.snapshot = next_snapshot;
+            if let Err(error) =
+                persistence::set_workspace_switcher_enabled(&self.app, &self.snapshot, true)
+            {
+                self.snapshot = previous_snapshot;
+                let _ = persistence::rollback_imported_workspace_profile(
+                    &self.app,
+                    &self.snapshot,
+                    &workspace_id,
+                    &previous_workspace_id,
+                );
+                for stored_ref in &stored_refs {
+                    let _ = security::delete_secret_value(stored_ref);
+                }
+                return Err(error);
+            }
+            self.emit_workspace_context_changed();
+            secret_changes.retire_superseded();
+            return Ok(self.take_bootstrap_payload());
+        } else {
+            self.snapshot = next_snapshot;
+        }
+        if let Err(error) = self.persist() {
+            self.snapshot = previous_snapshot;
+            for stored_ref in &stored_refs {
+                let _ = security::delete_secret_value(stored_ref);
+            }
+            return Err(error);
+        }
+        self.emit_workspace_context_changed();
+        secret_changes.retire_superseded();
+        Ok(self.take_bootstrap_payload())
     }
 
     pub fn update_workspace_search_settings(
@@ -275,6 +564,7 @@ impl ManagedAppState {
         request: WorkspaceCreateRequest,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
+        self.ensure_workspace_context_change_allowed()?;
         let name = normalize_workspace_profile_name(&request.name)?;
         let workspace_id = generate_id("workspace");
         let mut snapshot = blank_workspace_snapshot();
@@ -288,6 +578,7 @@ impl ManagedAppState {
         )?;
         self.snapshot = migrate_snapshot(snapshot);
         self.persist()?;
+        self.emit_workspace_context_changed();
         Ok(self.bootstrap_payload())
     }
 
@@ -305,14 +596,43 @@ impl ManagedAppState {
         request: WorkspaceSwitchRequest,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
+        self.ensure_workspace_context_change_allowed()?;
         let workspace_id = normalize_workspace_profile_id(&request.workspace_id)?;
+        let previous_snapshot = self.snapshot.clone();
+        let previous_workspace_id =
+            persistence::workspace_switcher_status(&self.app, &previous_snapshot)?
+                .active_workspace_id;
         let snapshot = persistence::switch_workspace_profile(
             &self.app,
             &sanitize_snapshot(&self.snapshot, true),
             &workspace_id,
         )?;
+        persistence::validate_workspace_schema_version(snapshot.schema_version)?;
         self.snapshot = migrate_snapshot(snapshot);
-        self.persist()?;
+        let secret_changes = match self.migrate_embedded_connection_string_secrets() {
+            Ok(changes) => changes,
+            Err(error) => {
+                self.snapshot = previous_snapshot.clone();
+                let _ = persistence::switch_workspace_profile(
+                    &self.app,
+                    &sanitize_snapshot(&self.snapshot, true),
+                    &previous_workspace_id,
+                );
+                return Err(error);
+            }
+        };
+        if let Err(error) = self.persist() {
+            secret_changes.rollback_created();
+            self.snapshot = previous_snapshot;
+            let _ = persistence::switch_workspace_profile(
+                &self.app,
+                &sanitize_snapshot(&self.snapshot, true),
+                &previous_workspace_id,
+            );
+            return Err(error);
+        }
+        self.emit_workspace_context_changed();
+        secret_changes.retire_superseded();
         Ok(self.bootstrap_payload())
     }
 }
@@ -341,6 +661,204 @@ fn normalize_workspace_profile_id(value: &str) -> Result<String, CommandError> {
     Ok(trimmed.into())
 }
 
+fn decode_workspace_export_bundle(
+    passphrase: &str,
+    bundle: &ExportBundle,
+) -> Result<WorkspaceBundlePayload, CommandError> {
+    validate_bundle_passphrase(passphrase)?;
+    validate_bundle_payload_size(&bundle.encrypted_payload)?;
+    validate_workspace_bundle_envelope(bundle)?;
+
+    if bundle.format_version != Some(WORKSPACE_BUNDLE_FORMAT_VERSION) {
+        let decrypted = security::decrypt_export_payload(passphrase, &bundle.encrypted_payload)?;
+        if decrypted.len() > MAX_DECRYPTED_WORKSPACE_BYTES {
+            return Err(CommandError::new(
+                "workspace-bundle-too-large",
+                "Workspace bundle is too large to import safely.",
+            ));
+        }
+        let bundle_payload = parse_workspace_bundle_payload(&decrypted)?;
+        if (!bundle.includes_secrets && !bundle_payload.secrets.is_empty())
+            || (bundle.includes_secrets
+                && bundle.secret_count.unwrap_or(bundle_payload.secrets.len())
+                    != bundle_payload.secrets.len())
+        {
+            return Err(CommandError::new(
+                "workspace-bundle-secret-count-mismatch",
+                "Workspace bundle secret metadata does not match its encrypted contents.",
+            ));
+        }
+        return Ok(bundle_payload);
+    }
+
+    let kdf = bundle.kdf.as_ref().ok_or_else(|| {
+        CommandError::new(
+            "workspace-bundle-invalid",
+            "Workspace bundle KDF metadata is missing.",
+        )
+    })?;
+    let cipher = bundle.cipher.as_ref().ok_or_else(|| {
+        CommandError::new(
+            "workspace-bundle-invalid",
+            "Workspace bundle cipher metadata is missing.",
+        )
+    })?;
+    if kdf.algorithm != WORKSPACE_BUNDLE_KDF
+        || cipher.algorithm != WORKSPACE_BUNDLE_CIPHER
+        || bundle.compression.as_deref() != Some(WORKSPACE_BUNDLE_COMPRESSION)
+        || kdf.iterations != security::EXPORT_KDF_V2_ITERATIONS
+    {
+        return Err(CommandError::new(
+            "workspace-bundle-unsupported",
+            "Workspace bundle uses unsupported security or compression settings.",
+        ));
+    }
+
+    let salt = decode_bundle_bytes(&kdf.salt, 16, "salt")?;
+    let nonce = decode_bundle_bytes(&cipher.nonce, 12, "nonce")?;
+    let nonce: [u8; 12] = nonce.try_into().map_err(|_| {
+        CommandError::new(
+            "workspace-bundle-invalid",
+            "Workspace bundle nonce is invalid.",
+        )
+    })?;
+    let ciphertext = BASE64.decode(&bundle.encrypted_payload).map_err(|_| {
+        CommandError::new(
+            "workspace-bundle-invalid",
+            "Workspace bundle ciphertext is invalid.",
+        )
+    })?;
+    let authenticated_metadata = workspace_bundle_authenticated_metadata(bundle)?;
+    let compressed = security::decrypt_export_payload_v2(
+        passphrase,
+        &ciphertext,
+        &authenticated_metadata,
+        &salt,
+        &nonce,
+        kdf.iterations,
+    )?;
+    let decrypted = gunzip_workspace_payload(&compressed)?;
+    let decrypted = String::from_utf8(decrypted).map_err(|_| {
+        CommandError::new(
+            "workspace-bundle-invalid",
+            "Workspace bundle text is invalid.",
+        )
+    })?;
+    let bundle_payload = parse_workspace_bundle_payload(&decrypted)?;
+    let payload_schema_version = bundle_payload.snapshot.schema_version;
+    persistence::validate_workspace_schema_version(payload_schema_version)?;
+    if bundle.format_version == Some(WORKSPACE_BUNDLE_FORMAT_VERSION)
+        && bundle.workspace_schema_version != Some(payload_schema_version)
+    {
+        return Err(CommandError::new(
+            "workspace-bundle-schema-mismatch",
+            "Workspace bundle schema metadata does not match its encrypted workspace payload.",
+        ));
+    }
+    let actual_secret_count = bundle_payload.secrets.len();
+    if (!bundle.includes_secrets && actual_secret_count > 0)
+        || bundle.secret_count.unwrap_or(0) != actual_secret_count
+    {
+        return Err(CommandError::new(
+            "workspace-bundle-secret-count-mismatch",
+            "Workspace bundle secret metadata does not match its encrypted contents.",
+        ));
+    }
+    Ok(bundle_payload)
+}
+
+pub(super) fn gzip_workspace_payload(payload: &[u8]) -> Result<Vec<u8>, CommandError> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(payload).map_err(|_| {
+        CommandError::new(
+            "workspace-bundle-compression-failed",
+            "Unable to compress the workspace bundle.",
+        )
+    })?;
+    encoder.finish().map_err(|_| {
+        CommandError::new(
+            "workspace-bundle-compression-failed",
+            "Unable to compress the workspace bundle.",
+        )
+    })
+}
+
+fn gunzip_workspace_payload(payload: &[u8]) -> Result<Vec<u8>, CommandError> {
+    let decoder = GzDecoder::new(payload);
+    let mut limited = decoder.take((MAX_DECRYPTED_WORKSPACE_BYTES + 1) as u64);
+    let mut plaintext = Vec::new();
+    limited.read_to_end(&mut plaintext).map_err(|_| {
+        CommandError::new(
+            "workspace-bundle-decompression-failed",
+            "Workspace bundle compression data is invalid.",
+        )
+    })?;
+    if plaintext.len() > MAX_DECRYPTED_WORKSPACE_BYTES {
+        return Err(CommandError::new(
+            "workspace-bundle-too-large",
+            "Workspace bundle expands beyond the safe import limit.",
+        ));
+    }
+    Ok(plaintext)
+}
+
+pub(super) fn workspace_bundle_authenticated_metadata(
+    bundle: &ExportBundle,
+) -> Result<Vec<u8>, CommandError> {
+    serde_json::to_vec(&serde_json::json!({
+        "format": bundle.format,
+        "formatVersion": bundle.format_version,
+        "workspaceSchemaVersion": bundle.workspace_schema_version,
+        "createdAt": bundle.created_at,
+        "compression": bundle.compression,
+        "includesSecrets": bundle.includes_secrets,
+        "secretCount": bundle.secret_count,
+        "kdf": bundle.kdf,
+        "cipher": bundle.cipher,
+    }))
+    .map_err(CommandError::from)
+}
+
+fn validate_workspace_bundle_envelope(bundle: &ExportBundle) -> Result<(), CommandError> {
+    if bundle.format != "datapadplusplus-bundle" {
+        return Err(CommandError::new(
+            "workspace-bundle-invalid",
+            "The selected file is not a DataPad++ workspace bundle.",
+        ));
+    }
+    if bundle.format_version == Some(WORKSPACE_BUNDLE_FORMAT_VERSION)
+        && bundle
+            .workspace_schema_version
+            .is_some_and(|version| version > persistence::SCHEMA_VERSION)
+    {
+        return Err(CommandError::new(
+            "workspace-bundle-newer-version",
+            "This workspace bundle was created by a newer DataPad++ version.",
+        ));
+    }
+    Ok(())
+}
+
+fn decode_bundle_bytes(
+    encoded: &str,
+    expected_length: usize,
+    label: &str,
+) -> Result<Vec<u8>, CommandError> {
+    let value = BASE64.decode(encoded).map_err(|_| {
+        CommandError::new(
+            "workspace-bundle-invalid",
+            format!("Workspace bundle {label} is invalid."),
+        )
+    })?;
+    if value.len() != expected_length {
+        return Err(CommandError::new(
+            "workspace-bundle-invalid",
+            format!("Workspace bundle {label} is invalid."),
+        ));
+    }
+    Ok(value)
+}
+
 pub(super) fn sanitize_snapshot(
     snapshot: &WorkspaceSnapshot,
     include_secrets: bool,
@@ -351,13 +869,22 @@ pub(super) fn sanitize_snapshot(
         normalize_environment_profile(environment);
     }
 
+    for connection in &mut sanitized.connections {
+        connection.connection_string = None;
+        connection.auth.connection_string_secret_bindings.clear();
+    }
+
     for tab in &mut sanitized.tabs {
-        tab.result = None;
+        sanitize_persisted_tab(tab);
     }
 
     for closed_tab in &mut sanitized.closed_tabs {
-        closed_tab.tab.result = None;
+        sanitize_persisted_tab(&mut closed_tab.tab);
     }
+
+    bound_persisted_history(&mut sanitized);
+    sanitized.adapter_manifests.clear();
+    sanitized.datastore_security_checks = None;
 
     if !include_secrets {
         for server in &mut sanitized.preferences.datastore_mcp_server.servers {
@@ -366,6 +893,112 @@ pub(super) fn sanitize_snapshot(
     }
 
     sanitized
+}
+
+fn sanitize_persisted_tab(tab: &mut QueryTabState) {
+    tab.result = None;
+    tab.active_execution = None;
+    tab.error = None;
+    tab.test_run = None;
+
+    if matches!(tab.status.as_str(), "queued" | "running") {
+        tab.status = "idle".into();
+    }
+
+    strip_refreshable_state(
+        &mut tab.object_view_state,
+        &["payload", "queryTemplate", "warnings"],
+    );
+    strip_refreshable_state(&mut tab.metrics_state, &["diagnostics", "warnings"]);
+}
+
+fn strip_refreshable_state(state: &mut Option<serde_json::Value>, fields: &[&str]) {
+    let Some(serde_json::Value::Object(value)) = state else {
+        return;
+    };
+
+    let mut removed = false;
+    for field in fields {
+        removed |= value.remove(*field).is_some();
+    }
+    if removed {
+        value.insert("refreshRequired".into(), serde_json::Value::Bool(true));
+    }
+}
+
+struct PersistedHistoryCandidate {
+    closed: bool,
+    tab_index: usize,
+    entry: QueryHistoryEntry,
+}
+
+fn bound_persisted_history(snapshot: &mut WorkspaceSnapshot) -> bool {
+    let mut candidates = Vec::new();
+
+    for (tab_index, tab) in snapshot.tabs.iter_mut().enumerate() {
+        candidates.extend(
+            tab.history
+                .drain(..)
+                .map(|entry| PersistedHistoryCandidate {
+                    closed: false,
+                    tab_index,
+                    entry,
+                }),
+        );
+    }
+    for (tab_index, closed_tab) in snapshot.closed_tabs.iter_mut().enumerate() {
+        candidates.extend(closed_tab.tab.history.drain(..).map(|entry| {
+            PersistedHistoryCandidate {
+                closed: true,
+                tab_index,
+                entry,
+            }
+        }));
+    }
+
+    candidates.sort_by(|left, right| right.entry.executed_at.cmp(&left.entry.executed_at));
+    let original_entry_count = candidates.len();
+
+    let mut retained_bytes = 0_usize;
+    let mut retained_entries = 0_usize;
+    for candidate in candidates {
+        if retained_entries >= MAX_PERSISTED_HISTORY_ENTRIES {
+            break;
+        }
+
+        let entry_bytes = serde_json::to_vec(&candidate.entry)
+            .map(|serialized| serialized.len())
+            .unwrap_or(MAX_PERSISTED_HISTORY_BYTES.saturating_add(1));
+        if retained_bytes.saturating_add(entry_bytes) > MAX_PERSISTED_HISTORY_BYTES {
+            break;
+        }
+
+        if candidate.closed {
+            snapshot.closed_tabs[candidate.tab_index]
+                .tab
+                .history
+                .push(candidate.entry);
+        } else {
+            snapshot.tabs[candidate.tab_index]
+                .history
+                .push(candidate.entry);
+        }
+        retained_entries += 1;
+        retained_bytes = retained_bytes.saturating_add(entry_bytes);
+    }
+
+    for tab in &mut snapshot.tabs {
+        tab.history
+            .sort_by(|left, right| right.executed_at.cmp(&left.executed_at));
+    }
+    for closed_tab in &mut snapshot.closed_tabs {
+        closed_tab
+            .tab
+            .history
+            .sort_by(|left, right| right.executed_at.cmp(&left.executed_at));
+    }
+
+    retained_entries < original_entry_count
 }
 
 pub fn timestamp_now() -> String {
@@ -389,7 +1022,6 @@ pub fn generate_id(prefix: &str) -> String {
 }
 
 pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnapshot {
-    snapshot.schema_version = persistence::SCHEMA_VERSION;
     snapshot.adapter_manifests = adapters::manifests();
     snapshot.lock_state.is_locked = false;
     snapshot.lock_state.locked_at = None;
@@ -413,15 +1045,25 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     ensure_library_nodes(&mut snapshot);
 
     for tab in &mut snapshot.tabs {
-        tab.result = None;
+        sanitize_persisted_tab(tab);
     }
     for closed_tab in &mut snapshot.closed_tabs {
-        closed_tab.tab.result = None;
+        sanitize_persisted_tab(&mut closed_tab.tab);
     }
+    let history_reduced = bound_persisted_history(&mut snapshot);
+    snapshot.history_retention_notice_pending |= history_reduced;
+    snapshot.datastore_security_checks = None;
 
     snapshot.ui = normalize_ui_state(&snapshot);
+    migrate_v11_snapshot_to_v12(&mut snapshot);
 
     snapshot
+}
+
+fn migrate_v11_snapshot_to_v12(snapshot: &mut WorkspaceSnapshot) {
+    if snapshot.schema_version <= persistence::CONSOLIDATED_LEGACY_SCHEMA_VERSION {
+        snapshot.schema_version = persistence::SCHEMA_VERSION;
+    }
 }
 
 fn migrate_environment_variables(snapshot: &mut WorkspaceSnapshot) {
@@ -553,10 +1195,6 @@ fn migrate_legacy_variable_tokens(snapshot: &mut WorkspaceSnapshot) {
             .username
             .as_deref()
             .map(legacy_to_brace_tokens);
-        connection.connection_string = connection
-            .connection_string
-            .as_deref()
-            .map(legacy_to_brace_tokens);
     }
 
     for tab in &mut snapshot.tabs {
@@ -585,27 +1223,17 @@ fn migrate_legacy_variable_tokens(snapshot: &mut WorkspaceSnapshot) {
 
 fn migrate_connection_modes(snapshot: &mut WorkspaceSnapshot) {
     for connection in &mut snapshot.connections {
+        let has_connection_string = connection
+            .connection_string
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+            || connection.auth.connection_string_secret_ref.is_some()
+            || !connection.auth.connection_string_secret_bindings.is_empty();
         let mode = match connection.connection_mode.as_deref() {
             Some("file") => Some("local-file".to_string()),
-            Some("connection-string")
-                if connection
-                    .connection_string
-                    .as_deref()
-                    .is_some_and(|value| !value.trim().is_empty()) =>
-            {
-                Some("connection-string".to_string())
-            }
-            Some("connection-string") => {
-                Some(default_connection_mode(&connection.engine).to_string())
-            }
+            Some("connection-string") => Some("connection-string".to_string()),
             Some(mode) => Some(mode.to_string()),
-            None if connection
-                .connection_string
-                .as_deref()
-                .is_some_and(|value| !value.trim().is_empty()) =>
-            {
-                Some("connection-string".to_string())
-            }
+            None if has_connection_string => Some("connection-string".to_string()),
             None => Some(default_connection_mode(&connection.engine).to_string()),
         };
 
@@ -1164,6 +1792,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
     WorkspaceSnapshot {
         schema_version: persistence::SCHEMA_VERSION,
         workspace_revision: 0,
+        history_retention_notice_pending: false,
         connections: Vec::new(),
         environments: Vec::new(),
         tabs: Vec::new(),
@@ -1172,6 +1801,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
             let mut snapshot = WorkspaceSnapshot {
                 schema_version: persistence::SCHEMA_VERSION,
                 workspace_revision: 0,
+                history_retention_notice_pending: false,
                 connections: Vec::new(),
                 environments: Vec::new(),
                 tabs: Vec::new(),

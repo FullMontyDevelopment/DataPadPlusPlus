@@ -13,6 +13,7 @@ import type {
   DiagnosticsReport,
   WorkspaceBackupRunResponse,
   WorkspaceBackupSummary,
+  WorkspaceStorageReport,
   WorkspaceSearchSettingsRequest,
   WorkspaceSnapshot,
   WorkspaceSwitcherSettingsRequest,
@@ -49,10 +50,12 @@ export function SettingsWorkspace({
   onCheckForUpdates,
   onClearLogFile,
   onCreateBackup,
+  onAnalyzeWorkspaceStorage,
+  onAnalyzeWorkspaceBackup,
   onDeleteBackup,
   onDeleteLogFile,
-  onExportWorkspaceFile,
-  onImportWorkspaceFile,
+  onOpenWorkspaceExport,
+  onOpenWorkspaceImport,
   onInstallUpdate,
   onListBackups,
   onListLogFiles,
@@ -82,14 +85,16 @@ export function SettingsWorkspace({
   workspaceSwitcherStatus?: WorkspaceSwitcherStatus
   onClearLogFile(fileName: string): Promise<AppLogFileContent | undefined>
   onCreateBackup(automatic?: boolean): Promise<WorkspaceBackupRunResponse | undefined>
+  onAnalyzeWorkspaceStorage(includeSecretSizes?: boolean): Promise<WorkspaceStorageReport | undefined>
+  onAnalyzeWorkspaceBackup(passphrase: string, includeSecretSizes?: boolean): Promise<WorkspaceStorageReport | undefined>
   onDeleteBackup(backupId: string): Promise<WorkspaceBackupSummary[] | undefined>
   onDeleteLogFile(fileName: string): Promise<AppLogFileSummary[] | undefined>
-  onExportWorkspaceFile(passphrase: string, includeSecrets: boolean): Promise<string | undefined>
-  onImportWorkspaceFile(passphrase: string): Promise<void>
+  onOpenWorkspaceExport(): void
+  onOpenWorkspaceImport(): void
   onListBackups(): Promise<WorkspaceBackupSummary[] | undefined>
   onListLogFiles(): Promise<AppLogFileSummary[] | undefined>
   onReadLogFile(fileName: string): Promise<AppLogFileContent | undefined>
-  onRestoreBackup(backupId: string, passphrase: string): Promise<void>
+  onRestoreBackup(backupId: string, passphrase: string, importSecrets: boolean): Promise<boolean>
   onSetKeyboardShortcut(shortcutId: AppShortcutId, shortcut: string): Promise<void>
   onSetSafeMode(enabled: boolean): void
   onSetTheme(theme: WorkspaceSnapshot['preferences']['theme']): void
@@ -183,9 +188,11 @@ export function SettingsWorkspace({
             health={health}
             preferences={preferences}
             onCreateBackup={onCreateBackup}
+            onAnalyzeWorkspaceStorage={onAnalyzeWorkspaceStorage}
+            onAnalyzeWorkspaceBackup={onAnalyzeWorkspaceBackup}
             onDeleteBackup={onDeleteBackup}
-            onExportWorkspaceFile={onExportWorkspaceFile}
-            onImportWorkspaceFile={onImportWorkspaceFile}
+            onOpenWorkspaceExport={onOpenWorkspaceExport}
+            onOpenWorkspaceImport={onOpenWorkspaceImport}
             onListBackups={onListBackups}
             onRestoreBackup={onRestoreBackup}
             onUpdateBackupSettings={onUpdateBackupSettings}

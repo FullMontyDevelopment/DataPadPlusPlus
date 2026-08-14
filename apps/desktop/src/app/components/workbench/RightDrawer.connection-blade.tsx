@@ -392,12 +392,20 @@ function normalizeConnectionForMode(profile: ConnectionProfile): ConnectionProfi
       port: undefined,
       database: path,
       connectionString: undefined,
+      auth: {
+        ...profile.auth,
+        connectionStringSecretRef: undefined,
+      },
     }
   }
 
   const normalized = {
     ...profile,
     connectionString: undefined,
+    auth: {
+      ...profile.auth,
+      connectionStringSecretRef: undefined,
+    },
   }
 
   return normalizeCosmosDbEmulatorProfile(normalized)

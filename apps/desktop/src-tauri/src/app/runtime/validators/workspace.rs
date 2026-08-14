@@ -18,6 +18,7 @@ const MAX_TAGS: usize = 32;
 const MAX_TAG_LENGTH: usize = 80;
 const MAX_ENVIRONMENT_VARIABLES: usize = 256;
 const MAX_TAB_REORDER_ITEMS: usize = 200;
+const MAX_CONNECTION_STRING_LENGTH: usize = 64 * 1024;
 const QUERY_VIEW_MODES: &[&str] = &["builder", "raw", "script"];
 const ENVIRONMENT_RISKS: &[&str] = &["low", "medium", "high", "critical"];
 
@@ -56,11 +57,7 @@ pub(in crate::app::runtime) fn validate_connection_profile(
     validate_connection_auth(&profile.auth)?;
 
     if let Some(connection_string) = profile.connection_string.as_deref() {
-        validate_optional_text(
-            Some(connection_string),
-            "Connection string",
-            MAX_SCOPE_LENGTH,
-        )?;
+        validate_opaque_connection_string(connection_string)?;
     }
 
     Ok(())
@@ -88,6 +85,23 @@ pub(in crate::app::runtime) fn validate_connection_test_request(
     validate_connection_profile(&request.profile)?;
     if let Some(secret) = request.secret.as_deref() {
         validate_query_text(secret, "Connection secret")?;
+    }
+    if let Some(connection_string) = request.connection_string.as_deref() {
+        validate_opaque_connection_string(connection_string)?;
+    }
+    Ok(())
+}
+
+fn validate_opaque_connection_string(value: &str) -> Result<(), CommandError> {
+    if value.len() > MAX_CONNECTION_STRING_LENGTH {
+        return Err(invalid_request(format!(
+            "Connection string must be {MAX_CONNECTION_STRING_LENGTH} bytes or fewer."
+        )));
+    }
+    if value.contains('\0') {
+        return Err(invalid_request(
+            "Connection string cannot contain null characters.",
+        ));
     }
     Ok(())
 }

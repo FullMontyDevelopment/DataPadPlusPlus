@@ -195,6 +195,7 @@ pub struct DiagnosticsCounts {
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticsReport {
     pub created_at: String,
+    pub schema_version: u32,
     pub runtime: String,
     pub platform: String,
     pub app_version: String,

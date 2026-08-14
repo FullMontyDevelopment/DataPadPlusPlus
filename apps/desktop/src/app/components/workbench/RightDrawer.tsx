@@ -8,7 +8,6 @@ import type {
   EnvironmentProfile,
   ExecutionCapabilities,
   ExplorerInspectResponse,
-  ExportBundle,
   LocalDatabaseCreateRequest,
   LocalDatabaseCreateResult,
   LocalDatabasePickRequest,
@@ -32,12 +31,7 @@ interface RightDrawerProps {
   connectionTest?: ConnectionTestResult
   diagnostics?: DiagnosticsReport
   explorerInspection?: ExplorerInspectResponse
-  exportBundle?: ExportBundle
   capabilities: ExecutionCapabilities
-  exportPassphrase: string
-  importPayload: string
-  onExportPassphraseChange(value: string): void
-  onImportPayloadChange(value: string): void
   onClose(): void
   onSaveConnection(profile: ConnectionProfile, secret?: string): Promise<boolean>
   onTestConnection(
@@ -46,8 +40,6 @@ interface RightDrawerProps {
     secret?: string,
   ): Promise<ConnectionTestResult | undefined>
   onRefreshDiagnostics(): void
-  onExportWorkspace(includeSecrets: boolean): void
-  onImportWorkspace(encryptedPayload: string): void
   onApplyTemplate(queryTemplate?: string): void
   onToggleTheme(): void
   onPickLocalDatabaseFile(request: LocalDatabasePickRequest): Promise<LocalDatabasePickResult>
@@ -67,18 +59,11 @@ export function RightDrawer({
   connectionTest,
   diagnostics,
   explorerInspection,
-  exportBundle,
   capabilities,
-  exportPassphrase,
-  importPayload,
-  onExportPassphraseChange,
-  onImportPayloadChange,
   onClose,
   onSaveConnection,
   onTestConnection,
   onRefreshDiagnostics,
-  onExportWorkspace,
-  onImportWorkspace,
   onApplyTemplate,
   onToggleTheme,
   onPickLocalDatabaseFile,
@@ -230,16 +215,9 @@ export function RightDrawer({
       {view === 'diagnostics' ? (
         <DiagnosticsBlade
           diagnostics={diagnostics}
-          exportBundle={exportBundle}
-          exportPassphrase={exportPassphrase}
           health={health}
-          importPayload={importPayload}
           theme={theme}
           onClose={onClose}
-          onExportPassphraseChange={onExportPassphraseChange}
-          onExportWorkspace={onExportWorkspace}
-          onImportPayloadChange={onImportPayloadChange}
-          onImportWorkspace={onImportWorkspace}
           onRefreshDiagnostics={onRefreshDiagnostics}
           onToggleTheme={onToggleTheme}
         />

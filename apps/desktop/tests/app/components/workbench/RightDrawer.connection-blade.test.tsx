@@ -8,6 +8,40 @@ import { describe, expect, it, vi } from 'vitest'
 import { ConnectionBlade } from '../../../../src/app/components/workbench/RightDrawer.connection-blade'
 
 describe('ConnectionBlade', () => {
+  it('shows vault-backed connection strings as a write-only secret field', () => {
+    render(
+      <ConnectionBlade
+        activeConnection={{
+          ...connection,
+          connectionMode: 'connection-string',
+          connectionString: undefined,
+          auth: {
+            ...connection.auth,
+            connectionStringSecretRef: {
+              id: 'connection-string-ref',
+              provider: 'desktop-secret-store',
+              service: 'DataPadPlusPlus',
+              account: 'connection-string:conn-postgres:ref',
+              label: 'PostgreSQL connection string',
+            },
+          },
+        }}
+        environments={[environment]}
+        onClose={vi.fn()}
+        onSaveConnection={vi.fn(async () => true)}
+        onTestConnection={vi.fn(async () => undefined)}
+        onPickLocalDatabaseFile={vi.fn(async () => ({ canceled: true }))}
+        onCreateLocalDatabase={vi.fn(async () => undefined)}
+      />,
+    )
+
+    expect(screen.getByLabelText('Connection string')).toHaveValue('')
+    expect(screen.getByPlaceholderText(/Stored in OS credential vault/)).toBeInTheDocument()
+    expect(screen.getByText(/Leave this field blank to preserve it/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal connection string' }))
+    expect(screen.getByRole('button', { name: 'Hide connection string' })).toBeInTheDocument()
+  })
+
   it('shows loading immediately and replaces a previous connection test result', async () => {
     const testResult = connectionTestResult({
       message: 'Connected with fresh settings.',

@@ -32,9 +32,11 @@ pub fn set_tab_environment(
 #[tauri::command]
 pub fn upsert_connection_profile(
     state: State<'_, SharedAppState>,
-    profile: ConnectionProfile,
+    request: ConnectionUpsertRequest,
 ) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(&state)?;
+    let mut profile = request.profile;
+    profile.connection_string = request.connection_string;
     state.upsert_connection(profile)
 }
 

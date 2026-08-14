@@ -25,6 +25,7 @@ const WORKSPACE_SNAPSHOT_STORAGE_PREFIX = 'datapadplusplus.workspace.snapshot.v1
 const DEFAULT_WORKSPACE_ID = 'default'
 const DEFAULT_WORKSPACE_NAME = 'Default Workspace'
 const browserResults = new Map<string, ExecutionResultEnvelope>()
+const browserConnectionStrings = new Map<string, string>()
 
 interface BrowserWorkspaceRegistry {
   enabled: boolean
@@ -51,12 +52,25 @@ export function loadBrowserSnapshot(): WorkspaceSnapshot {
   }
 
   try {
-    return restoreBrowserResults(
-      sanitizeBrowserSnapshot(
-        migrateWorkspaceSnapshot(JSON.parse(stored) as WorkspaceSnapshot),
-      ),
+    const migrated = migrateWorkspaceSnapshot(JSON.parse(stored) as WorkspaceSnapshot)
+    rememberBrowserConnectionStrings(migrated)
+    const sanitized = sanitizeBrowserSnapshot(stripBrowserConnectionStrings(migrated))
+    window.localStorage.setItem(
+      workspaceSnapshotStorageKey(activeWorkspaceId),
+      JSON.stringify(sanitized),
     )
-  } catch {
+    if (activeWorkspaceId === DEFAULT_WORKSPACE_ID) {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized))
+    }
+    return restoreBrowserConnectionStrings(restoreBrowserResults(sanitized))
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message.includes('newer DataPad++ version') ||
+        error.message.includes('schema version is invalid'))
+    ) {
+      throw error
+    }
     return createBlankBootstrapPayload().snapshot
   }
 }
@@ -68,8 +82,9 @@ export function saveBrowserSnapshot(snapshot: WorkspaceSnapshot) {
     const registry = ensureBrowserWorkspaceRegistry(snapshot)
     const activeWorkspaceId = registry.activeWorkspaceId || DEFAULT_WORKSPACE_ID
     syncBrowserResults(snapshot)
+    rememberBrowserConnectionStrings(snapshot)
     const sanitized = sanitizeBrowserSnapshot(
-      migrateWorkspaceSnapshot(stripTransientResults(snapshot)),
+      stripBrowserConnectionStrings(migrateWorkspaceSnapshot(stripTransientResults(snapshot))),
     )
     window.localStorage.setItem(
       workspaceSnapshotStorageKey(activeWorkspaceId),
@@ -116,6 +131,7 @@ export function createBrowserWorkspace(request: WorkspaceCreateRequest): Workspa
       {
         id: workspaceId,
         name,
+        schemaVersion: snapshot.schemaVersion,
         createdAt: timestamp,
         updatedAt: timestamp,
         lastOpenedAt: timestamp,
@@ -127,6 +143,47 @@ export function createBrowserWorkspace(request: WorkspaceCreateRequest): Workspa
   saveBrowserWorkspaceRegistry(nextRegistry)
   saveBrowserSnapshot(snapshot)
   return snapshot
+}
+
+export function importBrowserWorkspace(
+  importedSnapshot: WorkspaceSnapshot,
+  workspaceName: string | undefined,
+  importAsNew: boolean,
+): { snapshot: WorkspaceSnapshot; status: WorkspaceSwitcherStatus } {
+  const current = loadBrowserSnapshot()
+  saveBrowserSnapshot(current)
+  const registry = ensureBrowserWorkspaceRegistry()
+  const timestamp = new Date().toISOString()
+  const snapshot = migrateWorkspaceSnapshot(cloneSnapshot(importedSnapshot))
+  snapshot.updatedAt = timestamp
+
+  if (importAsNew) {
+    const workspaceId = browserWorkspaceId()
+    const name = normalizeWorkspaceName(workspaceName ?? '')
+    const nextRegistry: BrowserWorkspaceRegistry = {
+      ...registry,
+      activeWorkspaceId: workspaceId,
+      workspaces: [
+        ...registry.workspaces,
+        {
+          id: workspaceId,
+          name,
+          schemaVersion: snapshot.schemaVersion,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          lastOpenedAt: timestamp,
+          counts: workspaceCounts(snapshot),
+        },
+      ],
+    }
+    saveBrowserWorkspaceRegistry(nextRegistry)
+  }
+
+  saveBrowserSnapshot(snapshot)
+  return {
+    snapshot,
+    status: getBrowserWorkspaceSwitcherStatus(),
+  }
 }
 
 export function renameBrowserWorkspace(request: WorkspaceRenameRequest): WorkspaceSwitcherStatus {
@@ -174,18 +231,147 @@ export function switchBrowserWorkspace(request: WorkspaceSwitchRequest): Workspa
   saveBrowserWorkspaceRegistry(nextRegistry)
 
   const stored = window.localStorage.getItem(workspaceSnapshotStorageKey(workspace.id))
-  const snapshot = stored
-    ? sanitizeBrowserSnapshot(migrateWorkspaceSnapshot(JSON.parse(stored) as WorkspaceSnapshot))
-    : createBlankSnapshot()
+  const snapshot = restoreBrowserConnectionStrings(
+    stored
+      ? sanitizeBrowserSnapshot(migrateWorkspaceSnapshot(JSON.parse(stored) as WorkspaceSnapshot))
+      : createBlankSnapshot(),
+  )
   saveBrowserSnapshot(snapshot)
   return snapshot
 }
 
 function sanitizeBrowserSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
-  const sanitized = stripTransientResults(snapshot)
+  const sanitized = boundBrowserHistory(stripRefreshableBrowserState(snapshot))
   return {
     ...sanitized,
     environments: sanitized.environments.map(sanitizeEnvironmentProfile),
+    adapterManifests: [],
+    datastoreSecurityChecks: undefined,
+  }
+}
+
+function rememberBrowserConnectionStrings(snapshot: WorkspaceSnapshot) {
+  for (const connection of snapshot.connections) {
+    if (connection.connectionString) {
+      browserConnectionStrings.set(connection.id, connection.connectionString)
+    }
+  }
+}
+
+function stripBrowserConnectionStrings(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  return {
+    ...snapshot,
+    connections: snapshot.connections.map((connection) => ({
+      ...connection,
+      connectionString: undefined,
+      auth: {
+        ...connection.auth,
+        connectionStringSecretRef: undefined,
+      },
+    })),
+  }
+}
+
+function restoreBrowserConnectionStrings(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  return {
+    ...snapshot,
+    connections: snapshot.connections.map((connection) => ({
+      ...connection,
+      connectionString: browserConnectionStrings.get(connection.id),
+    })),
+  }
+}
+
+const MAX_PERSISTED_HISTORY_ENTRIES = 500
+const MAX_PERSISTED_HISTORY_BYTES = 2 * 1024 * 1024
+
+function stripRefreshableBrowserState(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  const sanitizeTab = <T extends WorkspaceSnapshot['tabs'][number]>(tab: T): T => {
+    const objectTarget = { ...tab.objectViewState }
+    delete objectTarget.payload
+    delete objectTarget.queryTemplate
+    delete objectTarget.warnings
+    const metricsTarget = { ...tab.metricsState }
+    delete metricsTarget.diagnostics
+    delete metricsTarget.warnings
+    const hadObjectPayload = Boolean(
+      tab.objectViewState?.payload ||
+      tab.objectViewState?.queryTemplate ||
+      (tab.objectViewState?.warnings?.length ?? 0) > 0,
+    )
+    const hadMetricsPayload = Boolean(
+      tab.metricsState?.diagnostics || (tab.metricsState?.warnings?.length ?? 0) > 0,
+    )
+
+    return {
+      ...tab,
+      result: undefined,
+      activeExecution: undefined,
+      error: undefined,
+      testRun: undefined,
+      status: tab.status === 'queued' || tab.status === 'running' ? 'idle' as const : tab.status,
+      objectViewState: tab.objectViewState
+        ? {
+            ...objectTarget,
+            warnings: [],
+            refreshRequired: hadObjectPayload || tab.objectViewState.refreshRequired,
+          } as WorkspaceSnapshot['tabs'][number]['objectViewState']
+        : undefined,
+      metricsState: tab.metricsState
+        ? {
+            ...metricsTarget,
+            warnings: [],
+            refreshRequired: hadMetricsPayload || tab.metricsState.refreshRequired,
+          } as WorkspaceSnapshot['tabs'][number]['metricsState']
+        : undefined,
+    } as T
+  }
+
+  return {
+    ...snapshot,
+    tabs: snapshot.tabs.map(sanitizeTab),
+    closedTabs: snapshot.closedTabs.map(sanitizeTab),
+  }
+}
+
+function boundBrowserHistory(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  const openTabs = snapshot.tabs.map((tab) => ({
+    ...tab,
+    history: [] as typeof tab.history,
+  }))
+  const closedTabs = snapshot.closedTabs.map((tab) => ({
+    ...tab,
+    history: [] as typeof tab.history,
+  }))
+  const candidates = [
+    ...snapshot.tabs.flatMap((tab, tabIndex) =>
+      tab.history.map((entry) => ({ closed: false, tabIndex, entry })),
+    ),
+    ...snapshot.closedTabs.flatMap((tab, tabIndex) =>
+      tab.history.map((entry) => ({ closed: true, tabIndex, entry })),
+    ),
+  ].sort((left, right) => right.entry.executedAt.localeCompare(left.entry.executedAt))
+
+  let retainedBytes = 0
+  let retainedEntries = 0
+  for (const candidate of candidates) {
+    if (retainedEntries >= MAX_PERSISTED_HISTORY_ENTRIES) break
+    const entryBytes = new TextEncoder().encode(JSON.stringify(candidate.entry)).byteLength
+    if (retainedBytes + entryBytes > MAX_PERSISTED_HISTORY_BYTES) break
+
+    if (candidate.closed) {
+      closedTabs[candidate.tabIndex]?.history.push(candidate.entry)
+    } else {
+      openTabs[candidate.tabIndex]?.history.push(candidate.entry)
+    }
+    retainedBytes += entryBytes
+    retainedEntries += 1
+  }
+
+  return {
+    ...snapshot,
+    tabs: openTabs,
+    closedTabs,
   }
 }
 
@@ -258,6 +444,7 @@ function defaultBrowserWorkspaceRegistry(snapshot: WorkspaceSnapshot): BrowserWo
       {
         id: DEFAULT_WORKSPACE_ID,
         name: DEFAULT_WORKSPACE_NAME,
+        schemaVersion: snapshot.schemaVersion,
         createdAt: timestamp,
         updatedAt: timestamp,
         lastOpenedAt: timestamp,
@@ -278,6 +465,7 @@ function normalizeBrowserWorkspaceRegistry(
         .map((workspace) => ({
           id: workspace.id,
           name: workspace.name.trim() || DEFAULT_WORKSPACE_NAME,
+          schemaVersion: workspace.schemaVersion || createBlankSnapshot().schemaVersion,
           createdAt: workspace.createdAt || new Date().toISOString(),
           updatedAt: workspace.updatedAt || workspace.createdAt || new Date().toISOString(),
           lastOpenedAt: workspace.lastOpenedAt,
@@ -320,6 +508,7 @@ function updateBrowserWorkspaceSummary(
       ? {
           ...workspace,
           updatedAt: timestamp,
+          schemaVersion: snapshot.schemaVersion,
           counts: workspaceCounts(snapshot),
         }
       : workspace,

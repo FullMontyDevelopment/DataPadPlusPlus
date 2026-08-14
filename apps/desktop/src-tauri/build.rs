@@ -1,4 +1,5 @@
 fn main() {
+    generate_workspace_schema_version();
     tauri_build::build();
 
     println!("cargo:rerun-if-env-changed=DATAPADPLUSPLUS_REQUIRE_UPDATER_SIGNING");
@@ -22,6 +23,35 @@ fn main() {
     } else if target.contains("windows-gnu") {
         println!("cargo:rustc-link-arg=-Wl,--stack,16777216");
     }
+}
+
+fn generate_workspace_schema_version() {
+    let manifest_dir = std::path::PathBuf::from(
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be available"),
+    );
+    let source = manifest_dir.join("../../../packages/shared-types/src/workspace-schema.ts");
+    println!("cargo:rerun-if-changed={}", source.display());
+    let contents = std::fs::read_to_string(&source)
+        .unwrap_or_else(|error| panic!("Unable to read {}: {error}", source.display()));
+    let marker = "CURRENT_WORKSPACE_SCHEMA_VERSION =";
+    let version = contents
+        .lines()
+        .find_map(|line| {
+            let (_, value) = line.split_once(marker)?;
+            value
+                .split_whitespace()
+                .next()
+                .and_then(|value| value.parse::<u32>().ok())
+        })
+        .expect("workspace-schema.ts must declare CURRENT_WORKSPACE_SCHEMA_VERSION");
+    let output =
+        std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR must be available"))
+            .join("workspace_schema_version.rs");
+    std::fs::write(
+        output,
+        format!("pub const SCHEMA_VERSION: u32 = {version};\n"),
+    )
+    .expect("workspace schema Rust constant should be generated");
 }
 
 fn updater_signing_required() -> bool {
