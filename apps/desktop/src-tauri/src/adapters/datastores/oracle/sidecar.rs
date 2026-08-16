@@ -513,6 +513,22 @@ async fn record_oracle_sidecar_failure(error: CommandError) {
         .record_start_failure(oracle_sidecar_cooldown_error(error), Instant::now());
 }
 
+#[cfg(test)]
+pub(crate) async fn shutdown_oracle_sidecar_for_tests() {
+    let Some(state) = ORACLE_SIDECAR.get() else {
+        return;
+    };
+    let client = {
+        let mut current = state.lock().await;
+        current.retry_after = None;
+        current.last_start_error = None;
+        current.client.take()
+    };
+    if let Some(client) = client {
+        client.stop().await;
+    }
+}
+
 fn oracle_sidecar_spawn_error(error: std::io::Error) -> CommandError {
     match error.kind() {
         std::io::ErrorKind::PermissionDenied => CommandError::new(

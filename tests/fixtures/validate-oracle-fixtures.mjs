@@ -76,6 +76,29 @@ function sqlplusJson(script, options = {}) {
   return JSON.parse(line)
 }
 
+function sqlplusLines(script, options = {}) {
+  return sqlplus(script, options)
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+}
+
+function collectSqlplusPages(label, pageSize, statementForPage) {
+  const pages = []
+  let offset = 0
+
+  for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
+    const rows = sqlplusLines(statementForPage(offset, pageSize))
+    pages.push(rows)
+    if (rows.length < pageSize) {
+      return { pages, rows: pages.flat() }
+    }
+    offset += rows.length
+  }
+
+  throw new Error(`${label} exceeded 100 continuation pages.`)
+}
+
 async function record(name, action) {
   try {
     await action()
@@ -182,6 +205,101 @@ select json_object(
   expectAtLeast(result.fulfillmentSummaryView, 1, 'Oracle order_fulfillment_summary view')
   expectAtLeast(result.ordersAccountStatusIndex, 1, 'Oracle orders_account_status_idx')
   expectAtLeast(result.foreignKeys, 3, 'Oracle foreign key constraints')
+})
+
+await record('Oracle: Explorer and completion paging boundaries', () => {
+  const objectPageSize = 37
+  const objects = collectSqlplusPages(
+    'Oracle completion objects',
+    objectPageSize,
+    (offset, pageSize) => `
+select owner || '|' || object_name || '|' || object_type
+from (
+  select
+    owner,
+    object_name,
+    max(object_type) keep (
+      dense_rank first order by case object_type
+        when 'MATERIALIZED VIEW' then 1
+        when 'VIEW' then 2
+        else 3
+      end
+    ) as object_type
+  from all_objects
+  where owner = 'DATAPADPLUSPLUS'
+    and object_type in ('TABLE', 'VIEW', 'MATERIALIZED VIEW')
+  group by owner, object_name
+)
+order by object_name, object_type
+offset ${offset} rows fetch next ${pageSize} rows only;
+`,
+  )
+  const objectNames = objects.rows.map((row) => row.split('|')[1])
+
+  expectAtLeast(objects.pages.length, 4, 'Oracle object continuation pages')
+  expectAtLeast(objectNames.length, 130, 'Oracle completion objects')
+  expect(
+    new Set(objectNames).size === objectNames.length,
+    'Oracle object continuation pages returned duplicate identities.',
+  )
+  for (const name of [
+    'DPP_PAGING_TABLE_125',
+    'DPP_CASE_TABLE',
+    'Dpp_Case_Table',
+    'Dpp$Quoted#Table',
+    'Dpp_販売_Table',
+  ]) {
+    expect(objectNames.includes(name), `Oracle paged metadata did not include ${name}.`)
+  }
+
+  const fieldPageSize = 400
+  const fields = collectSqlplusPages(
+    'Oracle completion fields',
+    fieldPageSize,
+    (offset, pageSize) => `
+select c.owner || '|' || c.table_name || '|' || c.column_name || '|' || c.column_id
+from all_tab_columns c
+join (
+  select
+    owner,
+    object_name,
+    max(object_type) keep (
+      dense_rank first order by case object_type
+        when 'MATERIALIZED VIEW' then 1
+        when 'VIEW' then 2
+        else 3
+      end
+    ) as object_type
+  from all_objects
+  where object_type in ('TABLE', 'VIEW', 'MATERIALIZED VIEW')
+  group by owner, object_name
+) o on o.owner = c.owner and o.object_name = c.table_name
+where c.owner = 'DATAPADPLUSPLUS'
+order by c.table_name, c.column_id
+offset ${offset} rows fetch next ${pageSize} rows only;
+`,
+  )
+  const fieldIdentities = fields.rows.map((row) => row.split('|').slice(0, 3).join('|'))
+  const finalPagedField = 'DATAPADPLUSPLUS|DPP_PAGING_TABLE_125|PAGING_VALUE_17'
+
+  expectAtLeast(fields.pages.length, 6, 'Oracle field continuation pages')
+  expectAtLeast(fieldIdentities.length, 2250, 'Oracle completion fields')
+  expect(
+    new Set(fieldIdentities).size === fieldIdentities.length,
+    'Oracle field continuation pages returned duplicate identities.',
+  )
+  expect(
+    fieldIdentities.indexOf(finalPagedField) >= 2000,
+    'The final Oracle fixture field did not cross the production 2,000-row completion boundary.',
+  )
+  expect(
+    fieldIdentities.includes('DATAPADPLUSPLUS|Dpp$Quoted#Table|Mixed$Column#'),
+    'Oracle completion fields did not preserve the quoted $/# identifier.',
+  )
+  expect(
+    fieldIdentities.includes('DATAPADPLUSPLUS|Dpp_販売_Table|説明'),
+    'Oracle completion fields did not preserve the Unicode quoted identifier.',
+  )
 })
 
 await record('Oracle: dictionary, security, and storage surfaces', () => {

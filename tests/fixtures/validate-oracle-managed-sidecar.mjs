@@ -95,6 +95,26 @@ function expectSuccess(response, label) {
   return response.result
 }
 
+async function collectManagedPages(label, pageSize, statementForPage) {
+  const pages = []
+  let offset = 0
+
+  for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
+    const result = expectSuccess(await request('execute', {
+      statement: statementForPage(offset, pageSize),
+      rowLimit: pageSize + 1,
+    }), `${label} page ${pageNumber + 1}`)
+    const rows = result.sections[0]?.rows ?? []
+    pages.push(rows)
+    if (rows.length < pageSize) {
+      return { pages, rows: pages.flat() }
+    }
+    offset += rows.length
+  }
+
+  throw new Error(`${label} exceeded 100 continuation pages.`)
+}
+
 try {
   const tested = expectSuccess(await request('test'), 'Connection test')
   expect(tested.authenticatedSchema === 'DATAPADPLUSPLUS', 'Connection test returned the wrong schema.')
@@ -113,6 +133,78 @@ try {
   for (const table of ['ACCOUNTS', 'ORDERS', 'ORDER_ITEMS', 'SUPPORT_TICKETS']) {
     expect(tables.includes(table), `Live metadata did not include ${table}.`)
   }
+
+  const objects = await collectManagedPages(
+    'Managed Oracle completion objects',
+    37,
+    (offset, pageSize) => `select owner, object_name,
+      max(object_type) keep (
+        dense_rank first order by case object_type
+          when 'MATERIALIZED VIEW' then 1
+          when 'VIEW' then 2
+          else 3
+        end
+      ) as object_type
+    from all_objects
+    where owner = 'DATAPADPLUSPLUS'
+      and object_type in ('TABLE', 'VIEW', 'MATERIALIZED VIEW')
+    group by owner, object_name
+    order by object_name, object_type
+    offset ${offset} rows fetch next ${pageSize} rows only`,
+  )
+  const objectNames = objects.rows.map((row) => String(row[1]))
+  expect(objects.pages.length >= 4, 'Managed Oracle object metadata did not require continuation pages.')
+  expect(objectNames.length >= 130, `Managed Oracle returned only ${objectNames.length} completion objects.`)
+  expect(new Set(objectNames).size === objectNames.length, 'Managed Oracle object pages contained duplicates.')
+  for (const table of [
+    'DPP_PAGING_TABLE_125',
+    'DPP_CASE_TABLE',
+    'Dpp_Case_Table',
+    'Dpp$Quoted#Table',
+    'Dpp_販売_Table',
+  ]) {
+    expect(objectNames.includes(table), `Managed Oracle paging did not include ${table}.`)
+  }
+
+  const fields = await collectManagedPages(
+    'Managed Oracle completion fields',
+    400,
+    (offset, pageSize) => `select c.owner, c.table_name, c.column_name, c.column_id
+    from all_tab_columns c
+    join (
+      select owner, object_name,
+        max(object_type) keep (
+          dense_rank first order by case object_type
+            when 'MATERIALIZED VIEW' then 1
+            when 'VIEW' then 2
+            else 3
+          end
+        ) as object_type
+      from all_objects
+      where object_type in ('TABLE', 'VIEW', 'MATERIALIZED VIEW')
+      group by owner, object_name
+    ) o on o.owner = c.owner and o.object_name = c.table_name
+    where c.owner = 'DATAPADPLUSPLUS'
+    order by c.table_name, c.column_id
+    offset ${offset} rows fetch next ${pageSize} rows only`,
+  )
+  const fieldIdentities = fields.rows.map((row) => row.slice(0, 3).map(String).join('|'))
+  const finalPagedField = 'DATAPADPLUSPLUS|DPP_PAGING_TABLE_125|PAGING_VALUE_17'
+  expect(fields.pages.length >= 6, 'Managed Oracle field metadata did not require continuation pages.')
+  expect(fieldIdentities.length >= 2250, `Managed Oracle returned only ${fieldIdentities.length} fields.`)
+  expect(new Set(fieldIdentities).size === fieldIdentities.length, 'Managed Oracle field pages contained duplicates.')
+  expect(
+    fieldIdentities.indexOf(finalPagedField) >= 2000,
+    'Managed Oracle did not place the final fixture field beyond the 2,000-row completion boundary.',
+  )
+  expect(
+    fieldIdentities.includes('DATAPADPLUSPLUS|Dpp$Quoted#Table|Mixed$Column#'),
+    'Managed Oracle lost the quoted $/# field identity.',
+  )
+  expect(
+    fieldIdentities.includes('DATAPADPLUSPLUS|Dpp_販売_Table|説明'),
+    'Managed Oracle lost the Unicode field identity.',
+  )
 
   const objectMetadata = expectSuccess(await request('execute', {
     statement: `select
@@ -173,7 +265,7 @@ try {
   })
   expect(!blocked.ok && blocked.code === 'oracle-read-only-blocked', 'Read-only Oracle execution did not fail closed.')
 
-  console.log(`Managed Oracle fixture OK: ${tested.containerName}, schema ${tested.currentSchema}, ${tables.length} tables, legacy PLAN_TABLE explain, child metadata, bounded SQL, PL/SQL output, and read-only guardrails.`)
+  console.log(`Managed Oracle fixture OK: ${tested.containerName}, schema ${tested.currentSchema}, ${tables.length} tables, ${objects.pages.length} object pages, ${fields.pages.length} field pages, legacy PLAN_TABLE explain, child metadata, bounded SQL, PL/SQL output, and read-only guardrails.`)
 } finally {
   child.stdin.end()
   lines.close()

@@ -11,9 +11,11 @@ import {
 
 const root = dirname(fileURLToPath(import.meta.url))
 const generatedEnvPath = join(root, '.generated.env')
+const seedArguments = process.argv.slice(2)
+const onlySelectedProfiles = seedArguments.includes('--only')
 const requestedProfiles = new Set(
   [
-    process.argv[2],
+    ...seedArguments.filter((value) => !value.startsWith('--')),
     process.env.DATAPADPLUSPLUS_FIXTURE_PROFILE,
   ]
     .filter(Boolean)
@@ -153,10 +155,19 @@ function shouldSeed(container, profile = 'core') {
   }
 
   return (
-    profile === 'core' ||
     requestedProfiles.size === 0 ||
     requestedProfiles.has('all') ||
+    (!onlySelectedProfiles && profile === 'core') ||
     requestedProfiles.has(profile)
+  )
+}
+
+function shouldSeedCore() {
+  return (
+    !onlySelectedProfiles ||
+    requestedProfiles.size === 0 ||
+    requestedProfiles.has('all') ||
+    requestedProfiles.has('core')
   )
 }
 
@@ -1289,7 +1300,9 @@ async function seedCloudContract() {
   )
 }
 
-await seedCore()
+if (shouldSeedCore()) {
+  await seedCore()
+}
 await seedCache()
 await seedSqlPlus()
 await seedAnalytics()

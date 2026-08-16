@@ -18,6 +18,10 @@ const profiles = [
   'cloud-contract',
 ]
 
+const isolatedServices = new Map([
+  ['oracle', 'oracle'],
+])
+
 const fixturePorts = [
   { env: 'DATAPADPLUSPLUS_POSTGRES_PORT', container: 'datapadplusplus-postgres', containerPort: 5432, defaultPort: 54329, fallbackStart: 55432, profiles: ['core'] },
   { env: 'DATAPADPLUSPLUS_MYSQL_PORT', container: 'datapadplusplus-mysql', containerPort: 3306, defaultPort: 33060, fallbackStart: 33360, profiles: ['core'] },
@@ -318,6 +322,31 @@ switch (command) {
     runDockerComposeWithRecovery(['--profile', profile, 'up', '-d', '--wait'], env)
     break
   }
+  case 'up-service': {
+    const serviceProfile = isolatedServices.get(profile)
+    if (!serviceProfile) {
+      throw new Error(
+        `Usage: npm run fixtures:up:oracle (isolated services: ${Array.from(isolatedServices.keys()).join(', ')})`,
+      )
+    }
+    const env = await buildComposeEnvironment([serviceProfile])
+    runDockerCompose(
+      ['--profile', serviceProfile, 'up', '-d', '--wait', profile],
+      env,
+    )
+    break
+  }
+  case 'stop-service': {
+    const serviceProfile = isolatedServices.get(profile)
+    if (!serviceProfile) {
+      throw new Error(
+        `Usage: npm run fixtures:stop:oracle (isolated services: ${Array.from(isolatedServices.keys()).join(', ')})`,
+      )
+    }
+    const env = await buildComposeEnvironment([serviceProfile])
+    runDockerCompose(['--profile', serviceProfile, 'stop', profile], env)
+    break
+  }
   case 'up-all': {
     const env = await buildComposeEnvironment(profiles)
     runDockerComposeWithRecovery([
@@ -329,5 +358,7 @@ switch (command) {
     break
   }
   default:
-    throw new Error('Usage: node tests/fixtures/compose.mjs <up|up-profile|up-all> [profile]')
+    throw new Error(
+      'Usage: node tests/fixtures/compose.mjs <up|up-profile|up-service|stop-service|up-all> [profile]',
+    )
 }

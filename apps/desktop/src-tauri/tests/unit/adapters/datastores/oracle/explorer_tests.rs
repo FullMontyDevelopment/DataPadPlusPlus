@@ -1,3 +1,4 @@
+use super::super::sidecar::shutdown_oracle_sidecar_for_tests;
 use super::{
     decode_scope_component, encode_scope_component, inspect_oracle_explorer_node,
     list_oracle_explorer_nodes, oracle_category_query, oracle_empty_category_node,
@@ -7,6 +8,7 @@ use super::{
 use crate::domain::models::{
     ExplorerInspectRequest, ExplorerRequest, OracleConnectionOptions, ResolvedConnectionProfile,
 };
+use std::collections::HashSet;
 
 fn connection() -> ResolvedConnectionProfile {
     ResolvedConnectionProfile {
@@ -452,6 +454,66 @@ fn oracle_native_paging_adds_a_bounded_offset_window_to_metadata_queries() {
 }
 
 #[tokio::test]
+#[ignore = "requires the seeded Oracle Docker fixture and bundled managed runtime"]
+async fn oracle_live_fixture_pages_explorer_tables_without_identity_loss() {
+    let connection = live_fixture_connection();
+    let scope = "oracle:category:schema:DATAPADPLUSPLUS:tables";
+    let mut cursor = None;
+    let mut names = Vec::new();
+    let mut page_count = 0;
+
+    loop {
+        let response = list_oracle_explorer_nodes(
+            &connection,
+            &ExplorerRequest {
+                connection_id: connection.id.clone(),
+                environment_id: "fixture-oracle".into(),
+                limit: Some(17),
+                scope: Some(scope.into()),
+                cursor,
+            },
+        )
+        .await
+        .expect("live Oracle Explorer page");
+        page_count += 1;
+        eprintln!(
+            "live Oracle Explorer page {page_count}: {} table(s)",
+            response.nodes.len()
+        );
+        assert!(page_count < 20, "Oracle Explorer paging did not terminate");
+        names.extend(response.nodes.into_iter().map(|node| node.label));
+
+        let page_info = response.page_info.expect("Oracle Explorer page info");
+        let Some(next_cursor) = page_info.next_cursor else {
+            assert!(!page_info.has_more);
+            assert_eq!(page_info.known_total, Some(names.len() as u32));
+            break;
+        };
+        assert!(page_info.has_more);
+        cursor = Some(next_cursor);
+    }
+
+    shutdown_oracle_sidecar_for_tests().await;
+
+    assert!(page_count >= 8, "expected more than seven Explorer pages");
+    assert!(names.len() >= 130, "expected the paging stress tables");
+    assert_eq!(
+        names.iter().collect::<HashSet<_>>().len(),
+        names.len(),
+        "Explorer continuation pages must not duplicate identifiers"
+    );
+    for name in [
+        "DPP_PAGING_TABLE_125",
+        "DPP_CASE_TABLE",
+        "Dpp_Case_Table",
+        "Dpp$Quoted#Table",
+        "Dpp_販売_Table",
+    ] {
+        assert!(names.iter().any(|candidate| candidate == name));
+    }
+}
+
+#[tokio::test]
 async fn oracle_schema_scope_contains_object_folders_without_fake_tables() {
     let response = list_oracle_explorer_nodes(
         &connection(),
@@ -534,4 +596,32 @@ fn oracle_context_aware_object_ids_inspect_the_correct_schema_and_object() {
     assert_eq!(payload["kind"], "table");
     assert_eq!(payload["schema"], "APP");
     assert_eq!(payload["objectName"], "ACCOUNTS");
+}
+
+fn live_fixture_connection() -> ResolvedConnectionProfile {
+    let mut profile = connection();
+    profile.id = "conn-oracle-live-fixture".into();
+    profile.name = "Oracle paging fixture".into();
+    profile.host = "127.0.0.1".into();
+    profile.port = Some(
+        std::env::var("DATAPADPLUSPLUS_ORACLE_PORT")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(1522),
+    );
+    profile.database = Some("FREEPDB1".into());
+    profile.username = Some("datapadplusplus".into());
+    profile.password = Some("datapadplusplus".into());
+    profile.oracle_options = Some(OracleConnectionOptions {
+        connect_mode: Some("service".into()),
+        execution_runtime: Some("managed".into()),
+        service_name: Some("FREEPDB1".into()),
+        application_name: Some("DataPad++ Explorer paging fixture".into()),
+        fetch_size: Some(100),
+        connection_timeout_ms: Some(15_000),
+        request_timeout_ms: Some(30_000),
+        use_tls: Some(false),
+        ..Default::default()
+    });
+    profile
 }

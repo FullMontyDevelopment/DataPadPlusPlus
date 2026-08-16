@@ -400,6 +400,11 @@ test('Oracle optional fixtures cover native diagnostics and preview boundary evi
     connectionsSource,
     strategySource,
     validatorSource,
+    managedValidatorSource,
+    appPagingValidatorSource,
+    pagingSeedSource,
+    composeSource,
+    seedRunnerSource,
     completenessSource,
   ] = await Promise.all([
     read('package.json'),
@@ -407,11 +412,21 @@ test('Oracle optional fixtures cover native diagnostics and preview boundary evi
     read('tests/fixtures/CONNECTIONS.md'),
     read('docs/testing/strategy.md'),
     read('tests/fixtures/validate-oracle-fixtures.mjs'),
+    read('tests/fixtures/validate-oracle-managed-sidecar.mjs'),
+    read('tests/fixtures/validate-oracle-app-paging.mjs'),
+    read('tests/fixtures/oracle/init/004_paging_completion.sql'),
+    read('tests/fixtures/compose.mjs'),
+    read('tests/fixtures/seed.mjs'),
     read('packages/shared-types/src/datastore-completeness.ts'),
   ])
 
   assert.match(packageSource, /"fixtures:validate:oracle": "node tests\/fixtures\/validate-oracle-fixtures\.mjs"/)
+  assert.match(packageSource, /"fixtures:up:oracle": "node tests\/fixtures\/compose\.mjs up-service oracle"/)
+  assert.match(packageSource, /"fixtures:seed:oracle": "node tests\/fixtures\/seed\.mjs oracle --only"/)
+  assert.match(packageSource, /"fixtures:validate:oracle:app": "node tests\/fixtures\/validate-oracle-app-paging\.mjs"/)
+  assert.match(packageSource, /"fixtures:test:oracle":/)
   assert.match(validatorSource, /Oracle: seeded relational and volume fixtures/)
+  assert.match(validatorSource, /Oracle: Explorer and completion paging boundaries/)
   assert.match(validatorSource, /Oracle: dictionary, security, and storage surfaces/)
   assert.match(validatorSource, /Oracle: DBMS_XPLAN and SQL Monitor boundary evidence/)
   assert.match(validatorSource, /Oracle: PL\/SQL source and compile diagnostics/)
@@ -428,6 +443,21 @@ test('Oracle optional fixtures cover native diagnostics and preview boundary evi
   assert.match(validatorSource, /set markup csv on/)
   assert.match(validatorSource, /RMAN backup database plus archivelog/)
   assert.match(validatorSource, /Data Pump\/RMAN execution remains preview-first outside the scoped claim/)
+  assert.match(validatorSource, /DPP_PAGING_TABLE_125/)
+  assert.match(validatorSource, />= 2000/)
+  assert.match(managedValidatorSource, /Managed Oracle completion objects/)
+  assert.match(managedValidatorSource, /Managed Oracle completion fields/)
+  assert.match(managedValidatorSource, /Dpp\$Quoted#Table/)
+  assert.match(appPagingValidatorSource, /oracle_live_fixture_pages/)
+  assert.match(appPagingValidatorSource, /--test-threads=1/)
+  assert.match(pagingSeedSource, /for table_number in 1\.\.125/)
+  assert.match(pagingSeedSource, /paging_value_/)
+  assert.match(pagingSeedSource, /Dpp_Case_Table/)
+  assert.match(pagingSeedSource, /Dpp\$Quoted#Table/)
+  assert.match(pagingSeedSource, /Dpp_販売_Table/)
+  assert.match(composeSource, /up-service/)
+  assert.match(composeSource, /stop-service/)
+  assert.match(seedRunnerSource, /onlySelectedProfiles/)
   assert.match(readmeSource, /fixtures:validate:oracle/)
   assert.match(readmeSource, /Desktop Oracle uses the bundled managed runtime by default, with SQLPlus available as an explicit legacy fallback/)
   assert.match(readmeSource, /DBMS_XPLAN[\s\S]*SQL Monitor[\s\S]*PL\/SQL[\s\S]*row identity[\s\S]*Data Pump\/RMAN/)

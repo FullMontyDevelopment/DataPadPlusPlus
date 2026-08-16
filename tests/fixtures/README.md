@@ -97,15 +97,15 @@ npm run fixtures:validate:timescale
 
 The validator checks TimescaleDB extension/version visibility, seeded hypertable and chunk catalog rows, seeded metric volume, hypertable row-edit before/after evidence with `RETURNING` row snapshots, restricted catalog visibility and permission-denied writes through a temporary `fixture_timescale_readonly` role, continuous aggregate and policy/job boundary evidence, compressed chunk and aggregate lag evidence, Toolkit availability/function variants, bounded CSV export/import evidence, and failed-job diagnostics through transient `fixture_timescale_*` objects. Live policy/file execution remains preview-first; this optional validator proves metadata, permissions, and planner boundary evidence while keeping production-style policy/job execution outside the scoped claim.
 
-For Oracle optional evidence, start and seed the `oracle` profile, then run the Oracle validator:
+For Oracle optional evidence, the isolated command starts only Oracle, seeds only its schema, and runs the SQLPlus, managed-sidecar, and live DataPad++ paging validators:
 
 ```powershell
-npm run fixtures:up:profile -- oracle
-npm run fixtures:seed:all
-npm run fixtures:validate:oracle
+npm run fixtures:test:oracle
+# Keep the fixture running for manual Explorer/IntelliSense checks, then stop it with:
+npm run fixtures:stop:oracle
 ```
 
-The validator checks Oracle seeded relational volume, dictionary/security/storage metadata, DBMS_XPLAN output, SQL Monitor visibility or permission-boundary evidence, PL/SQL package source and compile diagnostics, row identity and DML `RETURNING` primitives, SQLPlus bounded CSV-style export/import evidence, restricted dictionary denial evidence, and Data Pump/RMAN preview boundary wording through transient `fixture_oracle_*` objects. Desktop Oracle uses the bundled managed runtime by default, with SQLPlus available as an explicit legacy fallback. Data Pump and RMAN execution remain outside the scoped claim until guarded executors are added.
+The fixture includes 125 metadata-only paging tables with more than 2,000 columns, plus exact-case, `$`/`#`, and Unicode quoted identifiers. Validation traverses deliberately small SQLPlus and managed-driver pages, then runs the real Rust Explorer cursor and two-phase completion implementation against the live database. It also checks Oracle seeded relational volume, dictionary/security/storage metadata, DBMS_XPLAN output, SQL Monitor visibility or permission-boundary evidence, PL/SQL package source and compile diagnostics, row identity and DML `RETURNING` primitives, SQLPlus bounded CSV-style export/import evidence, restricted dictionary denial evidence, and Data Pump/RMAN preview boundary wording through transient `fixture_oracle_*` objects. Desktop Oracle uses the bundled managed runtime by default, with SQLPlus available as an explicit legacy fallback. Data Pump and RMAN execution remain outside the scoped claim until guarded executors are added.
 
 For Cosmos DB emulator optional evidence, start the `cosmosdb` profile, then run the Cosmos DB validator:
 
