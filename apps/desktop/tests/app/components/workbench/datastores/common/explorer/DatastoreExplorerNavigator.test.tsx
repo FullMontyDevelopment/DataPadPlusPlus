@@ -7,6 +7,7 @@ import type {
 import { describe, expect, it, vi } from 'vitest'
 import { DatastoreExplorerNavigator } from '../../../../../../../src/app/components/workbench/datastores/common/explorer/DatastoreExplorerNavigator'
 import { createDatastoreExplorerProvider } from '../../../../../../../src/app/components/workbench/datastores/common/explorer/DatastoreExplorerProvider'
+import { buildExplorerTree } from '../../../../../../../src/app/components/workbench/datastores/common/explorer/DatastoreExplorerProvider.model'
 
 const provider = createDatastoreExplorerProvider({
   engine: 'postgresql',
@@ -15,6 +16,58 @@ const provider = createDatastoreExplorerProvider({
 })
 
 describe('DatastoreExplorerNavigator', () => {
+  it('keeps case-distinct Oracle identifiers separate in the dedicated Explorer tree', () => {
+    const connection = {
+      ...postgresConnection(),
+      id: 'conn-oracle',
+      name: 'Oracle',
+      engine: 'oracle' as const,
+    }
+    const tree = buildExplorerTree(connection, {
+      __root__: {
+        ...response(undefined, []),
+        connectionId: connection.id,
+        nodes: [
+          node('oracle-table-orders-mixed', 'Orders', 'table', ['Oracle', 'Schemas', 'APP', 'Tables']),
+          node('oracle-table-orders-upper', 'ORDERS', 'table', ['Oracle', 'Schemas', 'APP', 'Tables']),
+        ],
+      },
+    })
+    const labels = flattenLabels(tree)
+
+    expect(labels).toContain('Orders')
+    expect(labels).toContain('ORDERS')
+  })
+
+  it('disables a continuation action while that Explorer scope is loading', () => {
+    const scopes = explorerScopes()
+    scopes.databases = {
+      ...scopes.databases,
+      pageInfo: {
+        hasMore: true,
+        nextCursor: 'oracle-explorer-v1:schemas:100',
+        returned: 1,
+        knownTotal: 150,
+      },
+    }
+
+    render(
+      <DatastoreExplorerNavigator
+        provider={provider}
+        connection={postgresConnection()}
+        scopes={scopes}
+        filter=""
+        compact={false}
+        isScopeLoading={(scope) => scope === 'databases'}
+        getScopeError={() => undefined}
+        onLoadScope={vi.fn()}
+        onSelectNode={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Loading…' })).toBeDisabled()
+  })
+
   it.each([false, true])(
     'collapses and re-expands a selected branch while retaining selection (compact: %s)',
     (compact) => {
@@ -224,6 +277,10 @@ function nodeButton(label: string) {
 
 function treeItem(label: string) {
   return nodeButton(label).closest('[role="treeitem"]')!
+}
+
+function flattenLabels(items: ReturnType<typeof buildExplorerTree>): string[] {
+  return items.flatMap((item) => [item.label, ...flattenLabels(item.children)])
 }
 
 function explorerScopes(): Record<string, ExplorerResponse> {

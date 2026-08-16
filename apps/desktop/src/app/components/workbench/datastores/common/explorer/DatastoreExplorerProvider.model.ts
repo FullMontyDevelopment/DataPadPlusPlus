@@ -312,7 +312,7 @@ function normalizeExplorerPath(connection: ConnectionProfile, path?: string[]) {
 }
 
 function treePathKey(path: readonly string[]) {
-  return path.map((part) => part.toLowerCase()).join('\u001f')
+  return path.join('\u001f')
 }
 
 function syntheticKind(label: string) {

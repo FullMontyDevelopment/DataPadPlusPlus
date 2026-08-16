@@ -338,6 +338,7 @@ export function SideBar({
           activeLibraryNodeId={activeLibraryNodeId}
           adapterManifests={adapterManifests}
           getConnectionExplorerItems={getConnectionExplorerItems}
+          getConnectionExplorerScopes={getConnectionExplorerScopes}
           getConnectionExplorerStatus={getConnectionExplorerStatus}
           getConnectionHealth={getConnectionHealth}
           connections={connections}

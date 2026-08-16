@@ -1030,7 +1030,7 @@ export interface StructureRequest {
   maxNodes?: number
   maxEdges?: number
   depth?: number
-  mode?: 'overview' | 'relationships'
+  mode?: 'overview' | 'relationships' | 'completion'
 }
 
 export interface StructureResponse {

@@ -64,6 +64,7 @@ import {
 } from './components/workbench/query-builder/redis-console'
 import { QueryTargetPicker } from './components/workbench/query-targets/QueryTargetPicker'
 import { buildQueryTargetChangePlan } from './components/workbench/query-targets/query-target-change'
+import { oracleStructureScope } from './components/workbench/query-targets/oracle-query-target'
 import {
   ENVIRONMENT_VARIABLE_COMPLETION_PROVIDER,
   completionProvidersForConnection,
@@ -325,6 +326,7 @@ function DesktopWorkspace() {
   const initializedQueryModeByTabRef = useRef<Record<string, string>>({})
   const lastActiveQueryModeSyncKeyRef = useRef<string | undefined>(undefined)
   const structureRefreshLoadRef = useRef<string | undefined>(undefined)
+  const structureCompletionCursorRef = useRef<string | undefined>(undefined)
   const queryWindowModeByTabRef = useRef<Record<string, QueryViewMode>>({})
   const environmentDraftsRef = useRef<Record<string, EnvironmentProfile>>({})
   const environmentSecretDraftsRef = useRef<Record<string, Record<string, string>>>({})
@@ -1289,12 +1291,18 @@ function DesktopWorkspace() {
     activeTabScriptText,
   )
   const activeOracleStructureScope = oracleStructureScope(activeConnection, activeTab)
+  const activeIntellisenseStructure =
+    activeConnection?.engine !== 'oracle' ||
+    (structureRequest?.mode === 'completion' &&
+      structureRequest.scope === activeOracleStructureScope)
+      ? structure
+      : undefined
   const intellisenseCatalog = useQueryIntellisenseCatalog({
     connection: activeConnection,
     environment: activeEnvironment,
     tab: activeTab,
     explorerNodes: explorerSourceNodes,
-    structure,
+    structure: activeIntellisenseStructure,
     resultPayloads: activeTab?.result?.payloads,
   })
   const completionProviders = useMemo(
@@ -1536,11 +1544,13 @@ function DesktopWorkspace() {
       return
     }
 
+    structureCompletionCursorRef.current = undefined
     void actions.loadStructureMap({
       connectionId: activeConnectionId,
       environmentId: activeEnvironmentId,
-      limit: 160,
+      limit: 250,
       scope: activeOracleStructureScope,
+      mode: 'completion',
     })
   }, [
     actions,
@@ -2660,11 +2670,12 @@ function DesktopWorkspace() {
       return
     }
 
-    const requestKey = `${activeConnectionId}:${activeEnvironmentId}:${activeOracleStructureScope ?? ''}`
+    const requestKey = `${activeConnectionId}:${activeEnvironmentId}:${activeOracleStructureScope ?? ''}:completion`
     const structureIsCurrent =
       structure?.connectionId === activeConnectionId &&
       structure.environmentId === activeEnvironmentId &&
-      structureRequest?.scope === activeOracleStructureScope
+      structureRequest?.scope === activeOracleStructureScope &&
+      structureRequest?.mode === 'completion'
 
     if (
       structureIsCurrent ||
@@ -2675,11 +2686,13 @@ function DesktopWorkspace() {
     }
 
     structureRefreshLoadRef.current = requestKey
+    structureCompletionCursorRef.current = undefined
     void actions.loadStructureMap({
       connectionId: activeConnectionId,
       environmentId: activeEnvironmentId,
-      limit: 160,
+      limit: 250,
       scope: activeOracleStructureScope,
+      mode: 'completion',
     })
   }, [
     actions,
@@ -2700,6 +2713,48 @@ function DesktopWorkspace() {
     activeTabIsWorkspaceSearch,
     activeOracleStructureScope,
     structure,
+    structureRequest?.mode,
+    structureRequest?.scope,
+    structureStatus,
+  ])
+
+  useEffect(() => {
+    const nextCursor = structure?.nextCursor
+    if (
+      !nextCursor ||
+      structureStatus !== 'ready' ||
+      structureError ||
+      !activeConnectionId ||
+      !activeEnvironmentId ||
+      structure.connectionId !== activeConnectionId ||
+      structure.environmentId !== activeEnvironmentId ||
+      structureRequest?.mode !== 'completion' ||
+      structureRequest.scope !== activeOracleStructureScope
+    ) {
+      return
+    }
+
+    const cursorKey = `${activeConnectionId}:${activeEnvironmentId}:${activeOracleStructureScope ?? ''}:${nextCursor}`
+    if (structureCompletionCursorRef.current === cursorKey) {
+      return
+    }
+    structureCompletionCursorRef.current = cursorKey
+    void actions.loadStructureMap({
+      connectionId: activeConnectionId,
+      environmentId: activeEnvironmentId,
+      limit: 250,
+      scope: activeOracleStructureScope,
+      cursor: nextCursor,
+      mode: 'completion',
+    })
+  }, [
+    actions,
+    activeConnectionId,
+    activeEnvironmentId,
+    activeOracleStructureScope,
+    structure,
+    structureError,
+    structureRequest?.mode,
     structureRequest?.scope,
     structureStatus,
   ])
@@ -4982,31 +5037,6 @@ function inferLibraryItemKindForTab(tab: QueryTabState): LibraryItemKind {
   }
 
   return 'query'
-}
-
-function oracleStructureScope(
-  connection: ConnectionProfile | undefined,
-  tab: QueryTabState | undefined,
-) {
-  if (connection?.engine !== 'oracle' || !tab?.scopedTarget) {
-    return undefined
-  }
-  const target = tab.scopedTarget
-  if (target.scope?.startsWith('oracle:')) {
-    return target.scope
-  }
-  const schemaContainerIndex = target.path?.findIndex(
-    (part) => part.trim().toLowerCase() === 'schemas',
-  ) ?? -1
-  const schema =
-    target.kind === 'schema'
-      ? target.label
-      : schemaContainerIndex >= 0
-        ? target.path?.[schemaContainerIndex + 1]
-        : target.path?.length === 2
-          ? target.path[0]
-          : undefined
-  return schema?.trim() ? `schema:${encodeURIComponent(schema.trim())}` : undefined
 }
 
 function environmentTabTitle(label: string) {

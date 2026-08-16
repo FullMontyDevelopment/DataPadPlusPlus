@@ -63,6 +63,7 @@ const OBJECT_KINDS = new Set([
 const SCHEMA_KINDS = new Set(['schema', 'database', 'keyspace', 'bucket', 'graph'])
 
 export function buildCompletionCatalog(input: CompletionCatalogInput): CompletionCatalog {
+  const caseSensitiveIdentifiers = input.connection?.engine === 'oracle'
   const sources = new Set<string>()
   const schemas = new Map<string, CompletionSchema>()
   const objects = new Map<string, CompletionObject>()
@@ -80,7 +81,7 @@ export function buildCompletionCatalog(input: CompletionCatalogInput): Completio
       addSchema(schemas, {
         name: node.label,
         detail: node.detail,
-      })
+      }, caseSensitiveIdentifiers)
     }
 
     if (OBJECT_KINDS.has(kind)) {
@@ -92,7 +93,7 @@ export function buildCompletionCatalog(input: CompletionCatalogInput): Completio
         schema: objectParts.schema,
         path: node.path,
         detail: node.detail,
-      })
+      }, caseSensitiveIdentifiers)
     }
 
     if (kind === 'column' || kind === 'field') {
@@ -104,7 +105,7 @@ export function buildCompletionCatalog(input: CompletionCatalogInput): Completio
         objectName: objectParts.objectName,
         schema: objectParts.schema,
         detail: node.detail,
-      })
+      }, caseSensitiveIdentifiers)
     }
   }
 
@@ -122,7 +123,7 @@ export function buildCompletionCatalog(input: CompletionCatalogInput): Completio
         addSchema(schemas, {
           name: group.label,
           detail: group.detail,
-        })
+        }, caseSensitiveIdentifiers)
       }
     }
 
@@ -135,11 +136,15 @@ export function buildCompletionCatalog(input: CompletionCatalogInput): Completio
           kind,
           schema: node.groupId,
           detail: node.detail,
-        })
+        }, caseSensitiveIdentifiers)
       }
 
       for (const field of node.fields ?? []) {
-        addField(fields, fieldFromStructure(field, node.label, node.groupId))
+        addField(
+          fields,
+          fieldFromStructure(field, node.label, node.groupId),
+          caseSensitiveIdentifiers,
+        )
       }
     }
   }
@@ -155,7 +160,7 @@ export function buildCompletionCatalog(input: CompletionCatalogInput): Completio
     }
 
     for (const field of extracted) {
-      addField(fields, field)
+      addField(fields, field, caseSensitiveIdentifiers)
     }
   }
 
@@ -177,27 +182,36 @@ export function buildCompletionCatalog(input: CompletionCatalogInput): Completio
   }
 }
 
-function addSchema(target: Map<string, CompletionSchema>, schema: CompletionSchema) {
+function addSchema(
+  target: Map<string, CompletionSchema>,
+  schema: CompletionSchema,
+  caseSensitive: boolean,
+) {
   const name = schema.name.trim()
+  const key = identifierKey(name, caseSensitive)
 
-  if (!name || target.has(name.toLowerCase())) {
+  if (!name || target.has(key)) {
     return
   }
 
-  target.set(name.toLowerCase(), {
+  target.set(key, {
     ...schema,
     name,
   })
 }
 
-function addObject(target: Map<string, CompletionObject>, object: CompletionObject) {
+function addObject(
+  target: Map<string, CompletionObject>,
+  object: CompletionObject,
+  caseSensitive: boolean,
+) {
   const name = object.name.trim()
 
   if (!name) {
     return
   }
 
-  const key = `${object.schema ?? ''}.${name}.${object.kind}`.toLowerCase()
+  const key = identifierKey(`${object.schema ?? ''}.${name}.${object.kind}`, caseSensitive)
 
   if (target.has(key)) {
     return
@@ -209,7 +223,11 @@ function addObject(target: Map<string, CompletionObject>, object: CompletionObje
   })
 }
 
-function addField(target: Map<string, CompletionField>, field: CompletionField) {
+function addField(
+  target: Map<string, CompletionField>,
+  field: CompletionField,
+  caseSensitive: boolean,
+) {
   const name = field.name.trim()
 
   if (!name) {
@@ -217,7 +235,7 @@ function addField(target: Map<string, CompletionField>, field: CompletionField) 
   }
 
   const path = field.path ?? name
-  const key = `${field.schema ?? ''}.${field.objectName ?? ''}.${path}`.toLowerCase()
+  const key = identifierKey(`${field.schema ?? ''}.${field.objectName ?? ''}.${path}`, caseSensitive)
 
   if (target.has(key)) {
     return
@@ -228,6 +246,10 @@ function addField(target: Map<string, CompletionField>, field: CompletionField) 
     name,
     path,
   })
+}
+
+function identifierKey(value: string, caseSensitive: boolean) {
+  return caseSensitive ? value : value.toLowerCase()
 }
 
 function fieldFromStructure(

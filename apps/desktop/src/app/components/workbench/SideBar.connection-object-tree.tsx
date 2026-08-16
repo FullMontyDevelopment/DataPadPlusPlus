@@ -6,8 +6,10 @@ import type {
   ConnectionProfile,
   EnvironmentProfile,
   ExplorerNode,
+  ExplorerResponse,
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
+import { explorerScopeKey } from '../../state/app-state-reducer-helpers'
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -51,6 +53,7 @@ export function ConnectionObjectTree({
   adapterManifest,
   environment,
   explorerNodes,
+  explorerScopes,
   explorerStatus = 'idle',
   isExplorerScopeLoading = () => false,
   nodes: nodesOverride,
@@ -69,11 +72,12 @@ export function ConnectionObjectTree({
   adapterManifest?: AdapterManifest
   environment?: EnvironmentProfile
   explorerNodes?: ExplorerNode[]
+  explorerScopes?: Record<string, ExplorerResponse>
   explorerStatus?: 'idle' | 'loading' | 'ready'
   isExplorerScopeLoading?(connectionId: string, scope?: string): boolean
   nodes?: ConnectionTreeNode[]
   visualDepthOffset?: number
-  onLoadExplorerScope?(connectionId: string, scope?: string): void
+  onLoadExplorerScope?(connectionId: string, scope?: string, cursor?: string): void
   onInspectNode?(node: ExplorerNode): void
   onCreateApiServer?(connectionId: string, node: ExplorerNode): void
   onAddToApiServer?(connectionId: string, node: ExplorerNode): void
@@ -358,6 +362,7 @@ export function ConnectionObjectTree({
               canCreateTestSuite={canCreateTestSuiteForNode(node)}
               canCreateApiServer={Boolean(onCreateApiServer)}
               explorerStatus={explorerStatus}
+              explorerScopes={explorerScopes}
               isExplorerScopeLoading={isExplorerScopeLoading}
               visibleChildCounts={visibleChildCounts}
               canInspectNode={Boolean(onInspectNode)}
@@ -682,6 +687,7 @@ function ConnectionObjectTreeNode({
   draggedFolder,
   folderDropTarget,
   explorerStatus,
+  explorerScopes,
   isExplorerScopeLoading,
   visibleChildCounts,
   onContextMenu,
@@ -706,6 +712,7 @@ function ConnectionObjectTreeNode({
   expandedNodes: Record<string, boolean>
   environment?: EnvironmentProfile
   explorerStatus: 'idle' | 'loading' | 'ready'
+  explorerScopes?: Record<string, ExplorerResponse>
   isExplorerScopeLoading(connectionId: string, scope?: string): boolean
   node: ConnectionTreeNode
   nodeKey: string
@@ -715,7 +722,7 @@ function ConnectionObjectTreeNode({
   folderDropTarget?: string
   visibleChildCounts: Record<string, number>
   onContextMenu(event: MouseEvent<HTMLElement>, node: ConnectionTreeNode, nodeKey: string): void
-  onLoadExplorerScope?(connectionId: string, scope?: string): void
+  onLoadExplorerScope?(connectionId: string, scope?: string, cursor?: string): void
   onLoadMoreChildren(nodeKey: string): void
   onOpenQuery(node: ConnectionTreeNode): void
   onOpenObjectView?(node: ConnectionTreeNode): void
@@ -737,6 +744,15 @@ function ConnectionObjectTreeNode({
     visibleChildCounts[nodeKey] ?? CONNECTION_OBJECT_CHILD_BATCH_SIZE
   const visibleChildren = children.slice(0, visibleChildCount)
   const remainingChildren = Math.max(children.length - visibleChildren.length, 0)
+  const scopeResponse = node.scope
+    ? explorerScopes?.[explorerScopeKey(node.scope)]
+    : undefined
+  const nextCursor = scopeResponse?.pageInfo?.hasMore
+    ? scopeResponse.pageInfo.nextCursor
+    : undefined
+  const scopedChildCount = scopeResponse
+    ? (scopeResponse.pageInfo?.knownTotal ?? children.length)
+    : undefined
   const environmentStyle = environmentAccentVariables(environment)
   const hasChildren = children.length > 0
   const canLoadChildren = Boolean(node.expandable && node.scope && onLoadExplorerScope)
@@ -914,6 +930,11 @@ function ConnectionObjectTreeNode({
         <span className="tree-item-content">
           <strong>{node.label}</strong>
         </span>
+        {scopedChildCount ? (
+          <span className="datastore-explorer-count">
+            {scopedChildCount}{scopeResponse?.pageInfo?.hasMore ? '+' : ''}
+          </span>
+        ) : null}
         {branchLoading ? (
           <span
             className="connection-metadata-spinner"
@@ -961,6 +982,7 @@ function ConnectionObjectTreeNode({
                 expandedNodes={expandedNodes}
                 environment={environment}
                 explorerStatus={explorerStatus}
+                explorerScopes={explorerScopes}
                 isExplorerScopeLoading={isExplorerScopeLoading}
                 node={child}
                 nodeKey={childKey}
@@ -998,20 +1020,27 @@ function ConnectionObjectTreeNode({
           No objects found.
         </div>
       ) : null}
-      {expanded && remainingChildren > 0 ? (
+      {expanded && (remainingChildren > 0 || nextCursor) ? (
         <button
           type="button"
           className={`connection-object-load-more${environment ? ' has-environment-accent' : ''}`}
           style={{ '--tree-depth': visualDepth + 1, ...environmentStyle } as CSSProperties}
           aria-label={`Load more ${node.label} items`}
+          disabled={branchLoading}
           onClick={(event) => {
             event.preventDefault()
             event.stopPropagation()
-            onLoadMoreChildren(nodeKey)
+            if (remainingChildren > 0) {
+              onLoadMoreChildren(nodeKey)
+            } else if (nextCursor) {
+              onLoadExplorerScope?.(connection.id, node.scope, nextCursor)
+            }
           }}
         >
-          Load more
-          <span>{Math.min(CONNECTION_OBJECT_CHILD_BATCH_SIZE, remainingChildren)} of {remainingChildren}</span>
+          {branchLoading ? 'Loading…' : 'Load more'}
+          {remainingChildren > 0 ? (
+            <span>{Math.min(CONNECTION_OBJECT_CHILD_BATCH_SIZE, remainingChildren)} of {remainingChildren}</span>
+          ) : null}
         </button>
       ) : null}
     </>

@@ -1,5 +1,6 @@
 import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import type { CompletionCatalogInput } from './types'
+import { parseOracleObjectTarget } from '../query-targets/oracle-query-target'
 
 interface SqlNameParts {
   schema?: string
@@ -86,8 +87,10 @@ function sqlNamePartsFromScope(
   engine?: ConnectionProfile['engine'],
 ): SqlNameParts {
   if (engine === 'oracle' && scope?.startsWith('oracle:object:')) {
-    const [, , , schema, ...objectParts] = scope.split(':')
-    return { schema: schema || undefined, objectName: objectParts.join(':') || undefined }
+    const target = parseOracleObjectTarget(scope)
+    return target
+      ? { schema: target.schema, objectName: target.object }
+      : {}
   }
   const name = scope?.split(':').slice(1).join(':')
   return name ? splitQualifiedName(name) : {}

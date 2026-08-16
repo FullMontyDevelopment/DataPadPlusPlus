@@ -1,6 +1,5 @@
 import type { DatastoreWorkbenchSlice } from '../types'
 import { OracleObjectViewWorkspace } from './OracleObjectViewWorkspace'
-import { connectionUsesManagedOracleRuntime } from '../../../../state/oracle-runtime'
 import {
   createDatastoreExplorerProvider,
   createDatastoreObjectViewProvider,
@@ -19,6 +18,6 @@ export const oracleWorkbenchSlice = {
   }),
   objectView: createDatastoreObjectViewProvider('oracle', OracleObjectViewWorkspace),
   query: {
-    requiresStructureRefresh: connectionUsesManagedOracleRuntime,
+    requiresStructureRefresh: () => true,
   },
 } satisfies DatastoreWorkbenchSlice

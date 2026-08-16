@@ -179,9 +179,13 @@ function buildSqlItems(
   context: EditorCompletionContext,
 ): CompletionSuggestion[] {
   const aliasTarget = aliasBeforeCursor(context.queryText, context.cursorOffset)
-  const aliasMap = parseSqlAliases(context.queryText, context.catalog.objects)
+  const aliasMap = parseSqlAliases(
+    context.queryText,
+    context.catalog.objects,
+    context.connection,
+  )
   const aliasedObject = aliasTarget
-    ? aliasMap.get(aliasTarget.toLowerCase())
+    ? aliasMap.get(sqlAliasKey(aliasTarget))
     : undefined
   const prefix = currentTokenPrefix(context.queryText, context.cursorOffset)
   const sourceObjects = context.catalog.objects.filter((object) =>
@@ -189,7 +193,7 @@ function buildSqlItems(
   )
 
   const columns = aliasedObject
-    ? fieldsForObject(context.catalog.fields, aliasedObject)
+    ? fieldsForObject(context.catalog.fields, aliasedObject, context.connection)
     : context.catalog.fields
 
   return uniqueSuggestions([
@@ -473,7 +477,7 @@ function currentTokenPrefix(
   cursorOffset = queryText.length,
 ) {
   const beforeCursor = queryText.slice(0, cursorOffset)
-  const match = beforeCursor.match(/[`"[\]\w.]+$/)
+  const match = beforeCursor.match(/[`"[\]\w.$#]+$/)
 
   return (
     match?.[0]
@@ -487,24 +491,30 @@ function currentTokenPrefix(
 
 function aliasBeforeCursor(queryText: string, cursorOffset = queryText.length) {
   const beforeCursor = queryText.slice(0, cursorOffset)
-  const match = beforeCursor.match(/([A-Za-z_][\w]*)\.$/)
+  const match = beforeCursor.match(/("(?:[^"]|"")+"|[A-Za-z_$#][\w$#]*)\.$/)
 
   return match?.[1]
 }
 
-function parseSqlAliases(queryText: string, objects: CompletionObject[]) {
+function parseSqlAliases(
+  queryText: string,
+  objects: CompletionObject[],
+  connection?: ConnectionProfile,
+) {
   const aliases = new Map<string, CompletionObject>()
   const objectByName = new Map<string, CompletionObject>()
+  const oracle = connection?.engine === 'oracle'
 
   for (const object of objects) {
-    objectByName.set(object.name.toLowerCase(), object)
+    objectByName.set(oracle ? object.name : object.name.toLowerCase(), object)
     if (object.schema) {
-      objectByName.set(`${object.schema}.${object.name}`.toLowerCase(), object)
+      const qualifiedName = `${object.schema}.${object.name}`
+      objectByName.set(oracle ? qualifiedName : qualifiedName.toLowerCase(), object)
     }
   }
 
   const aliasPattern =
-    /\b(?:from|join)\s+((?:"(?:[^"]|"")+"|`(?:[^`]|``)+`|\[(?:[^\]]|\]\])+\]|\w+)(?:\.(?:"(?:[^"]|"")+"|`(?:[^`]|``)+`|\[(?:[^\]]|\]\])+\]|\w+))?)\s+(?:as\s+)?(\w+)/gi
+    /\b(?:from|join)\s+((?:"(?:[^"]|"")+"|`(?:[^`]|``)+`|\[(?:[^\]]|\]\])+\]|[\w$#]+)(?:\.(?:"(?:[^"]|"")+"|`(?:[^`]|``)+`|\[(?:[^\]]|\]\])+\]|[\w$#]+))?)\s+(?:as\s+)?("(?:[^"]|"")+"|[\w$#]+)/gi
   let match: RegExpExecArray | null
 
   while ((match = aliasPattern.exec(queryText)) !== null) {
@@ -515,14 +525,26 @@ function parseSqlAliases(queryText: string, objects: CompletionObject[]) {
       continue
     }
 
-    const object = objectByName.get(cleanSqlIdentifier(rawObject).toLowerCase())
+    const cleanedObject = cleanSqlIdentifier(rawObject)
+    const objectKey = oracle
+      ? rawObject.includes('"')
+        ? cleanedObject
+        : cleanedObject.toUpperCase()
+      : cleanedObject.toLowerCase()
+    const object = objectByName.get(objectKey)
 
     if (object) {
-      aliases.set(alias.toLowerCase(), object)
+      aliases.set(sqlAliasKey(alias), object)
     }
   }
 
   return aliases
+}
+
+function sqlAliasKey(alias: string) {
+  return alias.startsWith('"')
+    ? `exact:${cleanSqlIdentifier(alias)}`
+    : `folded:${cleanSqlIdentifier(alias).toLowerCase()}`
 }
 
 function cleanSqlIdentifier(identifier: string) {
@@ -533,18 +555,23 @@ function cleanSqlIdentifier(identifier: string) {
     .replaceAll('`', '')
 }
 
-function fieldsForObject(fields: CompletionField[], object: CompletionObject) {
+function fieldsForObject(
+  fields: CompletionField[],
+  object: CompletionObject,
+  connection?: ConnectionProfile,
+) {
+  const identifierKey = (value: string) =>
+    connection?.engine === 'oracle' ? value : value.toLowerCase()
   return fields.filter((field) => {
     if (!field.objectName) {
       return true
     }
 
-    const objectMatches =
-      field.objectName.toLowerCase() === object.name.toLowerCase()
+    const objectMatches = identifierKey(field.objectName) === identifierKey(object.name)
     const schemaMatches =
       !field.schema ||
       !object.schema ||
-      field.schema.toLowerCase() === object.schema.toLowerCase()
+      identifierKey(field.schema) === identifierKey(object.schema)
 
     return objectMatches && schemaMatches
   })

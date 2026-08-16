@@ -746,6 +746,119 @@ describe('app-state reducer structure metadata', () => {
     expect(ready.structure?.connectionId).toBe('connection-oracle')
     expect(ready.structureRequest?.scope).toBe(request.scope)
   })
+
+  it('merges Oracle completion pages and rejects a late page from the previous schema', () => {
+    const completionRequest = {
+      connectionId: 'connection-oracle',
+      environmentId: 'env-dev',
+      scope: 'schema:APP',
+      mode: 'completion' as const,
+      limit: 250,
+    }
+    const firstPage: StructureResponse = {
+      ...structure('connection-oracle'),
+      groups: [{ id: 'APP', label: 'APP', kind: 'schema' }],
+      nodes: [{
+        id: 'APP.ACCOUNTS',
+        family: 'sql',
+        label: 'ACCOUNTS',
+        kind: 'table',
+        groupId: 'APP',
+        fields: [],
+      }],
+      nextCursor: 'fields-page-0',
+      truncated: true,
+    }
+    let state = reducer(initialState, {
+      type: 'STRUCTURE_LOADING',
+      request: completionRequest,
+      requestId: 'objects',
+    })
+    state = reducer(state, {
+      type: 'STRUCTURE_READY',
+      structure: firstPage,
+      requestId: 'objects',
+    })
+    state = reducer(state, {
+      type: 'STRUCTURE_LOADING',
+      request: { ...completionRequest, cursor: 'fields-page-0' },
+      requestId: 'fields',
+    })
+
+    expect(state.structure?.nodes).toHaveLength(1)
+
+    state = reducer(state, {
+      type: 'STRUCTURE_READY',
+      structure: {
+        ...structure('connection-oracle'),
+        nodes: [{
+          ...firstPage.nodes[0],
+          fields: [{ name: 'ACCOUNT_ID', dataType: 'NUMBER', ordinal: 1 }],
+        }],
+      },
+      requestId: 'fields',
+    })
+    expect(state.structure?.nodes[0]?.fields).toEqual([
+      expect.objectContaining({ name: 'ACCOUNT_ID', ordinal: 1 }),
+    ])
+
+    state = reducer(state, {
+      type: 'STRUCTURE_LOADING',
+      request: { ...completionRequest, scope: 'schema:OTHER' },
+      requestId: 'other-schema',
+    })
+    expect(state.structure).toBeUndefined()
+    const afterLatePage = reducer(state, {
+      type: 'STRUCTURE_READY',
+      structure: firstPage,
+      requestId: 'fields',
+    })
+    expect(afterLatePage).toBe(state)
+  })
+
+  it('keeps loaded Oracle completion suggestions when a later page fails', () => {
+    const completionRequest = {
+      connectionId: 'connection-oracle',
+      environmentId: 'env-dev',
+      scope: 'schema:APP',
+      mode: 'completion' as const,
+    }
+    const loaded = {
+      ...structure('connection-oracle'),
+      nodes: [{
+        id: 'APP.ACCOUNTS',
+        family: 'sql' as const,
+        label: 'ACCOUNTS',
+        kind: 'table',
+        fields: [],
+      }],
+      nextCursor: 'objects-page-250',
+      truncated: true,
+    }
+    let state = reducer(initialState, {
+      type: 'STRUCTURE_LOADING',
+      request: completionRequest,
+      requestId: 'first-page',
+    })
+    state = reducer(state, {
+      type: 'STRUCTURE_READY',
+      structure: loaded,
+      requestId: 'first-page',
+    })
+    state = reducer(state, {
+      type: 'STRUCTURE_LOADING',
+      request: { ...completionRequest, cursor: loaded.nextCursor },
+      requestId: 'next-page',
+    })
+    state = reducer(state, {
+      type: 'STRUCTURE_ERROR',
+      message: 'Oracle metadata timed out.',
+      requestId: 'next-page',
+    })
+
+    expect(state.structure?.nodes[0]?.label).toBe('ACCOUNTS')
+    expect(state.structureError).toBe('Oracle metadata timed out.')
+  })
 })
 
 describe('app-state reducer tab-scoped execution', () => {

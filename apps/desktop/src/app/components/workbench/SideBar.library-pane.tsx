@@ -10,6 +10,7 @@ import type {
   DatastoreApiServerInstanceStatus,
   EnvironmentProfile,
   ExplorerNode,
+  ExplorerResponse,
   LibraryNode,
   ScopedQueryTarget,
   WorkspaceSummary,
@@ -76,6 +77,10 @@ interface LibraryPaneProps {
     connectionId: string,
     environmentId?: string,
   ): ExplorerNode[] | undefined
+  getConnectionExplorerScopes?(
+    connectionId: string,
+    environmentId?: string,
+  ): Record<string, ExplorerResponse> | undefined
   getConnectionExplorerStatus?(
     connectionId: string,
     environmentId?: string,
@@ -114,6 +119,7 @@ interface LibraryPaneProps {
     connectionId: string,
     scope?: string,
     environmentId?: string,
+    cursor?: string,
   ): void
   onMoveNode(nodeId: string, parentId?: string): void
   onOpenConnectionDrawer?(connectionId: string): void
@@ -231,6 +237,7 @@ export function LibraryPane({
   createFolderDialogRequestRevision,
   closeFolderDialogRequestRevision,
   getConnectionExplorerItems = () => undefined,
+  getConnectionExplorerScopes = () => undefined,
   getConnectionExplorerStatus = () => 'idle',
   getConnectionHealth = () => undefined,
   isExplorerScopeLoading = () => false,
@@ -730,6 +737,7 @@ export function LibraryPane({
                 environments={environments}
                 explorerStatus={explorerStatus}
                 getConnectionExplorerItems={getConnectionExplorerItems}
+                getConnectionExplorerScopes={getConnectionExplorerScopes}
                 getConnectionExplorerStatus={getConnectionExplorerStatus}
                 getConnectionHealth={getConnectionHealth}
                 isExplorerScopeLoading={isExplorerScopeLoading}
@@ -1633,6 +1641,7 @@ function LibraryTreeItem({
   environments,
   explorerStatus,
   getConnectionExplorerItems,
+  getConnectionExplorerScopes,
   getConnectionExplorerStatus,
   getConnectionHealth,
   isExplorerScopeLoading,
@@ -1688,6 +1697,10 @@ function LibraryTreeItem({
     connectionId: string,
     environmentId?: string,
   ): ExplorerNode[] | undefined
+  getConnectionExplorerScopes(
+    connectionId: string,
+    environmentId?: string,
+  ): Record<string, ExplorerResponse> | undefined
   getConnectionExplorerStatus(
     connectionId: string,
     environmentId?: string,
@@ -1727,6 +1740,7 @@ function LibraryTreeItem({
     connectionId: string,
     scope?: string,
     environmentId?: string,
+    cursor?: string,
   ): void
   onOpenConnectionDrawer(connectionId: string): void
   onOpenConnectionExplorer(connectionId: string): void
@@ -2004,6 +2018,10 @@ function LibraryTreeItem({
               connection.id,
               connectionEnvironmentId,
             )}
+            explorerScopes={getConnectionExplorerScopes(
+              connection.id,
+              connectionEnvironmentId,
+            )}
             explorerStatus={connectionExplorerStatus}
             explorerFolderOrders={explorerFolderOrders}
             isExplorerScopeLoading={(connectionId, scope) =>
@@ -2014,8 +2032,8 @@ function LibraryTreeItem({
               )
             }
             visualDepthOffset={depth}
-            onLoadExplorerScope={(connectionId, scope) =>
-              onLoadExplorerScope(connectionId, scope, connectionEnvironmentId)
+            onLoadExplorerScope={(connectionId, scope, cursor) =>
+              onLoadExplorerScope(connectionId, scope, connectionEnvironmentId, cursor)
             }
             onInspectNode={onInspectExplorerNode}
             onCreateApiServer={onCreateApiServerFromNode}
@@ -2068,6 +2086,7 @@ function LibraryTreeItem({
               environments={environments}
               explorerStatus={explorerStatus}
               getConnectionExplorerItems={getConnectionExplorerItems}
+              getConnectionExplorerScopes={getConnectionExplorerScopes}
               getConnectionExplorerStatus={getConnectionExplorerStatus}
               getConnectionHealth={getConnectionHealth}
               isExplorerScopeLoading={isExplorerScopeLoading}

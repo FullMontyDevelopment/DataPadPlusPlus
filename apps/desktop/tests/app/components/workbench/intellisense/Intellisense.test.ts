@@ -201,6 +201,70 @@ describe('query intellisense', () => {
     expect(catalog.schemas.map((schema) => schema.name)).not.toContain('FREEPDB1')
   })
 
+  it('decodes current Oracle scope shapes and preserves exact quoted identifier casing', () => {
+    const connection = connectionProfile('oracle', 'sql')
+    const catalog = buildCompletionCatalog({
+      connection,
+      environment,
+      explorerNodes: [
+        {
+          ...explorerNode('oracle-table-orders-mixed', 'Orders', 'table'),
+          scope: 'oracle:object:table:database:FREEPDB1:Sales%3AOps:Orders',
+        },
+        {
+          ...explorerNode('oracle-table-orders-upper', 'ORDERS', 'table'),
+          scope: 'oracle:object:table:schema:Sales%3AOps:ORDERS',
+        },
+        {
+          ...explorerNode('oracle-table-unicode', 'Quarterly#Report$', 'table'),
+          scope: 'oracle:object:table:schema:%E8%B2%A9%E5%A3%B2:Quarterly%23Report%24',
+        },
+      ],
+    })
+
+    expect(catalog.objects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'Orders', schema: 'Sales:Ops' }),
+      expect.objectContaining({ name: 'ORDERS', schema: 'Sales:Ops' }),
+      expect.objectContaining({ name: 'Quarterly#Report$', schema: '販売' }),
+    ]))
+    expect(catalog.objects.filter((object) => object.schema === 'Sales:Ops')).toHaveLength(2)
+  })
+
+  it('resolves quoted Oracle aliases and identifiers containing dollar or hash characters', () => {
+    const connection = connectionProfile('oracle', 'sql')
+    const provider = completionProvidersForConnection(connection, 'sql')[0]
+    const catalog = {
+      objects: [
+        { name: 'Orders', kind: 'table', schema: 'Sales' },
+        { name: 'ORDERS', kind: 'table', schema: 'Sales' },
+      ],
+      fields: [
+        { name: 'Mixed$Field', objectName: 'Orders', schema: 'Sales' },
+        { name: 'UPPER#FIELD', objectName: 'ORDERS', schema: 'Sales' },
+      ],
+    }
+    const quoted = provider?.buildItems(completionContext(
+      connection,
+      'select * from "Sales"."Orders" "o$" where "o$".',
+      catalog,
+    )) ?? []
+    const unquoted = provider?.buildItems(completionContext(
+      connection,
+      'select * from Sales.ORDERS o# where o#.',
+      catalog,
+    )) ?? []
+
+    expect(quoted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'Mixed$Field', kind: 'field' }),
+    ]))
+    expect(quoted).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'UPPER#FIELD', kind: 'field' }),
+    ]))
+    expect(unquoted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'UPPER#FIELD', kind: 'field' }),
+    ]))
+  })
+
   it('suggests PostgreSQL catalog helpers, routine workflows, and native identifier quoting', () => {
     const connection = connectionProfile('postgresql', 'sql')
     const provider = completionProvidersForConnection(connection, 'sql')[0]

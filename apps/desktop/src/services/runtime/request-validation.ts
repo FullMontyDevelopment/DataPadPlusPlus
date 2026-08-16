@@ -69,7 +69,7 @@ export function validateStructureRequest(request: StructureRequest): StructureRe
   const mode = validateOptionalText(request.mode, 'Structure mode', 32)
   validateOptionalId(request.focusNodeId, 'Structure focus node id')
 
-  if (mode && mode !== 'overview' && mode !== 'relationships') {
+  if (mode && mode !== 'overview' && mode !== 'relationships' && mode !== 'completion') {
     throw new Error('Structure mode is invalid.')
   }
 

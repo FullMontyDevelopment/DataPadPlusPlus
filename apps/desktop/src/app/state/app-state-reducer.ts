@@ -1,5 +1,10 @@
 import type { AppAction, StateShape } from './app-state-types'
-import type { BootstrapPayload, WorkspaceSwitcherStatus } from '@datapadplusplus/shared-types'
+import type {
+  BootstrapPayload,
+  StructureNode,
+  StructureResponse,
+  WorkspaceSwitcherStatus,
+} from '@datapadplusplus/shared-types'
 import { preserveActiveExecutionsOnPayload } from './app-state-execution-payload'
 import {
   applyExecutionToPayload,
@@ -180,7 +185,8 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
       const keepCurrentStructure =
         state.structure?.connectionId === action.request.connectionId &&
         state.structure.environmentId === action.request.environmentId &&
-        state.structureRequest?.scope === action.request.scope
+        state.structureRequest?.scope === action.request.scope &&
+        state.structureRequest?.mode === action.request.mode
       return {
         ...state,
         structureStatus: 'loading',
@@ -197,7 +203,10 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
       return {
         ...state,
         structureStatus: 'ready',
-        structure: action.structure,
+        structure:
+          state.structureRequest?.cursor && state.structure
+            ? mergeStructureResponse(state.structure, action.structure)
+            : action.structure,
         structureError: undefined,
         structureRequestId: undefined,
       }
@@ -458,6 +467,50 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
       return replaceWorkspaceContext(state, action.payload, action.status)
     default:
       return state
+  }
+}
+
+function mergeStructureResponse(
+  current: StructureResponse,
+  incoming: StructureResponse,
+): StructureResponse {
+  const groups = new Map(current.groups.map((group) => [group.id, group]))
+  incoming.groups.forEach((group) => groups.set(group.id, group))
+
+  const nodes = new Map(current.nodes.map((node) => [node.id, node]))
+  incoming.nodes.forEach((node) => {
+    const existing = nodes.get(node.id)
+    nodes.set(node.id, existing ? mergeStructureNode(existing, node) : node)
+  })
+
+  const edges = new Map(current.edges.map((edge) => [edge.id, edge]))
+  incoming.edges.forEach((edge) => edges.set(edge.id, edge))
+
+  return {
+    ...incoming,
+    groups: Array.from(groups.values()),
+    nodes: Array.from(nodes.values()),
+    edges: Array.from(edges.values()),
+  }
+}
+
+function mergeStructureNode(current: StructureNode, incoming: StructureNode): StructureNode {
+  const fields = new Map(
+    (current.fields ?? []).map((field) => [`${field.name}\u001f${field.ordinal ?? ''}`, field]),
+  )
+  for (const field of incoming.fields ?? []) {
+    fields.set(`${field.name}\u001f${field.ordinal ?? ''}`, field)
+  }
+  const mergedFields = Array.from(fields.values()).sort(
+    (left, right) =>
+      (left.ordinal ?? Number.MAX_SAFE_INTEGER) - (right.ordinal ?? Number.MAX_SAFE_INTEGER) ||
+      left.name.localeCompare(right.name),
+  )
+  return {
+    ...current,
+    ...incoming,
+    fields: mergedFields,
+    columnCount: mergedFields.length,
   }
 }
 

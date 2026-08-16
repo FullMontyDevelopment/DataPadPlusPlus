@@ -49,6 +49,7 @@ export function DatastoreExplorerNavigator({
         : expansionOverrides
   const rootResponse = scopes[explorerScopeKey(undefined)]
   const rootError = getScopeError(undefined)
+  const rootLoading = isScopeLoading(undefined)
 
   useEffect(() => {
     if (!rootResponse && !rootError && !isScopeLoading(undefined)) {
@@ -130,9 +131,10 @@ export function DatastoreExplorerNavigator({
         <button
           type="button"
           className="datastore-explorer-load-more"
+          disabled={rootLoading}
           onClick={() => onLoadScope(undefined, rootResponse.pageInfo?.nextCursor)}
         >
-          Load more root objects
+          {rootLoading ? 'Loading…' : 'Load more root objects'}
         </button>
       ) : null}
     </div>
@@ -277,9 +279,10 @@ function ExplorerTreeRow({
           type="button"
           className="datastore-explorer-load-more"
           style={{ '--explorer-depth': depth + 1 } as CSSProperties}
+          disabled={scopeLoading}
           onClick={() => onLoadScope(node?.scope, scopeResponse.pageInfo?.nextCursor)}
         >
-          Load more {item.label.toLowerCase()}
+          {scopeLoading ? 'Loading…' : `Load more ${item.label.toLowerCase()}`}
         </button>
       ) : null}
     </>

@@ -1,14 +1,23 @@
 use std::collections::{BTreeMap, HashSet};
 
 use super::super::super::*;
+use super::connection::oracle_sqlplus_path;
 use super::explorer::oracle_schema_from_scope;
+use super::query::{oracle_sqlplus_script, parse_oracle_sqlplus_csv, run_oracle_sqlplus_script};
 use super::session::{load_oracle_session_context, oracle_managed_response_rows};
 use super::sidecar::{execute_oracle_managed_read, oracle_execution_runtime};
+
+const ORACLE_COMPLETION_OBJECT_PAGE_SIZE: u32 = 250;
+const ORACLE_COMPLETION_FIELD_PAGE_SIZE: u32 = 2_000;
 
 pub(super) async fn load_oracle_structure(
     connection: &ResolvedConnectionProfile,
     request: &StructureRequest,
 ) -> Result<StructureResponse, CommandError> {
+    if request.mode.as_deref() == Some("completion") {
+        return load_oracle_completion_structure(connection, request).await;
+    }
+
     if oracle_execution_runtime(connection) != "managed" {
         return Err(CommandError::new(
             "oracle-structure-managed-required",
@@ -190,6 +199,352 @@ pub(super) async fn load_oracle_structure(
             truncated,
         },
     ))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OracleCompletionPhase {
+    Objects,
+    Fields,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct OracleCompletionCursor {
+    phase: OracleCompletionPhase,
+    offset: u32,
+}
+
+async fn load_oracle_completion_structure(
+    connection: &ResolvedConnectionProfile,
+    request: &StructureRequest,
+) -> Result<StructureResponse, CommandError> {
+    let session = load_oracle_session_context(connection).await?;
+    let schema = request
+        .scope
+        .as_deref()
+        .and_then(|scope| oracle_schema_from_scope(connection, scope))
+        .unwrap_or_else(|| session.current_schema.clone());
+    let cursor = parse_oracle_completion_cursor(request, &schema)?;
+
+    match cursor.phase {
+        OracleCompletionPhase::Objects => {
+            load_oracle_completion_objects(
+                connection,
+                request,
+                session.database_label(),
+                &schema,
+                cursor.offset,
+            )
+            .await
+        }
+        OracleCompletionPhase::Fields => {
+            load_oracle_completion_fields(
+                connection,
+                request,
+                session.database_label(),
+                &schema,
+                cursor.offset,
+            )
+            .await
+        }
+    }
+}
+
+async fn load_oracle_completion_objects(
+    connection: &ResolvedConnectionProfile,
+    request: &StructureRequest,
+    database_label: &str,
+    schema: &str,
+    offset: u32,
+) -> Result<StructureResponse, CommandError> {
+    let page_size = structure_node_limit(request, ORACLE_COMPLETION_OBJECT_PAGE_SIZE);
+    let query = oracle_completion_objects_query(schema, offset, page_size);
+    let mut rows = load_oracle_completion_rows(connection, &query, page_size + 1).await?;
+    let has_more = rows.len() > page_size as usize;
+    rows.truncate(page_size as usize);
+
+    let mut groups = BTreeMap::<String, StructureGroup>::new();
+    let mut nodes = BTreeMap::<String, StructureNode>::new();
+    for row in &rows {
+        let (Some(owner), Some(name)) = (row.first(), row.get(1)) else {
+            continue;
+        };
+        let object_type = row.get(2).map(String::as_str).unwrap_or("TABLE");
+        groups
+            .entry(owner.clone())
+            .or_insert_with(|| oracle_completion_group(owner));
+        let node = oracle_completion_node(database_label, owner, name, object_type);
+        nodes.insert(node.id.clone(), node);
+    }
+
+    let next_cursor = if has_more {
+        Some(encode_oracle_completion_cursor(
+            request,
+            schema,
+            OracleCompletionPhase::Objects,
+            offset.saturating_add(page_size),
+        ))
+    } else if rows.is_empty() && offset == 0 {
+        None
+    } else {
+        Some(encode_oracle_completion_cursor(
+            request,
+            schema,
+            OracleCompletionPhase::Fields,
+            0,
+        ))
+    };
+    let object_count = nodes.len();
+    let mut response = make_structure_response(
+        request,
+        connection,
+        StructureResponseInput {
+            summary: format!(
+                "Loaded Oracle completion objects {} through {} for schema {schema}.",
+                offset.saturating_add(1),
+                offset.saturating_add(object_count as u32)
+            ),
+            groups: groups.into_values().collect(),
+            nodes: nodes.into_values().collect(),
+            edges: Vec::new(),
+            metrics: vec![structure_metric("Objects", object_count.to_string())],
+            truncated: next_cursor.is_some(),
+        },
+    );
+    response.next_cursor = next_cursor;
+    Ok(response)
+}
+
+async fn load_oracle_completion_fields(
+    connection: &ResolvedConnectionProfile,
+    request: &StructureRequest,
+    database_label: &str,
+    schema: &str,
+    offset: u32,
+) -> Result<StructureResponse, CommandError> {
+    let page_size = ORACLE_COMPLETION_FIELD_PAGE_SIZE;
+    let query = oracle_completion_fields_query(schema, offset, page_size);
+    let mut rows = load_oracle_completion_rows(connection, &query, page_size + 1).await?;
+    let has_more = rows.len() > page_size as usize;
+    rows.truncate(page_size as usize);
+
+    let mut groups = BTreeMap::<String, StructureGroup>::new();
+    let mut nodes = BTreeMap::<String, StructureNode>::new();
+    for row in rows {
+        let (Some(owner), Some(object_name), Some(column_name), Some(data_type)) =
+            (row.first(), row.get(1), row.get(2), row.get(3))
+        else {
+            continue;
+        };
+        let object_type = row.get(6).map(String::as_str).unwrap_or("TABLE");
+        groups
+            .entry(owner.clone())
+            .or_insert_with(|| oracle_completion_group(owner));
+        let id = format!("{owner}.{object_name}");
+        let node = nodes.entry(id).or_insert_with(|| {
+            oracle_completion_node(database_label, owner, object_name, object_type)
+        });
+        let mut field = structure_field(
+            column_name.clone(),
+            data_type.clone(),
+            None,
+            Some(row.get(4).map(String::as_str) != Some("N")),
+            None,
+        );
+        field.ordinal = row.get(5).and_then(|value| value.parse::<u32>().ok());
+        node.fields.push(field);
+        node.column_count = Some(node.fields.len() as u32);
+    }
+
+    let next_cursor = has_more.then(|| {
+        encode_oracle_completion_cursor(
+            request,
+            schema,
+            OracleCompletionPhase::Fields,
+            offset.saturating_add(page_size),
+        )
+    });
+    let field_count = nodes.values().map(|node| node.fields.len()).sum::<usize>();
+    let mut response = make_structure_response(
+        request,
+        connection,
+        StructureResponseInput {
+            summary: format!(
+                "Loaded {field_count} Oracle completion column(s) for schema {schema}."
+            ),
+            groups: groups.into_values().collect(),
+            nodes: nodes.into_values().collect(),
+            edges: Vec::new(),
+            metrics: vec![structure_metric("Columns", field_count.to_string())],
+            truncated: next_cursor.is_some(),
+        },
+    );
+    response.next_cursor = next_cursor;
+    Ok(response)
+}
+
+fn oracle_completion_group(owner: &str) -> StructureGroup {
+    StructureGroup {
+        id: owner.into(),
+        label: owner.into(),
+        kind: "schema".into(),
+        detail: Some("Oracle schema".into()),
+        color: None,
+    }
+}
+
+fn oracle_completion_node(
+    database_label: &str,
+    owner: &str,
+    name: &str,
+    object_type: &str,
+) -> StructureNode {
+    let id = format!("{owner}.{name}");
+    StructureNode {
+        id: id.clone(),
+        family: "sql".into(),
+        label: name.into(),
+        kind: object_type.to_lowercase().replace(' ', "-"),
+        group_id: Some(owner.into()),
+        detail: Some(id.clone()),
+        database: Some(database_label.into()),
+        schema: Some(owner.into()),
+        object_name: Some(name.into()),
+        qualified_name: Some(id),
+        column_count: Some(0),
+        relationship_count: None,
+        row_count_estimate: None,
+        index_count: None,
+        is_system: Some(is_oracle_system_owner(owner)),
+        is_view: Some(object_type.contains("VIEW")),
+        metrics: Vec::new(),
+        fields: Vec::new(),
+        sample: None,
+    }
+}
+
+fn oracle_completion_objects_query(schema: &str, offset: u32, page_size: u32) -> String {
+    format!(
+        "select owner, object_name, max(object_type) keep (dense_rank first order by case object_type when 'MATERIALIZED VIEW' then 1 when 'VIEW' then 2 else 3 end) as object_type from all_objects where owner = '{}' and object_type in ('TABLE','VIEW','MATERIALIZED VIEW') group by owner, object_name order by object_name, object_type offset {offset} rows fetch next {} rows only",
+        sql_literal(schema),
+        page_size.saturating_add(1)
+    )
+}
+
+fn oracle_completion_fields_query(schema: &str, offset: u32, page_size: u32) -> String {
+    format!(
+        "select c.owner, c.table_name, c.column_name, c.data_type || case when c.data_type in ('VARCHAR2','CHAR','NVARCHAR2','NCHAR','RAW') then '(' || c.data_length || ')' when c.data_type = 'NUMBER' and c.data_precision is not null then '(' || c.data_precision || nvl2(c.data_scale, ',' || c.data_scale, '') || ')' else '' end, c.nullable, c.column_id, o.object_type from all_tab_columns c join (select owner, object_name, max(object_type) keep (dense_rank first order by case object_type when 'MATERIALIZED VIEW' then 1 when 'VIEW' then 2 else 3 end) as object_type from all_objects where object_type in ('TABLE','VIEW','MATERIALIZED VIEW') group by owner, object_name) o on o.owner = c.owner and o.object_name = c.table_name where c.owner = '{}' order by c.table_name, c.column_id offset {offset} rows fetch next {} rows only",
+        sql_literal(schema),
+        page_size.saturating_add(1)
+    )
+}
+
+async fn load_oracle_completion_rows(
+    connection: &ResolvedConnectionProfile,
+    query: &str,
+    limit: u32,
+) -> Result<Vec<Vec<String>>, CommandError> {
+    match oracle_execution_runtime(connection) {
+        "managed" => oracle_managed_response_rows(
+            &execute_oracle_managed_read(connection, query, limit).await?,
+        ),
+        "sqlplus" => {
+            let path = oracle_sqlplus_path(connection).unwrap_or_else(|| "sqlplus".into());
+            let script = oracle_sqlplus_script(connection, query, limit, false)?;
+            let output = run_oracle_sqlplus_script(connection, &path, &script).await?;
+            if output.to_lowercase().contains("no rows selected") {
+                Ok(Vec::new())
+            } else {
+                let (_, rows) = parse_oracle_sqlplus_csv(&output, limit)?;
+                Ok(rows)
+            }
+        }
+        "contract" => Ok(Vec::new()),
+        unsupported => Err(CommandError::new(
+            "oracle-runtime-unsupported",
+            format!("Oracle execution runtime '{unsupported}' is not supported."),
+        )),
+    }
+}
+
+fn parse_oracle_completion_cursor(
+    request: &StructureRequest,
+    schema: &str,
+) -> Result<OracleCompletionCursor, CommandError> {
+    let Some(cursor) = request.cursor.as_deref() else {
+        return Ok(OracleCompletionCursor {
+            phase: OracleCompletionPhase::Objects,
+            offset: 0,
+        });
+    };
+    let parts = cursor.split(':').collect::<Vec<_>>();
+    let [version, phase, offset, scope_hash] = parts.as_slice() else {
+        return Err(invalid_oracle_completion_cursor());
+    };
+    let phase = match *phase {
+        "objects" => OracleCompletionPhase::Objects,
+        "fields" => OracleCompletionPhase::Fields,
+        _ => return Err(invalid_oracle_completion_cursor()),
+    };
+    let offset = offset
+        .parse::<u32>()
+        .map_err(|_| invalid_oracle_completion_cursor())?;
+    if *version != "oracle-completion-v1"
+        || *scope_hash != oracle_completion_scope_hash(request, schema)
+    {
+        return Err(invalid_oracle_completion_cursor());
+    }
+    let valid_boundary = match phase {
+        OracleCompletionPhase::Objects => {
+            offset % structure_node_limit(request, ORACLE_COMPLETION_OBJECT_PAGE_SIZE) == 0
+        }
+        OracleCompletionPhase::Fields => offset % ORACLE_COMPLETION_FIELD_PAGE_SIZE == 0,
+    };
+    if !valid_boundary {
+        return Err(invalid_oracle_completion_cursor());
+    }
+    Ok(OracleCompletionCursor { phase, offset })
+}
+
+fn encode_oracle_completion_cursor(
+    request: &StructureRequest,
+    schema: &str,
+    phase: OracleCompletionPhase,
+    offset: u32,
+) -> String {
+    let phase = match phase {
+        OracleCompletionPhase::Objects => "objects",
+        OracleCompletionPhase::Fields => "fields",
+    };
+    format!(
+        "oracle-completion-v1:{phase}:{offset}:{}",
+        oracle_completion_scope_hash(request, schema)
+    )
+}
+
+fn oracle_completion_scope_hash(request: &StructureRequest, schema: &str) -> String {
+    let object_page_size = structure_node_limit(request, ORACLE_COMPLETION_OBJECT_PAGE_SIZE);
+    let object_page_size = object_page_size.to_string();
+    let hash = [
+        "oracle-completion",
+        request.connection_id.as_str(),
+        request.environment_id.as_str(),
+        schema,
+        object_page_size.as_str(),
+    ]
+    .join("\u{1f}")
+    .as_bytes()
+    .iter()
+    .fold(0xcbf29ce484222325_u64, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+    });
+    format!("{hash:016x}")
+}
+
+fn invalid_oracle_completion_cursor() -> CommandError {
+    CommandError::new(
+        "invalid-structure-cursor",
+        "The Oracle completion cursor is malformed or belongs to another connection, environment, or schema.",
+    )
 }
 
 fn oracle_object_filter(

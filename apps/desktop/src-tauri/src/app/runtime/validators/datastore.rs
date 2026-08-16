@@ -42,7 +42,7 @@ pub(in crate::app::runtime) fn validate_structure_request(
     )?;
     validate_optional_id(request.focus_node_id.as_deref(), "Structure focus node id")?;
     if let Some(mode) = request.mode.as_deref() {
-        if mode != "overview" && mode != "relationships" {
+        if mode != "overview" && mode != "relationships" && mode != "completion" {
             return Err(invalid_request("Structure mode is invalid."));
         }
     }

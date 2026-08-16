@@ -803,6 +803,101 @@ describe('ConnectionObjectTree', () => {
     expect(screen.queryByText('No objects found.')).not.toBeInTheDocument()
   })
 
+  it('requests the next Oracle server page after the buffered table page is exhausted', () => {
+    const onLoadExplorerScope = vi.fn()
+    const scope = 'oracle:category:schema:APP:tables'
+    const category: ExplorerNode = {
+      id: 'oracle-tables:schema:APP',
+      label: 'Tables',
+      kind: 'tables',
+      detail: 'Base tables',
+      family: 'sql',
+      path: ['Fixture Oracle', 'Schemas', 'APP'],
+      scope,
+      expandable: true,
+    }
+    const tables = Array.from({ length: 100 }, (_, index): ExplorerNode => ({
+      id: `oracle-table:schema:APP:TABLE_${index}`,
+      label: `TABLE_${index}`,
+      kind: 'table',
+      detail: 'VALID',
+      family: 'sql',
+      path: ['Fixture Oracle', 'Schemas', 'APP', 'Tables'],
+    }))
+
+    render(
+      <ConnectionObjectTree
+        connection={oracleConnection()}
+        explorerNodes={[category, ...tables]}
+        explorerScopes={{
+          [scope]: {
+            connectionId: 'conn-oracle',
+            environmentId: 'env-dev',
+            scope,
+            summary: 'Loaded 100 Oracle tables.',
+            capabilities: {} as never,
+            nodes: tables,
+            pageInfo: {
+              cursor: undefined,
+              nextCursor: 'oracle-page-100',
+              returnedCount: 100,
+              hasMore: true,
+            },
+          },
+        }}
+        explorerStatus="ready"
+        onLoadExplorerScope={onLoadExplorerScope}
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Schemas')
+    expandTreeItem('APP')
+    expandTreeItem('Tables')
+    fireEvent.click(screen.getByRole('button', { name: 'Load more Tables items' }))
+
+    expect(onLoadExplorerScope).toHaveBeenLastCalledWith(
+      'conn-oracle',
+      scope,
+      'oracle-page-100',
+    )
+  })
+
+  it('keeps case-distinct quoted Oracle object names as separate rows', () => {
+    render(
+      <ConnectionObjectTree
+        connection={oracleConnection()}
+        explorerNodes={[
+          {
+            id: 'oracle-table:schema:APP:Orders',
+            label: 'Orders',
+            kind: 'table',
+            detail: 'VALID',
+            family: 'sql',
+            path: ['Fixture Oracle', 'Schemas', 'APP', 'Tables'],
+          },
+          {
+            id: 'oracle-table:schema:APP:ORDERS',
+            label: 'ORDERS',
+            kind: 'table',
+            detail: 'VALID',
+            family: 'sql',
+            path: ['Fixture Oracle', 'Schemas', 'APP', 'Tables'],
+          },
+        ]}
+        explorerStatus="ready"
+        onOpenScopedQuery={vi.fn()}
+      />,
+    )
+
+    expandTreeItem('Schemas')
+    expandTreeItem('APP')
+    expandTreeItem('Tables')
+
+    expect(screen.getByText('Orders')).toBeInTheDocument()
+    expect(screen.getByText('ORDERS')).toBeInTheDocument()
+  })
+
   it('uses CockroachDB-owned cluster and database folders', () => {
     render(
       <ConnectionObjectTree
