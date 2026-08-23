@@ -17,6 +17,8 @@ import type {
   ExplorerInspectResponse,
   OperationPlanRequest,
   OperationPlanResponse,
+  KeyValueValueReadRequest,
+  KeyValueValueReadResult,
   QueryTabState,
   ResultPayload,
   ResultRenderer,
@@ -80,6 +82,9 @@ interface BottomPanelProps {
   onPlanOperation?(
     request: OperationPlanRequest,
   ): Promise<OperationPlanResponse | undefined>
+  onReadKeyValue?(
+    request: KeyValueValueReadRequest,
+  ): Promise<KeyValueValueReadResult | undefined>
   onDismissWorkbenchMessage(id: string): void
   onClearWorkbenchMessages(): void
   onOpenSecuritySettings?(): void
@@ -121,6 +126,7 @@ export function BottomPanel({
   onRestoreHistory,
   onExecuteDataEdit,
   onPlanOperation,
+  onReadKeyValue,
   onDismissWorkbenchMessage,
   onClearWorkbenchMessages,
   onOpenSecuritySettings,
@@ -359,6 +365,7 @@ export function BottomPanel({
             onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
             onExecuteDataEdit={onExecuteDataEdit}
             onPlanOperation={onPlanOperation}
+            onReadKeyValue={onReadKeyValue}
             onEditConnection={onEditConnection}
           />
         ) : null}

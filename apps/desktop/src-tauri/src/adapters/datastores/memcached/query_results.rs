@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
 
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde_json::{json, Value};
 
 use super::super::super::*;
 use super::protocol::memcached_stats_payload;
+use super::protocol::{parse_memcached_values, MemcachedProtocolValue};
 
 pub(super) fn memcached_stats_result(mode: Option<&str>, raw: &str) -> (Vec<Value>, String) {
     let mode = mode.unwrap_or("").to_ascii_lowercase();
@@ -50,8 +52,32 @@ pub(super) fn memcached_stats_result(mode: Option<&str>, raw: &str) -> (Vec<Valu
     }
 }
 
+#[cfg(test)]
 pub(super) fn memcached_get_result(raw: &str, requested_keys: &[&str]) -> (Vec<Value>, String) {
     let values = get_response_values(raw);
+    memcached_get_result_from_values(values, requested_keys, raw)
+}
+
+pub(super) fn memcached_get_result_bytes(
+    raw: &[u8],
+    requested_keys: &[&str],
+) -> Result<(Vec<Value>, String), CommandError> {
+    let values = parse_memcached_values(raw)?
+        .into_iter()
+        .map(MemcachedValue::from)
+        .collect();
+    Ok(memcached_get_result_from_values(
+        values,
+        requested_keys,
+        "Memcached binary protocol value response.",
+    ))
+}
+
+fn memcached_get_result_from_values(
+    values: Vec<MemcachedValue>,
+    requested_keys: &[&str],
+    raw_display: &str,
+) -> (Vec<Value>, String) {
     let mut entries = BTreeMap::new();
     for value in &values {
         entries.insert(value.key.clone(), value.value.clone());
@@ -100,7 +126,7 @@ pub(super) fn memcached_get_result(raw: &str, requested_keys: &[&str]) -> (Vec<V
                 "missedKeys": missed_keys,
                 "values": values.iter().map(MemcachedValue::to_json).collect::<Vec<_>>(),
             })),
-            payload_raw(raw.trim().to_string()),
+            payload_raw(raw_display.trim().to_string()),
         ],
         if requested_keys.len() == 1 && values.len() == 1 {
             format!("Memcached key {} loaded successfully.", values[0].key)
@@ -168,6 +194,7 @@ struct MemcachedValue {
     bytes: String,
     cas: Option<String>,
     value: String,
+    binary_value_base64: Option<String>,
 }
 
 impl MemcachedValue {
@@ -178,31 +205,34 @@ impl MemcachedValue {
             "bytes": self.bytes,
             "cas": self.cas,
             "value": self.value,
+            "binaryValueBase64": self.binary_value_base64,
         })
     }
 }
 
+#[cfg(test)]
 fn get_response_values(raw: &str) -> Vec<MemcachedValue> {
-    let mut values = Vec::new();
-    let mut lines = raw.lines();
+    parse_memcached_values(raw.as_bytes())
+        .unwrap_or_default()
+        .into_iter()
+        .map(MemcachedValue::from)
+        .collect()
+}
 
-    while let Some(line) = lines.next() {
-        let parts = line.split_whitespace().collect::<Vec<_>>();
-        if parts.first() != Some(&"VALUE") || parts.len() < 4 {
-            continue;
+impl From<MemcachedProtocolValue> for MemcachedValue {
+    fn from(value: MemcachedProtocolValue) -> Self {
+        let text = std::str::from_utf8(&value.value).ok().map(str::to_string);
+        Self {
+            key: value.key,
+            flags: value.flags,
+            bytes: value.byte_length.to_string(),
+            cas: value.cas,
+            value: text
+                .clone()
+                .unwrap_or_else(|| format!("Binary value ({} bytes)", value.byte_length)),
+            binary_value_base64: text.is_none().then(|| BASE64.encode(value.value)),
         }
-
-        let value = lines.next().unwrap_or_default().to_string();
-        values.push(MemcachedValue {
-            key: parts[1].into(),
-            flags: parts[2].into(),
-            bytes: parts[3].into(),
-            cas: parts.get(4).map(|value| (*value).to_string()),
-            value,
-        });
     }
-
-    values
 }
 
 fn stats_entries(raw: &str) -> BTreeMap<String, String> {

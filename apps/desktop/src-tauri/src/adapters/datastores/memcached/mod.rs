@@ -60,6 +60,52 @@ impl DatastoreAdapter for MemcachedAdapter {
     ) -> Result<ExecutionResultEnvelope, CommandError> {
         query::execute_memcached_query(self, connection, request, notices).await
     }
+
+    async fn read_key_value(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &KeyValueValueReadRequest,
+    ) -> Result<KeyValueValueContent, CommandError> {
+        if request.key.trim().is_empty()
+            || request.key.chars().any(char::is_whitespace)
+            || request.key.len() > 250
+        {
+            return Err(CommandError::new(
+                "key-value-key-invalid",
+                "Memcached value inspection requires one concrete key of at most 250 bytes without whitespace.",
+            ));
+        }
+        if request.key.contains('*') {
+            return Err(CommandError::new(
+                "key-value-key-invalid",
+                "Memcached value inspection does not accept wildcard keys.",
+            ));
+        }
+
+        let raw = protocol::memcached_request_bytes(
+            connection,
+            &format!("get {}\r\nquit\r\n", request.key),
+        )
+        .await?;
+        let value = protocol::parse_memcached_values(&raw)?
+            .into_iter()
+            .find(|value| value.key == request.key)
+            .ok_or_else(|| {
+                CommandError::new(
+                    "key-value-missing",
+                    "The selected Memcached key no longer exists. Refresh the result and try again.",
+                )
+            })?;
+        let content_kind = if std::str::from_utf8(&value.value).is_ok() {
+            "text"
+        } else {
+            "binary"
+        };
+        Ok(KeyValueValueContent {
+            content_kind: content_kind.into(),
+            bytes: value.value,
+        })
+    }
     async fn fetch_result_page(
         &self,
         _connection: &ResolvedConnectionProfile,

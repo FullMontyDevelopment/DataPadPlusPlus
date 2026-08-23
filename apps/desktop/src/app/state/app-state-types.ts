@@ -103,6 +103,8 @@ import type {
   QueryViewMode,
   QueryTabActiveExecution,
   RedisKeyInspectRequest,
+  KeyValueValueReadRequest,
+  KeyValueValueReadResult,
   RedisKeyScanRequest,
   RedisKeyScanResponse,
   ResultPageResponse,
@@ -357,6 +359,7 @@ export interface Actions {
   ): Promise<void>
   scanRedisKeys(request: RedisKeyScanRequest): Promise<RedisKeyScanResponse | undefined>
   inspectRedisKey(request: RedisKeyInspectRequest): Promise<void>
+  readKeyValue(request: KeyValueValueReadRequest): Promise<KeyValueValueReadResult | undefined>
   executeQuery(
     tabId: string,
     mode?: ExecutionRequest['mode'],

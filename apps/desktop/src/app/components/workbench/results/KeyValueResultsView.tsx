@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
   ConnectionProfile,
   DataEditExecutionRequest,
   DataEditExecutionResponse,
   KeyValuePayload,
+  KeyValueValueReadRequest,
+  KeyValueValueReadResult,
   OperationPlanRequest,
   OperationPlanResponse,
 } from '@datapadplusplus/shared-types'
@@ -17,6 +19,8 @@ import {
 } from './KeyValueEditPanels'
 import { KeyValueEntryRows } from './KeyValueEntryRows'
 import { KeyValueContextMenu } from './KeyValueContextMenu'
+import { KeyValueValueInspector } from './KeyValueValueInspector'
+import { copyText } from './payload-export'
 import { RedisKeyDetailHeader } from '../datastores/common/keyvalue/RedisKeyDetailHeader'
 import {
   buildRedisJsonPathEditRequest,
@@ -57,12 +61,16 @@ interface KeyValueResultsViewProps {
   entries: Record<string, string>
   payload?: KeyValuePayload
   executionLocked?: boolean
+  theme?: string
   onExecuteDataEdit?(
     request: DataEditExecutionRequest,
   ): Promise<DataEditExecutionResponse | undefined>
   onPlanOperation?(
     request: OperationPlanRequest,
   ): Promise<OperationPlanResponse | undefined>
+  onReadKeyValue?(
+    request: KeyValueValueReadRequest,
+  ): Promise<KeyValueValueReadResult | undefined>
 }
 
 export function KeyValueResultsView({
@@ -71,8 +79,10 @@ export function KeyValueResultsView({
   entries,
   payload,
   executionLocked = false,
+  theme = 'dark',
   onExecuteDataEdit,
   onPlanOperation,
+  onReadKeyValue,
 }: KeyValueResultsViewProps) {
   const entriesVersion = useMemo(
     () => keyValueEntriesVersion(entries, {
@@ -85,7 +95,6 @@ export function KeyValueResultsView({
     patches: {},
     version: entriesVersion,
   })
-  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
   const [editingKey, setEditingKey] = useState<string>()
   const [editingValue, setEditingValue] = useState('')
   const [contextMenu, setContextMenu] = useState<ContextMenuState>()
@@ -93,6 +102,13 @@ export function KeyValueResultsView({
   const [pendingAdd, setPendingAdd] = useState<PendingAddState>()
   const [pendingRename, setPendingRename] = useState<PendingRenameState>()
   const [statusMessage, setStatusMessage] = useState('')
+  const [inspector, setInspector] = useState<{
+    keyName: string
+    loading: boolean
+    content?: KeyValueValueReadResult
+    error?: string
+  }>()
+  const valueRequestIdRef = useRef(0)
   const [deletedSelectedKey, setDeletedSelectedKey] = useState<{ deletedKey: string; payloadKey: string }>()
   const {
     cancelDataEditConfirmation,
@@ -114,16 +130,25 @@ export function KeyValueResultsView({
   const rows = useMemo(() => keyValueRowsFromEntries(draftEntries), [draftEntries])
 
   const updateDraftEntries = (updater: (current: Record<string, string>) => Record<string, string>) => {
-    setEntryPatchState((current) => {
-      const patches = current.version === entriesVersion ? current.patches : EMPTY_KEYVALUE_ENTRY_PATCHES
-      const currentDraft = applyKeyValueEntryPatches(entries, patches)
-      const nextDraft = updater(currentDraft)
-
-      return {
-        patches: diffKeyValueEntries(entries, nextDraft),
-        version: entriesVersion,
-      }
+    const nextDraft = updater(draftEntries)
+    setEntryPatchState({
+      patches: diffKeyValueEntries(entries, nextDraft),
+      version: entriesVersion,
     })
+    if (redisType === 'json' && inspector?.content?.contentKind === 'text') {
+      const nextValue = nextDraft[inspector.keyName]
+      if (nextValue !== undefined && decodeFullValueText(inspector.content) !== nextValue) {
+        const bytes = new TextEncoder().encode(nextValue)
+        setInspector((current) => current ? {
+          ...current,
+          content: {
+            contentKind: 'text',
+            byteLength: bytes.length,
+            dataBase64: bytesToBase64(bytes),
+          },
+        } : current)
+      }
+    }
   }
 
   const {
@@ -194,6 +219,62 @@ export function KeyValueResultsView({
 
     setEditingKey(keyName)
     setEditingValue(rawValue)
+  }
+
+  const loadFullValue = async (keyName: string, reveal: boolean) => {
+    if (!onReadKeyValue || !editContext) {
+      const message = 'Full value inspection is not available for this result.'
+      setStatusMessage(message)
+      if (reveal) setInspector({ keyName, loading: false, error: message })
+      return undefined
+    }
+    const requestId = valueRequestIdRef.current + 1
+    valueRequestIdRef.current = requestId
+    if (reveal) setInspector({ keyName, loading: true })
+    const containerValue = Boolean(selectedKey && redisType && !['string', 'json'].includes(redisType))
+    const response = await onReadKeyValue({
+      connectionId: editContext.connectionId,
+      environmentId: editContext.environmentId,
+      databaseIndex: payload?.databaseIndex,
+      key: selectedKey ?? keyName,
+      entryKey: containerValue ? keyName : undefined,
+      redisType,
+    })
+    if (requestId !== valueRequestIdRef.current) return undefined
+    if (!response) {
+      const message = 'The complete value could not be loaded. Refresh the result and try again.'
+      setStatusMessage(message)
+      if (reveal) setInspector({ keyName, loading: false, error: message })
+      return undefined
+    }
+    if (reveal) setInspector({ keyName, loading: false, content: response })
+    return response
+  }
+
+  const copyFullValue = async (keyName: string) => {
+    const response = await loadFullValue(keyName, false)
+    if (!response) return
+    await copyText(
+      response.contentKind === 'binary'
+        ? response.dataBase64
+        : decodeFullValueText(response),
+    )
+    setStatusMessage(
+      response.contentKind === 'binary'
+        ? `Copied the complete ${keyName} value as Base64.`
+        : `Copied the complete ${keyName} value.`,
+    )
+  }
+
+  const beginFullValueEdit = async (keyName: string, content?: KeyValueValueReadResult) => {
+    const response = content ?? await loadFullValue(keyName, true)
+    if (!response) return
+    if (response.contentKind === 'binary') {
+      setStatusMessage('Binary values can be inspected and copied losslessly, but not edited as text.')
+      return
+    }
+    setInspector(undefined)
+    beginValueEdit(keyName, decodeFullValueText(response))
   }
 
   const commitValueEdit = async () => {
@@ -499,6 +580,11 @@ export function KeyValueResultsView({
         <span>Type</span>
         <span>Value</span>
       </div>
+      {payload?.sampleTruncated ? (
+        <div className="keyvalue-preview-notice" role="status">
+          Values in this grid are previews. Open or copy a value to load its complete contents.
+        </div>
+      ) : null}
       {canEdit ? (
         <div className="keyvalue-actions">
           <button
@@ -543,28 +629,32 @@ export function KeyValueResultsView({
           canEditValues={canEditValues}
           editingKey={editingKey}
           editingValue={editingValue}
-          expandedKeys={expandedKeys}
           rows={rows}
-          onBeginValueEdit={beginValueEdit}
-          onBeginJsonPathEdit={canEditJsonPaths ? beginJsonPathEdit : undefined}
+          onBeginValueEdit={(keyName) => void beginFullValueEdit(keyName)}
           onCancelEdit={() => setEditingKey(undefined)}
           onCommitValueEdit={() => void commitValueEdit()}
-          onDeleteJsonPath={canEditJsonPaths ? (path) => void deleteJsonPath(path) : undefined}
           onOpenContextMenu={(keyName, x, y) => setContextMenu({ keyName, x, y })}
-          onToggleExpanded={(keyName) =>
-            setExpandedKeys((current) => {
-              const next = new Set(current)
-              if (next.has(keyName)) {
-                next.delete(keyName)
-              } else {
-                next.add(keyName)
-              }
-              return next
-            })
-          }
+          onViewValue={(keyName) => void loadFullValue(keyName, true)}
           onUpdateEditingValue={setEditingValue}
         />
       </div>
+      {inspector ? (
+        <KeyValueValueInspector
+          canEdit={canEditValues}
+          content={inspector.content}
+          entryLabel={inspector.keyName}
+          error={inspector.error}
+          loading={inspector.loading}
+          theme={theme}
+          onBeginJsonPathEdit={canEditJsonPaths ? beginJsonPathEdit : undefined}
+          onClose={() => {
+            valueRequestIdRef.current += 1
+            setInspector(undefined)
+          }}
+          onDeleteJsonPath={canEditJsonPaths ? (path) => void deleteJsonPath(path) : undefined}
+          onEdit={() => void beginFullValueEdit(inspector.keyName, inspector.content)}
+        />
+      ) : null}
       {jsonPathPanel}
       {pendingTtl ? (
         <KeyValueTtlPanel
@@ -589,14 +679,15 @@ export function KeyValueResultsView({
           copyKeyLabel={selectedKey && redisType !== 'string' ? `Copy ${redisMemberLabel(redisType)}` : 'Copy Key'}
           deleteLabel={selectedKey && redisType !== 'string' ? `Delete ${redisMemberLabel(redisType)}` : 'Delete Key'}
           keyName={contextMenu.keyName}
-          rawValue={draftEntries[contextMenu.keyName] ?? ''}
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu(undefined)}
-          onEdit={() => beginValueEdit(contextMenu.keyName, draftEntries[contextMenu.keyName] ?? '')}
+          onCopyValue={() => void copyFullValue(contextMenu.keyName)}
+          onEdit={() => void beginFullValueEdit(contextMenu.keyName)}
           onPersistTtl={() => void persistTtl(contextMenu.keyName)}
           onRename={() => setPendingRename({ keyName: contextMenu.keyName, nextKeyName: contextMenu.keyName })}
           onSetTtl={() => setPendingTtl({ keyName: contextMenu.keyName, seconds: '3600' })}
+          onViewValue={() => void loadFullValue(contextMenu.keyName, true)}
           onDelete={() => {
             if (!connection) {
               return
@@ -615,3 +706,18 @@ export function KeyValueResultsView({
 }
 
 const EMPTY_KEYVALUE_ENTRY_PATCHES: KeyValueEntryPatches = {}
+
+function decodeFullValueText(content: KeyValueValueReadResult) {
+  const binary = globalThis.atob(content.dataBase64)
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+}
+
+function bytesToBase64(value: Uint8Array) {
+  let binary = ''
+  const chunkSize = 32_768
+  for (let offset = 0; offset < value.length; offset += chunkSize) {
+    binary += String.fromCharCode(...value.subarray(offset, offset + chunkSize))
+  }
+  return globalThis.btoa(binary)
+}

@@ -14,12 +14,12 @@ use crate::domain::{
         DatastoreExperienceObjectKind, DatastoreOperationManifest, DocumentNodeChildrenRequest,
         DocumentNodeChildrenResponse, ExecutionCapabilities, ExecutionRequest,
         ExecutionResultEnvelope, ExplorerInspectRequest, ExplorerInspectResponse, ExplorerNode,
-        ExplorerRequest, ExplorerResponse, LocalDatabaseManifest, OperationExecutionRequest,
-        OperationExecutionResponse, OperationPlan, PermissionInspection, QueryExecutionNotice,
-        RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse, RedisKeySummary,
-        ResolvedConnectionProfile, ResultPageInfo, ResultPageRequest, ResultPageResponse,
-        StructureEdge, StructureField, StructureGroup, StructureNode, StructureRequest,
-        StructureResponse,
+        ExplorerRequest, ExplorerResponse, KeyValueValueContent, KeyValueValueReadRequest,
+        LocalDatabaseManifest, OperationExecutionRequest, OperationExecutionResponse,
+        OperationPlan, PermissionInspection, QueryExecutionNotice, RedisKeyInspectRequest,
+        RedisKeyScanRequest, RedisKeyScanResponse, RedisKeySummary, ResolvedConnectionProfile,
+        ResultPageInfo, ResultPageRequest, ResultPageResponse, StructureEdge, StructureField,
+        StructureGroup, StructureNode, StructureRequest, StructureResponse,
     },
 };
 
@@ -45,5 +45,6 @@ pub use runtime::{
     cancel, collect_diagnostics, execute, execute_data_edit, execute_operation,
     experience_manifests, fetch_document_node_children, fetch_result_page, inspect_explorer_node,
     inspect_permissions, inspect_redis_key, list_explorer_nodes, load_structure_map,
-    operation_manifests, plan_data_edit, plan_operation, scan_redis_keys, test_connection,
+    operation_manifests, plan_data_edit, plan_operation, read_key_value, scan_redis_keys,
+    test_connection,
 };

@@ -9,15 +9,16 @@ interface KeyValueContextMenuProps {
   copyKeyLabel?: string
   deleteLabel?: string
   keyName: string
-  rawValue: string
   x: number
   y: number
   onClose(): void
+  onCopyValue(): void
   onDelete(): void
   onEdit(): void
   onPersistTtl(): void
   onRename(): void
   onSetTtl(): void
+  onViewValue(): void
 }
 
 export function KeyValueContextMenu({
@@ -29,13 +30,14 @@ export function KeyValueContextMenu({
   copyKeyLabel = 'Copy Key',
   deleteLabel = 'Delete Key',
   keyName,
-  rawValue,
   onClose,
+  onCopyValue,
   onDelete,
   onEdit,
   onPersistTtl,
   onRename,
   onSetTtl,
+  onViewValue,
   x,
   y,
 }: KeyValueContextMenuProps) {
@@ -49,7 +51,10 @@ export function KeyValueContextMenu({
       <button type="button" role="menuitem" onClick={() => { void copyText(keyName); onClose() }}>
         {copyKeyLabel}
       </button>
-      <button type="button" role="menuitem" onClick={() => { void copyText(rawValue); onClose() }}>
+      <button type="button" role="menuitem" onClick={() => { onViewValue(); onClose() }}>
+        View Value
+      </button>
+      <button type="button" role="menuitem" onClick={() => { onCopyValue(); onClose() }}>
         Copy Value
       </button>
       {canEdit ? (

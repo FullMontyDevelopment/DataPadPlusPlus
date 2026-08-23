@@ -529,6 +529,7 @@ pub fn run() {
             commands::workspace::inspect_explorer_node,
             commands::workspace::inspect_connection_permissions,
             commands::workspace::inspect_redis_key,
+            commands::workspace::read_key_value,
             commands::workspace::list_explorer_nodes,
             commands::workspace::list_datastore_operations,
             commands::workspace::list_datastore_experiences,

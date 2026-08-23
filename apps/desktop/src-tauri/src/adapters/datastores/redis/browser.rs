@@ -357,10 +357,19 @@ pub(crate) async fn inspect_redis_key(
     let mut summary = key_summary(&mut redis, key).await?;
     summary.database_index = database_index;
     let value = key_value_sample(&mut redis, key, &summary.key_type, sample_size).await?;
-    let sample_truncated = summary
-        .length
-        .is_some_and(|length| length > sample_size as u64);
     let entries = entries_for_value(key, &summary.key_type, &value);
+    let sample_unit = if summary.key_type == "string" {
+        "bytes"
+    } else {
+        "items"
+    };
+    let sample_loaded = if summary.key_type == "string" {
+        value.as_str().map(|value| value.len() as u64).unwrap_or(0)
+    } else {
+        entries.len() as u64
+    };
+    let sample_truncated =
+        summary.key_type != "json" && summary.length.is_some_and(|length| length > sample_loaded);
     let disabled_actions = disabled_module_actions(&summary.key_type);
     let key_missing = summary.key_type == "none";
     let payload_keyvalue = json!({
@@ -377,6 +386,12 @@ pub(crate) async fn inspect_redis_key(
         "length": summary.length,
         "value": value,
         "sampleTruncated": sample_truncated,
+        "preview": {
+            "truncated": sample_truncated,
+            "unit": sample_unit,
+            "loaded": sample_loaded,
+            "total": summary.length,
+        },
         "members": members_for_value(&summary.key_type, &value),
         "metadata": {
             "key": key,
@@ -451,6 +466,160 @@ pub(crate) async fn inspect_redis_key(
         truncated: sample_truncated,
         explain_payload: None,
     }))
+}
+
+pub(crate) async fn read_key_value(
+    connection: &ResolvedConnectionProfile,
+    request: &KeyValueValueReadRequest,
+) -> Result<KeyValueValueContent, CommandError> {
+    if request.key.trim().is_empty() || request.key.contains('*') {
+        return Err(CommandError::new(
+            "key-value-key-invalid",
+            "Full value inspection requires one concrete key; wildcard keys are not allowed.",
+        ));
+    }
+
+    let mut redis = redis_connection(connection).await?;
+    let database_index = request
+        .database_index
+        .or_else(|| configured_database_index(connection));
+    select_redis_database(&mut redis, database_index).await?;
+
+    let key_type = match request.redis_type.as_deref().map(normalize_redis_type) {
+        Some(value) if value != "unknown" && value != "none" => value,
+        _ => {
+            let value: String = redis::cmd("TYPE")
+                .arg(&request.key)
+                .query_async(&mut redis)
+                .await?;
+            normalize_redis_type(&value)
+        }
+    };
+    if key_type == "none" {
+        return Err(CommandError::new(
+            "key-value-missing",
+            "The selected key no longer exists. Refresh the result and try again.",
+        ));
+    }
+
+    let bytes = match (key_type.as_str(), request.entry_key.as_deref()) {
+        ("hash", Some(field)) => redis::cmd("HGET")
+            .arg(&request.key)
+            .arg(field)
+            .query_async::<Option<Vec<u8>>>(&mut redis)
+            .await?
+            .ok_or_else(|| missing_entry_error("hash field"))?,
+        ("list", Some(index)) => {
+            let index = index.parse::<i64>().map_err(|_| {
+                CommandError::new(
+                    "key-value-entry-invalid",
+                    "The selected list index is not valid. Refresh the result and try again.",
+                )
+            })?;
+            redis::cmd("LINDEX")
+                .arg(&request.key)
+                .arg(index)
+                .query_async::<Option<Vec<u8>>>(&mut redis)
+                .await?
+                .ok_or_else(|| missing_entry_error("list item"))?
+        }
+        ("set", Some(member)) => {
+            let exists: bool = redis::cmd("SISMEMBER")
+                .arg(&request.key)
+                .arg(member)
+                .query_async(&mut redis)
+                .await?;
+            if !exists {
+                return Err(missing_entry_error("set member"));
+            }
+            member.as_bytes().to_vec()
+        }
+        ("zset", Some(member)) => redis::cmd("ZSCORE")
+            .arg(&request.key)
+            .arg(member)
+            .query_async::<Option<String>>(&mut redis)
+            .await?
+            .map(String::into_bytes)
+            .ok_or_else(|| missing_entry_error("sorted-set member"))?,
+        ("stream", Some(entry_id)) => {
+            let value: RedisValue = redis::cmd("XRANGE")
+                .arg(&request.key)
+                .arg(entry_id)
+                .arg(entry_id)
+                .query_async(&mut redis)
+                .await?;
+            let value = redis_value_to_json(&value);
+            if value.as_array().is_some_and(Vec::is_empty) {
+                return Err(missing_entry_error("stream entry"));
+            }
+            serde_json::to_vec(&value).map_err(CommandError::from)?
+        }
+        ("timeseries", Some(timestamp)) => {
+            let timestamp = timestamp.parse::<i64>().map_err(|_| {
+                CommandError::new(
+                    "key-value-entry-invalid",
+                    "The selected time-series timestamp is not valid. Refresh the result and try again.",
+                )
+            })?;
+            let value: RedisValue = redis::cmd("TS.RANGE")
+                .arg(&request.key)
+                .arg(timestamp)
+                .arg(timestamp)
+                .query_async(&mut redis)
+                .await?;
+            let value = redis_value_to_json(&value);
+            if value.as_array().is_some_and(Vec::is_empty) {
+                return Err(missing_entry_error("time-series sample"));
+            }
+            serde_json::to_vec(&value).map_err(CommandError::from)?
+        }
+        ("json", _) => redis::cmd("JSON.GET")
+            .arg(&request.key)
+            .query_async::<Option<Vec<u8>>>(&mut redis)
+            .await?
+            .ok_or_else(|| missing_entry_error("JSON value"))?,
+        ("string", _) => redis::cmd("GET")
+            .arg(&request.key)
+            .query_async::<Option<Vec<u8>>>(&mut redis)
+            .await?
+            .ok_or_else(|| missing_entry_error("value"))?,
+        ("vectorset", _) => {
+            return Err(CommandError::new(
+                "key-value-read-unsupported",
+                "Full vector-set element inspection is not available because the server does not expose the original vector through the key browser.",
+            ));
+        }
+        (container_type, None) => {
+            return Err(CommandError::new(
+                "key-value-entry-required",
+                format!("Select a {container_type} item before opening its full value."),
+            ));
+        }
+        (container_type, Some(_)) => {
+            return Err(CommandError::new(
+                "key-value-read-unsupported",
+                format!(
+                    "Full value inspection is not available for Redis type `{container_type}`."
+                ),
+            ));
+        }
+    };
+
+    Ok(KeyValueValueContent {
+        content_kind: if std::str::from_utf8(&bytes).is_ok() {
+            "text".into()
+        } else {
+            "binary".into()
+        },
+        bytes,
+    })
+}
+
+fn missing_entry_error(kind: &str) -> CommandError {
+    CommandError::new(
+        "key-value-entry-missing",
+        format!("The selected {kind} no longer exists. Refresh the result and try again."),
+    )
 }
 
 async fn scan_page(

@@ -141,6 +141,16 @@ pub trait DatastoreAdapter: Send + Sync {
             "Redis-compatible key inspection is not available for this adapter.",
         ))
     }
+    async fn read_key_value(
+        &self,
+        _connection: &ResolvedConnectionProfile,
+        _request: &KeyValueValueReadRequest,
+    ) -> Result<KeyValueValueContent, CommandError> {
+        Err(CommandError::new(
+            "key-value-read-unsupported",
+            "Full value inspection is not available for this adapter.",
+        ))
+    }
     async fn load_structure_map(
         &self,
         _connection: &ResolvedConnectionProfile,

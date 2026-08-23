@@ -36,6 +36,7 @@ type RuntimeActions = Pick<
   | 'inspectExplorer'
   | 'scanRedisKeys'
   | 'inspectRedisKey'
+  | 'readKeyValue'
   | 'executeQuery'
   | 'executeBuilderCount'
   | 'executeTestSuite'
@@ -243,24 +244,9 @@ export function useRuntimeActions({
 
   const scanRedisKeys = useCallback<Actions['scanRedisKeys']>(
     async (request) => {
-      const executionId = createId('execution')
       try {
         ensureWorkspaceUnlocked(state.payload)
-        if (request.tabId) {
-          dispatch({
-            type: 'EXECUTION_LOADING',
-            tabId: request.tabId,
-            execution: tabExecution(executionId, 'server', 'Refreshing Redis keys'),
-          })
-        }
         const response = await desktopClient.scanRedisKeys(request)
-        if (request.tabId) {
-          dispatch({
-            type: 'EXECUTION_DISPLAYED',
-            tabId: request.tabId,
-            executionId,
-          })
-        }
         recordConnected(
           request.connectionId,
           request.environmentId,
@@ -270,20 +256,34 @@ export function useRuntimeActions({
         return response
       } catch (error) {
         const message = toUserMessage(error, 'Unable to refresh Redis keys.')
-        if (request.tabId) {
-          dispatch({
-            type: 'EXECUTION_FAILED',
-            tabId: request.tabId,
-            executionId,
-            message,
-          })
-        }
         recordIssue(request.connectionId, request.environmentId, 'redis-browser', message)
         handleError(error, { suppressWorkbenchMessage: true })
         return undefined
       }
     },
-    [dispatch, handleError, recordConnected, recordIssue, state.payload],
+    [handleError, recordConnected, recordIssue, state.payload],
+  )
+
+  const readKeyValue = useCallback<Actions['readKeyValue']>(
+    async (request) => {
+      try {
+        ensureWorkspaceUnlocked(state.payload)
+        const response = await desktopClient.readKeyValue(request)
+        recordConnected(
+          request.connectionId,
+          request.environmentId,
+          'redis-browser',
+          'Full value loaded',
+        )
+        return response
+      } catch (error) {
+        const message = toUserMessage(error, 'Unable to load the complete value.')
+        recordIssue(request.connectionId, request.environmentId, 'redis-browser', message)
+        handleError(error, { suppressWorkbenchMessage: true })
+        return undefined
+      }
+    },
+    [handleError, recordConnected, recordIssue, state.payload],
   )
 
   const inspectRedisKey = useCallback<Actions['inspectRedisKey']>(
@@ -501,6 +501,7 @@ export function useRuntimeActions({
       inspectExplorer,
       scanRedisKeys,
       inspectRedisKey,
+      readKeyValue,
       ...queryActions,
       fetchResultPage,
       fetchDocumentNodeChildren,
@@ -512,6 +513,7 @@ export function useRuntimeActions({
       fetchDocumentNodeChildren,
       fetchResultPage,
       inspectRedisKey,
+      readKeyValue,
       inspectExplorer,
       loadExplorer,
       loadStructureMap,

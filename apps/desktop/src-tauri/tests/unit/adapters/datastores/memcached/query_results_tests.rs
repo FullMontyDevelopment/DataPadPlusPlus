@@ -18,6 +18,14 @@ fn memcached_get_response_parses_multiple_values_and_cas() {
 }
 
 #[test]
+fn memcached_get_response_preserves_embedded_line_breaks() {
+    let values = get_response_values("VALUE document 0 12\r\nline1\r\nline2\r\nEND\r\n");
+
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].value, "line1\r\nline2");
+}
+
+#[test]
 fn memcached_get_result_reports_misses_without_raw_only_fallback() {
     let (payloads, summary) =
         memcached_get_result("VALUE hit 0 2\r\nok\r\nEND\r\n", &["hit", "miss"]);

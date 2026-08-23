@@ -21,7 +21,7 @@ npm run fixtures:up:all
 npm run fixtures:seed:all
 npm run fixtures:validate:postgres
 npm run fixtures:validate:mongodb
-npm run fixtures:validate:redis -- --require-stack --require-valkey
+npm run fixtures:validate:redis -- --require-stack --require-valkey --require-memcached
 npm run fixtures:validate:timescale
 npm run fixtures:validate:oracle
 npm run fixtures:validate:cosmosdb

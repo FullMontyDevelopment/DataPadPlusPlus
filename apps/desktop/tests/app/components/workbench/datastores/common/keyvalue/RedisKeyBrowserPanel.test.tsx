@@ -70,7 +70,7 @@ describe('RedisKeyBrowserPanel', () => {
     expect(screen.queryByText('Loading')).not.toBeInTheDocument()
   })
 
-  it('debounces pattern changes and scans once for the new criteria', async () => {
+  it('keeps pattern edits local until the user applies the new criteria', async () => {
     vi.useFakeTimers()
     const onBuilderStateChange = vi.fn()
     const onScanRedisKeys = vi.fn(async (request: RedisKeyScanRequest) =>
@@ -88,7 +88,9 @@ describe('RedisKeyBrowserPanel', () => {
 
     await flushDebouncedScan()
 
-    fireEvent.change(screen.getByLabelText('Filter by key name or pattern'), {
+    const patternInput = screen.getByLabelText('Filter by key name or pattern')
+    patternInput.focus()
+    fireEvent.change(patternInput, {
       target: { value: 'orders:*' },
     })
 
@@ -97,8 +99,10 @@ describe('RedisKeyBrowserPanel', () => {
       await Promise.resolve()
     })
     expect(onScanRedisKeys).toHaveBeenCalledTimes(1)
+    expect(onBuilderStateChange).not.toHaveBeenCalled()
+    expect(patternInput).toHaveFocus()
 
-    await flushDebouncedScan()
+    fireEvent.click(screen.getByRole('button', { name: 'Apply key search' }))
     await flushDebouncedScan()
 
     expect(onScanRedisKeys).toHaveBeenCalledTimes(2)
@@ -109,6 +113,41 @@ describe('RedisKeyBrowserPanel', () => {
       }),
     )
     expect(onBuilderStateChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows the pattern and delimiter to be cleared, replaced, and restored', async () => {
+    vi.useFakeTimers()
+    const onBuilderStateChange = vi.fn()
+
+    render(
+      <RedisHarness
+        onBuilderStateChange={onBuilderStateChange}
+        onScanRedisKeys={vi.fn(async () => redisScanResponse())}
+      />,
+    )
+    await flushDebouncedScan()
+
+    const patternInput = screen.getByLabelText('Filter by key name or pattern')
+    const delimiterInput = screen.getByLabelText('Redis namespace delimiter')
+    fireEvent.change(patternInput, { target: { value: '' } })
+    fireEvent.change(delimiterInput, { target: { value: '' } })
+
+    expect(patternInput).toHaveValue('')
+    expect(delimiterInput).toHaveValue('')
+    expect(onBuilderStateChange).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(patternInput, { key: 'Escape' })
+    expect(patternInput).toHaveValue('perf:*')
+    expect(delimiterInput).toHaveValue(':')
+
+    fireEvent.change(patternInput, { target: { value: 'orders:*' } })
+    fireEvent.change(delimiterInput, { target: { value: '::' } })
+    fireEvent.keyDown(patternInput, { key: 'Enter' })
+
+    expect(onBuilderStateChange).toHaveBeenCalledWith(
+      'tab-redis',
+      expect.objectContaining({ pattern: 'orders:*', delimiter: '::' }),
+    )
   })
 
   it('uses the local cursor for Scan more without rewriting builder state', async () => {

@@ -5,6 +5,7 @@ const args = new Set(process.argv.slice(2))
 const requireStack = args.has('--require-stack')
 const requireValkey = args.has('--require-valkey')
 const requireVector = args.has('--require-vector')
+const requireMemcached = args.has('--require-memcached')
 
 const checks = []
 const notes = []
@@ -86,6 +87,48 @@ async function redisTcp(container, parts) {
       socket.destroy(new Error(`Timed out waiting for ${container} Redis fixture on port ${port}`))
     })
   })
+}
+
+async function memcachedTcp(container, command) {
+  const port = mappedContainerPort(container, 11211)
+
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: '127.0.0.1', port }, () => {
+      socket.write(command)
+    })
+    const chunks = []
+    socket.on('data', (chunk) => {
+      chunks.push(chunk)
+      const buffer = Buffer.concat(chunks)
+      if (buffer.subarray(Math.max(0, buffer.length - 5)).toString('ascii') === 'END\r\n') {
+        socket.end()
+        resolve(buffer)
+      }
+    })
+    socket.on('error', reject)
+    socket.setTimeout(5000, () => {
+      socket.destroy(new Error(`Timed out waiting for ${container} Memcached fixture on port ${port}`))
+    })
+  })
+}
+
+function parseMemcachedValue(response, expectedKey) {
+  const headerEnd = response.indexOf('\r\n')
+  if (headerEnd === -1) {
+    throw new Error('Memcached response did not include a complete VALUE header.')
+  }
+  const header = response.subarray(0, headerEnd).toString('ascii')
+  const match = /^VALUE (\S+) \d+ (\d+)(?: \d+)?$/.exec(header)
+  if (!match || match[1] !== expectedKey) {
+    throw new Error(`Unexpected Memcached VALUE header: ${JSON.stringify(header)}`)
+  }
+  const byteLength = Number(match[2])
+  const valueStart = headerEnd + 2
+  const valueEnd = valueStart + byteLength
+  if (response.length < valueEnd + 7 || response.subarray(valueEnd, valueEnd + 7).toString('ascii') !== '\r\nEND\r\n') {
+    throw new Error('Memcached response did not contain the declared complete value.')
+  }
+  return response.subarray(valueStart, valueEnd)
 }
 
 function mappedContainerPort(container, containerPort) {
@@ -209,6 +252,28 @@ async function validateCoreRedis(container = 'datapadplusplus-redis', cli = 'red
     expectIncludes(redis(container, cli, ['TYPE', 'stream:orders']), 'stream', `${label} stream type`)
     expectIncludes(redis(container, cli, ['XINFO', 'GROUPS', 'stream:orders']), 'fulfillment', `${label} XINFO GROUPS`)
     expectIncludes(redis(container, cli, ['XPENDING', 'stream:orders', 'fulfillment']), 'worker-1', `${label} XPENDING`)
+  })
+
+  await record(`${label}: complete large JSON value fixture`, () => {
+    expectAtLeast(redis(container, cli, ['STRLEN', 'fixture:full-value:json']), 400_000, `${label} full-value byte length`)
+    expectIncludes(
+      redis(container, cli, ['GETRANGE', 'fixture:full-value:json', '-128', '-1']),
+      'DATAPADPLUSPLUS_FULL_VALUE_END',
+      `${label} full-value tail`,
+    )
+  })
+}
+
+async function validateMemcached() {
+  await record('Memcached: complete large multiline JSON value fixture', async () => {
+    const key = 'fixture:full-value:json'
+    const response = await memcachedTcp('datapadplusplus-memcached', `get ${key}\r\n`)
+    const value = parseMemcachedValue(response, key)
+    if (value.length < 400_000) {
+      throw new Error(`Memcached full-value byte length expected at least 400000, got ${value.length}`)
+    }
+    expectIncludes(value.toString('utf8'), 'DATAPADPLUSPLUS_FULL_VALUE_END', 'Memcached full-value tail')
+    expectIncludes(value.toString('utf8'), '\n', 'Memcached full-value multiline content')
   })
 }
 
@@ -422,6 +487,7 @@ async function validateRedisStack() {
 const coreRunning = containerRunning('datapadplusplus-redis')
 const stackRunning = containerRunning('datapadplusplus-redis-stack')
 const valkeyRunning = containerRunning('datapadplusplus-valkey')
+const memcachedRunning = containerRunning('datapadplusplus-memcached')
 
 if (!coreRunning) {
   throw new Error('Redis core fixture is not running. Run `npm run fixtures:up && npm run fixtures:seed` first.')
@@ -445,6 +511,14 @@ if (valkeyRunning) {
   throw new Error('Valkey fixture is not running. Run `npm run fixtures:up:profile -- cache` and `npm run fixtures:seed:all` first.')
 } else {
   notes.push('Valkey fixture not running; pass --require-valkey after starting the cache profile for Valkey evidence.')
+}
+
+if (memcachedRunning) {
+  await validateMemcached()
+} else if (requireMemcached) {
+  throw new Error('Memcached fixture is not running. Run `npm run fixtures:up:profile -- cache` and `npm run fixtures:seed:all` first.')
+} else {
+  notes.push('Memcached fixture not running; pass --require-memcached after starting the cache profile for full-value evidence.')
 }
 
 const failures = checks.filter((check) => !check.ok)

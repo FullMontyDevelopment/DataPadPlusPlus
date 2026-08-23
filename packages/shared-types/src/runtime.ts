@@ -1206,6 +1206,38 @@ export interface RedisKeyInspectRequest {
   sampleSize?: number
 }
 
+export interface KeyValueValueReadRequest {
+  connectionId: string
+  environmentId: string
+  databaseIndex?: number
+  /** The concrete datastore key. Wildcards are never accepted. */
+  key: string
+  /** A hash field, list index, sorted-set member, or other item within a container key. */
+  entryKey?: string
+  redisType?: string
+}
+
+export type KeyValueValueReadEvent =
+  | {
+      type: 'metadata'
+      contentKind: 'text' | 'binary'
+      byteLength: number
+    }
+  | {
+      type: 'chunk'
+      offset: number
+      dataBase64: string
+    }
+  | {
+      type: 'complete'
+    }
+
+export interface KeyValueValueReadResult {
+  contentKind: 'text' | 'binary'
+  byteLength: number
+  dataBase64: string
+}
+
 export interface CancelExecutionRequest {
   executionId: string
   tabId?: string

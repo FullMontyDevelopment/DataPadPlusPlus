@@ -1,4 +1,5 @@
 use super::*;
+use base64::Engine as _;
 
 #[tauri::command]
 pub fn set_active_connection(
@@ -380,6 +381,74 @@ pub async fn inspect_redis_key(
         );
     }
     response
+}
+
+#[tauri::command]
+pub async fn read_key_value(
+    state: State<'_, SharedAppState>,
+    request: KeyValueValueReadRequest,
+    on_event: Channel<KeyValueValueReadEvent>,
+) -> Result<(), CommandError> {
+    let connection_id = request.connection_id.clone();
+    let environment_id = request.environment_id.clone();
+    let key_len = request.key.chars().count();
+    let key_hash = breadcrumb_key_hash(&request.key);
+    infrastructure::log_breadcrumb(
+        "command",
+        format!(
+            "key-value-read-start connection={} environment={} keyLen={} keyHash={:016x}",
+            connection_id,
+            breadcrumb_environment(&environment_id),
+            key_len,
+            key_hash
+        ),
+    );
+
+    let runtime = clone_runtime(&state)?;
+    let content = runtime.read_key_value(request).await?;
+    let byte_length = content.bytes.len() as u64;
+    send_key_value_event(
+        &on_event,
+        KeyValueValueReadEvent::Metadata {
+            content_kind: content.content_kind,
+            byte_length,
+        },
+    )?;
+    const CHUNK_SIZE: usize = 192 * 1024;
+    for (index, chunk) in content.bytes.chunks(CHUNK_SIZE).enumerate() {
+        send_key_value_event(
+            &on_event,
+            KeyValueValueReadEvent::Chunk {
+                offset: (index * CHUNK_SIZE) as u64,
+                data_base64: base64::engine::general_purpose::STANDARD.encode(chunk),
+            },
+        )?;
+    }
+    send_key_value_event(&on_event, KeyValueValueReadEvent::Complete)?;
+    infrastructure::log_breadcrumb(
+        "command",
+        format!(
+            "key-value-read-complete connection={} environment={} keyLen={} keyHash={:016x} bytes={}",
+            connection_id,
+            breadcrumb_environment(&environment_id),
+            key_len,
+            key_hash,
+            byte_length
+        ),
+    );
+    Ok(())
+}
+
+fn send_key_value_event(
+    channel: &Channel<KeyValueValueReadEvent>,
+    event: KeyValueValueReadEvent,
+) -> Result<(), CommandError> {
+    channel.send(event).map_err(|_| {
+        CommandError::new(
+            "key-value-read-channel-closed",
+            "The value inspector closed before the full value finished loading.",
+        )
+    })
 }
 
 #[tauri::command]

@@ -2,9 +2,9 @@ use crate::domain::{
     error::CommandError,
     models::{
         AdapterDiagnosticsRequest, CreateObjectViewTabRequest, DataEditExecutionRequest,
-        DataEditPlanRequest, ExplorerInspectRequest, ExplorerRequest, OperationExecutionRequest,
-        OperationManifestRequest, OperationPlanRequest, PermissionInspectionRequest,
-        RedisKeyInspectRequest, RedisKeyScanRequest, StructureRequest,
+        DataEditPlanRequest, ExplorerInspectRequest, ExplorerRequest, KeyValueValueReadRequest,
+        OperationExecutionRequest, OperationManifestRequest, OperationPlanRequest,
+        PermissionInspectionRequest, RedisKeyInspectRequest, RedisKeyScanRequest, StructureRequest,
     },
 };
 
@@ -109,6 +109,27 @@ pub(in crate::app::runtime) fn validate_redis_key_inspect_request(
     validate_required_text(&request.key, "Redis key", MAX_SCOPE_LENGTH)?;
     clamp_optional_u32(&mut request.database_index, 0, MAX_REDIS_DATABASE);
     clamp_optional_u32(&mut request.sample_size, 1, MAX_REDIS_SAMPLE_SIZE);
+    Ok(())
+}
+
+pub(in crate::app::runtime) fn validate_key_value_read_request(
+    request: &mut KeyValueValueReadRequest,
+) -> Result<(), CommandError> {
+    validate_required_id(&request.connection_id, "Connection id")?;
+    validate_required_id(&request.environment_id, "Environment id")?;
+    validate_required_text(&request.key, "Key-value key", MAX_SCOPE_LENGTH)?;
+    validate_optional_text(
+        request.entry_key.as_deref(),
+        "Key-value entry",
+        MAX_SCOPE_LENGTH,
+    )?;
+    validate_optional_text(request.redis_type.as_deref(), "Key-value type", 64)?;
+    clamp_optional_u32(&mut request.database_index, 0, MAX_REDIS_DATABASE);
+    if request.key.contains('*') {
+        return Err(invalid_request(
+            "Full value inspection requires a concrete key without wildcards.",
+        ));
+    }
     Ok(())
 }
 

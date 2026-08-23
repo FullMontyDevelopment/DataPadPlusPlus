@@ -13,7 +13,7 @@ mod metadata;
 mod paging;
 mod query;
 
-pub(crate) use browser::{inspect_redis_key, scan_redis_keys};
+pub(crate) use browser::{inspect_redis_key, read_key_value, scan_redis_keys};
 pub(crate) use editing::execute_redis_data_edit;
 pub(crate) use import_export::execute_redis_key_file_operation;
 pub(crate) use metadata::load_redis_structure;
@@ -109,6 +109,14 @@ impl DatastoreAdapter for RedisAdapter {
         request: &RedisKeyInspectRequest,
     ) -> Result<ExecutionResultEnvelope, CommandError> {
         inspect_redis_key(connection, request).await
+    }
+
+    async fn read_key_value(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &KeyValueValueReadRequest,
+    ) -> Result<KeyValueValueContent, CommandError> {
+        read_key_value(connection, request).await
     }
 
     async fn fetch_result_page(

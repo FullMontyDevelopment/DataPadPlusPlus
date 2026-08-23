@@ -1,5 +1,64 @@
 use super::*;
 
+#[tokio::test]
+async fn redis_live_fixture_reads_the_complete_large_value_when_enabled() {
+    if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").as_deref() != Ok("1") {
+        return;
+    }
+
+    let port = std::env::var("DATAPADPLUSPLUS_REDIS_PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(6380);
+    let connection = ResolvedConnectionProfile {
+        id: "fixture-redis-full-value".into(),
+        name: "Fixture Redis".into(),
+        engine: "redis".into(),
+        family: "keyvalue".into(),
+        host: "127.0.0.1".into(),
+        port: Some(port),
+        database: Some("0".into()),
+        username: None,
+        password: None,
+        connection_string: None,
+        redis_options: None,
+        memcached_options: None,
+        sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        mongodb_options: None,
+        warehouse_options: None,
+        read_only: true,
+    };
+    let content = read_key_value(
+        &connection,
+        &KeyValueValueReadRequest {
+            connection_id: connection.id.clone(),
+            environment_id: "fixture".into(),
+            database_index: Some(0),
+            key: "fixture:full-value:json".into(),
+            entry_key: None,
+            redis_type: Some("string".into()),
+        },
+    )
+    .await
+    .expect("complete Redis fixture value");
+
+    assert_eq!(content.content_kind, "text");
+    assert!(content.bytes.len() > 400_000);
+    assert!(String::from_utf8(content.bytes)
+        .expect("UTF-8 fixture value")
+        .contains("DATAPADPLUSPLUS_FULL_VALUE_END"));
+}
+
 #[test]
 fn redis_count_uses_dbsize_only_without_filters() {
     assert!(redis_count_filters_are_empty(None));

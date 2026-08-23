@@ -12,6 +12,8 @@ import type {
   ExportResultFileResponse,
   OperationPlanRequest,
   OperationPlanResponse,
+  KeyValueValueReadRequest,
+  KeyValueValueReadResult,
   QueryTabState,
   ResultPayload,
   ResultRenderer,
@@ -53,6 +55,9 @@ interface ResultsViewProps {
   onPlanOperation?(
     request: OperationPlanRequest,
   ): Promise<OperationPlanResponse | undefined>
+  onReadKeyValue?(
+    request: KeyValueValueReadRequest,
+  ): Promise<KeyValueValueReadResult | undefined>
   onEditConnection?(): void
 }
 
@@ -76,6 +81,7 @@ export function ResultsView({
   onFetchDocumentNodeChildren,
   onExecuteDataEdit,
   onPlanOperation,
+  onReadKeyValue,
   onEditConnection,
 }: ResultsViewProps) {
   const [operationMessage, setOperationMessage] = useState('')
@@ -328,6 +334,7 @@ export function ResultsView({
           onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
           onExecuteDataEdit={executionLocked ? undefined : onExecuteDataEdit}
           onPlanOperation={executionLocked ? undefined : onPlanOperation}
+          onReadKeyValue={onReadKeyValue}
         />
       )}
 

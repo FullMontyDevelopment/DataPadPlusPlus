@@ -4,6 +4,8 @@ import type {
   DataEditExecutionResponse,
   DocumentNodeChildrenRequest,
   DocumentNodeChildrenResponse,
+  KeyValueValueReadRequest,
+  KeyValueValueReadResult,
   OperationPlanRequest,
   OperationPlanResponse,
   ResultPayload,
@@ -43,6 +45,7 @@ export function ResultPayloadView({
   onFetchDocumentNodeChildren,
   onExecuteDataEdit,
   onPlanOperation,
+  onReadKeyValue,
 }: {
   connection?: ConnectionProfile
   documentFooterControls?: ReactNode
@@ -67,6 +70,9 @@ export function ResultPayloadView({
   onPlanOperation?(
     request: OperationPlanRequest,
   ): Promise<OperationPlanResponse | undefined>
+  onReadKeyValue?(
+    request: KeyValueValueReadRequest,
+  ): Promise<KeyValueValueReadResult | undefined>
 }) {
   if (!payload) {
     return <p className="panel-footnote">No result yet.</p>
@@ -95,6 +101,7 @@ export function ResultPayloadView({
             onFetchDocumentNodeChildren={onFetchDocumentNodeChildren}
             onExecuteDataEdit={executionLocked ? undefined : onExecuteDataEdit}
             onPlanOperation={executionLocked ? undefined : onPlanOperation}
+            onReadKeyValue={onReadKeyValue}
           />
         )}
       />
@@ -163,8 +170,10 @@ export function ResultPayloadView({
         entries={sliceRecord(entries, pageIndex, pageSize)}
         payload={safePayload}
         executionLocked={executionLocked}
+        theme={theme}
         onExecuteDataEdit={executionLocked ? undefined : onExecuteDataEdit}
         onPlanOperation={executionLocked ? undefined : onPlanOperation}
+        onReadKeyValue={onReadKeyValue}
       />
     )
   }

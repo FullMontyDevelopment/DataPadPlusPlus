@@ -82,10 +82,10 @@ For full Redis reference-engine evidence, start and seed the optional Redis Stac
 npm run fixtures:up:profile -- redis-stack
 npm run fixtures:up:profile -- cache
 npm run fixtures:seed:all
-npm run fixtures:validate:redis -- --require-stack --require-valkey
+npm run fixtures:validate:redis -- --require-stack --require-valkey --require-memcached
 ```
 
-The validator checks core Redis and Valkey seeded keys plus stream consumer groups, validates Valkey core key-file export/import command primitives, TTL behavior, permission-denied guarded writes, and large key-file primitives, and checks Redis Stack JSON, TimeSeries, Bloom, Cuckoo, CMS, TopK, t-digest, and vector-set fixture data when the selected Redis Stack image exposes vector commands. Add `--require-vector` only with a Redis Stack image that exposes `VADD`; otherwise vector-set live fixture evidence is intentionally image-dependent and optional.
+The validator checks core Redis and Valkey seeded keys plus stream consumer groups, validates complete large JSON reads in Redis, Valkey, and Memcached, validates Valkey core key-file export/import command primitives, TTL behavior, permission-denied guarded writes, and large key-file primitives, and checks Redis Stack JSON, TimeSeries, Bloom, Cuckoo, CMS, TopK, t-digest, and vector-set fixture data when the selected Redis Stack image exposes vector commands. Add `--require-vector` only with a Redis Stack image that exposes `VADD`; otherwise vector-set live fixture evidence is intentionally image-dependent and optional.
 
 For TimescaleDB optional evidence, start and seed the `sqlplus` profile, then run the TimescaleDB validator:
 

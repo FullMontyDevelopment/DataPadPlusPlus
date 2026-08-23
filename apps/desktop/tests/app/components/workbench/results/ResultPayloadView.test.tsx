@@ -2086,7 +2086,7 @@ describe('ResultPayloadView', () => {
     expect(computeRenderedColumnWidths(['name', 'status'], {}, 300)).toEqual([160, 160])
   })
 
-  it('parses JSON-looking key-value entries into expandable trees', () => {
+  it('keeps key-value rows compact without a redundant inline expansion control', () => {
     render(
       <ResultPayloadView
         payload={{
@@ -2098,12 +2098,64 @@ describe('ResultPayloadView', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expand session:1' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Expand session:1' }))
+    expect(screen.queryByRole('button', { name: 'Expand session:1' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '{"user":"avery","cart":{"items":3}}' })).toBeInTheDocument()
+  })
 
-    expect(screen.getByText('user')).toBeInTheDocument()
-    expect(screen.getByText('"avery"')).toBeInTheDocument()
-    expect(screen.getByText('cart')).toBeInTheDocument()
+  it('loads the authoritative full value for viewing and copying', async () => {
+    const fullValue = JSON.stringify({ items: Array.from({ length: 2000 }, (_, index) => ({ index })) })
+    const onReadKeyValue = vi.fn(async () => fullTextValue(fullValue))
+
+    render(
+      <ResultPayloadView
+        connection={redisConnection()}
+        editContext={{
+          connectionId: 'conn-redis',
+          environmentId: 'env-dev',
+          queryText: 'GET payload:large',
+        }}
+        onReadKeyValue={onReadKeyValue}
+        payload={{
+          renderer: 'keyvalue',
+          entries: { 'payload:large': '{"items":[…]}' },
+          sampleTruncated: true,
+        }}
+      />,
+    )
+
+    const preview = screen.getByRole('button', { name: '{"items":[…]}' })
+    fireEvent.click(preview)
+
+    expect(await screen.findByLabelText('Complete value for payload:large')).toHaveValue(
+      JSON.stringify(JSON.parse(fullValue), null, 2),
+    )
+    const inspector = screen.getByRole('complementary', { name: 'Key-value inspector' })
+    expect(within(inspector).getByText('payload:large')).toBeInTheDocument()
+    expect(within(inspector).getByText('JSON')).toBeInTheDocument()
+    expect(within(inspector).getByText(
+      `${(new TextEncoder().encode(fullValue).length / 1024).toFixed(1)} KiB`,
+    )).toBeInTheDocument()
+    expect(within(inspector).queryByText('Full Value')).not.toBeInTheDocument()
+    expect(within(inspector).queryByText('Size')).not.toBeInTheDocument()
+    expect(within(inspector).queryByText('Content')).not.toBeInTheDocument()
+    expect(within(inspector).getByRole('button', { name: 'Copy value' })).toHaveAttribute(
+      'title',
+      'Copy complete value',
+    )
+    expect(within(inspector).getByRole('button', { name: 'Copy formatted JSON' })).toHaveTextContent('Copy JSON')
+    expect(onReadKeyValue).toHaveBeenCalledWith({
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      databaseIndex: undefined,
+      key: 'payload:large',
+      entryKey: undefined,
+      redisType: undefined,
+    })
+    expect(screen.getByText(/Values in this grid are previews/)).toBeInTheDocument()
+
+    fireEvent.contextMenu(preview)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Copy Value' }))
+    await waitFor(() => expect(writeTextSpy).toHaveBeenCalledWith(fullValue))
   })
 
   it('edits and deletes RedisJSON paths from expanded key details', async () => {
@@ -2138,6 +2190,7 @@ describe('ResultPayloadView', () => {
           queryText: 'JSON.GET profile:1 $',
         }}
         onExecuteDataEdit={executeDataEdit}
+        onReadKeyValue={vi.fn(async () => fullTextValue('{"profile":{"name":"Avery","legacy":true}}'))}
         payload={{
           renderer: 'keyvalue',
           key: 'profile:1',
@@ -2150,7 +2203,9 @@ describe('ResultPayloadView', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expand profile:1' }))
+    fireEvent.click(screen.getByRole('button', { name: '{"profile":{"name":"Avery","legacy":true}}' }))
+    await screen.findByRole('complementary', { name: 'Key-value inspector' })
+    fireEvent.click(screen.getByRole('button', { name: 'Tree View' }))
     fireEvent.click(screen.getByRole('button', { name: 'Expand profile:1' }))
     fireEvent.click(screen.getByRole('button', { name: 'Expand profile' }))
     fireEvent.click(screen.getByRole('button', { name: 'Edit path name' }))
@@ -2179,7 +2234,11 @@ describe('ResultPayloadView', () => {
         ],
       })
     })
-    expect(screen.getByText('"Nova"')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('button', {
+        name: '{"profile":{"name":"Nova","legacy":true}}',
+      })).toBeInTheDocument()
+    })
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete path legacy' }))
 
@@ -2203,7 +2262,11 @@ describe('ResultPayloadView', () => {
         ],
       })
     })
-    expect(screen.queryByText('legacy')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('button', {
+        name: '{"profile":{"name":"Nova"}}',
+      })).toBeInTheDocument()
+    })
   })
 
   it('executes Redis value and TTL edits from key-value results', async () => {
@@ -2238,6 +2301,7 @@ describe('ResultPayloadView', () => {
           queryText: 'GET session:1',
         }}
         onExecuteDataEdit={executeDataEdit}
+        onReadKeyValue={vi.fn(async () => fullTextValue('active'))}
         payload={{
           renderer: 'keyvalue',
           entries: {
@@ -2248,7 +2312,7 @@ describe('ResultPayloadView', () => {
     )
 
     fireEvent.doubleClick(screen.getByRole('button', { name: 'active' }))
-    fireEvent.change(screen.getByLabelText('Edit value session:1'), {
+    fireEvent.change(await screen.findByLabelText('Edit value session:1'), {
       target: { value: 'paused' },
     })
     fireEvent.blur(screen.getByLabelText('Edit value session:1'))
@@ -2542,6 +2606,7 @@ describe('ResultPayloadView', () => {
         queryText: 'GET session:1',
       },
       onExecuteDataEdit: executeDataEdit,
+      onReadKeyValue: vi.fn(async () => fullTextValue('active')),
     }
     const { rerender } = render(
       <ResultPayloadView
@@ -2556,7 +2621,7 @@ describe('ResultPayloadView', () => {
     )
 
     fireEvent.doubleClick(screen.getByRole('button', { name: 'active' }))
-    fireEvent.change(screen.getByLabelText('Edit value session:1'), {
+    fireEvent.change(await screen.findByLabelText('Edit value session:1'), {
       target: { value: 'paused' },
     })
     fireEvent.blur(screen.getByLabelText('Edit value session:1'))
@@ -3969,5 +4034,13 @@ function searchConnection(): ConnectionProfile {
     },
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function fullTextValue(value: string) {
+  return {
+    contentKind: 'text' as const,
+    byteLength: new TextEncoder().encode(value).length,
+    dataBase64: globalThis.btoa(value),
   }
 }

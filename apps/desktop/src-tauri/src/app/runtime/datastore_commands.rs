@@ -3,10 +3,10 @@ use std::collections::BTreeMap;
 use super::validators::{
     validate_adapter_diagnostics_request, validate_data_edit_execution_request,
     validate_data_edit_plan_request, validate_explorer_inspect_request, validate_explorer_request,
-    validate_operation_execution_request, validate_operation_manifest_request,
-    validate_operation_plan_request, validate_permission_inspection_request,
-    validate_redis_key_inspect_request, validate_redis_key_scan_request,
-    validate_structure_request,
+    validate_key_value_read_request, validate_operation_execution_request,
+    validate_operation_manifest_request, validate_operation_plan_request,
+    validate_permission_inspection_request, validate_redis_key_inspect_request,
+    validate_redis_key_scan_request, validate_structure_request,
 };
 use super::{
     environment_guards::{
@@ -20,7 +20,8 @@ use super::{
         redact_adapter_diagnostics_for_environment, redact_data_edit_plan_response_for_environment,
         redact_data_edit_response_for_environment, redact_execution_result_for_environment,
         redact_explorer_inspection_for_environment, redact_explorer_response_for_environment,
-        redact_operation_plan_response_for_environment, redact_operation_response_for_environment,
+        redact_key_value_content_for_environment, redact_operation_plan_response_for_environment,
+        redact_operation_response_for_environment,
         redact_permission_inspection_response_for_environment,
         redact_redis_key_scan_response_for_environment, redact_structure_response_for_environment,
     },
@@ -34,11 +35,12 @@ use crate::{
             AdapterDiagnosticsRequest, AdapterDiagnosticsResponse, DataEditExecutionRequest,
             DataEditExecutionResponse, DataEditPlanRequest, DataEditPlanResponse,
             DatastoreExperienceResponse, ExplorerInspectRequest, ExplorerInspectResponse,
-            ExplorerRequest, ExplorerResponse, OperationExecutionRequest,
-            OperationExecutionResponse, OperationManifestRequest, OperationManifestResponse,
-            OperationPlanRequest, OperationPlanResponse, PermissionInspectionRequest,
-            PermissionInspectionResponse, QueryHistoryEntry, RedisKeyInspectRequest,
-            RedisKeyScanRequest, RedisKeyScanResponse, StructureRequest, StructureResponse,
+            ExplorerRequest, ExplorerResponse, KeyValueValueContent, KeyValueValueReadRequest,
+            OperationExecutionRequest, OperationExecutionResponse, OperationManifestRequest,
+            OperationManifestResponse, OperationPlanRequest, OperationPlanResponse,
+            PermissionInspectionRequest, PermissionInspectionResponse, QueryHistoryEntry,
+            RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse, StructureRequest,
+            StructureResponse,
         },
     },
 };
@@ -175,6 +177,21 @@ impl ManagedAppState {
             diagnostics: Vec::new(),
             persistence_warning: None,
         })
+    }
+
+    pub async fn read_key_value(
+        &self,
+        mut request: KeyValueValueReadRequest,
+    ) -> Result<KeyValueValueContent, CommandError> {
+        self.ensure_unlocked()?;
+        validate_key_value_read_request(&mut request)?;
+        let profile = self.connection_by_id(&request.connection_id)?;
+        let (resolved, resolved_environment, _) =
+            self.resolve_connection_profile(&profile, &request.environment_id)?;
+        Ok(redact_key_value_content_for_environment(
+            adapters::read_key_value(&resolved, &request).await?,
+            &resolved_environment,
+        ))
     }
 
     pub fn list_datastore_experiences(&self) -> Result<DatastoreExperienceResponse, CommandError> {

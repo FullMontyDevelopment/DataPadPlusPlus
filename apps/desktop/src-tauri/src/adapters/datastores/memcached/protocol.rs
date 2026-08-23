@@ -13,6 +13,19 @@ pub(super) async fn memcached_request(
     connection: &ResolvedConnectionProfile,
     request: &str,
 ) -> Result<String, CommandError> {
+    let response = memcached_request_bytes(connection, request).await?;
+    String::from_utf8(response).map_err(|_| {
+        CommandError::new(
+            "memcached-response-invalid-text",
+            "Memcached returned binary data where a text protocol response was expected.",
+        )
+    })
+}
+
+pub(super) async fn memcached_request_bytes(
+    connection: &ResolvedConnectionProfile,
+    request: &str,
+) -> Result<Vec<u8>, CommandError> {
     let address = memcached_address(connection);
     let mut stream = memcached_connect(connection, &address).await?;
     if connection
@@ -31,13 +44,94 @@ pub(super) async fn memcached_request(
     })
     .await?;
 
-    let mut response = String::new();
+    let mut response = Vec::new();
     memcached_io_timeout(connection, async {
-        stream.read_to_string(&mut response).await?;
+        stream.read_to_end(&mut response).await?;
         Ok::<(), CommandError>(())
     })
     .await?;
     Ok(response)
+}
+
+pub(super) fn parse_memcached_values(
+    raw: &[u8],
+) -> Result<Vec<MemcachedProtocolValue>, CommandError> {
+    let mut values = Vec::new();
+    let mut offset = 0_usize;
+
+    while offset < raw.len() {
+        let Some(header_end) = find_crlf(raw, offset) else {
+            return Err(CommandError::new(
+                "memcached-response-malformed",
+                "Memcached returned a response without a complete line ending.",
+            ));
+        };
+        let header = std::str::from_utf8(&raw[offset..header_end]).map_err(|_| {
+            CommandError::new(
+                "memcached-response-malformed",
+                "Memcached returned a non-text value header.",
+            )
+        })?;
+        offset = header_end + 2;
+
+        if header == "END" || header.is_empty() {
+            break;
+        }
+        let parts = header.split_whitespace().collect::<Vec<_>>();
+        if parts.first() != Some(&"VALUE") || parts.len() < 4 {
+            continue;
+        }
+        let byte_length = parts[3].parse::<usize>().map_err(|_| {
+            CommandError::new(
+                "memcached-response-malformed",
+                "Memcached returned an invalid value byte length.",
+            )
+        })?;
+        let value_end = offset
+            .checked_add(byte_length)
+            .filter(|end| *end <= raw.len())
+            .ok_or_else(|| {
+                CommandError::new(
+                    "memcached-response-incomplete",
+                    "Memcached closed the response before the complete value was received.",
+                )
+            })?;
+        let value = raw[offset..value_end].to_vec();
+        offset = value_end;
+        if raw.get(offset..offset + 2) != Some(b"\r\n") {
+            return Err(CommandError::new(
+                "memcached-response-malformed",
+                "Memcached returned a value without its required line ending.",
+            ));
+        }
+        offset += 2;
+        values.push(MemcachedProtocolValue {
+            key: parts[1].to_string(),
+            flags: parts[2].to_string(),
+            byte_length,
+            cas: parts.get(4).map(|value| (*value).to_string()),
+            value,
+        });
+    }
+
+    Ok(values)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct MemcachedProtocolValue {
+    pub key: String,
+    pub flags: String,
+    pub byte_length: usize,
+    pub cas: Option<String>,
+    pub value: Vec<u8>,
+}
+
+fn find_crlf(value: &[u8], start: usize) -> Option<usize> {
+    value
+        .get(start..)?
+        .windows(2)
+        .position(|window| window == b"\r\n")
+        .map(|position| start + position)
 }
 
 async fn memcached_connect(

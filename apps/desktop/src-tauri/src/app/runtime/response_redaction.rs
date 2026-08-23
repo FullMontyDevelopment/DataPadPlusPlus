@@ -38,6 +38,17 @@ pub(super) fn redact_execution_result_for_environment(
     result
 }
 
+pub(super) fn redact_key_value_content_for_environment(
+    mut content: crate::domain::models::KeyValueValueContent,
+    environment: &ResolvedEnvironment,
+) -> crate::domain::models::KeyValueValueContent {
+    if let Ok(text) = std::str::from_utf8(&content.bytes) {
+        content.bytes = redact_runtime_string(text, &secret_values(environment)).into_bytes();
+        content.content_kind = "text".into();
+    }
+    content
+}
+
 pub(super) fn redact_result_page_for_environment(
     mut response: ResultPageResponse,
     environment: &ResolvedEnvironment,

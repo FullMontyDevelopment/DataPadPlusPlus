@@ -1,4 +1,4 @@
-import type { AdapterDiagnosticsRequest, AdapterDiagnosticsResponse, DataEditExecutionRequest, DataEditExecutionResponse, DataEditPlanRequest, DataEditPlanResponse, DatastoreExperienceResponse, ExecutionResponse, ExecutionResultEnvelope, ExplorerInspectRequest, ExplorerInspectResponse, ExplorerRequest, ExplorerResponse, OperationExecutionRequest, OperationExecutionResponse, OperationManifestRequest, OperationManifestResponse, OperationPlanRequest, OperationPlanResponse, PermissionInspectionRequest, PermissionInspectionResponse, ResultRenderer, RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse, StructureRequest, StructureResponse } from '@datapadplusplus/shared-types'
+import type { AdapterDiagnosticsRequest, AdapterDiagnosticsResponse, DataEditExecutionRequest, DataEditExecutionResponse, DataEditPlanRequest, DataEditPlanResponse, DatastoreExperienceResponse, ExecutionResponse, ExecutionResultEnvelope, ExplorerInspectRequest, ExplorerInspectResponse, ExplorerRequest, ExplorerResponse, KeyValueValueReadEvent, KeyValueValueReadRequest, KeyValueValueReadResult, OperationExecutionRequest, OperationExecutionResponse, OperationManifestRequest, OperationManifestResponse, OperationPlanRequest, OperationPlanResponse, PermissionInspectionRequest, PermissionInspectionResponse, ResultRenderer, RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse, StructureRequest, StructureResponse } from '@datapadplusplus/shared-types'
 import { buildDatastoreExperiences, executeDataEditLocally, planDataEditLocally } from './browser-datastore-platform'
 import { buildOperationManifestsForConnection, collectDiagnosticsLocally, executeOperationLocally, inspectPermissionsLocally, planOperationLocally } from './browser-operations'
 import {
@@ -15,6 +15,7 @@ import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
 import { resolveEnvironment } from '../../app/state/helpers'
 import {
   validateAdapterDiagnosticsRequest,
+  validateKeyValueValueReadRequest,
   validateDataEditExecutionRequest,
   validateDataEditPlanRequest,
   validateExplorerInspectRequest,
@@ -186,6 +187,59 @@ export const clientAdapters = {
     }, resolveEnvironment(snapshot.environments, request.environmentId))
   },
 
+  async readKeyValue(request: KeyValueValueReadRequest): Promise<KeyValueValueReadResult> {
+    request = validateKeyValueValueReadRequest(request)
+    if (isTauriRuntime()) {
+      const { Channel } = await import('@tauri-apps/api/core')
+      let contentKind: KeyValueValueReadResult['contentKind'] | undefined
+      let byteLength: number | undefined
+      const chunks: Array<{ offset: number; bytes: Uint8Array }> = []
+      let completed = false
+      const onEvent = new Channel<KeyValueValueReadEvent>((event) => {
+        if (event.type === 'metadata') {
+          contentKind = event.contentKind
+          byteLength = event.byteLength
+        } else if (event.type === 'chunk') {
+          chunks.push({ offset: event.offset, bytes: base64ToBytes(event.dataBase64) })
+        } else {
+          completed = true
+        }
+      })
+      await invokeDesktop<void>('read_key_value', { request, onEvent })
+      if (!completed || contentKind === undefined || byteLength === undefined) {
+        throw new Error('The full value stream ended before all metadata was received.')
+      }
+      chunks.sort((left, right) => left.offset - right.offset)
+      const bytes = new Uint8Array(byteLength)
+      let nextOffset = 0
+      for (const chunk of chunks) {
+        if (chunk.offset !== nextOffset || chunk.offset + chunk.bytes.length > bytes.length) {
+          throw new Error('The full value stream contained an invalid or missing chunk.')
+        }
+        bytes.set(chunk.bytes, chunk.offset)
+        nextOffset += chunk.bytes.length
+      }
+      if (nextOffset !== byteLength) {
+        throw new Error('The full value stream was incomplete.')
+      }
+      return { contentKind, byteLength, dataBase64: bytesToBase64(bytes) }
+    }
+
+    const value = previewRedisValue(request.key)
+    const entries: Record<string, string> = value.entries
+    const rawValue = request.entryKey === undefined
+      ? typeof value.value === 'string'
+        ? value.value
+        : JSON.stringify(value.value)
+      : entries[request.entryKey] ?? ''
+    const bytes = new TextEncoder().encode(rawValue)
+    return {
+      contentKind: 'text',
+      byteLength: bytes.length,
+      dataBase64: bytesToBase64(bytes),
+    }
+  },
+
   async inspectExplorer(
     request: ExplorerInspectRequest,
   ): Promise<ExplorerInspectResponse> {
@@ -349,4 +403,18 @@ function previewRedisValue(key: string) {
     entries: { [key]: JSON.stringify({ preview: true, key }) },
     value: { preview: true, key },
   }
+}
+
+function base64ToBytes(value: string) {
+  const binary = globalThis.atob(value)
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0))
+}
+
+function bytesToBase64(value: Uint8Array) {
+  let binary = ''
+  const chunkSize = 32_768
+  for (let offset = 0; offset < value.length; offset += chunkSize) {
+    binary += String.fromCharCode(...value.subarray(offset, offset + chunkSize))
+  }
+  return globalThis.btoa(binary)
 }

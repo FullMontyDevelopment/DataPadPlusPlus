@@ -4688,6 +4688,7 @@ function DesktopWorkspace() {
                 }}
                 onExecuteDataEdit={actions.executeDataEdit}
                 onPlanOperation={planDatastoreOperationWithConfirmation}
+                onReadKeyValue={actions.readKeyValue}
                 onDismissWorkbenchMessage={actions.dismissWorkbenchMessage}
                 onClearWorkbenchMessages={actions.clearWorkbenchMessages}
                 onOpenSecuritySettings={() => openDiagnosticsDrawer('security')}

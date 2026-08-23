@@ -234,7 +234,7 @@ async fn execute_redis_single_command(
 
             RedisCommandOutcome {
                 payloads: vec![
-                    payload_keyvalue(entries, Some(ttl.to_string()), None),
+                    scoped_keyvalue_payload(entries, key, "hash", Some(ttl.to_string())),
                     payload_json(json!({ "key": key, "fields": values.clone() })),
                     payload_raw(format_redis_pairs(&values)),
                     payload_resp(resp_array(
@@ -258,7 +258,7 @@ async fn execute_redis_single_command(
 
             RedisCommandOutcome {
                 payloads: vec![
-                    payload_keyvalue(entries, None, None),
+                    scoped_keyvalue_payload(entries, key, "string", None),
                     payload_json(json!({ "key": key, "value": value.clone() })),
                     payload_raw(raw_value),
                     payload_resp(resp_value),
@@ -573,6 +573,20 @@ fn format_redis_pairs(values: &[String]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn scoped_keyvalue_payload(
+    entries: BTreeMap<String, String>,
+    key: &str,
+    redis_type: &str,
+    ttl: Option<String>,
+) -> Value {
+    let mut payload = payload_keyvalue(entries, ttl, None);
+    if let Some(payload) = payload.as_object_mut() {
+        payload.insert("key".into(), json!(key));
+        payload.insert("redisType".into(), json!(redis_type));
+    }
+    payload
 }
 
 #[cfg(test)]

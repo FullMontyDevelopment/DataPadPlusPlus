@@ -62,6 +62,8 @@ export function RedisKeyBrowserPanel({
   const [scannedCount, setScannedCount] = useState(builderState.scannedCount ?? 0)
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState('')
+  const [patternDraft, setPatternDraft] = useState(builderState.pattern ?? '*')
+  const [delimiterDraft, setDelimiterDraft] = useState(builderState.delimiter ?? ':')
   const [showAddKey, setShowAddKey] = useState(false)
   const [addKeyName, setAddKeyName] = useState('')
   const [addKeyType, setAddKeyType] = useState('string')
@@ -97,7 +99,7 @@ export function RedisKeyBrowserPanel({
   )
 
   const scan = useCallback(
-    async ({ reset }: { reset: boolean }) => {
+    async ({ reset, pattern }: { reset: boolean; pattern?: string }) => {
       if (!onScanRedisKeys) {
         return
       }
@@ -109,10 +111,10 @@ export function RedisKeyBrowserPanel({
         tabId: tab.id,
         connectionId: tab.connectionId,
         environmentId: tab.environmentId,
-        pattern: builderState.pattern || '*',
+        pattern: pattern ?? (builderState.pattern || '*'),
+        delimiter: builderState.delimiter ?? ':',
         typeFilter: builderState.typeFilter,
         databaseIndex,
-        delimiter,
         cursor: reset ? '0' : cursor,
         count: builderState.scanCount ?? builderState.pageSize ?? 100,
         pageSize: builderState.pageSize ?? 100,
@@ -139,13 +141,13 @@ export function RedisKeyBrowserPanel({
     },
     [
       builderState.filters,
+      builderState.delimiter,
       builderState.pageSize,
       builderState.pattern,
       builderState.scanCount,
       builderState.typeFilter,
       cursor,
       databaseIndex,
-      delimiter,
       onScanRedisKeys,
       tab.connectionId,
       tab.environmentId,
@@ -165,11 +167,39 @@ export function RedisKeyBrowserPanel({
     builderState.typeFilter,
     builderState.pageSize,
     databaseIndex,
-    delimiter,
     ttlFilter,
     refreshSignal,
     tab.id,
   ])
+
+  const applyBrowserDraft = () => {
+    const nextDelimiter = delimiterDraft
+    if (nextDelimiter.length < 1 || nextDelimiter.length > 3) {
+      setStatus('Delimiter must contain between 1 and 3 characters.')
+      return
+    }
+    const nextPattern = patternDraft.length === 0 ? '*' : patternDraft
+    const patternChanged = nextPattern !== (builderState.pattern || '*')
+    const delimiterChanged = nextDelimiter !== delimiter
+    setPatternDraft(nextPattern)
+    setStatus('')
+    if (patternChanged || delimiterChanged) {
+      updateBuilder({
+        pattern: nextPattern,
+        delimiter: nextDelimiter,
+        expandedPrefixes: delimiterChanged ? [] : builderState.expandedPrefixes,
+        selectedKey: patternChanged ? undefined : builderState.selectedKey,
+      })
+      return
+    }
+    void scan({ reset: true, pattern: nextPattern })
+  }
+
+  const restoreBrowserDraft = () => {
+    setPatternDraft(builderState.pattern ?? '*')
+    setDelimiterDraft(delimiter)
+    setStatus('')
+  }
 
   const selectKey = (key: string) => {
     updateBuilder({ selectedKey: key })
@@ -363,30 +393,48 @@ export function RedisKeyBrowserPanel({
           <span>Delimiter</span>
           <input
             aria-label="Redis namespace delimiter"
-            value={delimiter}
+            value={delimiterDraft}
             maxLength={3}
-            onChange={(event) =>
-              updateBuilder({
-                delimiter: event.target.value || ':',
-                expandedPrefixes: [],
-              })
-            }
+            onChange={(event) => setDelimiterDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                applyBrowserDraft()
+              } else if (event.key === 'Escape') {
+                event.preventDefault()
+                restoreBrowserDraft()
+              }
+            }}
           />
         </label>
         <label className="redis-browser-pattern">
           <SearchIcon className="toolbar-icon" />
           <input
             aria-label="Filter by key name or pattern"
-            value={builderState.pattern}
+            value={patternDraft}
             placeholder="Filter by Key Name or Pattern"
-            onChange={(event) =>
-              updateBuilder({
-                pattern: event.target.value || '*',
-                selectedKey: undefined,
-              })
-            }
+            onChange={(event) => setPatternDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                applyBrowserDraft()
+              } else if (event.key === 'Escape') {
+                event.preventDefault()
+                restoreBrowserDraft()
+              }
+            }}
           />
         </label>
+        <button
+          type="button"
+          className="toolbar-icon-action"
+          aria-label="Apply key search"
+          title="Apply key pattern and delimiter"
+          disabled={loading}
+          onClick={applyBrowserDraft}
+        >
+          <SearchIcon className="toolbar-icon" />
+        </button>
         <button
           type="button"
           className="drawer-button"

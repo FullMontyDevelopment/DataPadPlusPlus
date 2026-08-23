@@ -96,6 +96,14 @@ impl DatastoreAdapter for ValkeyAdapter {
         RedisAdapter.inspect_redis_key(connection, request).await
     }
 
+    async fn read_key_value(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &KeyValueValueReadRequest,
+    ) -> Result<KeyValueValueContent, CommandError> {
+        RedisAdapter.read_key_value(connection, request).await
+    }
+
     async fn execute(
         &self,
         connection: &ResolvedConnectionProfile,

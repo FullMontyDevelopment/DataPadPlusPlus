@@ -96,6 +96,15 @@ pub async fn inspect_redis_key(
         .await
 }
 
+pub async fn read_key_value(
+    connection: &ResolvedConnectionProfile,
+    request: &KeyValueValueReadRequest,
+) -> Result<KeyValueValueContent, CommandError> {
+    adapter_for_engine(&connection.engine)?
+        .read_key_value(connection, request)
+        .await
+}
+
 pub async fn cancel(
     connection: &ResolvedConnectionProfile,
     request: &CancelExecutionRequest,

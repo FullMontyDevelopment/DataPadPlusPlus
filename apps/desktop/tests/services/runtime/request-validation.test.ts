@@ -11,6 +11,7 @@ import {
   validateDocumentNodeChildrenRequest,
   validateEnvironmentProfile,
   validateExecutionRequest,
+  validateKeyValueValueReadRequest,
   validateExplorerRequest,
   validateOperationExecutionRequest,
   validateOperationPlanRequest,
@@ -152,6 +153,23 @@ describe('runtime request validation', () => {
         summaryMode: 'everything' as never,
       }),
     ).toThrow(/summary mode/)
+  })
+
+  it('requires exact concrete keys for full key-value reads', () => {
+    expect(validateKeyValueValueReadRequest({
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      databaseIndex: 1,
+      key: 'orders:1',
+      entryKey: 'status',
+      redisType: 'hash',
+    })).toMatchObject({ key: 'orders:1', entryKey: 'status', databaseIndex: 1 })
+
+    expect(() => validateKeyValueValueReadRequest({
+      connectionId: 'conn-redis',
+      environmentId: 'env-dev',
+      key: 'orders:*',
+    })).toThrow(/concrete key without wildcards/)
   })
 
   it('normalizes nullable scoped query target paths before desktop commands', () => {

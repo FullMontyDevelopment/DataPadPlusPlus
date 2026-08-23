@@ -11,6 +11,7 @@ import type {
   OperationPlanRequest,
   PermissionInspectionRequest,
   RedisKeyInspectRequest,
+  KeyValueValueReadRequest,
   RedisKeyScanRequest,
   ResultPageRequest,
   SaveQueryTabToLocalFileRequest,
@@ -153,6 +154,30 @@ export function validateRedisKeyInspectRequest(
       'Redis inspect sample size',
       1,
       MAX_REDIS_SAMPLE_SIZE,
+    ),
+  }
+}
+
+export function validateKeyValueValueReadRequest(
+  request: KeyValueValueReadRequest,
+): KeyValueValueReadRequest {
+  validateRequiredId(request.connectionId, 'Connection id')
+  validateEnvironmentContextId(request.environmentId)
+  validateRequiredText(request.key, 'Key-value key', MAX_SCOPE_LENGTH)
+  const key = request.key
+  if (key.includes('*')) {
+    throw new Error('Full value inspection requires a concrete key without wildcards.')
+  }
+  return {
+    ...request,
+    key,
+    entryKey: validateOptionalText(request.entryKey, 'Key-value entry', MAX_SCOPE_LENGTH),
+    redisType: validateOptionalText(request.redisType, 'Key-value type', 64),
+    databaseIndex: clampOptionalInteger(
+      request.databaseIndex,
+      'Key-value database index',
+      0,
+      MAX_REDIS_DATABASE,
     ),
   }
 }

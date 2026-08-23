@@ -71,6 +71,7 @@ const defaultActions: Actions = {
   inspectExplorer: noop,
   scanRedisKeys: async () => undefined,
   inspectRedisKey: noop,
+  readKeyValue: async () => undefined,
   executeQuery: noop,
   executeBuilderCount: noop,
   executeTestSuite: async () => undefined,

@@ -518,6 +518,40 @@ pub struct RedisKeyInspectRequest {
     pub sample_size: Option<u32>,
 }
 
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyValueValueReadRequest {
+    pub connection_id: String,
+    pub environment_id: String,
+    pub database_index: Option<u32>,
+    pub key: String,
+    pub entry_key: Option<String>,
+    pub redis_type: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyValueValueContent {
+    pub content_kind: String,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum KeyValueValueReadEvent {
+    Metadata {
+        #[serde(rename = "contentKind")]
+        content_kind: String,
+        #[serde(rename = "byteLength")]
+        byte_length: u64,
+    },
+    Chunk {
+        offset: u64,
+        #[serde(rename = "dataBase64")]
+        data_base64: String,
+    },
+    Complete,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistenceWarning {

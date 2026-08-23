@@ -24,6 +24,22 @@ const requestedProfiles = new Set(
     .filter(Boolean),
 )
 
+function fullValueFixture() {
+  return JSON.stringify(
+    {
+      fixture: 'key-value-full-read',
+      records: Array.from({ length: 4096 }, (_, index) => ({
+        id: index + 1,
+        label: `Fixture record ${index + 1}`,
+        payload: `payload-${String(index + 1).padStart(4, '0')}-${'x'.repeat(48)}`,
+      })),
+      sentinel: 'DATAPADPLUSPLUS_FULL_VALUE_END',
+    },
+    null,
+    2,
+  )
+}
+
 function loadGeneratedEnvironment() {
   if (!existsSync(generatedEnvPath)) {
     return
@@ -272,6 +288,7 @@ function seedKeyValueDomain(container, command = 'redis-cli') {
       'account:1:segments',
       'products:inventory',
       'stream:orders',
+      'fixture:full-value:json',
     ]),
     redisProtocolCommand([
       'SET',
@@ -283,6 +300,7 @@ function seedKeyValueDomain(container, command = 'redis-cli') {
       'account:2',
       JSON.stringify({ id: 2, name: 'Contoso', status: 'active', tier: 'growth' }),
     ]),
+    redisProtocolCommand(['SET', 'fixture:full-value:json', fullValueFixture()]),
     redisProtocolCommand([
       'HSET',
       'product:luna-lamp',
@@ -687,6 +705,7 @@ async function seedCache() {
   }
 
   if (shouldSeed('datapadplusplus-memcached', 'cache')) {
+    const fullValue = fullValueFixture()
     const generatedSets = []
     for (let id = 1; id <= 500; id += 1) {
       const key = `product:fixture:${String(id).padStart(4, '0')}`
@@ -709,6 +728,8 @@ async function seedCache() {
         '{"id":1,"name":"Northwind","status":"active","tier":"enterprise"}',
         'set product:luna-lamp 0 3600 77',
         '{"sku":"luna-lamp","name":"Luna Lamp","inventory_available":18,"price":49.99}',
+        `set fixture:full-value:json 0 3600 ${Buffer.byteLength(fullValue)}`,
+        fullValue,
         ...generatedSets,
         'quit',
         '',

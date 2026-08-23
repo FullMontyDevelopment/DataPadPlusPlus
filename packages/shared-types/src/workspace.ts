@@ -851,6 +851,7 @@ export interface KeyValuePayload {
   ttl?: string
   memoryUsage?: string
   key?: string
+  databaseIndex?: number
   redisType?: string
   ttlSeconds?: number
   ttlMs?: number
@@ -868,6 +869,14 @@ export interface KeyValuePayload {
   zsetRanks?: Array<Record<string, unknown>>
   moduleMetadata?: Record<string, unknown>
   commandSupport?: Record<string, boolean>
+  /** True only when the initial value shown by this payload is an incomplete preview. */
+  sampleTruncated?: boolean
+  preview?: {
+    truncated: boolean
+    unit: 'bytes' | 'items'
+    loaded: number
+    total?: number
+  }
 }
 
 export interface RawPayload {
