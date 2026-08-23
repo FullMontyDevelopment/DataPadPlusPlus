@@ -1,7 +1,7 @@
 {
   "name": "@datapadplusplus/shared-types",
   "private": true,
-  "version": "0.1.52",
+  "version": "0.1.53",
   "description": "Shared DataPad++ TypeScript contracts.",
   "homepage": "https://datapad-plus-plus.org/",
   "repository": {

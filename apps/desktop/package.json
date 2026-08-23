@@ -1,7 +1,7 @@
 {
   "name": "@datapadplusplus/desktop",
   "private": true,
-  "version": "0.1.52",
+  "version": "0.1.53",
   "description": "The DataPad++ desktop datastore workbench.",
   "homepage": "https://datapad-plus-plus.org/",
   "repository": {
