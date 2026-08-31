@@ -6,6 +6,7 @@ mod connection;
 mod diagnostics;
 mod editing;
 mod explorer;
+mod import_export;
 mod paging;
 mod query;
 mod structure;
@@ -27,6 +28,46 @@ impl DatastoreAdapter for CosmosDbAdapter {
 
     fn manifest(&self) -> AdapterManifest {
         cosmosdb_manifest()
+    }
+
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        cosmosdb_operation_manifests(&self.manifest())
+    }
+
+    async fn plan_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        operation_id: &str,
+        object_name: Option<&str>,
+        parameters: Option<&BTreeMap<String, Value>>,
+    ) -> Result<OperationPlan, CommandError> {
+        Ok(import_export::cosmosdb_transfer_plan(
+            connection,
+            operation_id,
+            object_name,
+            parameters,
+        ))
+    }
+
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if request.operation_id == "cosmosdb.data.import-export" {
+            return import_export::execute_cosmosdb_transfer(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
     }
 
     fn execution_capabilities(&self) -> ExecutionCapabilities {

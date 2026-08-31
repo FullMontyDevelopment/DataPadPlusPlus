@@ -91,6 +91,7 @@ pub(super) struct CosmosDbQueryRequestOptions {
 struct CosmosDbRequestOptions {
     query: Option<CosmosDbQueryRequestOptions>,
     mutation: Option<CosmosDbMutationRequestOptions>,
+    resource_json: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -165,6 +166,7 @@ pub(super) async fn cosmosdb_post_query(
         CosmosDbRequestOptions {
             query: Some(options),
             mutation: None,
+            resource_json: false,
         },
         cancellation,
     )
@@ -178,6 +180,72 @@ pub(super) async fn cosmosdb_guarded_get_document(
 ) -> Result<CosmosDbResponse, CommandError> {
     cosmosdb_guarded_document_request(connection, Method::GET, path, None, partition_key, None)
         .await
+}
+
+pub(super) async fn cosmosdb_create_document(
+    connection: &ResolvedConnectionProfile,
+    path: &str,
+    body: &str,
+    partition_key: &Value,
+) -> Result<CosmosDbResponse, CommandError> {
+    let partition_key = if partition_key.is_array() {
+        partition_key.clone()
+    } else {
+        json!([partition_key])
+    };
+    cosmosdb_request(
+        connection,
+        Method::POST,
+        path,
+        Some(body),
+        CosmosDbRequestOptions {
+            query: None,
+            mutation: Some(CosmosDbMutationRequestOptions {
+                partition_key: partition_key.to_string(),
+                if_match: None,
+            }),
+            resource_json: false,
+        },
+        None,
+    )
+    .await
+}
+
+#[cfg(test)]
+pub(super) async fn cosmosdb_create_resource(
+    connection: &ResolvedConnectionProfile,
+    path: &str,
+    body: &str,
+) -> Result<CosmosDbResponse, CommandError> {
+    cosmosdb_request(
+        connection,
+        Method::POST,
+        path,
+        Some(body),
+        CosmosDbRequestOptions {
+            query: None,
+            mutation: None,
+            resource_json: true,
+        },
+        None,
+    )
+    .await
+}
+
+#[cfg(test)]
+pub(super) async fn cosmosdb_delete_resource(
+    connection: &ResolvedConnectionProfile,
+    path: &str,
+) -> Result<CosmosDbResponse, CommandError> {
+    cosmosdb_request(
+        connection,
+        Method::DELETE,
+        path,
+        None,
+        CosmosDbRequestOptions::default(),
+        None,
+    )
+    .await
 }
 
 pub(super) async fn cosmosdb_guarded_replace_document(
@@ -239,6 +307,7 @@ async fn cosmosdb_guarded_document_request(
                 partition_key: partition_key.to_string(),
                 if_match: if_match.map(str::to_string),
             }),
+            resource_json: false,
         },
         None,
     )
@@ -298,6 +367,9 @@ async fn cosmosdb_request(
             if let Some(if_match) = mutation.if_match.as_deref() {
                 request = request.header("If-Match", if_match);
             }
+        }
+        if options.resource_json {
+            request = request.header("Content-Type", "application/json");
         }
         if !body.is_empty() {
             request = request.body(body.clone());
