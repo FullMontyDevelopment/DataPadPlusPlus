@@ -1417,8 +1417,8 @@ async fn duckdb_local_file_fixture_validates_read_profile_catalog_and_guard_boun
 }
 
 #[tokio::test]
-async fn concrete_preview_adapters_surface_contract_without_live_fixture(
-) -> Result<(), CommandError> {
+async fn secondary_adapters_surface_safe_contract_without_live_fixture() -> Result<(), CommandError>
+{
     let manifests = adapters::manifests();
 
     for (engine, family, maturity) in [
@@ -1461,15 +1461,18 @@ async fn concrete_preview_adapters_surface_contract_without_live_fixture(
             .iter()
             .any(|operation| operation.id == format!("{engine}.diagnostics.metrics")));
         if maturity == "beta" {
-            assert!(operations
+            for operation in operations
                 .iter()
                 .filter(|operation| matches!(operation.risk.as_str(), "write" | "destructive"))
-                .all(|operation| operation.preview_only == Some(true)
-                    || (engine == "valkey"
-                        && matches!(
-                            operation.id.as_str(),
-                            "valkey.key.export" | "valkey.key.import"
-                        ))));
+            {
+                assert!(operation.requires_confirmation, "{}", operation.id);
+                if operation.preview_only == Some(false) {
+                    assert_eq!(operation.execution_support, "live", "{}", operation.id);
+                    assert!(operation.disabled_reason.is_none(), "{}", operation.id);
+                } else {
+                    assert_eq!(operation.preview_only, Some(true), "{}", operation.id);
+                }
+            }
         }
 
         let permissions = adapters::inspect_permissions(&connection).await?;
