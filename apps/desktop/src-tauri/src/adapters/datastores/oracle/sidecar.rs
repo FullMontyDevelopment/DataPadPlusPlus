@@ -388,6 +388,9 @@ pub(super) async fn execute_oracle_managed_csv_transfer(
     .await
 }
 
+// Keep the validated Data Pump fields explicit at the sidecar boundary so they
+// cannot be replaced by an untyped parameter map.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn execute_oracle_managed_data_pump(
     connection: &ResolvedConnectionProfile,
     operation: &str,
