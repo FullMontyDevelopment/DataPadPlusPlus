@@ -16,10 +16,12 @@ type CapabilitySpec = {
   formats: FormatSpec[]
   destinations?: DatastoreTransferDestinationKind[]
   support?: DatastoreOperationExecutionSupport
+  supportByAction?: Partial<Record<DatastoreTransferAction, DatastoreOperationExecutionSupport>>
   operationIds?: Partial<Record<DatastoreTransferAction, string>>
   options?: Partial<Record<DatastoreTransferAction, DatastoreTransferOption[]>>
   description: string
   disabledReason?: string
+  disabledReasonByAction?: Partial<Record<DatastoreTransferAction, string>>
   multiple?: boolean
   requiresExistingTarget?: boolean
 }
@@ -117,7 +119,61 @@ const DATA_SPECS: Record<DatastoreEngine, CapabilitySpec> = {
       }],
     },
   },
-  prometheus: plannedData('Prometheus exports query results; import requires a detected remote-write receiver.', [['openmetrics', 'OpenMetrics', 'native', ['prom'], 'OpenMetrics text exposition.'], portableJson, portableCsv]),
+  prometheus: {
+    actions: ['import', 'export'],
+    formats: [
+      ['prometheus-json', 'Prometheus API JSON', 'native', ['json'], 'The complete native Prometheus HTTP API response envelope.'],
+      ['openmetrics', 'OpenMetrics', 'native', ['prom'], 'OpenMetrics text with complete labels, sample values, and timestamps.'],
+      portableCsv,
+    ],
+    support: 'live',
+    supportByAction: { import: 'unsupported', export: 'live' },
+    description: 'Prometheus exports bounded instant or range query results. Import is unavailable because remote write cannot atomically fail when an existing series and timestamp would be replaced.',
+    multiple: true,
+    requiresExistingTarget: false,
+    disabledReasonByAction: {
+      import: 'Prometheus remote write unconditionally replaces existing series/timestamps and cannot provide the required atomic fail-on-conflict guarantee.',
+    },
+    options: {
+      export: [
+        {
+          id: 'query',
+          label: 'PromQL query',
+          input: 'text',
+          required: true,
+          placeholder: 'up{job="prometheus"}',
+          description: 'A PromQL instant or range query. DataPad++ never writes the query into transfer metadata.',
+        },
+        {
+          id: 'start',
+          label: 'Range start',
+          input: 'text',
+          required: false,
+          requiredWith: ['end', 'step'],
+          placeholder: '2026-08-31T12:00:00Z',
+          description: 'Optional RFC 3339 or Unix timestamp. Supply start, end, and step together for a range export.',
+        },
+        {
+          id: 'end',
+          label: 'Range end',
+          input: 'text',
+          required: false,
+          requiredWith: ['start', 'step'],
+          placeholder: '2026-08-31T13:00:00Z',
+          description: 'Inclusive range end.',
+        },
+        {
+          id: 'step',
+          label: 'Range step',
+          input: 'text',
+          required: false,
+          requiredWith: ['start', 'end'],
+          placeholder: '15s',
+          description: 'Prometheus query step, such as 15s or 1m.',
+        },
+      ],
+    },
+  },
   opentsdb: plannedData('OpenTSDB transfers data through its query and put JSON APIs.', [portableJson]),
   neo4j: plannedData('Neo4j transfers graph values through Bolt and transactional UNWIND batches.', [portableJson, portableCsv]),
   arango: liveData('ArangoDB streams collection exports through paged AQL cursors and imports through the complete, duplicate-safe Import API. _key and edge endpoints are preserved; server-owned revisions are regenerated.', [portableJson, portableNdjson]),
@@ -244,14 +300,14 @@ function capability(engine: DatastoreEngine, action: DatastoreTransferAction, sp
     kind,
     operationId: spec.operationIds?.[action] ?? `${engine}.data.${kind === 'data' ? 'import-export' : 'backup-restore'}`,
     scope: kind === 'backup' ? 'database' : dataScope(engine),
-    executionSupport: spec.support ?? 'plan-only',
+    executionSupport: spec.supportByAction?.[action] ?? spec.support ?? 'plan-only',
     formats: spec.formats.map(format),
     options: spec.options?.[action],
     destinationKinds: spec.destinations ?? ['local-file'],
     supportsMultipleObjects: spec.multiple ?? true,
     requiresExistingTarget: spec.requiresExistingTarget ?? true,
     description: spec.description,
-    disabledReason: spec.disabledReason,
+    disabledReason: spec.disabledReasonByAction?.[action] ?? spec.disabledReason,
   }
 }
 
