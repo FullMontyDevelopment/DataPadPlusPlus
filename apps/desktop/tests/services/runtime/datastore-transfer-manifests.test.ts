@@ -29,6 +29,7 @@ describe('datastore transfer manifests', () => {
       'postgresql', 'mysql', 'mariadb', 'sqlserver', 'sqlite', 'mongodb',
       'redis', 'valkey', 'litedb', 'duckdb', 'memcached', 'timescaledb', 'clickhouse', 'arango',
       'cassandra',
+      'elasticsearch', 'opensearch',
     ] as const) {
       const capabilities = datastoreTransferManifest(engine).capabilities
       expect(capabilities.find((item) => item.action === 'import')?.executionSupport).toBe('live')
@@ -114,6 +115,22 @@ describe('datastore transfer manifests', () => {
       ['cql-json-lines', 'native'],
     ])
     expect(capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('unsupported')
+  })
+
+  it('uses a mappings, settings, and Bulk NDJSON folder for search transfers', () => {
+    for (const engine of ['elasticsearch', 'opensearch'] as const) {
+      const capabilities = datastoreTransferManifest(engine).capabilities
+      const imported = capabilities.find((item) => item.action === 'import')
+      const exported = capabilities.find((item) => item.action === 'export')
+      expect(imported?.executionSupport).toBe('live')
+      expect(imported?.requiresExistingTarget).toBe(false)
+      expect(imported?.destinationKinds).toEqual(['local-folder'])
+      expect(imported?.formats.map((item) => [item.id, item.fidelity])).toEqual([
+        ['search-transfer-folder', 'native'],
+      ])
+      expect(imported?.options?.map((item) => item.id)).toEqual(['targetIndex'])
+      expect(exported?.supportsMultipleObjects).toBe(false)
+    }
   })
 
   it('recognizes generic and engine-specific transfer operations', () => {

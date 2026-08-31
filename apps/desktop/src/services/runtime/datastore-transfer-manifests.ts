@@ -93,8 +93,8 @@ const DATA_SPECS: Record<DatastoreEngine, CapabilitySpec> = {
     ],
   }),
   oracle: plannedData('Oracle local data transfer will use managed-driver array binding.', [portableCsv]),
-  elasticsearch: plannedData('Elasticsearch uses PIT/search-after export and Bulk API NDJSON import.', [portableNdjson]),
-  opensearch: plannedData('OpenSearch uses its version-compatible search and Bulk APIs.', [portableNdjson]),
+  elasticsearch: liveSearchData('Elasticsearch exports with PIT/search-after and imports into a new rollback-safe index through conflict-safe Bulk create actions.'),
+  opensearch: liveSearchData('OpenSearch exports with version-compatible scroll paging and imports into a new rollback-safe index through conflict-safe Bulk create actions.'),
   clickhouse: liveData('ClickHouse streams native SELECT FORMAT and INSERT FORMAT payloads through its HTTP interface. Imports require an existing empty table so the fail-safe conflict policy cannot append to existing data.', [['csv', 'CSVWithNames', 'native', ['csv'], 'ClickHouse CSV data with a native column-name header.'], ['tsv', 'TabSeparatedWithNames', 'native', ['tsv'], 'ClickHouse tab-separated data with a native column-name header.'], ['json-each-row', 'JSONEachRow', 'native', ['jsonl'], 'ClickHouse JSONEachRow data.'], ['parquet', 'Parquet', 'native', ['parquet'], 'ClickHouse Parquet data.']]),
   cassandra: liveData('Cassandra streams native CQL JSON encodings through paged SELECT JSON and prepared INSERT JSON IF NOT EXISTS. Each row is applied independently and confirmed without overwriting an existing primary key.', [
     ['cql-json-lines', 'Cassandra CQL JSON Lines', 'native', ['jsonl', 'ndjson'], 'One native CQL JSON object per line, preserving Cassandra JSON encodings.'],
@@ -190,6 +190,34 @@ function liveData(
 
 function plannedData(description: string, formats: FormatSpec[], destinations: DatastoreTransferDestinationKind[] = ['local-file'], multiple = true): CapabilitySpec {
   return { actions: ['import', 'export'], formats, destinations, support: 'plan-only', description, multiple, requiresExistingTarget: true, disabledReason: 'Native execution for this datastore is not implemented yet; review the generated plan without running it.' }
+}
+
+function liveSearchData(description: string): CapabilitySpec {
+  return {
+    actions: ['import', 'export'],
+    formats: [[
+      'search-transfer-folder',
+      'Search transfer folder',
+      'native',
+      [],
+      'Mappings, portable index settings, and native Bulk NDJSON data.',
+    ]],
+    destinations: ['local-folder'],
+    support: 'live',
+    description,
+    multiple: false,
+    requiresExistingTarget: false,
+    options: {
+      import: [{
+        id: 'targetIndex',
+        label: 'New target index',
+        input: 'text',
+        required: true,
+        placeholder: 'products-restored',
+        description: 'Must be a valid lowercase index name that does not already exist.',
+      }],
+    },
+  }
 }
 
 function capability(engine: DatastoreEngine, action: DatastoreTransferAction, spec: CapabilitySpec): DatastoreTransferCapability {

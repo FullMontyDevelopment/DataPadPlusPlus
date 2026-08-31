@@ -6,6 +6,7 @@ mod diagnostics;
 mod editing;
 mod explorer;
 mod http_client;
+mod import_export;
 mod query;
 
 use catalog::*;
@@ -39,12 +40,59 @@ impl DatastoreAdapter for ElasticsearchAdapter {
         true
     }
 
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if request.operation_id == "elasticsearch.data.import-export" {
+            return import_export::execute_search_transfer(
+                ELASTICSEARCH,
+                connection,
+                request,
+                operation,
+                plan,
+                messages,
+                warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
+    }
+
     fn manifest(&self) -> AdapterManifest {
         search_manifest(ELASTICSEARCH)
     }
 
     fn execution_capabilities(&self) -> ExecutionCapabilities {
         search_execution_capabilities()
+    }
+
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        search_operation_manifests(&self.manifest())
+    }
+
+    async fn plan_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        operation_id: &str,
+        object_name: Option<&str>,
+        parameters: Option<&BTreeMap<String, Value>>,
+    ) -> Result<OperationPlan, CommandError> {
+        Ok(import_export::search_transfer_plan(
+            ELASTICSEARCH,
+            connection,
+            operation_id,
+            object_name,
+            parameters,
+        ))
     }
 
     async fn test_connection(
@@ -125,12 +173,53 @@ impl DatastoreAdapter for OpenSearchAdapter {
         true
     }
 
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if request.operation_id == "opensearch.data.import-export" {
+            return import_export::execute_search_transfer(
+                OPENSEARCH, connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
+    }
+
     fn manifest(&self) -> AdapterManifest {
         search_manifest(OPENSEARCH)
     }
 
     fn execution_capabilities(&self) -> ExecutionCapabilities {
         search_execution_capabilities()
+    }
+
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        search_operation_manifests(&self.manifest())
+    }
+
+    async fn plan_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        operation_id: &str,
+        object_name: Option<&str>,
+        parameters: Option<&BTreeMap<String, Value>>,
+    ) -> Result<OperationPlan, CommandError> {
+        Ok(import_export::search_transfer_plan(
+            OPENSEARCH,
+            connection,
+            operation_id,
+            object_name,
+            parameters,
+        ))
     }
 
     async fn test_connection(

@@ -46,6 +46,25 @@ pub(super) async fn search_get(
     search_request(connection, Method::GET, path_and_query, None).await
 }
 
+pub(super) async fn search_get_allowing_status(
+    connection: &ResolvedConnectionProfile,
+    path_and_query: &str,
+    allowed_statuses: &[u16],
+) -> Result<SearchResponse, CommandError> {
+    if let Some(reason) = search_live_disabled_reason(connection) {
+        return Err(CommandError::new("search-live-runtime-disabled", reason));
+    }
+    let endpoint = SearchEndpoint::from_connection(connection)?;
+    search_http_request_allowing_status(
+        connection,
+        Method::GET,
+        endpoint.url(path_and_query),
+        None,
+        allowed_statuses,
+    )
+    .await
+}
+
 pub(super) async fn search_post_json(
     connection: &ResolvedConnectionProfile,
     path: &str,
@@ -79,6 +98,14 @@ pub(super) async fn search_delete(
         &[404],
     )
     .await
+}
+
+pub(super) async fn search_delete_json(
+    connection: &ResolvedConnectionProfile,
+    path: &str,
+    body: &str,
+) -> Result<SearchResponse, CommandError> {
+    search_request(connection, Method::DELETE, path, Some(body)).await
 }
 
 async fn search_request(
