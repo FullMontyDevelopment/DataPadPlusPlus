@@ -572,5 +572,5 @@ fn operation_response(
 }
 
 #[cfg(test)]
-#[path = "../../../../../tests/unit/adapters/datastores/postgresql/cockroach_transfer_tests.rs"]
+#[path = "../../../../../tests/unit/adapters/datastores/postgresql/cockroach/transfer_tests.rs"]
 mod tests;

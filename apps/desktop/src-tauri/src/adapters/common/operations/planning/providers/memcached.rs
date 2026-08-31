@@ -1,5 +1,8 @@
 use super::super::*;
 
+// `lru_crawler metadump all` is a best-effort key-discovery command only.
+// Values are not exported unless the user explicitly selects one concrete key.
+
 pub(super) fn memcached_operation_request(
     operation_id: &str,
     object_name: &str,
