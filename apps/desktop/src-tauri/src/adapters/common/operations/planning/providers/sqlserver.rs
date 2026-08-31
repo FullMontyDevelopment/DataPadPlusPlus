@@ -173,26 +173,41 @@ fn sqlserver_backup_restore_request(
         .or_else(|| sqlserver_workflow_database_name(object_name))
         .unwrap_or_else(|| "database".into());
     let restoring = matches!(mode.as_str(), "restore" | "recover" | "import");
+    let location = if restoring {
+        string_parameter(parameters, "sourcePath")
+            .or_else(|| string_parameter(parameters, "inputPath"))
+    } else {
+        string_parameter(parameters, "targetPath")
+            .or_else(|| string_parameter(parameters, "outputPath"))
+    }
+    .unwrap_or_else(|| "<sql-server-visible-path>.bak".into());
+    let target_database = restoring.then(|| {
+        string_parameter(parameters, "targetDatabase").unwrap_or_else(|| "<new-database>".into())
+    });
 
     serde_json::to_string_pretty(&serde_json::json!({
-        "workflow": if restoring { "sqlserver.database.restore-plan" } else { "sqlserver.database.backup-plan" },
+        "workflow": if restoring { "sqlserver.database.restore" } else { "sqlserver.database.backup" },
         "database": database,
         "destination": {
             "role": if restoring { "source" } else { "target" },
-            "serverVisiblePath": "<sql-server-visible-path>.bak",
+            "serverVisiblePath": location,
             "overwrite": false
         },
+        "targetDatabase": target_database,
         "mode": mode,
         "format": "bak",
         "executionGate": {
-            "defaultSupport": "plan-only",
+            "defaultSupport": "live",
             "guards": [
                 "SQL Server-visible disk or URL destination",
                 "BACKUP DATABASE or RESTORE DATABASE permission preflight",
                 "restore into a new database by default",
+                "existing target conflict rejection",
+                "backup checksum verification",
+                "physical file remapping for isolated restore",
                 "explicit destructive confirmation"
             ],
-            "residualRisk": "native .bak execution remains unavailable until server-visible destination and isolated restore validation are implemented"
+            "residualRisk": "SQL Server-visible storage permissions and capacity remain administrator-managed"
         }
     }))
     .unwrap_or_else(|_| "{}".into())

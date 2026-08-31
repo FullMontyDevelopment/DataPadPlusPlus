@@ -307,11 +307,11 @@ fn sql_family_operation_plans_are_dialect_aware() {
         serde_json::from_str::<serde_json::Value>(&sqlserver_backup).unwrap();
     assert_eq!(
         sqlserver_backup_value["workflow"],
-        "sqlserver.database.backup-plan"
+        "sqlserver.database.backup"
     );
     assert_eq!(
         sqlserver_backup_value["executionGate"]["defaultSupport"],
-        "plan-only"
+        "live"
     );
     assert_eq!(sqlserver_backup_value["format"], "bak");
 
@@ -1120,9 +1120,9 @@ fn sql_family_operation_plans_are_dialect_aware() {
         "APP.ACCOUNTS",
         None,
     );
-    assert!(oracle_export.contains("set markup csv on"));
-    assert!(oracle_export.contains("select * from APP.ACCOUNTS fetch first 1000 rows only;"));
-    assert!(oracle_export.contains("Data Pump import/export"));
+    assert!(oracle_export.contains("Oracle managed-driver CSV transfer"));
+    assert!(oracle_export.contains("temporary local artifact"));
+    assert!(oracle_export.contains("array binding in guarded batches"));
 
     let oracle_backup = generated_operation_request(
         &connection,

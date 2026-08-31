@@ -1136,8 +1136,8 @@ describe('browser operation runtime', () => {
         expect.objectContaining({
           id: 'sqlserver.data.backup-restore',
           label: 'Backup / Restore',
-          executionSupport: 'plan-only',
-          previewOnly: true,
+          executionSupport: 'live',
+          previewOnly: false,
         }),
       ]),
     )
@@ -1229,14 +1229,44 @@ describe('browser operation runtime', () => {
       objectName: 'datapadplusplus',
       parameters: {
         mode: 'backup',
+        targetPath: '/var/opt/mssql/backup/datapadplusplus.bak',
       },
     })
     const backupRequest = JSON.parse(backupPlan.plan.generatedRequest)
     expect(backupRequest).toMatchObject({
-      workflow: 'sqlserver.database.backup-plan',
+      workflow: 'sqlserver.database.backup',
       database: 'datapadplusplus',
+      destination: {
+        role: 'target',
+        serverVisiblePath: '/var/opt/mssql/backup/datapadplusplus.bak',
+        overwrite: false,
+      },
       executionGate: {
-        defaultSupport: 'plan-only',
+        defaultSupport: 'live',
+      },
+    })
+    expect(backupRequest.executionGate.guards).toContain('backup checksum verification')
+
+    const restorePlan = planOperationLocally(snapshot, {
+      connectionId: sqlServerConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlserver.data.backup-restore',
+      objectName: 'datapadplusplus',
+      parameters: {
+        mode: 'restore',
+        sourcePath: '/var/opt/mssql/backup/datapadplusplus.bak',
+        targetDatabase: 'datapadplusplus_restored',
+      },
+    })
+    expect(JSON.parse(restorePlan.plan.generatedRequest)).toMatchObject({
+      workflow: 'sqlserver.database.restore',
+      targetDatabase: 'datapadplusplus_restored',
+      destination: {
+        role: 'source',
+        serverVisiblePath: '/var/opt/mssql/backup/datapadplusplus.bak',
+      },
+      executionGate: {
+        defaultSupport: 'live',
       },
     })
   })
@@ -2484,7 +2514,7 @@ describe('browser operation runtime', () => {
     })
     expect(backupRequest.executionGate.guards).toContain('database file read/open preflight')
     expect(backupRequest.executionGate.guards).toContain('format capability preflight')
-    expect(backupRequest.executionGate.residualRisk).toContain('restore execution remains preview-first')
+    expect(backupRequest.executionGate.residualRisk).toContain('separate new database file')
 
     const restorePlan = planOperationLocally(snapshot, {
       connectionId: duckDbConnection.id,
@@ -2494,28 +2524,21 @@ describe('browser operation runtime', () => {
       parameters: {
         mode: 'restore',
         sourcePath: 'C:\\exports\\duckdb-backup',
+        targetDatabase: 'C:\\exports\\duckdb-restored.duckdb',
       },
     })
     const restoreRequest = JSON.parse(restorePlan.plan.generatedRequest)
     expect(restoreRequest).toMatchObject({
-      workflow: 'duckdb.database.restore-preview',
+      workflow: 'duckdb.database.restore',
+      target: {
+        databasePath: 'C:\\exports\\duckdb-restored.duckdb',
+      },
       restorePreflight: {
         sourcePackageValidated: 'desktop-preflight-required',
         operationValidated: false,
       },
-      databaseLockBoundary: {
-        policy: 'desktop-preflight-required',
-        workflow: 'duckdb.database.restore-preview',
-        requiresWriteAccess: true,
-        exclusiveWriterLockValidated: false,
-      },
-      restoreExecutionBoundary: {
-        executionPolicy: 'scoped-out',
-        nativeClaim: 'restore-preflight-only',
-        destructive: true,
-      },
       executionGate: {
-        defaultSupport: 'plan-only',
+        defaultSupport: 'live',
       },
     })
     expect(restoreRequest.restorePreflight.checks).toContain('schema.sql marker')
@@ -2523,12 +2546,10 @@ describe('browser operation runtime', () => {
     expect(restoreRequest.executionGate.guards).toContain('absolute restore source folder')
     expect(restoreRequest.executionGate.guards).toContain('source folder readability preflight')
     expect(restoreRequest.executionGate.guards).toContain('schema.sql/load.sql package marker check')
-    expect(restoreRequest.executionGate.guards).toContain('target database write/open preflight')
-    expect(restoreRequest.executionGate.guards).toContain('restore execution explicitly scoped out of native claim')
-    expect(restoreRequest.restoreExecutionBoundary.promotionRequires).toContain(
-      'target snapshot or rollback artifact before IMPORT DATABASE',
-    )
-    expect(restoreRequest.restoreExecutionBoundary.blockedReasons).toContain('restore-execution-scoped-out')
+    expect(restoreRequest.executionGate.guards).toContain('absolute new target database path')
+    expect(restoreRequest.executionGate.guards).toContain('existing target conflict rejection')
+    expect(restoreRequest.executionGate.guards).toContain('failed restore artifact cleanup')
+    expect(restoreRequest.executionGate.guards).toContain('post-restore catalog validation')
   })
 
   it('generates search-family profile, index, and security operation previews', () => {

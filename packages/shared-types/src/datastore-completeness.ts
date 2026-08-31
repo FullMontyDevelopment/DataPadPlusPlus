@@ -528,9 +528,9 @@ const SQLSERVER_PROFILE = profile({
     ],
   ),
   'guarded-operations': strong(
-    'SQL Server guarded operations cover statistics, index maintenance, Query Store workload review, metrics, and import/export. Native .bak backup/restore remains plan-only until server-visible destination execution and isolated restore validation are implemented; custom logical packages are not advertised as backups.',
+    'SQL Server guarded operations cover statistics, index maintenance, Query Store workload review, metrics, import/export, checksum-verified native .bak backup to server-visible disk or credential-backed HTTPS storage, and restore into a new isolated database with physical-file remapping.',
     [
-      'Optional extension: promote selected statistics, index, Agent, Extended Events, grants, and native BACKUP/RESTORE execution only after live fixture coverage and rollback boundaries are proven.',
+      'Optional extension: promote selected statistics, index, Agent, Extended Events, grants, and Azure storage variants only after live fixture coverage and rollback boundaries are proven.',
     ],
   ),
   'diagnostics-performance': strong(
@@ -540,9 +540,9 @@ const SQLSERVER_PROFILE = profile({
     ],
   ),
   'import-export': strong(
-    'SQL Server has guarded desktop CSV/JSON/NDJSON table export/import with backend-owned file selection, overwrite, row-limit, read-only, and column-validation guardrails. Native .bak backup and restore remain plan-only until server-visible destinations and isolated restore validation are implemented; custom logical packages are not advertised as backups.',
+    'SQL Server has guarded desktop CSV/JSON/NDJSON table export/import plus checksum-verified native .bak backup to server-visible disk or credential-backed HTTPS storage and restore into a new isolated database. Existing media and database conflicts are rejected, backup checksums are verified, physical files are remapped, and custom logical packages are not advertised as backups.',
     [
-      'Optional extension: native .bak BACKUP/RESTORE, bcp/sqlcmd, identity insert, and bulk-load workflows stay outside the scoped claim until live validated.',
+      'Optional extension: bcp/sqlcmd, identity insert, bulk-load workflows, and broader Azure storage variants stay outside the scoped claim until live validated.',
     ],
   ),
   tests: strong(
@@ -1258,25 +1258,25 @@ const DUCKDB_PROFILE = profile({
     ],
   ),
   'safe-editing': strong(
-    'DuckDB safe editing is complete for the scoped local-file analytics claim: generic write, DDL, extension, restore, and administrative SQL are blocked from the query path; live write-like behavior is limited to confirmed CSV table import/export and CSV EXPORT DATABASE backup workflows with database file access, read-only, file-probe, lock-boundary, and confirmation metadata; extension install/load, analyze/checkpoint/object admin, and restore execution stay explicit scoped exclusions with execution-boundary metadata.',
+    'DuckDB safe editing is complete for the scoped local-file analytics claim: generic write, DDL, extension, restore, and administrative SQL are blocked from the query path; live write-like behavior is limited to confirmed table import/export, EXPORT DATABASE backups, and IMPORT DATABASE restores into brand-new isolated files with conflict rejection, failed-artifact cleanup, catalog validation, and confirmation metadata; extension install/load and analyze/checkpoint/object admin stay explicit scoped exclusions.',
     [
       'Optional extension: promote selected local OLAP mutation/admin or extension workflows only after identity, transaction, deeper cross-process lock, offline source trust, rollback, and fixture evidence exist; otherwise keep them explicitly scoped out.',
     ],
   ),
   'guarded-operations': strong(
-    'DuckDB guarded operations are pinned across object-view actions, browser manifests, browser planners, Rust manifests, Rust planners, disabled reasons, confirmations, table import/export, database backup, restore preflight, analyze/checkpoint/object admin, extension install/load, scoped file-workflow lock-boundary, and explicit restore/admin/extension execution-boundary metadata.',
+    'DuckDB guarded operations are pinned across object-view actions, browser manifests, browser planners, Rust manifests, Rust planners, disabled reasons, confirmations, table import/export, database backup, isolated database restore, analyze/checkpoint/object admin, extension install/load, scoped file-workflow lock boundaries, and explicit admin/extension execution-boundary metadata.',
     [
-      'Optional extension: convert selected preview-first admin, restore, or extension operations to live execution only after writer-lock, rollback/snapshot, offline-source trust, post-operation validation, and fixture-backed confirmation gates are implemented.',
+      'Optional extension: convert selected preview-first admin or extension operations to live execution only after writer-lock, rollback/snapshot, offline-source trust, post-operation validation, and fixture-backed confirmation gates are implemented.',
     ],
   ),
   'import-export': strong(
-    'DuckDB import/export parity is pinned across object-view actions, browser manifests, browser planners, Rust manifests, Rust planners, plan-only file import previews, guarded live generic CSV table import/export execution, guarded live CSV EXPORT DATABASE backup folder execution, concrete-path checks, overwrite and row-limit guardrails, database file access/read-only preflights, read/open/write probes, explicit lock-boundary metadata for scoped file workflows, blocked read-only disk evidence, JSON/Parquet extension-backed format preflight, explicit preloaded-extension-only execution boundaries for JSON/Parquet, controlled extension-directory setup, fail-closed unloaded-extension evidence, restore-package preflight with source folder, schema.sql, load.sql, file-count, byte-count, detected-format, and target write/open validation, and explicit restore execution-boundary metadata that scopes destructive IMPORT DATABASE out of the native claim until snapshot, lock, post-restore validation, and confirmation gates are executable.',
+    'DuckDB import/export parity is pinned across object-view actions, browser manifests, browser planners, Rust manifests, Rust planners, guarded live table import/export, guarded live EXPORT DATABASE backup folders, and live IMPORT DATABASE restore into brand-new isolated files. File workflows enforce concrete paths, conflicts, row limits, read-only state, format and extension preflight, source package markers, staged publication, failed-artifact cleanup, and post-restore catalog validation.',
     [
       'Optional extension: only promote preloaded/offline DuckDB extension-backed execution beyond scoped boundary after an extension-loaded fixture exists; keep external-process contention plus broader local analytics mutation/admin promotion outside scope until fixture-backed.',
     ],
   ),
   tests: strong(
-    'DuckDB coverage now includes deterministic manifest, SQL-builder, planner, browser-preview, object-view, roadmap completeness, query guard, result/profile, explorer/catalog, diagnostics, and optional DuckDB fixture validator coverage for bundled local-file read/EXPLAIN/profile/catalog evidence plus guarded live CSV export, import, backup-folder, database file access/read-only preflight, explicit lock-boundary evidence, blocked read-only disk, JSON/Parquet extension-gate, preloaded-extension-only boundary evidence, restore-package preflight, explicit restore execution-boundary evidence, explicit admin/extension execution-boundary evidence, and write-SQL boundary evidence.',
+    'DuckDB coverage now includes deterministic manifest, SQL-builder, planner, browser-preview, object-view, roadmap completeness, query guard, result/profile, explorer/catalog, diagnostics, and embedded integration coverage for bundled local-file read/EXPLAIN/profile/catalog evidence plus guarded live CSV export/import, backup folders, isolated restore round trips, target conflicts, corrupt packages, failed-artifact cleanup, database file preflight, extension gates, explicit admin/extension execution boundaries, and write-SQL boundaries.',
     [
       'Add extension-loaded live validation, larger local analytics, and selected mutation/admin or extension execution fixture coverage only if those workflows are promoted beyond the scoped claim.',
     ],
@@ -1518,7 +1518,7 @@ const ENGINE_OVERRIDES: Partial<
     nativeScore: 5,
     targetPhase: 2,
     summary:
-      'Native-complete for the scoped SQL Server/Azure SQL workflow: SQL Server has TDS SQL, live primary-key row edits pinned by desktop live-scope tests, typed SQL Server/Azure SQL connection option validation with per-mode Windows, Entra, managed identity, service principal, and certificate disabled reasons, rendered SHOWPLAN_TEXT explain payloads, XML Showplan profile payloads with operator tables and statement estimates, runtime DMV profile payloads for cached query stats, active requests, waits, file I/O, memory grants, transactions, and missing-index signals, compact storage/index/workload/security/Agent posture panels, Query Store status/top-query/forced-plan/regression payloads, database/server-scoped Extended Events session/event/target payloads, msdb-backed Agent service/job/schedule/alert/operator/proxy payloads, security payloads for users/roles/memberships/schemas/permissions/certificates/keys/credentials/audits, storage payloads for files/filegroups/partition schemes/functions/boundaries/allocation units, guarded statistics/index/Query Store previews, and guarded desktop CSV/JSON/NDJSON table export/import. Native .bak BACKUP/RESTORE remains plan-only; custom logical packages are not advertised as backups. TDS bulk copy, server-visible destination execution, identity insert, and broader live maintenance/admin execution remain optional extensions outside the scoped claim.',
+      'Native-complete for the scoped SQL Server/Azure SQL workflow: SQL Server has TDS SQL, live primary-key row edits pinned by desktop live-scope tests, typed SQL Server/Azure SQL connection option validation with per-mode Windows, Entra, managed identity, service principal, and certificate disabled reasons, rendered SHOWPLAN_TEXT explain payloads, XML Showplan profile payloads with operator tables and statement estimates, runtime DMV profile payloads for cached query stats, active requests, waits, file I/O, memory grants, transactions, and missing-index signals, compact storage/index/workload/security/Agent posture panels, Query Store status/top-query/forced-plan/regression payloads, database/server-scoped Extended Events session/event/target payloads, msdb-backed Agent service/job/schedule/alert/operator/proxy payloads, security payloads for users/roles/memberships/schemas/permissions/certificates/keys/credentials/audits, storage payloads for files/filegroups/partition schemes/functions/boundaries/allocation units, guarded statistics/index/Query Store previews, guarded desktop CSV/JSON/NDJSON table export/import, and checksum-verified native .bak BACKUP/RESTORE with isolated-target remapping. Custom logical packages are not advertised as backups. TDS bulk copy, identity insert, and broader live maintenance/admin execution remain optional extensions outside the scoped claim.',
     profile: SQLSERVER_PROFILE,
   },
   mysql: {
@@ -1622,7 +1622,7 @@ const ENGINE_OVERRIDES: Partial<
     nativeScore: 5,
     targetPhase: 4,
     summary:
-      'DuckDB is native-complete for the scoped local-file analytics workflow with typed local-file/memory connection-flow parity, pinned native tree parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, local-file creation, SQL SELECT builder coverage, bundled local-file read/EXPLAIN/profile execution, rendered DuckDB plan payloads, extension posture, structured analyze/checkpoint/object admin-scope gates, import/export/backup plans, structured extension install/load gates, object-view actions, and optional DuckDB fixture validator evidence for bundled local-file read/EXPLAIN/profile/catalog paths plus guarded live CSV export, CSV import, CSV backup-folder, database file access/read-only preflight, explicit scoped file-workflow lock-boundary metadata, JSON/Parquet extension-backed format preflight, explicit preloaded-extension-only JSON/Parquet boundaries, fail-closed unloaded-extension evidence, restore-package preflight, explicit restore execution-boundary evidence, explicit admin/extension execution-boundary evidence, blocked read-only disk, and write-SQL boundary evidence; extension-loaded live validation and any future executable local OLAP mutation/admin/extension promotion remain optional extensions beyond the scoped claim.',
+      'DuckDB is native-complete for the scoped local-file analytics workflow with typed local-file/memory connection-flow parity, pinned native tree parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, local-file creation, SQL SELECT builder coverage, bundled local-file read/EXPLAIN/profile execution, rendered DuckDB plan payloads, extension posture, structured analyze/checkpoint/object admin-scope gates, live table import/export, live EXPORT DATABASE backup folders, live IMPORT DATABASE restore into new isolated files, structured extension install/load gates, and embedded integration evidence for restore round trips, conflict rejection, corrupt-package cleanup, and post-restore catalog validation; extension-loaded live validation and any future executable local OLAP mutation/admin/extension promotion remain optional extensions beyond the scoped claim.',
     profile: DUCKDB_PROFILE,
   },
   clickhouse: {

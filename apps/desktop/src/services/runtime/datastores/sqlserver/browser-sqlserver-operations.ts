@@ -144,25 +144,35 @@ function sqlServerBackupRestoreRequest(objectName: string, parameters: Record<st
   const mode = (stringParameter(parameters, 'mode') ?? 'backup').toLowerCase()
   const database = stringParameter(parameters, 'database') ?? sqlServerWorkflowDatabaseName(objectName) ?? 'database'
   const restoring = ['restore', 'recover', 'import'].includes(mode)
+  const location = restoring
+    ? stringParameter(parameters, 'sourcePath') ?? stringParameter(parameters, 'inputPath') ?? '<sql-server-visible-path>.bak'
+    : stringParameter(parameters, 'targetPath') ?? stringParameter(parameters, 'outputPath') ?? '<sql-server-visible-path>.bak'
 
   return JSON.stringify({
-    workflow: restoring ? 'sqlserver.database.restore-plan' : 'sqlserver.database.backup-plan',
+    workflow: restoring ? 'sqlserver.database.restore' : 'sqlserver.database.backup',
     database,
-    [restoring ? 'source' : 'target']: {
-      serverVisiblePath: '<sql-server-visible-path>.bak',
+    destination: {
+      role: restoring ? 'source' : 'target',
+      serverVisiblePath: location,
       overwrite: false,
     },
+    ...(restoring
+      ? { targetDatabase: stringParameter(parameters, 'targetDatabase') ?? '<new-database>' }
+      : {}),
     mode,
     format: 'bak',
     executionGate: {
-      defaultSupport: 'plan-only',
+      defaultSupport: 'live',
       guards: [
         'SQL Server-visible disk or URL destination',
         'BACKUP DATABASE or RESTORE DATABASE permission preflight',
         'restore into a new database by default',
+        'existing target conflict rejection',
+        'backup checksum verification',
+        'physical file remapping for isolated restore',
         'explicit destructive confirmation',
       ],
-      residualRisk: 'native .bak execution remains unavailable until server-visible destination and isolated restore validation are implemented',
+      residualRisk: 'SQL Server-visible storage permissions and capacity remain administrator-managed',
     },
   }, null, 2)
 }

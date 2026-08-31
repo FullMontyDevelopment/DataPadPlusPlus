@@ -248,10 +248,10 @@ function promoteScopedLiveWorkflows(
     if (connection.engine === 'sqlserver' && operation.id === 'sqlserver.data.backup-restore') {
       return {
         ...operation,
-        description: 'SQL Server native .bak backup requires a server-visible destination.',
-        executionSupport: 'plan-only' as const,
-        disabledReason: 'Native SQL Server .bak execution is not implemented yet; custom logical packages are not offered as backups.',
-        previewOnly: true,
+        description: 'Create checksum-verified native SQL Server .bak backups and restore them into new isolated databases.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
       }
     }
     if (connection.engine === 'mysql' && operation.id === 'mysql.data.import-export') {

@@ -33,7 +33,7 @@ export function duckDbImportExportRequest(objectName: string, parameters: Record
           'JSON/Parquet extension catalog probe',
           'replace/append mode review',
         ],
-        residualRisk: 'extension installation, arbitrary DDL, restore execution, and broader local OLAP mutations remain preview-first',
+        residualRisk: 'extension installation, arbitrary DDL, and broader local OLAP mutations remain preview-first',
       },
     }, null, 2)
   }
@@ -65,7 +65,7 @@ export function duckDbImportExportRequest(objectName: string, parameters: Record
         'format capability preflight',
         'JSON/Parquet extension catalog probe',
       ],
-      residualRisk: 'remote filesystem, encrypted files, restore execution, and arbitrary extension management remain optional validation paths',
+      residualRisk: 'remote filesystem, encrypted files, and arbitrary extension management remain optional validation paths',
     },
   }, null, 2)
 }
@@ -76,7 +76,7 @@ export function duckDbBackupRestoreRequest(parameters: Record<string, unknown>) 
 
   if (['restore', 'recover', 'import'].includes(mode)) {
     return JSON.stringify({
-      workflow: 'duckdb.database.restore-preview',
+      workflow: 'duckdb.database.restore',
       mode,
       format,
       source: {
@@ -86,24 +86,29 @@ export function duckDbBackupRestoreRequest(parameters: Record<string, unknown>) 
           ?? stringParameter(parameters, 'inputFolder')
           ?? '<selected-folder>',
       },
+      target: {
+        databasePath: stringParameter(parameters, 'targetDatabase')
+          ?? stringParameter(parameters, 'targetDatabasePath')
+          ?? stringParameter(parameters, 'destinationDatabasePath')
+          ?? '<new-database-file>',
+      },
       restorePreflight: duckDbRestorePreflightContract(format),
-      databaseLockBoundary: duckDbDatabaseLockBoundaryContract('duckdb.database.restore-preview', true),
-      restoreExecutionBoundary: duckDbRestoreExecutionBoundaryContract(mode),
       executionGate: {
         owner: 'duckdb-adapter',
-        defaultSupport: 'plan-only',
+        defaultSupport: 'live',
         requiresConfirmation: true,
         guards: [
           'absolute restore source folder',
           'source folder readability preflight',
           'schema.sql/load.sql package marker check',
-          'target database write/open preflight',
-          'target snapshot or rollback artifact required before live promotion',
-          'exclusive DuckDB writer lock evidence required before live promotion',
-          'restore execution explicitly scoped out of native claim',
-          'manual IMPORT DATABASE run outside the scoped claim',
+          'absolute new target database path',
+          'existing target conflict rejection',
+          'read-only connection block',
+          'new isolated database creation',
+          'failed restore artifact cleanup',
+          'post-restore catalog validation',
         ],
-        residualRisk: 'IMPORT DATABASE can replace local schemas; execution is explicitly scoped out until rollback/snapshot, exclusive writer-lock, post-restore validation, and confirmation semantics are native',
+        residualRisk: 'IMPORT DATABASE executes only in a newly created isolated DuckDB file and never replaces the active database',
       },
     }, null, 2)
   }
@@ -134,7 +139,7 @@ export function duckDbBackupRestoreRequest(parameters: Record<string, unknown>) 
         'database file read/open preflight',
         'format capability preflight',
       ],
-      residualRisk: 'IMPORT DATABASE restore execution remains preview-first',
+      residualRisk: 'restore requires a separate new database file and never replaces an existing target',
     },
   }, null, 2)
 }
@@ -306,29 +311,6 @@ function duckDbRestorePreflightContract(format: string) {
       'target database write/open preflight',
     ],
     expectedFormats: ['csv', 'parquet'],
-  }
-}
-
-function duckDbRestoreExecutionBoundaryContract(mode: string) {
-  return {
-    executionPolicy: 'scoped-out',
-    mode,
-    nativeClaim: 'restore-preflight-only',
-    destructive: true,
-    targetMayReplaceCatalog: true,
-    manualExecutionOutsideScopedClaim: true,
-    excludedFromLiveFixtureClaim: true,
-    sourcePackageValidated: 'desktop-preflight-required',
-    targetWriteOpenValidated: 'desktop-preflight-required',
-    previewValidated: 'desktop-preflight-required',
-    promotionRequires: [
-      'exclusive DuckDB writer lock evidence',
-      'target snapshot or rollback artifact before IMPORT DATABASE',
-      'post-restore catalog diff and validation',
-      'explicit destructive restore confirmation',
-      'read-only connection promotion block',
-    ],
-    blockedReasons: ['restore-execution-scoped-out'],
   }
 }
 

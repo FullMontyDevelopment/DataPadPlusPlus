@@ -798,7 +798,7 @@ describe('datastore roadmap catalog', () => {
       'Native-complete for the scoped SQL Server/Azure SQL workflow',
     )
     expect(sqlserver?.summary).toContain('guarded desktop CSV/JSON/NDJSON')
-    expect(sqlserver?.summary).toContain('Native .bak BACKUP/RESTORE')
+    expect(sqlserver?.summary).toContain('checksum-verified native .bak BACKUP/RESTORE')
   })
 
   it('graduates Elasticsearch and OpenSearch as scoped plain-HTTP search workflows', () => {
@@ -936,31 +936,31 @@ describe('datastore roadmap catalog', () => {
       'native-complete for the scoped local-file analytics workflow',
     )
     expect(duckdb?.summary).toContain(
-      'optional DuckDB fixture validator evidence',
+      'embedded integration evidence',
     )
     expect(duckdb?.summary).toContain(
       'bundled local-file read/EXPLAIN/profile',
     )
     expect(duckdb?.summary).toContain(
-      'guarded live CSV export, CSV import, CSV backup-folder',
+      'live table import/export',
     )
     expect(duckdb?.summary).toContain(
-      'database file access/read-only preflight',
+      'live EXPORT DATABASE backup folders',
     )
     expect(duckdb?.summary).toContain(
-      'explicit scoped file-workflow lock-boundary metadata',
+      'new isolated files',
     )
     expect(duckdb?.summary).toContain(
-      'JSON/Parquet extension-backed format preflight',
+      'conflict rejection',
     )
     expect(duckdb?.summary).toContain(
-      'explicit preloaded-extension-only JSON/Parquet boundaries',
+      'corrupt-package cleanup',
     )
     expect(duckdb?.summary).toContain(
-      'restore-package preflight',
+      'IMPORT DATABASE restore',
     )
     expect(duckdb?.summary).toContain(
-      'explicit restore execution-boundary evidence',
+      'post-restore catalog validation',
     )
     expect(duckdb?.summary).toContain(
       'structured extension install/load gates',
@@ -969,7 +969,7 @@ describe('datastore roadmap catalog', () => {
       'structured analyze/checkpoint/object admin-scope gates',
     )
     expect(duckdb?.summary).toContain(
-      'explicit admin/extension execution-boundary evidence',
+      'extension-loaded live validation',
     )
     expect(
       duckdb?.criteria.find((item) => item.criterion === 'query-surface')
@@ -997,7 +997,7 @@ describe('datastore roadmap catalog', () => {
     expect(
       duckdb?.criteria.find((item) => item.criterion === 'import-export')
         ?.note,
-    ).toContain('restore-package preflight')
+    ).toContain('live IMPORT DATABASE restore')
   })
 
   it('tracks Wave 10 time-series and graph query hardening without promoting writes', () => {
