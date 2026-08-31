@@ -5,6 +5,7 @@ mod connection;
 mod diagnostics;
 mod editing;
 mod explorer;
+mod import_export;
 mod query;
 
 use catalog::*;
@@ -23,6 +24,46 @@ impl DatastoreAdapter for DynamoDbAdapter {
 
     fn manifest(&self) -> AdapterManifest {
         dynamodb_manifest()
+    }
+
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        dynamodb_operation_manifests(&self.manifest())
+    }
+
+    async fn plan_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        operation_id: &str,
+        object_name: Option<&str>,
+        parameters: Option<&BTreeMap<String, Value>>,
+    ) -> Result<OperationPlan, CommandError> {
+        Ok(import_export::dynamodb_transfer_plan(
+            connection,
+            operation_id,
+            object_name,
+            parameters,
+        ))
+    }
+
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if request.operation_id == "dynamodb.data.import-export" {
+            return import_export::execute_dynamodb_transfer(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
     }
 
     fn execution_capabilities(&self) -> ExecutionCapabilities {
