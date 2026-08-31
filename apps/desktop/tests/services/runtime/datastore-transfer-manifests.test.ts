@@ -129,6 +129,24 @@ describe('datastore transfer manifests', () => {
     expect(capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('plan-only')
   })
 
+  it('uses configured repositories for native search snapshots and isolated restores', () => {
+    for (const engine of ['elasticsearch', 'opensearch'] as const) {
+      const capabilities = datastoreTransferManifest(engine).capabilities
+      const backup = capabilities.find((item) => item.action === 'backup')
+      const restore = capabilities.find((item) => item.action === 'restore')
+      expect(backup).toMatchObject({
+        executionSupport: 'live',
+        scope: 'index',
+        supportsMultipleObjects: false,
+        destinationKinds: ['repository'],
+        formats: [expect.objectContaining({ id: 'snapshot', fidelity: 'native' })],
+      })
+      expect(backup?.options?.map((item) => item.id)).toEqual(['sourceIndex'])
+      expect(restore?.executionSupport).toBe('live')
+      expect(restore?.options?.map((item) => item.id)).toEqual(['sourceIndex', 'targetIndex'])
+    }
+  })
+
   it('advertises only streaming native Cassandra CQL JSON Lines', () => {
     const capabilities = datastoreTransferManifest('cassandra').capabilities
     const imported = capabilities.find((item) => item.action === 'import')

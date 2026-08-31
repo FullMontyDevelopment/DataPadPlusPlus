@@ -35,6 +35,13 @@ pub(super) fn search_operation_manifests(
             operation.scope = "index".into();
             operation.description = "Transfer a complete search index as mappings, settings, and native Bulk NDJSON through a paged server API.".into();
         }
+        if operation.id == format!("{}.data.backup-restore", manifest.engine) {
+            operation.execution_support = "live".into();
+            operation.disabled_reason = None;
+            operation.preview_only = Some(false);
+            operation.scope = "index".into();
+            operation.description = "Create a native index snapshot in an existing repository or restore it into a new isolated index.".into();
+        }
     }
     operations
 }

@@ -61,6 +61,18 @@ impl DatastoreAdapter for ElasticsearchAdapter {
             )
             .await;
         }
+        if request.operation_id == "elasticsearch.data.backup-restore" {
+            return import_export::execute_search_snapshot(
+                ELASTICSEARCH,
+                connection,
+                request,
+                operation,
+                plan,
+                messages,
+                warnings,
+            )
+            .await;
+        }
         execute_standard_live_operation(
             self, connection, request, operation, plan, messages, warnings,
         )
@@ -184,6 +196,12 @@ impl DatastoreAdapter for OpenSearchAdapter {
     ) -> Result<OperationExecutionResponse, CommandError> {
         if request.operation_id == "opensearch.data.import-export" {
             return import_export::execute_search_transfer(
+                OPENSEARCH, connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        if request.operation_id == "opensearch.data.backup-restore" {
+            return import_export::execute_search_snapshot(
                 OPENSEARCH, connection, request, operation, plan, messages, warnings,
             )
             .await;

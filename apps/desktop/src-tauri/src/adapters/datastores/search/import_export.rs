@@ -56,7 +56,87 @@ pub(super) fn search_transfer_plan(
         object_name,
         parameters,
     );
-    if operation_id != format!("{}.data.import-export", engine.engine) {
+    let transfer_operation = format!("{}.data.import-export", engine.engine);
+    let snapshot_operation = format!("{}.data.backup-restore", engine.engine);
+    if operation_id != transfer_operation && operation_id != snapshot_operation {
+        return plan;
+    }
+    if operation_id == snapshot_operation {
+        let mode = parameters
+            .and_then(|values| values.get("mode"))
+            .and_then(Value::as_str)
+            .unwrap_or("backup");
+        let descriptor = parameters
+            .and_then(|values| {
+                values
+                    .get(if mode == "restore" {
+                        "sourcePath"
+                    } else {
+                        "targetPath"
+                    })
+                    .or_else(|| values.get("transferDestination"))
+            })
+            .and_then(Value::as_str)
+            .and_then(|value| {
+                let (repository, snapshot) = value.split_once('/')?;
+                let repository = validate_snapshot_name(repository, "repository").ok()?;
+                let snapshot = validate_snapshot_name(snapshot, "snapshot").ok()?;
+                Some(format!("{repository}/{snapshot}"))
+            })
+            .unwrap_or_else(|| "<repository>/<snapshot>".into());
+        let source_index = parameters
+            .and_then(|values| values.get("sourceIndex").or_else(|| values.get("index")))
+            .and_then(Value::as_str)
+            .or(object_name)
+            .unwrap_or("<source-index>");
+        let target_index = parameters
+            .and_then(|values| values.get("targetIndex"))
+            .and_then(Value::as_str)
+            .unwrap_or("<new-target-index>");
+        plan.request_language = "search-http".into();
+        plan.generated_request = if mode == "restore" {
+            format!(
+                "POST /_snapshot/{descriptor}/_restore?wait_for_completion=true\n{{\"indices\":\"{source_index}\",\"include_global_state\":false,\"rename_pattern\":\"^<escaped-source>$\",\"rename_replacement\":\"{target_index}\"}}"
+            )
+        } else {
+            format!(
+                "PUT /_snapshot/{descriptor}?wait_for_completion=true\n{{\"indices\":\"{source_index}\",\"ignore_unavailable\":false,\"include_global_state\":false,\"partial\":false}}"
+            )
+        };
+        plan.summary = if mode == "restore" {
+            format!(
+                "Prepared {} snapshot restore of {source_index} into new index {target_index}.",
+                engine.label
+            )
+        } else {
+            format!(
+                "Prepared {} native snapshot for index {source_index}.",
+                engine.label
+            )
+        };
+        plan.required_permissions = vec![if mode == "restore" {
+            "snapshot read/restore, index create, metadata write, and rollback delete access".into()
+        } else {
+            "snapshot create and source index metadata/read access for an existing writable repository".into()
+        }];
+        plan.confirmation_text = Some(if engine.engine == "elasticsearch" {
+            "CONFIRM ELASTICSEARCH".into()
+        } else {
+            "CONFIRM OPENSEARCH".into()
+        });
+        plan.estimated_scan_impact = Some(if mode == "restore" {
+            "The cluster reads the native snapshot and creates a new isolated index; an existing index is never overwritten."
+                .into()
+        } else {
+            "The cluster snapshots the complete selected index into an existing repository and rejects an existing snapshot name."
+                .into()
+        });
+        plan.warnings
+            .retain(|warning| !warning.contains("beta adapter returns a guarded operation plan"));
+        plan.warnings.push(
+            "Repository registration and credentials remain server-managed; DataPad++ accepts only the repository and snapshot names."
+                .into(),
+        );
         return plan;
     }
     let mode = parameters
@@ -116,6 +196,585 @@ pub(super) fn search_transfer_plan(
     plan.warnings
         .retain(|warning| !warning.contains("beta adapter returns a guarded operation plan"));
     plan
+}
+
+pub(super) async fn execute_search_snapshot(
+    engine: SearchEngine,
+    connection: &ResolvedConnectionProfile,
+    request: &OperationExecutionRequest,
+    operation: DatastoreOperationManifest,
+    plan: OperationPlan,
+    mut messages: Vec<String>,
+    warnings: Vec<String>,
+) -> Result<OperationExecutionResponse, CommandError> {
+    if connection.read_only {
+        return Err(CommandError::new(
+            "search-snapshot-read-only",
+            "Search snapshot backup and restore are unavailable because this connection is read-only.",
+        ));
+    }
+    if parameter_string(request, "conflictPolicy").as_deref() != Some("fail") {
+        return Err(CommandError::new(
+            "search-snapshot-conflict-policy-invalid",
+            "Search snapshot backup and restore require the fail-safe conflict policy.",
+        ));
+    }
+    let mode = parameter_string(request, "mode").unwrap_or_else(|| "backup".into());
+    let (repository, snapshot) = search_snapshot_descriptor(request, &mode)?;
+    ensure_snapshot_repository(connection, &repository).await?;
+
+    match mode.as_str() {
+        "backup" => {
+            let index = source_index(request)?;
+            ensure_search_index_exists(connection, &index, true).await?;
+            ensure_search_snapshot_exists(connection, &repository, &snapshot, false).await?;
+            let count = search_index_count(connection, &index).await?;
+            let response = search_put_json(
+                connection,
+                &format!(
+                    "/_snapshot/{}/{}?wait_for_completion=true",
+                    path_segment(&repository),
+                    path_segment(&snapshot)
+                ),
+                &json!({
+                    "indices": index,
+                    "ignore_unavailable": false,
+                    "include_global_state": false,
+                    "partial": false,
+                })
+                .to_string(),
+            )
+            .await?;
+            let evidence = match validate_snapshot_completion(&response.body, &index) {
+                Ok(evidence) => evidence,
+                Err(error) => {
+                    return Err(rollback_search_snapshot_after(
+                        connection,
+                        &repository,
+                        &snapshot,
+                        error,
+                    )
+                    .await)
+                }
+            };
+            messages.push(format!(
+                "{} created native snapshot {repository}/{snapshot} for index {index}.",
+                engine.label
+            ));
+            Ok(operation_response(
+                request,
+                operation,
+                plan,
+                Some(json!({
+                    "workflow": format!("{}.snapshot.backup", engine.engine),
+                    "repository": repository,
+                    "snapshot": snapshot,
+                    "sourceIndex": index,
+                    "documentCount": count,
+                    "nativeState": evidence.state,
+                    "successfulShards": evidence.successful_shards,
+                    "failedShards": evidence.failed_shards,
+                    "conflictPolicy": "fail",
+                    "includeGlobalState": false,
+                })),
+                messages,
+                warnings,
+            ))
+        }
+        "restore" => {
+            let source_index = parameter_string(request, "sourceIndex")
+                .or_else(|| parameter_string(request, "index"))
+                .or_else(|| request.object_name.clone())
+                .unwrap_or_default();
+            let source_index = validate_index_name(
+                source_index.trim_start_matches("search-index:"),
+                "snapshot source",
+            )?;
+            let target_index = required_target_index(request)?;
+            if source_index == target_index {
+                return Err(CommandError::new(
+                    "search-snapshot-target-invalid",
+                    "The restored search index must use a new index name.",
+                ));
+            }
+            ensure_search_index_exists(connection, &target_index, false).await?;
+            let snapshot_evidence =
+                ensure_search_snapshot_contains(connection, &repository, &snapshot, &source_index)
+                    .await?;
+            let response = search_post_json(
+                connection,
+                &format!(
+                    "/_snapshot/{}/{}/_restore?wait_for_completion=true",
+                    path_segment(&repository),
+                    path_segment(&snapshot)
+                ),
+                &json!({
+                    "indices": source_index,
+                    "ignore_unavailable": false,
+                    "include_global_state": false,
+                    "include_aliases": true,
+                    "rename_pattern": format!("^{}$", regex_escape(&source_index)),
+                    "rename_replacement": target_index,
+                })
+                .to_string(),
+            )
+            .await;
+            let response = match response {
+                Ok(response) => response,
+                Err(error) => {
+                    return Err(rollback_search_index_after(connection, &target_index, error).await)
+                }
+            };
+            if let Err(error) = validate_restore_completion(&response.body) {
+                return Err(rollback_search_index_after(connection, &target_index, error).await);
+            }
+            if let Err(error) = ensure_search_index_exists(connection, &target_index, true).await {
+                return Err(rollback_search_index_after(connection, &target_index, error).await);
+            }
+            let document_count = match search_index_count(connection, &target_index).await {
+                Ok(count) => count,
+                Err(error) => {
+                    return Err(rollback_search_index_after(connection, &target_index, error).await)
+                }
+            };
+            messages.push(format!(
+                "{} restored {repository}/{snapshot} into new index {target_index}.",
+                engine.label
+            ));
+            Ok(operation_response(
+                request,
+                operation,
+                plan,
+                Some(json!({
+                    "workflow": format!("{}.snapshot.restore", engine.engine),
+                    "repository": repository,
+                    "snapshot": snapshot,
+                    "sourceIndex": source_index,
+                    "targetIndex": target_index,
+                    "documentCount": document_count,
+                    "nativeState": snapshot_evidence.state,
+                    "successfulShards": snapshot_evidence.successful_shards,
+                    "failedShards": 0,
+                    "conflictPolicy": "fail",
+                    "includeGlobalState": false,
+                    "isolatedTarget": true,
+                    "rollbackOnFailure": true,
+                })),
+                messages,
+                warnings,
+            ))
+        }
+        _ => Err(CommandError::new(
+            "search-snapshot-mode-invalid",
+            "Search snapshot mode must be backup or restore.",
+        )),
+    }
+}
+
+#[derive(Debug)]
+struct SearchSnapshotEvidence {
+    state: String,
+    successful_shards: u64,
+    failed_shards: u64,
+}
+
+fn search_snapshot_descriptor(
+    request: &OperationExecutionRequest,
+    mode: &str,
+) -> Result<(String, String), CommandError> {
+    if let (Some(repository), Some(snapshot)) = (
+        parameter_string(request, "repository"),
+        parameter_string(request, "snapshot"),
+    ) {
+        return Ok((
+            validate_snapshot_name(&repository, "repository")?,
+            validate_snapshot_name(&snapshot, "snapshot")?,
+        ));
+    }
+    let key = if mode == "restore" {
+        "sourcePath"
+    } else {
+        "targetPath"
+    };
+    let descriptor = parameter_string(request, key)
+        .or_else(|| parameter_string(request, "transferDestination"))
+        .ok_or_else(|| {
+            CommandError::new(
+                "search-snapshot-destination-missing",
+                "Enter an existing repository and snapshot name as repository/snapshot.",
+            )
+        })?;
+    let mut parts = descriptor.split('/');
+    let repository = parts.next().unwrap_or_default();
+    let snapshot = parts.next().unwrap_or_default();
+    if parts.next().is_some() {
+        return Err(CommandError::new(
+            "search-snapshot-destination-invalid",
+            "Search snapshot destinations must use exactly repository/snapshot with no URL or credentials.",
+        ));
+    }
+    Ok((
+        validate_snapshot_name(repository, "repository")?,
+        validate_snapshot_name(snapshot, "snapshot")?,
+    ))
+}
+
+fn validate_snapshot_name(value: &str, label: &str) -> Result<String, CommandError> {
+    let value = value.trim();
+    let valid = !value.is_empty()
+        && value.len() <= 180
+        && !value.starts_with(['_', '-', '+', '.'])
+        && value.chars().all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || matches!(character, '-' | '_' | '.')
+        });
+    if !valid {
+        return Err(CommandError::new(
+            "search-snapshot-name-invalid",
+            format!(
+                "Search snapshot {label} names must be lowercase and use only letters, numbers, dots, dashes, or underscores."
+            ),
+        ));
+    }
+    Ok(value.into())
+}
+
+async fn ensure_snapshot_repository(
+    connection: &ResolvedConnectionProfile,
+    repository: &str,
+) -> Result<(), CommandError> {
+    let response = search_get_allowing_status(
+        connection,
+        &format!("/_snapshot/{}", path_segment(repository)),
+        &[404],
+    )
+    .await?;
+    if response.status_code == 404 {
+        return Err(CommandError::new(
+            "search-snapshot-repository-missing",
+            format!(
+                "Search snapshot repository {repository} is not registered on the connected cluster."
+            ),
+        ));
+    }
+    let value = parse_search_json(&response.body, "snapshot repository response")?;
+    if value.get(repository).is_none() {
+        return Err(CommandError::new(
+            "search-snapshot-repository-invalid",
+            "Search engine did not confirm the selected snapshot repository.",
+        ));
+    }
+    Ok(())
+}
+
+async fn ensure_search_snapshot_exists(
+    connection: &ResolvedConnectionProfile,
+    repository: &str,
+    snapshot: &str,
+    expected: bool,
+) -> Result<(), CommandError> {
+    let response = search_get_allowing_status(
+        connection,
+        &format!(
+            "/_snapshot/{}/{}",
+            path_segment(repository),
+            path_segment(snapshot)
+        ),
+        &[404],
+    )
+    .await?;
+    let exists = response.status_code != 404;
+    if exists != expected {
+        return Err(CommandError::new(
+            if expected {
+                "search-snapshot-missing"
+            } else {
+                "search-snapshot-exists"
+            },
+            if expected {
+                format!("Search snapshot {repository}/{snapshot} does not exist.")
+            } else {
+                format!(
+                    "Search snapshot {repository}/{snapshot} already exists; choose a new snapshot name."
+                )
+            },
+        ));
+    }
+    Ok(())
+}
+
+async fn ensure_search_snapshot_contains(
+    connection: &ResolvedConnectionProfile,
+    repository: &str,
+    snapshot: &str,
+    source_index: &str,
+) -> Result<SearchSnapshotEvidence, CommandError> {
+    let response = search_get_allowing_status(
+        connection,
+        &format!(
+            "/_snapshot/{}/{}",
+            path_segment(repository),
+            path_segment(snapshot)
+        ),
+        &[404],
+    )
+    .await?;
+    if response.status_code == 404 {
+        return Err(CommandError::new(
+            "search-snapshot-missing",
+            format!("Search snapshot {repository}/{snapshot} does not exist."),
+        ));
+    }
+    let value = parse_search_json(&response.body, "snapshot metadata")?;
+    let snapshot_value = value
+        .get("snapshots")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .ok_or_else(|| {
+            CommandError::new(
+                "search-snapshot-metadata-invalid",
+                "Search engine did not return snapshot metadata.",
+            )
+        })?;
+    let evidence = snapshot_evidence(snapshot_value)?;
+    if evidence.state != "SUCCESS" {
+        return Err(CommandError::new(
+            "search-snapshot-incomplete",
+            format!(
+                "Search snapshot is not complete (state {}).",
+                evidence.state
+            ),
+        ));
+    }
+    let contains = snapshot_value
+        .get("indices")
+        .and_then(Value::as_array)
+        .is_some_and(|indices| {
+            indices
+                .iter()
+                .any(|index| index.as_str() == Some(source_index))
+        });
+    if !contains {
+        return Err(CommandError::new(
+            "search-snapshot-index-missing",
+            format!("Search snapshot does not contain source index {source_index}."),
+        ));
+    }
+    Ok(evidence)
+}
+
+fn validate_snapshot_completion(
+    body: &str,
+    source_index: &str,
+) -> Result<SearchSnapshotEvidence, CommandError> {
+    let value = parse_search_json(body, "snapshot completion response")?;
+    let snapshot = value.get("snapshot").ok_or_else(|| {
+        CommandError::new(
+            "search-snapshot-response-invalid",
+            "Search engine did not return completed snapshot evidence.",
+        )
+    })?;
+    let evidence = snapshot_evidence(snapshot)?;
+    let contains = snapshot
+        .get("indices")
+        .and_then(Value::as_array)
+        .is_some_and(|indices| {
+            indices
+                .iter()
+                .any(|index| index.as_str() == Some(source_index))
+        });
+    if evidence.state != "SUCCESS" || evidence.failed_shards != 0 || !contains {
+        return Err(CommandError::new(
+            "search-snapshot-failed",
+            "Search engine did not complete every shard in the requested snapshot.",
+        ));
+    }
+    Ok(evidence)
+}
+
+fn snapshot_evidence(snapshot: &Value) -> Result<SearchSnapshotEvidence, CommandError> {
+    let state = snapshot
+        .get("state")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let successful_shards = snapshot
+        .pointer("/shards/successful")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let failed_shards = snapshot
+        .pointer("/shards/failed")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    if state.is_empty() {
+        return Err(CommandError::new(
+            "search-snapshot-response-invalid",
+            "Search engine did not return snapshot state evidence.",
+        ));
+    }
+    Ok(SearchSnapshotEvidence {
+        state,
+        successful_shards,
+        failed_shards,
+    })
+}
+
+fn validate_restore_completion(body: &str) -> Result<(), CommandError> {
+    let value = parse_search_json(body, "snapshot restore response")?;
+    let total = value
+        .pointer("/snapshot/shards/total")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| {
+            CommandError::new(
+                "search-restore-response-invalid",
+                "Search engine did not return total restore shard evidence.",
+            )
+        })?;
+    let successful = value
+        .pointer("/snapshot/shards/successful")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| {
+            CommandError::new(
+                "search-restore-response-invalid",
+                "Search engine did not return successful restore shard evidence.",
+            )
+        })?;
+    let failed = value
+        .pointer("/snapshot/shards/failed")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| {
+            CommandError::new(
+                "search-restore-response-invalid",
+                "Search engine did not return restore shard evidence.",
+            )
+        })?;
+    if total == 0 || failed != 0 || successful != total {
+        return Err(CommandError::new(
+            "search-restore-failed",
+            "Search engine did not restore every shard into the isolated target index.",
+        ));
+    }
+    Ok(())
+}
+
+async fn ensure_search_index_exists(
+    connection: &ResolvedConnectionProfile,
+    index: &str,
+    expected: bool,
+) -> Result<(), CommandError> {
+    let response =
+        search_get_allowing_status(connection, &format!("/{}", path_segment(index)), &[404])
+            .await?;
+    let exists = response.status_code != 404;
+    if exists != expected {
+        return Err(CommandError::new(
+            if expected {
+                "search-snapshot-source-missing"
+            } else {
+                "search-snapshot-target-exists"
+            },
+            if expected {
+                format!("Search snapshot source index {index} does not exist.")
+            } else {
+                format!(
+                    "Search restore will not overwrite target index {index}; choose a new index name."
+                )
+            },
+        ));
+    }
+    Ok(())
+}
+
+async fn search_index_count(
+    connection: &ResolvedConnectionProfile,
+    index: &str,
+) -> Result<u64, CommandError> {
+    let response = search_get(connection, &format!("/{}/_count", path_segment(index))).await?;
+    parse_search_json(&response.body, "index count")?
+        .get("count")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| {
+            CommandError::new(
+                "search-snapshot-count-invalid",
+                "Search engine returned unreadable restored index count evidence.",
+            )
+        })
+}
+
+async fn rollback_search_index(
+    connection: &ResolvedConnectionProfile,
+    index: &str,
+) -> Result<(), CommandError> {
+    let response = search_delete(connection, &format!("/{}", path_segment(index))).await?;
+    if !matches!(response.status_code, 200 | 404) {
+        return Err(CommandError::new(
+            "search-restore-rollback-failed",
+            format!(
+                "Search restore failed and DataPad++ could not remove the new target index (HTTP {}).",
+                response.status_code
+            ),
+        ));
+    }
+    Ok(())
+}
+
+async fn rollback_search_index_after(
+    connection: &ResolvedConnectionProfile,
+    index: &str,
+    error: CommandError,
+) -> CommandError {
+    match rollback_search_index(connection, index).await {
+        Ok(()) => error,
+        Err(rollback_error) => CommandError::new(
+            "search-restore-rollback-failed",
+            format!(
+                "Search restore failed and DataPad++ could not remove the newly created target index. Restore error: {} Rollback error: {}",
+                error.message, rollback_error.message
+            ),
+        ),
+    }
+}
+
+async fn rollback_search_snapshot_after(
+    connection: &ResolvedConnectionProfile,
+    repository: &str,
+    snapshot: &str,
+    error: CommandError,
+) -> CommandError {
+    match search_delete(
+        connection,
+        &format!(
+            "/_snapshot/{}/{}",
+            path_segment(repository),
+            path_segment(snapshot)
+        ),
+    )
+    .await
+    {
+        Ok(_) => error,
+        Err(rollback_error) => CommandError::new(
+            "search-snapshot-rollback-failed",
+            format!(
+                "Search snapshot did not complete successfully and DataPad++ could not remove it. Snapshot error: {} Cleanup error: {}",
+                error.message, rollback_error.message
+            ),
+        ),
+    }
+}
+
+fn regex_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        if matches!(
+            character,
+            '\\' | '.' | '+' | '*' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|'
+        ) {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
 }
 
 pub(super) async fn execute_search_transfer(
@@ -873,7 +1532,8 @@ fn sanitize_index_settings(settings: &mut Value) {
 }
 
 fn source_index(request: &OperationExecutionRequest) -> Result<String, CommandError> {
-    let value = parameter_string(request, "index")
+    let value = parameter_string(request, "sourceIndex")
+        .or_else(|| parameter_string(request, "index"))
         .or_else(|| request.object_name.clone())
         .unwrap_or_default();
     validate_index_name(value.trim_start_matches("search-index:"), "source")

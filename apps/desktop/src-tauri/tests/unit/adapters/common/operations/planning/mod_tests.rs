@@ -1327,6 +1327,49 @@ fn search_operation_plans_use_http_request_shapes() {
         .unwrap()
         .contains("preview-first"));
 
+    let backup_request = generated_operation_request(
+        &connection,
+        &manifest,
+        "elasticsearch.data.backup-restore",
+        "products-v1",
+        Some(&BTreeMap::from([
+            ("mode".into(), json!("backup")),
+            ("sourceIndex".into(), json!("products-v1")),
+            ("targetPath".into(), json!("nightly/products-2026-08-31")),
+        ])),
+    );
+    let backup_value = serde_json::from_str::<serde_json::Value>(&backup_request).unwrap();
+    assert_eq!(backup_value["method"], "PUT");
+    assert_eq!(
+        backup_value["path"],
+        "/_snapshot/nightly/products-2026-08-31?wait_for_completion=true"
+    );
+    assert_eq!(backup_value["body"]["indices"], "products-v1");
+    assert_eq!(backup_value["body"]["partial"], false);
+
+    let restore_request = generated_operation_request(
+        &connection,
+        &manifest,
+        "elasticsearch.data.backup-restore",
+        "products-v1",
+        Some(&BTreeMap::from([
+            ("mode".into(), json!("restore")),
+            ("sourceIndex".into(), json!("products-v1")),
+            ("targetIndex".into(), json!("products-restored")),
+            ("sourcePath".into(), json!("nightly/products-2026-08-31")),
+        ])),
+    );
+    let restore_value = serde_json::from_str::<serde_json::Value>(&restore_request).unwrap();
+    assert_eq!(restore_value["method"], "POST");
+    assert_eq!(
+        restore_value["path"],
+        "/_snapshot/nightly/products-2026-08-31/_restore?wait_for_completion=true"
+    );
+    assert_eq!(
+        restore_value["body"]["rename_replacement"],
+        "products-restored"
+    );
+
     let component_template_request = generated_operation_request(
         &connection,
         &manifest,

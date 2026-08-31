@@ -18344,7 +18344,7 @@
         "engine": "elasticsearch",
         "family": "search",
         "label": "Backup Or Restore",
-        "scope": "database",
+        "scope": "index",
         "risk": "destructive",
         "requiredCapabilities": [
           "supports_backup_restore"
@@ -18354,11 +18354,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan backup and restore workflows with environment and permission guardrails.",
+        "description": "Create a native index snapshot in an existing repository or restore it into a new isolated index.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       }
     ]
   },
@@ -19745,7 +19745,7 @@
         "engine": "opensearch",
         "family": "search",
         "label": "Backup Or Restore",
-        "scope": "database",
+        "scope": "index",
         "risk": "destructive",
         "requiredCapabilities": [
           "supports_backup_restore"
@@ -19755,11 +19755,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan backup and restore workflows with environment and permission guardrails.",
+        "description": "Create a native index snapshot in an existing repository or restore it into a new isolated index.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       }
     ]
   },

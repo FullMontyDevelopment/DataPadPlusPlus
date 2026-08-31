@@ -415,21 +415,54 @@ pub(super) fn search_operation_request(
     }
 
     if operation_id.ends_with("data.backup-restore") {
-        let repository =
-            string_parameter(parameters, "repository").unwrap_or_else(|| "<repository>".into());
-        let snapshot =
-            string_parameter(parameters, "snapshot").unwrap_or_else(|| "<snapshot>".into());
+        let mode = string_parameter(parameters, "mode").unwrap_or_else(|| "backup".into());
+        let descriptor = string_parameter(
+            parameters,
+            if mode == "restore" {
+                "sourcePath"
+            } else {
+                "targetPath"
+            },
+        )
+        .or_else(|| string_parameter(parameters, "transferDestination"));
+        let (repository, snapshot) = descriptor
+            .as_deref()
+            .and_then(|value| value.split_once('/'))
+            .map(|(repository, snapshot)| (repository.to_string(), snapshot.to_string()))
+            .unwrap_or_else(|| {
+                (
+                    string_parameter(parameters, "repository")
+                        .unwrap_or_else(|| "<repository>".into()),
+                    string_parameter(parameters, "snapshot").unwrap_or_else(|| "<snapshot>".into()),
+                )
+            });
+        let source_index = string_parameter(parameters, "sourceIndex")
+            .or_else(|| string_parameter(parameters, "index"))
+            .unwrap_or_else(|| object_name.into());
+        let target_index = string_parameter(parameters, "targetIndex")
+            .unwrap_or_else(|| "<new-target-index>".into());
         return serde_json::to_string_pretty(&serde_json::json!({
-            "method": "PUT",
-            "path": format!(
+            "method": if mode == "restore" { "POST" } else { "PUT" },
+            "path": if mode == "restore" { format!(
+                "/_snapshot/{}/{}/_restore?wait_for_completion=true",
+                search_path_segment(&repository),
+                search_path_segment(&snapshot)
+            ) } else { format!(
                 "/_snapshot/{}/{}",
                 search_path_segment(&repository),
                 search_path_segment(&snapshot)
-            ),
-            "body": {
-                "indices": object_name,
-                "include_global_state": bool_parameter(parameters, "includeGlobalState").unwrap_or(false)
-            },
+            ) + "?wait_for_completion=true" },
+            "body": if mode == "restore" { serde_json::json!({
+                "indices": source_index,
+                "include_global_state": false,
+                "rename_pattern": "^<escaped-source>$",
+                "rename_replacement": target_index,
+            }) } else { serde_json::json!({
+                "indices": source_index,
+                "ignore_unavailable": false,
+                "include_global_state": false,
+                "partial": false,
+            }) },
             "executionGate": search_execution_gate("snapshot")
         }))
         .unwrap_or_else(|_| "{}".into());

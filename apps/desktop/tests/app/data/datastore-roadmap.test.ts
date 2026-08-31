@@ -813,7 +813,8 @@ describe('datastore roadmap catalog', () => {
       'Native-complete for the scoped Elasticsearch plain-HTTP search workflow',
     )
     expect(elasticsearch?.summary).toContain('optional search fixture validator')
-    expect(elasticsearch?.summary).toContain('desktop file/cloud import-export')
+    expect(elasticsearch?.summary).toContain('native repository snapshot backup')
+    expect(elasticsearch?.summary).toContain('isolated create-new index restore')
     expect(incompleteCriteriaForEngine('elasticsearch')).toEqual([])
 
     const opensearch = datastoreCompletenessForEngine('opensearch')
@@ -830,6 +831,7 @@ describe('datastore roadmap catalog', () => {
     expect(opensearch?.summary).toContain(
       'OpenSearch SQL, ISM, security, and Performance Analyzer boundary evidence',
     )
+    expect(opensearch?.summary).toContain('native repository snapshot backup')
     expect(opensearch?.summary).toContain('Managed SigV4/IAM runtime execution')
     expect(opensearch?.summary).toContain('Performance Analyzer')
     expect(incompleteCriteriaForEngine('opensearch')).toEqual([])

@@ -266,7 +266,7 @@ async function validateImportExportBoundary(engine) {
       snapshots.ok || snapshots.status === 404 || snapshots.status === 400,
       `${engine.label} snapshot repository boundary returned unexpected status ${snapshots.status}`,
     )
-    notes.push(`${engine.label} fixture validated bounded _search export and _bulk import primitives; the desktop adapter's transfer-folder round trip and failed-batch rollback are covered by the live Rust fixture test. Snapshot execution remains outside this data-transfer claim.`)
+    notes.push(`${engine.label} fixture validated bounded _search export and _bulk import primitives; the desktop adapter's transfer-folder round trip and failed-batch rollback are covered by the live Rust fixture test. Run fixtures:validate:search:snapshots for native repository backup and isolated restore evidence.`)
   } finally {
     await deleteIndexIfExists(engine, index).catch((error) => {
       notes.push(`${engine.label} transient import/export cleanup failed: ${error.message}`)

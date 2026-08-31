@@ -273,6 +273,19 @@ function promoteScopedLiveWorkflows(
         previewOnly: false,
       }
     }
+    if (
+      (connection.engine === 'elasticsearch' || connection.engine === 'opensearch')
+      && operation.id === `${connection.engine}.data.backup-restore`
+    ) {
+      return {
+        ...operation,
+        description: 'Create an index snapshot in an existing repository or restore it into a new isolated index.',
+        risk: 'costly' as const,
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
     if (connection.engine === 'mysql' && operation.id === 'mysql.data.import-export') {
       return {
         ...operation,

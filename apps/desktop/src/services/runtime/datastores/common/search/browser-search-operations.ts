@@ -240,10 +240,31 @@ export function searchOperationRequest(connection: ConnectionProfile, request: O
   }
 
   if (request.operationId.endsWith('data.backup-restore')) {
-    return searchRequest('PUT', '/_snapshot/<repository>/<snapshot>', {
-      indices: request.objectName ?? '*',
-      include_global_state: false,
-    }, {
+    const mode = String(parameters.mode ?? 'backup')
+    const descriptor = safeSnapshotDescriptor(String(
+      mode === 'restore'
+        ? parameters.sourcePath ?? parameters.transferDestination ?? '<repository>/<snapshot>'
+        : parameters.targetPath ?? parameters.transferDestination ?? '<repository>/<snapshot>',
+    ))
+    const [repository = '<repository>', snapshotName = '<snapshot>'] = descriptor.split('/', 2)
+    const snapshotPath = `${encodeSearchPathSegment(repository)}/${encodeSearchPathSegment(snapshotName)}`
+    const sourceIndex = String(parameters.sourceIndex ?? parameters.index ?? request.objectName ?? '<source-index>')
+    const targetIndex = String(parameters.targetIndex ?? '<new-target-index>')
+    return searchRequest(mode === 'restore' ? 'POST' : 'PUT',
+      `/_snapshot/${snapshotPath}${mode === 'restore' ? '/_restore' : ''}?wait_for_completion=true`,
+      mode === 'restore'
+        ? {
+            indices: sourceIndex,
+            include_global_state: false,
+            rename_pattern: '^<escaped-source>$',
+            rename_replacement: targetIndex,
+          }
+        : {
+            indices: sourceIndex,
+            ignore_unavailable: false,
+            include_global_state: false,
+            partial: false,
+          }, {
       executionGate: searchPreviewExecutionGate(connection, 'snapshot'),
     })
   }
@@ -256,6 +277,14 @@ export function searchOperationRequest(connection: ConnectionProfile, request: O
   }
 
   return defaultQueryTextForConnection(connection)
+}
+
+function safeSnapshotDescriptor(value: string) {
+  const parts = value.split('/')
+  const safeName = (name: string) => /^[a-z0-9][a-z0-9._-]{0,179}$/.test(name)
+  return parts.length === 2 && safeName(parts[0] ?? '') && safeName(parts[1] ?? '')
+    ? value
+    : '<repository>/<snapshot>'
 }
 
 function searchRequest(

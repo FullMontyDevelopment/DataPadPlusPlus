@@ -84,6 +84,7 @@
     "fixtures:validate:dynamodb:cloud": "node tests/fixtures/validate-dynamodb-cloud.mjs",
     "fixtures:validate:cosmosdb": "node tests/fixtures/validate-cosmosdb-fixtures.mjs",
     "fixtures:validate:search": "node tests/fixtures/validate-search-fixtures.mjs",
+    "fixtures:validate:search:snapshots": "node tests/fixtures/validate-search-snapshots.mjs",
     "fixtures:validate:duckdb": "node tests/fixtures/validate-duckdb-fixtures.mjs",
     "fixtures:validate:clickhouse": "node tests/fixtures/validate-clickhouse-fixtures.mjs",
     "fixtures:validate:litedb": "node tests/fixtures/validate-litedb-fixtures.mjs",

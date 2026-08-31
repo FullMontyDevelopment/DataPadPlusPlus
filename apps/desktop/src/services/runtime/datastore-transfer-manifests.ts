@@ -261,7 +261,9 @@ const NATIVE_BACKUP_ENGINES = new Set<DatastoreEngine>([
   'clickhouse', 'arango', 'dynamodb', 'cosmosdb', 'snowflake', 'bigquery', 'neptune',
 ])
 
-const LIVE_BACKUP_ENGINES = new Set<DatastoreEngine>(['sqlite', 'duckdb', 'cockroachdb', 'sqlserver', 'oracle', 'clickhouse'])
+const LIVE_BACKUP_ENGINES = new Set<DatastoreEngine>([
+  'sqlite', 'duckdb', 'cockroachdb', 'sqlserver', 'oracle', 'clickhouse', 'elasticsearch', 'opensearch',
+])
 
 function isLiveBackupAction(engine: DatastoreEngine) {
   return LIVE_BACKUP_ENGINES.has(engine)
@@ -290,7 +292,7 @@ export function datastoreTransferManifest(engine: DatastoreEngine): DatastoreTra
             ? undefined
             : `${engineLabel(engine)} native ${action} execution is not implemented yet.`
         : `Full ${engineLabel(engine)} backup and restore require excluded vendor tooling or storage-backend access.`,
-      multiple: true,
+      multiple: !['elasticsearch', 'opensearch'].includes(engine),
       requiresExistingTarget: false,
       options: backupOptions(engine, action),
     }))
@@ -352,7 +354,7 @@ function capability(engine: DatastoreEngine, action: DatastoreTransferAction, sp
     action,
     kind,
     operationId: spec.operationIds?.[action] ?? `${engine}.data.${kind === 'data' ? 'import-export' : 'backup-restore'}`,
-    scope: kind === 'backup' ? 'database' : dataScope(engine),
+    scope: kind === 'backup' ? backupScope(engine) : dataScope(engine),
     executionSupport: spec.supportByAction?.[action] ?? spec.support ?? 'plan-only',
     formats: spec.formats.map(format),
     options: spec.options?.[action],
@@ -377,6 +379,11 @@ function dataScope(engine: DatastoreEngine): DatastoreTransferCapability['scope'
   return 'table'
 }
 
+function backupScope(engine: DatastoreEngine): DatastoreTransferCapability['scope'] {
+  if (engine === 'elasticsearch' || engine === 'opensearch') return 'index'
+  return 'database'
+}
+
 function backupOperationIds(engine: DatastoreEngine): CapabilitySpec['operationIds'] {
   if (engine === 'sqlite') return { backup: 'sqlite.database.backup', restore: 'sqlite.database.restore' }
   return undefined
@@ -386,6 +393,33 @@ function backupOptions(
   engine: DatastoreEngine,
   action: 'backup' | 'restore',
 ): CapabilitySpec['options'] {
+  if (engine === 'elasticsearch' || engine === 'opensearch') {
+    const sourceIndex: DatastoreTransferOption = {
+      id: 'sourceIndex',
+      label: 'Index in snapshot',
+      input: 'text',
+      required: true,
+      placeholder: 'products',
+      description: action === 'backup'
+        ? 'Existing index to snapshot.'
+        : 'Exact source index name stored in the snapshot.',
+    }
+    return {
+      [action]: action === 'backup'
+        ? [sourceIndex]
+        : [
+            sourceIndex,
+            {
+              id: 'targetIndex',
+              label: 'New target index',
+              input: 'text',
+              required: true,
+              placeholder: 'products-restored',
+              description: 'Must not already exist. Failed restores are rolled back when the cluster created the target.',
+            },
+          ],
+    }
+  }
   if (engine === 'clickhouse') {
     const sourceDatabase: DatastoreTransferOption = {
       id: 'sourceDatabase',
@@ -506,6 +540,7 @@ function backupFormats(engine: DatastoreEngine): FormatSpec[] {
   if (engine === 'sqlserver') return [['bak', 'SQL Server backup', 'native', ['bak'], 'Native SQL Server backup artifact.']]
   if (engine === 'oracle') return [['datapump', 'Oracle Data Pump', 'native', ['dmp'], 'Oracle Data Pump dump set.']]
   if (engine === 'clickhouse') return [['clickhouse-backup', 'ClickHouse backup archive', 'native', ['zip'], 'Native ClickHouse database backup archive stored in the server backup directory.']]
+  if (engine === 'elasticsearch' || engine === 'opensearch') return [['snapshot', 'Native snapshot', 'native', [], 'Native index snapshot stored in an existing server repository.']]
   return [['native-backup', 'Native managed backup', 'native', [], 'Datastore-managed backup or snapshot.']]
 }
 

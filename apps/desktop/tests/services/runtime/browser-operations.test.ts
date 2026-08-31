@@ -2876,6 +2876,56 @@ describe('browser operation runtime', () => {
         ]),
       },
     })
+
+    const snapshotOperation = operations.find((item) => item.id === 'elasticsearch.data.backup-restore')
+    expect(snapshotOperation).toMatchObject({
+      executionSupport: 'live',
+      previewOnly: false,
+      risk: 'costly',
+    })
+    const nativeBackup = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.data.backup-restore',
+      objectName: 'products-v1',
+      parameters: {
+        mode: 'backup',
+        sourceIndex: 'products-v1',
+        targetPath: 'nightly/products-2026-08-31',
+      },
+    })
+    expect(JSON.parse(nativeBackup.plan.generatedRequest)).toMatchObject({
+      method: 'PUT',
+      path: '/_snapshot/nightly/products-2026-08-31?wait_for_completion=true',
+      body: {
+        indices: 'products-v1',
+        ignore_unavailable: false,
+        include_global_state: false,
+        partial: false,
+      },
+    })
+    const nativeRestore = planOperationLocally(snapshot, {
+      connectionId: searchConnection.id,
+      environmentId: 'env-local',
+      operationId: 'elasticsearch.data.backup-restore',
+      objectName: 'products-v1',
+      parameters: {
+        mode: 'restore',
+        sourceIndex: 'products-v1',
+        targetIndex: 'products-restored',
+        sourcePath: 'nightly/products-2026-08-31',
+      },
+    })
+    expect(JSON.parse(nativeRestore.plan.generatedRequest)).toMatchObject({
+      method: 'POST',
+      path: '/_snapshot/nightly/products-2026-08-31/_restore?wait_for_completion=true',
+      body: {
+        indices: 'products-v1',
+        include_global_state: false,
+        rename_pattern: '^<escaped-source>$',
+        rename_replacement: 'products-restored',
+      },
+    })
   })
 
   it('generates DynamoDB capacity, index, access, and export operation previews', () => {

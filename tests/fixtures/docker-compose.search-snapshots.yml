@@ -1,0 +1,14 @@
+services:
+  elasticsearch:
+    tmpfs:
+      - /usr/share/elasticsearch/data/snapshots:rw,uid=1000,gid=0,mode=0770
+    volumes:
+      - ./search/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+
+  opensearch:
+    environment:
+      DISABLE_INSTALL_DEMO_CONFIG: 'true'
+    tmpfs:
+      - /usr/share/opensearch/data/snapshots:rw,uid=1000,gid=0,mode=0770
+    volumes:
+      - ./search/opensearch.yml:/usr/share/opensearch/config/opensearch.yml:ro
