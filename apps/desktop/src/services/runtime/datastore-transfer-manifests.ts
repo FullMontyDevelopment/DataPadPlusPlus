@@ -261,7 +261,7 @@ const NATIVE_BACKUP_ENGINES = new Set<DatastoreEngine>([
   'clickhouse', 'arango', 'dynamodb', 'cosmosdb', 'snowflake', 'bigquery', 'neptune',
 ])
 
-const LIVE_BACKUP_ENGINES = new Set<DatastoreEngine>(['sqlite', 'duckdb', 'cockroachdb', 'sqlserver', 'oracle'])
+const LIVE_BACKUP_ENGINES = new Set<DatastoreEngine>(['sqlite', 'duckdb', 'cockroachdb', 'sqlserver', 'oracle', 'clickhouse'])
 
 function isLiveBackupAction(engine: DatastoreEngine) {
   return LIVE_BACKUP_ENGINES.has(engine)
@@ -386,6 +386,33 @@ function backupOptions(
   engine: DatastoreEngine,
   action: 'backup' | 'restore',
 ): CapabilitySpec['options'] {
+  if (engine === 'clickhouse') {
+    const sourceDatabase: DatastoreTransferOption = {
+      id: 'sourceDatabase',
+      label: 'Database in archive',
+      input: 'text',
+      required: true,
+      placeholder: 'analytics',
+      description: action === 'backup'
+        ? 'Existing ClickHouse database to archive.'
+        : 'Exact source database name stored in the native archive.',
+    }
+    return {
+      [action]: action === 'backup'
+        ? [sourceDatabase]
+        : [
+            sourceDatabase,
+            {
+              id: 'targetDatabase',
+              label: 'New target database',
+              input: 'text',
+              required: true,
+              placeholder: 'analytics_restored',
+              description: 'Must not already exist. DataPad++ creates it, restores the archive, and removes it if restore fails.',
+            },
+          ],
+    }
+  }
   if (engine === 'oracle') {
     const common: DatastoreTransferOption[] = [
       {
@@ -478,6 +505,7 @@ function backupFormats(engine: DatastoreEngine): FormatSpec[] {
   if (engine === 'duckdb') return [['parquet', 'DuckDB Parquet directory', 'native', [], 'DuckDB EXPORT DATABASE directory using Parquet.'], ['csv', 'DuckDB CSV directory', 'native', [], 'DuckDB EXPORT DATABASE directory using CSV.']]
   if (engine === 'sqlserver') return [['bak', 'SQL Server backup', 'native', ['bak'], 'Native SQL Server backup artifact.']]
   if (engine === 'oracle') return [['datapump', 'Oracle Data Pump', 'native', ['dmp'], 'Oracle Data Pump dump set.']]
+  if (engine === 'clickhouse') return [['clickhouse-backup', 'ClickHouse backup archive', 'native', ['zip'], 'Native ClickHouse database backup archive stored in the server backup directory.']]
   return [['native-backup', 'Native managed backup', 'native', [], 'Datastore-managed backup or snapshot.']]
 }
 
@@ -486,6 +514,7 @@ function backupDestinations(engine: DatastoreEngine): DatastoreTransferDestinati
   if (engine === 'duckdb') return ['local-folder']
   if (engine === 'oracle') return ['server-path']
   if (engine === 'sqlserver') return ['server-path', 'cloud-uri']
+  if (engine === 'clickhouse') return ['server-path']
   if (engine === 'elasticsearch' || engine === 'opensearch' || engine === 'arango') return ['repository']
   if (['dynamodb', 'cosmosdb', 'snowflake', 'bigquery', 'neptune'].includes(engine)) return ['managed-restore', 'cloud-uri']
   return ['cloud-uri', 'server-path']
@@ -499,7 +528,7 @@ function nativeBackupDescription(engine: DatastoreEngine) {
     oracle: 'Oracle uses DBMS_DATAPUMP for table and schema archives.',
     elasticsearch: 'Elasticsearch uses configured snapshot repositories.',
     opensearch: 'OpenSearch uses version-compatible snapshot repositories.',
-    clickhouse: 'ClickHouse uses configured disks or object storage.',
+    clickhouse: 'ClickHouse creates native database archives in the configured server backup directory and restores them into a new isolated database.',
     arango: 'ArangoDB Hot Backup is available when the server edition supports it.',
     dynamodb: 'DynamoDB uses managed backup and restore APIs.',
     cosmosdb: 'Cosmos DB exposes platform-managed restore operations.',

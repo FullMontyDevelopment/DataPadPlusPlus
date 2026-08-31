@@ -186,6 +186,39 @@ fn clickhouse_operation_request(
         );
     }
 
+    if operation_id.ends_with("data.backup-restore") {
+        let mode = string_parameter(parameters, "mode").unwrap_or_else(|| "backup".into());
+        let archive = string_parameter(
+            parameters,
+            if mode == "restore" {
+                "sourcePath"
+            } else {
+                "targetPath"
+            },
+        )
+        .or_else(|| string_parameter(parameters, "transferDestination"))
+        .unwrap_or_else(|| "<server-backup>.zip".into());
+        let source_database = string_parameter(parameters, "sourceDatabase")
+            .or_else(|| string_parameter(parameters, "database"))
+            .unwrap_or_else(|| "<source-database>".into());
+        if mode == "restore" {
+            let target_database = string_parameter(parameters, "targetDatabase")
+                .unwrap_or_else(|| "<new-target-database>".into());
+            return format!(
+                "CREATE DATABASE {};\nRESTORE DATABASE {} AS {} FROM File('{}');",
+                clickhouse_identifier(&target_database),
+                clickhouse_identifier(&source_database),
+                clickhouse_identifier(&target_database),
+                escape_single_quoted(&archive),
+            );
+        }
+        return format!(
+            "BACKUP DATABASE {} TO File('{}');",
+            clickhouse_identifier(&source_database),
+            escape_single_quoted(&archive),
+        );
+    }
+
     if operation_id.ends_with("table.optimize") {
         return format!(
             "OPTIMIZE TABLE {} FINAL;",

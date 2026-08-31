@@ -3633,6 +3633,43 @@ describe('browser operation runtime', () => {
     expect(exportPlan.plan.generatedRequest).toContain('INTO OUTFILE')
     expect(exportPlan.plan.generatedRequest).toContain('FORMAT PARQUET')
 
+    const backupOperation = clickHouseOperations.find((item) => item.id === 'clickhouse.data.backup-restore')
+    expect(backupOperation).toMatchObject({
+      executionSupport: 'live',
+      previewOnly: false,
+      risk: 'costly',
+    })
+    const backupPlan = planOperationLocally(clickHouseSnapshot, {
+      connectionId: clickHouseConnection.id,
+      environmentId: 'env-local',
+      operationId: 'clickhouse.data.backup-restore',
+      objectName: 'analytics',
+      parameters: {
+        mode: 'backup',
+        sourceDatabase: 'analytics',
+        targetPath: 'analytics-2026-08-31.zip',
+      },
+    })
+    expect(backupPlan.plan.generatedRequest).toBe(
+      "BACKUP DATABASE `analytics` TO File('analytics-2026-08-31.zip');",
+    )
+    const restorePlan = planOperationLocally(clickHouseSnapshot, {
+      connectionId: clickHouseConnection.id,
+      environmentId: 'env-local',
+      operationId: 'clickhouse.data.backup-restore',
+      objectName: 'analytics',
+      parameters: {
+        mode: 'restore',
+        sourceDatabase: 'analytics',
+        targetDatabase: 'analytics_restored',
+        sourcePath: 'analytics-2026-08-31.zip',
+      },
+    })
+    expect(restorePlan.plan.generatedRequest).toContain('CREATE DATABASE `analytics_restored`;')
+    expect(restorePlan.plan.generatedRequest).toContain(
+      "RESTORE DATABASE `analytics` AS `analytics_restored` FROM File('analytics-2026-08-31.zip');",
+    )
+
     const optimizePlan = planOperationLocally(clickHouseSnapshot, {
       connectionId: clickHouseConnection.id,
       environmentId: 'env-local',

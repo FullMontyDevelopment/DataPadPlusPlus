@@ -263,6 +263,16 @@ function promoteScopedLiveWorkflows(
         previewOnly: false,
       }
     }
+    if (connection.engine === 'clickhouse' && operation.id === 'clickhouse.data.backup-restore') {
+      return {
+        ...operation,
+        description: 'Create a native ClickHouse database archive on the server or restore it into a new isolated database.',
+        risk: 'costly' as const,
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
     if (connection.engine === 'mysql' && operation.id === 'mysql.data.import-export') {
       return {
         ...operation,

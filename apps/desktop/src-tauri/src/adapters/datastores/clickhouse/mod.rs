@@ -38,6 +38,12 @@ impl DatastoreAdapter for ClickHouseAdapter {
             )
             .await;
         }
+        if request.operation_id == "clickhouse.data.backup-restore" {
+            return import_export::execute_clickhouse_backup_restore(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
         execute_standard_live_operation(
             self, connection, request, operation, plan, messages, warnings,
         )
@@ -119,6 +125,51 @@ impl DatastoreAdapter for ClickHouseAdapter {
                         .into(),
                 );
             }
+        }
+        if operation_id == "clickhouse.data.backup-restore" {
+            let mode = parameters
+                .and_then(|values| values.get("mode"))
+                .and_then(Value::as_str)
+                .unwrap_or("backup");
+            let source_database = parameters
+                .and_then(|values| values.get("sourceDatabase"))
+                .and_then(Value::as_str)
+                .or(connection.database.as_deref())
+                .unwrap_or("<source-database>");
+            plan.request_language = "clickhouse-sql".into();
+            plan.summary = if mode == "restore" {
+                format!(
+                    "Prepared a native ClickHouse archive restore for {source_database} into a new isolated database."
+                )
+            } else {
+                format!("Prepared a native ClickHouse database archive for {source_database}.")
+            };
+            plan.required_permissions = if mode == "restore" {
+                vec![
+                    "RESTORE privilege for the archive and CREATE DATABASE/TABLE privileges for the new target".into(),
+                    "Read access to the configured ClickHouse server backup directory".into(),
+                ]
+            } else {
+                vec![
+                    "BACKUP privilege and read access to every selected database object".into(),
+                    "Write access to the configured ClickHouse server backup directory".into(),
+                ]
+            };
+            plan.confirmation_text = Some("CONFIRM CLICKHOUSE".into());
+            plan.estimated_scan_impact = Some(if mode == "restore" {
+                "ClickHouse reads and validates the complete native archive while creating a new database."
+                    .into()
+            } else {
+                "ClickHouse scans and archives every table in the selected database on the server."
+                    .into()
+            });
+            plan.warnings.retain(|warning| {
+                !warning.contains("beta adapter returns a guarded operation plan")
+            });
+            plan.warnings.push(
+                "The archive is server-side. DataPad++ never embeds connection credentials in the archive location."
+                    .into(),
+            );
         }
         Ok(plan)
     }

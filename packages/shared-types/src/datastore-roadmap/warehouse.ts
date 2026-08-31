@@ -26,6 +26,7 @@ export const CLICKHOUSE_DATASTORE_FEATURE = {
       'supports_query_cancellation',
       'supports_streaming_results',
       'supports_import_export',
+      'supports_backup_restore',
       'supports_structure_visualization',
     ],
     baselineFeatures: [
@@ -40,6 +41,7 @@ export const CLICKHOUSE_DATASTORE_FEATURE = {
       'MergeTree parts and replica posture panels',
       'Metrics dashboards',
       'Guarded table optimization, TTL materialization, and freeze snapshot previews',
+      'Native server-side database backup and isolated restore',
       'Cluster topology',
     ],
     diagnosticFeatures: [

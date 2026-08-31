@@ -29,6 +29,10 @@ export function warehouseOperationRequest(connection: ConnectionProfile, request
     return warehouseImportExportRequest(connection, objectName, parameters)
   }
 
+  if (request.operationId.endsWith('data.backup-restore')) {
+    return warehouseBackupRestoreRequest(connection, parameters)
+  }
+
   if (request.operationId.endsWith('table.clone')) {
     return warehouseTableCloneRequest(connection, objectName, parameters)
   }
@@ -62,6 +66,27 @@ export function warehouseOperationRequest(connection: ConnectionProfile, request
   }
 
   return defaultQueryTextForConnection(connection)
+}
+
+function warehouseBackupRestoreRequest(connection: ConnectionProfile, parameters: JsonRecord) {
+  if (connection.engine !== 'clickhouse') {
+    return defaultQueryTextForConnection(connection)
+  }
+  const mode = stringValue(parameters.mode) || 'backup'
+  const sourceDatabase = stringValue(parameters.sourceDatabase ?? parameters.database ?? connection.database) || '<source-database>'
+  const archiveName = stringValue(
+    mode === 'restore'
+      ? parameters.sourcePath ?? parameters.transferDestination ?? parameters.archiveName
+      : parameters.targetPath ?? parameters.transferDestination ?? parameters.archiveName,
+  ) || '<server-backup>.zip'
+  if (mode === 'restore') {
+    const targetDatabase = stringValue(parameters.targetDatabase) || '<new-target-database>'
+    return [
+      `CREATE DATABASE ${quoteClickHouseIdentifier(targetDatabase)};`,
+      `RESTORE DATABASE ${quoteClickHouseIdentifier(sourceDatabase)} AS ${quoteClickHouseIdentifier(targetDatabase)} FROM File('${escapeClickHouseString(archiveName)}');`,
+    ].join('\n')
+  }
+  return `BACKUP DATABASE ${quoteClickHouseIdentifier(sourceDatabase)} TO File('${escapeClickHouseString(archiveName)}');`
 }
 
 function warehouseExplainRequest(connection: ConnectionProfile, query: string) {

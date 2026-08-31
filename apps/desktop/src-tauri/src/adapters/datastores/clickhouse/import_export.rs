@@ -137,6 +137,338 @@ pub(super) async fn execute_clickhouse_transfer(
     }
 }
 
+pub(super) async fn execute_clickhouse_backup_restore(
+    connection: &ResolvedConnectionProfile,
+    request: &OperationExecutionRequest,
+    operation: DatastoreOperationManifest,
+    plan: OperationPlan,
+    mut messages: Vec<String>,
+    mut warnings: Vec<String>,
+) -> Result<OperationExecutionResponse, CommandError> {
+    if connection.read_only {
+        return Err(CommandError::new(
+            "clickhouse-backup-read-only",
+            "ClickHouse backup and restore are unavailable because this connection is read-only.",
+        ));
+    }
+    if parameter_string(request, "conflictPolicy").as_deref() != Some("fail") {
+        return Err(CommandError::new(
+            "clickhouse-backup-conflict-policy-invalid",
+            "ClickHouse backup and restore require the fail-safe conflict policy.",
+        ));
+    }
+
+    let mode = parameter_string(request, "mode").unwrap_or_else(|| "backup".into());
+    let source_database = clickhouse_backup_source_database(connection, request)?;
+    let archive_name = clickhouse_backup_archive_name(request, &mode)?;
+
+    match mode.as_str() {
+        "backup" => {
+            ensure_clickhouse_database_exists(connection, &source_database, true).await?;
+            let statement = clickhouse_backup_statement(&source_database, &archive_name);
+            let (native_job_id, status) = execute_clickhouse_backup_statement(
+                connection,
+                &statement,
+                "BACKUP_CREATED",
+                "clickhouse-backup-failed",
+            )
+            .await?;
+            let object_count =
+                clickhouse_database_table_count(connection, &source_database).await?;
+            messages.push(format!(
+                "ClickHouse created native backup archive {archive_name} for {source_database}."
+            ));
+            warnings.push(
+                "The archive remains in the ClickHouse server backup directory and is not copied to the DataPad++ machine."
+                    .into(),
+            );
+            Ok(operation_response(
+                request,
+                operation,
+                plan,
+                true,
+                Some(json!({
+                    "workflow": "clickhouse.database.backup",
+                    "sourceDatabase": source_database,
+                    "archiveName": archive_name,
+                    "nativeJobId": native_job_id,
+                    "nativeStatus": status,
+                    "objectCount": object_count,
+                    "destinationKind": "server-path",
+                    "conflictPolicy": "fail",
+                })),
+                messages,
+                warnings,
+            ))
+        }
+        "restore" => {
+            let target_database = parameter_string(request, "targetDatabase").ok_or_else(|| {
+                CommandError::new(
+                    "clickhouse-restore-target-missing",
+                    "Choose a new ClickHouse target database for this restore.",
+                )
+            })?;
+            validate_clickhouse_database_name(&target_database, "target")?;
+            if source_database == target_database {
+                return Err(CommandError::new(
+                    "clickhouse-restore-target-invalid",
+                    "The ClickHouse restore target must be different from the database stored in the archive.",
+                ));
+            }
+            ensure_clickhouse_database_exists(connection, &target_database, false).await?;
+
+            clickhouse_query(
+                connection,
+                &format!(
+                    "CREATE DATABASE {}",
+                    quote_clickhouse_identifier(&target_database)
+                ),
+            )
+            .await?;
+
+            let statement =
+                clickhouse_restore_statement(&source_database, &target_database, &archive_name);
+            let restored = execute_clickhouse_backup_statement(
+                connection,
+                &statement,
+                "RESTORED",
+                "clickhouse-restore-failed",
+            )
+            .await;
+            let (native_job_id, status) = match restored {
+                Ok(result) => result,
+                Err(error) => {
+                    let rollback = clickhouse_query(
+                        connection,
+                        &format!(
+                            "DROP DATABASE IF EXISTS {} SYNC",
+                            quote_clickhouse_identifier(&target_database)
+                        ),
+                    )
+                    .await;
+                    return match rollback {
+                        Ok(_) => Err(error),
+                        Err(rollback_error) => Err(CommandError::new(
+                            "clickhouse-restore-rollback-failed",
+                            format!(
+                                "ClickHouse restore failed and DataPad++ could not remove the newly created target database. Restore error: {} Rollback error: {}",
+                                error.message, rollback_error.message
+                            ),
+                        )),
+                    };
+                }
+            };
+            let object_count =
+                clickhouse_database_table_count(connection, &target_database).await?;
+            if object_count == 0 {
+                let _ = clickhouse_query(
+                    connection,
+                    &format!(
+                        "DROP DATABASE IF EXISTS {} SYNC",
+                        quote_clickhouse_identifier(&target_database)
+                    ),
+                )
+                .await;
+                return Err(CommandError::new(
+                    "clickhouse-restore-empty",
+                    "ClickHouse reported a completed restore but the isolated target database contains no tables.",
+                ));
+            }
+            messages.push(format!(
+                "ClickHouse restored archive {archive_name} into new database {target_database}."
+            ));
+            Ok(operation_response(
+                request,
+                operation,
+                plan,
+                true,
+                Some(json!({
+                    "workflow": "clickhouse.database.restore",
+                    "sourceDatabase": source_database,
+                    "targetDatabase": target_database,
+                    "archiveName": archive_name,
+                    "nativeJobId": native_job_id,
+                    "nativeStatus": status,
+                    "objectCount": object_count,
+                    "destinationKind": "server-path",
+                    "conflictPolicy": "fail",
+                    "isolatedTarget": true,
+                })),
+                messages,
+                warnings,
+            ))
+        }
+        _ => Err(CommandError::new(
+            "clickhouse-backup-mode-invalid",
+            "ClickHouse native archive mode must be backup or restore.",
+        )),
+    }
+}
+
+fn clickhouse_backup_source_database(
+    connection: &ResolvedConnectionProfile,
+    request: &OperationExecutionRequest,
+) -> Result<String, CommandError> {
+    let database = parameter_string(request, "sourceDatabase")
+        .or_else(|| parameter_string(request, "database"))
+        .or_else(|| connection.database.clone())
+        .unwrap_or_default();
+    validate_clickhouse_database_name(&database, "source")?;
+    Ok(database)
+}
+
+fn validate_clickhouse_database_name(value: &str, role: &str) -> Result<(), CommandError> {
+    if value.trim().is_empty() || value.chars().any(char::is_control) {
+        return Err(CommandError::new(
+            "clickhouse-backup-database-invalid",
+            format!("Choose a concrete ClickHouse {role} database."),
+        ));
+    }
+    if matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "system" | "information_schema"
+    ) {
+        return Err(CommandError::new(
+            "clickhouse-backup-database-protected",
+            format!("The ClickHouse {role} database is a protected system database."),
+        ));
+    }
+    Ok(())
+}
+
+fn clickhouse_backup_archive_name(
+    request: &OperationExecutionRequest,
+    mode: &str,
+) -> Result<String, CommandError> {
+    let keys: &[&str] = if mode == "restore" {
+        &["sourcePath", "transferDestination", "archiveName"]
+    } else {
+        &["targetPath", "transferDestination", "archiveName"]
+    };
+    let value = keys
+        .iter()
+        .find_map(|key| parameter_string(request, key))
+        .ok_or_else(|| {
+            CommandError::new(
+                "clickhouse-backup-archive-missing",
+                "Enter a ClickHouse server backup archive name such as analytics-2026-08-31.zip.",
+            )
+        })?;
+    let normalized = value.trim();
+    let invalid = normalized.len() > 180
+        || !normalized.to_ascii_lowercase().ends_with(".zip")
+        || normalized.starts_with('.')
+        || normalized.contains('/')
+        || normalized.contains('\\')
+        || normalized.contains("..")
+        || normalized.chars().any(char::is_control)
+        || !normalized.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        });
+    if invalid {
+        return Err(CommandError::new(
+            "clickhouse-backup-archive-invalid",
+            "ClickHouse backup archives must be a plain .zip file name using only letters, numbers, dots, dashes, or underscores.",
+        ));
+    }
+    Ok(normalized.to_string())
+}
+
+fn clickhouse_backup_statement(database: &str, archive_name: &str) -> String {
+    format!(
+        "BACKUP DATABASE {} TO File('{}')",
+        quote_clickhouse_identifier(database),
+        clickhouse_string(archive_name),
+    )
+}
+
+fn clickhouse_restore_statement(
+    source_database: &str,
+    target_database: &str,
+    archive_name: &str,
+) -> String {
+    format!(
+        "RESTORE DATABASE {} AS {} FROM File('{}')",
+        quote_clickhouse_identifier(source_database),
+        quote_clickhouse_identifier(target_database),
+        clickhouse_string(archive_name),
+    )
+}
+
+async fn execute_clickhouse_backup_statement(
+    connection: &ResolvedConnectionProfile,
+    statement: &str,
+    expected_status: &str,
+    error_code: &str,
+) -> Result<(String, String), CommandError> {
+    let raw = clickhouse_query(connection, statement).await?;
+    let mut fields = raw.trim().split('\t');
+    let job_id = fields.next().unwrap_or_default().trim();
+    let status = fields.next().unwrap_or_default().trim();
+    if job_id.is_empty() || status != expected_status {
+        return Err(CommandError::new(
+            error_code,
+            format!(
+                "ClickHouse did not confirm the native archive operation (expected status {expected_status})."
+            ),
+        ));
+    }
+    Ok((job_id.to_string(), status.to_string()))
+}
+
+async fn ensure_clickhouse_database_exists(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    expected: bool,
+) -> Result<(), CommandError> {
+    let raw = clickhouse_query(
+        connection,
+        &format!(
+            "SELECT count() FROM system.databases WHERE name = '{}' FORMAT TSV",
+            clickhouse_string(database)
+        ),
+    )
+    .await?;
+    let exists = raw.trim() == "1";
+    if exists != expected {
+        return Err(CommandError::new(
+            if expected {
+                "clickhouse-backup-source-missing"
+            } else {
+                "clickhouse-restore-target-exists"
+            },
+            if expected {
+                format!("ClickHouse source database {database} does not exist.")
+            } else {
+                format!(
+                    "ClickHouse restore will not overwrite target database {database}; choose a new database name."
+                )
+            },
+        ));
+    }
+    Ok(())
+}
+
+async fn clickhouse_database_table_count(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+) -> Result<u64, CommandError> {
+    let raw = clickhouse_query(
+        connection,
+        &format!(
+            "SELECT count() FROM system.tables WHERE database = '{}' AND is_temporary = 0 FORMAT TSV",
+            clickhouse_string(database)
+        ),
+    )
+    .await?;
+    raw.trim().parse::<u64>().map_err(|_| {
+        CommandError::new(
+            "clickhouse-backup-evidence-invalid",
+            "ClickHouse returned unreadable database object evidence.",
+        )
+    })
+}
+
 async fn stream_clickhouse_export(
     connection: &ResolvedConnectionProfile,
     database: &str,

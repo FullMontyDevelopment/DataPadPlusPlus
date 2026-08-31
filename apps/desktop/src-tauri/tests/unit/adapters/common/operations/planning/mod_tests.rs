@@ -1832,6 +1832,39 @@ fn warehouse_operation_plans_use_native_request_shapes() {
     assert!(clickhouse_request.contains("INTO OUTFILE"));
     assert!(clickhouse_request.contains("FORMAT PARQUET"));
 
+    let clickhouse_backup_request = generated_operation_request(
+        &connection,
+        &clickhouse_manifest,
+        "clickhouse.data.backup-restore",
+        "analytics",
+        Some(&BTreeMap::from([
+            ("mode".into(), json!("backup")),
+            ("sourceDatabase".into(), json!("analytics")),
+            ("targetPath".into(), json!("analytics-2026-08-31.zip")),
+        ])),
+    );
+    assert_eq!(
+        clickhouse_backup_request,
+        "BACKUP DATABASE `analytics` TO File('analytics-2026-08-31.zip');"
+    );
+
+    let clickhouse_restore_request = generated_operation_request(
+        &connection,
+        &clickhouse_manifest,
+        "clickhouse.data.backup-restore",
+        "analytics",
+        Some(&BTreeMap::from([
+            ("mode".into(), json!("restore")),
+            ("sourceDatabase".into(), json!("analytics")),
+            ("targetDatabase".into(), json!("analytics_restored")),
+            ("sourcePath".into(), json!("analytics-2026-08-31.zip")),
+        ])),
+    );
+    assert!(clickhouse_restore_request.contains("CREATE DATABASE `analytics_restored`;"));
+    assert!(clickhouse_restore_request.contains(
+        "RESTORE DATABASE `analytics` AS `analytics_restored` FROM File('analytics-2026-08-31.zip');"
+    ));
+
     let clickhouse_optimize_request = generated_operation_request(
         &connection,
         &clickhouse_manifest,

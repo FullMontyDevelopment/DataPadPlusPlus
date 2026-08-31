@@ -4092,6 +4092,202 @@ async fn clickhouse_native_transfer_roundtrips_all_formats() -> Result<(), Comma
     Ok(())
 }
 
+#[tokio::test]
+async fn clickhouse_native_database_backup_restore_roundtrips() -> Result<(), CommandError> {
+    if !fixtures_enabled() || !fixture_profile_enabled("analytics") {
+        return Ok(());
+    }
+
+    let connection = ResolvedConnectionProfile {
+        id: "conn-clickhouse-backup".into(),
+        name: "Fixture ClickHouse Backup".into(),
+        engine: "clickhouse".into(),
+        family: "warehouse".into(),
+        host: env_or("DATAPADPLUSPLUS_CLICKHOUSE_HOST", "127.0.0.1"),
+        port: Some(
+            env_or("DATAPADPLUSPLUS_CLICKHOUSE_HTTP_PORT", "8124")
+                .parse()
+                .unwrap_or(8124),
+        ),
+        database: Some(env_or("DATAPADPLUSPLUS_CLICKHOUSE_DB", "analytics")),
+        username: Some(env_or("DATAPADPLUSPLUS_CLICKHOUSE_USER", "datapadplusplus")),
+        password: Some(env_or(
+            "DATAPADPLUSPLUS_CLICKHOUSE_PASSWORD",
+            "datapadplusplus",
+        )),
+        connection_string: None,
+        redis_options: None,
+        memcached_options: None,
+        sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        mongodb_options: None,
+        warehouse_options: None,
+        read_only: false,
+    };
+    let source = "datapad_backup_source";
+    let target = "datapad_backup_restored";
+    let archive = env_or(
+        "DATAPADPLUSPLUS_CLICKHOUSE_BACKUP_ARCHIVE",
+        &format!(
+            "datapad-fixture-{}-{}.zip",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ),
+    );
+
+    for database in [target, source] {
+        clickhouse_fixture_request(
+            &connection,
+            &format!("DROP DATABASE IF EXISTS `{database}` SYNC"),
+        )
+        .await?;
+    }
+    clickhouse_fixture_request(&connection, &format!("CREATE DATABASE `{source}`")).await?;
+    clickhouse_fixture_request(
+        &connection,
+        &format!(
+            "CREATE TABLE `{source}`.`typed_values` (
+                id UUID,
+                amount Decimal(30, 9),
+                occurred_at DateTime64(3, 'UTC'),
+                payload String
+             ) ENGINE = MergeTree ORDER BY id"
+        ),
+    )
+    .await?;
+    clickhouse_fixture_request(
+        &connection,
+        &format!(
+            "INSERT INTO `{source}`.`typed_values` VALUES
+              ('00000000-0000-0000-0000-000000000001', 9007199254740993.125000000, '2026-08-31 10:15:30.123', 'München'),
+              ('00000000-0000-0000-0000-000000000002', -0.000000001, '2026-08-31 11:15:30.456', '東京')"
+        ),
+    )
+    .await?;
+
+    let backup = adapters::execute_operation(
+        &connection,
+        &clickhouse_backup_request("backup", source, None, &archive),
+    )
+    .await?;
+    assert!(backup.executed);
+    assert_eq!(
+        backup
+            .metadata
+            .as_ref()
+            .and_then(|value| value.get("nativeStatus"))
+            .and_then(serde_json::Value::as_str),
+        Some("BACKUP_CREATED")
+    );
+
+    clickhouse_fixture_request(
+        &connection,
+        &format!(
+            "INSERT INTO `{source}`.`typed_values` VALUES
+              ('00000000-0000-0000-0000-000000000003', 3, '2026-08-31 12:15:30.000', 'after-backup')"
+        ),
+    )
+    .await?;
+
+    let restore = adapters::execute_operation(
+        &connection,
+        &clickhouse_backup_request("restore", source, Some(target), &archive),
+    )
+    .await?;
+    assert!(restore.executed);
+    assert_eq!(
+        restore
+            .metadata
+            .as_ref()
+            .and_then(|value| value.get("nativeStatus"))
+            .and_then(serde_json::Value::as_str),
+        Some("RESTORED")
+    );
+    let restored = clickhouse_fixture_request(
+        &connection,
+        &format!(
+            "SELECT count(), cityHash64(groupArray(tuple(toString(id), toString(amount), toString(occurred_at), payload))) FROM (SELECT * FROM `{target}`.`typed_values` ORDER BY id) FORMAT TSV"
+        ),
+    )
+    .await?;
+    let expected = clickhouse_fixture_request(
+        &connection,
+        &format!(
+            "SELECT count(), cityHash64(groupArray(tuple(toString(id), toString(amount), toString(occurred_at), payload))) FROM (SELECT * FROM `{source}`.`typed_values` WHERE payload != 'after-backup' ORDER BY id) FORMAT TSV"
+        ),
+    )
+    .await?;
+    assert_eq!(restored.trim(), expected.trim());
+    assert!(restored.starts_with("2\t"));
+
+    let conflict = match adapters::execute_operation(
+        &connection,
+        &clickhouse_backup_request("restore", source, Some(target), &archive),
+    )
+    .await
+    {
+        Ok(_) => panic!("restore must not overwrite an existing target database"),
+        Err(error) => error,
+    };
+    assert_eq!(conflict.code, "clickhouse-restore-target-exists");
+
+    for database in [target, source] {
+        clickhouse_fixture_request(
+            &connection,
+            &format!("DROP DATABASE IF EXISTS `{database}` SYNC"),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+fn clickhouse_backup_request(
+    mode: &str,
+    source_database: &str,
+    target_database: Option<&str>,
+    archive: &str,
+) -> OperationExecutionRequest {
+    let mut parameters = HashMap::from([
+        ("mode".into(), json!(mode)),
+        ("format".into(), json!("clickhouse-backup")),
+        ("sourceDatabase".into(), json!(source_database)),
+        ("conflictPolicy".into(), json!("fail")),
+    ]);
+    parameters.insert(
+        if mode == "restore" {
+            "sourcePath".into()
+        } else {
+            "targetPath".into()
+        },
+        json!(archive),
+    );
+    if let Some(target_database) = target_database {
+        parameters.insert("targetDatabase".into(), json!(target_database));
+    }
+    OperationExecutionRequest {
+        connection_id: "conn-clickhouse-backup".into(),
+        environment_id: "env-dev".into(),
+        operation_id: "clickhouse.data.backup-restore".into(),
+        object_name: Some(source_database.into()),
+        parameters: Some(parameters),
+        confirmation_text: Some("CONFIRM CLICKHOUSE".into()),
+        row_limit: None,
+        tab_id: None,
+    }
+}
+
 fn clickhouse_transfer_request(
     mode: &str,
     format: &str,

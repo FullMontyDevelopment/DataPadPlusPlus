@@ -85,6 +85,7 @@
     "fixtures:validate:cosmosdb": "node tests/fixtures/validate-cosmosdb-fixtures.mjs",
     "fixtures:validate:search": "node tests/fixtures/validate-search-fixtures.mjs",
     "fixtures:validate:duckdb": "node tests/fixtures/validate-duckdb-fixtures.mjs",
+    "fixtures:validate:clickhouse": "node tests/fixtures/validate-clickhouse-fixtures.mjs",
     "fixtures:validate:litedb": "node tests/fixtures/validate-litedb-fixtures.mjs",
     "fixtures:validate:litedb:dotnet": "node tests/fixtures/validate-litedb-dotnet-sidecar.mjs",
     "e2e:desktop": "node apps/desktop/e2e/run-tauri-driver.mjs",

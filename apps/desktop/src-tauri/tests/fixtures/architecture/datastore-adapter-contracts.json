@@ -12214,6 +12214,7 @@
         "supports_query_profile",
         "supports_metrics_collection",
         "supports_import_export",
+        "supports_backup_restore",
         "supports_structure_visualization"
       ],
       "defaultLanguage": "clickhouse-sql",
@@ -12859,6 +12860,27 @@
           "costEstimate"
         ],
         "description": "Stream ClickHouse CSVWithNames, TabSeparatedWithNames, JSONEachRow, or Parquet through the native HTTP interface with server-side schema and type validation.",
+        "requiresConfirmation": true,
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
+      },
+      {
+        "id": "clickhouse.data.backup-restore",
+        "engine": "clickhouse",
+        "family": "warehouse",
+        "label": "Backup Or Restore",
+        "scope": "database",
+        "risk": "destructive",
+        "requiredCapabilities": [
+          "supports_backup_restore"
+        ],
+        "supportedRenderers": [
+          "raw",
+          "metrics",
+          "costEstimate"
+        ],
+        "description": "Create native ClickHouse database backup archives on the server and restore them into a new isolated database.",
         "requiresConfirmation": true,
         "executionSupport": "live",
         "disabledReason": null,

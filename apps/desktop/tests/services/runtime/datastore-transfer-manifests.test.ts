@@ -52,6 +52,8 @@ describe('datastore transfer manifests', () => {
     expect(datastoreTransferManifest('cockroachdb').capabilities.find((item) => item.action === 'restore')?.executionSupport).toBe('live')
     expect(datastoreTransferManifest('sqlserver').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
     expect(datastoreTransferManifest('sqlserver').capabilities.find((item) => item.action === 'restore')?.executionSupport).toBe('live')
+    expect(datastoreTransferManifest('clickhouse').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
+    expect(datastoreTransferManifest('clickhouse').capabilities.find((item) => item.action === 'restore')?.executionSupport).toBe('live')
   })
 
   it('requires explicit Memcached import metadata without claiming key enumeration', () => {
@@ -108,7 +110,14 @@ describe('datastore transfer manifests', () => {
       ['json-each-row', 'native'],
       ['parquet', 'native'],
     ])
-    expect(capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('plan-only')
+    const backup = capabilities.find((item) => item.action === 'backup')
+    const restore = capabilities.find((item) => item.action === 'restore')
+    expect(backup?.executionSupport).toBe('live')
+    expect(backup?.formats.map((item) => item.id)).toEqual(['clickhouse-backup'])
+    expect(backup?.destinationKinds).toEqual(['server-path'])
+    expect(backup?.options?.map((item) => item.id)).toEqual(['sourceDatabase'])
+    expect(restore?.executionSupport).toBe('live')
+    expect(restore?.options?.map((item) => item.id)).toEqual(['sourceDatabase', 'targetDatabase'])
   })
 
   it('advertises complete ArangoDB JSON collection transfer without a lossy CSV claim', () => {

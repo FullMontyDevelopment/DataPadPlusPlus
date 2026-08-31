@@ -1630,7 +1630,7 @@ const ENGINE_OVERRIDES: Partial<
     nativeScore: 3.45,
     targetPhase: 4,
     summary:
-      'ClickHouse has contract-complete analytics UX with typed connection-flow parity, pinned native tree parity, object-view parity, guarded operation parity, diagnostics/performance parity, import/export parity, SQL SELECT builder coverage, ClickHouse SQL, system/query-log diagnostics, MergeTree posture, import/export, optimize, TTL materialization, freeze snapshot, access, and drop previews; live cluster/admin execution remains residual risk.',
+      'ClickHouse has contract-complete analytics UX with connection-flow parity, object-view parity, guarded operation parity, diagnostics/performance parity, and import/export parity, plus native SQL and tree surfaces, guarded streaming CSV/TSV/JSONEachRow/Parquet table transfers, native server-side database backup archives, isolated create-new restores with rollback, SQL SELECT builder coverage, system/query-log diagnostics, MergeTree posture, and guarded optimize, TTL materialization, freeze, access, and drop previews; broader cluster administration remains residual risk.',
     profile: WAVE4_ANALYTICS_PROFILE,
   },
   snowflake: {

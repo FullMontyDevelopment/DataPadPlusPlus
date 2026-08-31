@@ -169,7 +169,7 @@ pub(crate) const SEARCH_CAPABILITIES: &[&str] = &[
     "supports_structure_visualization",
 ];
 
-pub(crate) const WAREHOUSE_CAPABILITIES: &[&str] = &[
+pub(crate) const CLICKHOUSE_CAPABILITIES: &[&str] = &[
     "supports_sql_editor",
     "supports_schema_browser",
     "supports_result_snapshots",
@@ -183,6 +183,7 @@ pub(crate) const WAREHOUSE_CAPABILITIES: &[&str] = &[
     "supports_query_profile",
     "supports_metrics_collection",
     "supports_import_export",
+    "supports_backup_restore",
     "supports_structure_visualization",
 ];
 
