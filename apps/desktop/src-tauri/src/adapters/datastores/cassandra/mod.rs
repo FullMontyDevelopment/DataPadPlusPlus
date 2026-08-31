@@ -4,6 +4,7 @@ mod catalog;
 mod connection;
 mod diagnostics;
 mod explorer;
+mod import_export;
 mod native;
 mod native_tls;
 mod query;
@@ -21,12 +22,108 @@ impl DatastoreAdapter for CassandraAdapter {
         true
     }
 
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if request.operation_id == "cassandra.data.import-export" {
+            return import_export::execute_cassandra_transfer(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
+    }
+
     fn manifest(&self) -> AdapterManifest {
         cassandra_manifest()
     }
 
     fn execution_capabilities(&self) -> ExecutionCapabilities {
         cassandra_execution_capabilities()
+    }
+
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        cassandra_operation_manifests(&self.manifest())
+    }
+
+    async fn plan_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        operation_id: &str,
+        object_name: Option<&str>,
+        parameters: Option<&BTreeMap<String, Value>>,
+    ) -> Result<OperationPlan, CommandError> {
+        let mut plan = default_operation_plan(
+            connection,
+            &self.manifest(),
+            operation_id,
+            object_name,
+            parameters,
+        );
+        if operation_id == "cassandra.data.import-export" {
+            let mode = parameters
+                .and_then(|values| values.get("mode"))
+                .and_then(Value::as_str)
+                .unwrap_or("export");
+            let keyspace = parameters
+                .and_then(|values| values.get("keyspace"))
+                .and_then(Value::as_str)
+                .or(connection.database.as_deref())
+                .unwrap_or("<keyspace>");
+            let table = parameters
+                .and_then(|values| values.get("table"))
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    object_name.and_then(|value| value.rsplit_once('.').map(|(_, table)| table))
+                })
+                .or(object_name)
+                .unwrap_or("<table>");
+            plan.request_language = "cql".into();
+            plan.generated_request = if mode == "import" {
+                format!(
+                    "PREPARE INSERT INTO \"{}\".\"{}\" JSON ? DEFAULT UNSET IF NOT EXISTS;\n<stream one validated CQL JSON object per selected-file line>",
+                    keyspace.replace('"', "\"\""),
+                    table.replace('"', "\"\"")
+                )
+            } else {
+                format!(
+                    "SELECT JSON * FROM \"{}\".\"{}\";\n<stream paged rows to selected JSON Lines file>",
+                    keyspace.replace('"', "\"\""),
+                    table.replace('"', "\"\"")
+                )
+            };
+            plan.summary = format!(
+                "Prepared native Cassandra table {mode} for {keyspace}.{table} as JSON Lines."
+            );
+            plan.required_permissions = vec![if mode == "import" {
+                "INSERT access to the existing target table".into()
+            } else {
+                "SELECT access to the complete source table".into()
+            }];
+            plan.confirmation_text = Some("CONFIRM CASSANDRA".into());
+            plan.estimated_scan_impact = Some(if mode == "import" {
+                "Each validated line uses a lightweight IF NOT EXISTS insert. Cassandra has no cross-partition transaction, so a later failure reports the exact confirmed inserted count.".into()
+            } else {
+                "The complete table is scanned through native driver paging without buffering the dataset in memory.".into()
+            });
+            plan.warnings.retain(|warning| {
+                !warning.contains("beta adapter returns a guarded operation plan")
+            });
+            plan.warnings.push(
+                "Cassandra table transfers can consume substantial coordinator and replica throughput; schedule large transfers deliberately."
+                    .into(),
+            );
+        }
+        Ok(plan)
     }
 
     async fn test_connection(

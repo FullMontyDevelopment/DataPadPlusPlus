@@ -28,6 +28,7 @@ describe('datastore transfer manifests', () => {
     for (const engine of [
       'postgresql', 'mysql', 'mariadb', 'sqlserver', 'sqlite', 'mongodb',
       'redis', 'valkey', 'litedb', 'duckdb', 'memcached', 'timescaledb', 'clickhouse', 'arango',
+      'cassandra',
     ] as const) {
       const capabilities = datastoreTransferManifest(engine).capabilities
       expect(capabilities.find((item) => item.action === 'import')?.executionSupport).toBe('live')
@@ -101,6 +102,18 @@ describe('datastore transfer manifests', () => {
     expect(imported?.scope).toBe('collection')
     expect(imported?.formats.map((item) => item.id)).toEqual(['json', 'ndjson'])
     expect(capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('plan-only')
+  })
+
+  it('advertises only streaming native Cassandra CQL JSON Lines', () => {
+    const capabilities = datastoreTransferManifest('cassandra').capabilities
+    const imported = capabilities.find((item) => item.action === 'import')
+    const exported = capabilities.find((item) => item.action === 'export')
+    expect(imported?.executionSupport).toBe('live')
+    expect(imported?.requiresExistingTarget).toBe(true)
+    expect(exported?.formats.map((item) => [item.id, item.fidelity])).toEqual([
+      ['cql-json-lines', 'native'],
+    ])
+    expect(capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('unsupported')
   })
 
   it('recognizes generic and engine-specific transfer operations', () => {

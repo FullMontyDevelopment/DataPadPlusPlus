@@ -278,7 +278,7 @@ fn cassandra_compression(
     }
 }
 
-fn cassandra_consistency(
+pub(super) fn cassandra_consistency(
     connection: &ResolvedConnectionProfile,
 ) -> Result<Consistency, CommandError> {
     match connection
@@ -304,7 +304,7 @@ fn cassandra_consistency(
     }
 }
 
-fn cassandra_serial_consistency(
+pub(super) fn cassandra_serial_consistency(
     connection: &ResolvedConnectionProfile,
 ) -> Result<Option<SerialConsistency>, CommandError> {
     match connection
@@ -384,7 +384,7 @@ fn trim_cql_literal(value: &str) -> String {
         .to_string()
 }
 
-fn cassandra_driver_error(
+pub(super) fn cassandra_driver_error(
     connection: &ResolvedConnectionProfile,
     code: &str,
     error: impl std::fmt::Display,

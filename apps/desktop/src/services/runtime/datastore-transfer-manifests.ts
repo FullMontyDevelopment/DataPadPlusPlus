@@ -96,7 +96,9 @@ const DATA_SPECS: Record<DatastoreEngine, CapabilitySpec> = {
   elasticsearch: plannedData('Elasticsearch uses PIT/search-after export and Bulk API NDJSON import.', [portableNdjson]),
   opensearch: plannedData('OpenSearch uses its version-compatible search and Bulk APIs.', [portableNdjson]),
   clickhouse: liveData('ClickHouse streams native SELECT FORMAT and INSERT FORMAT payloads through its HTTP interface. Imports require an existing empty table so the fail-safe conflict policy cannot append to existing data.', [['csv', 'CSVWithNames', 'native', ['csv'], 'ClickHouse CSV data with a native column-name header.'], ['tsv', 'TabSeparatedWithNames', 'native', ['tsv'], 'ClickHouse tab-separated data with a native column-name header.'], ['json-each-row', 'JSONEachRow', 'native', ['jsonl'], 'ClickHouse JSONEachRow data.'], ['parquet', 'Parquet', 'native', ['parquet'], 'ClickHouse Parquet data.']]),
-  cassandra: plannedData('Cassandra uses paged SELECT JSON and prepared INSERT JSON with native CQL encodings.', [portableJson, portableNdjson]),
+  cassandra: liveData('Cassandra streams native CQL JSON encodings through paged SELECT JSON and prepared INSERT JSON IF NOT EXISTS. Each row is applied independently and confirmed without overwriting an existing primary key.', [
+    ['cql-json-lines', 'Cassandra CQL JSON Lines', 'native', ['jsonl', 'ndjson'], 'One native CQL JSON object per line, preserving Cassandra JSON encodings.'],
+  ]),
   influxdb: plannedData('InfluxDB uses version-aware line protocol and annotated CSV.', [['line-protocol', 'Line protocol', 'native', ['lp'], 'InfluxDB line protocol.'], ['annotated-csv', 'Annotated CSV', 'native', ['csv'], 'InfluxDB annotated CSV.']]),
   prometheus: plannedData('Prometheus exports query results; import requires a detected remote-write receiver.', [['openmetrics', 'OpenMetrics', 'native', ['prom'], 'OpenMetrics text exposition.'], portableJson, portableCsv]),
   opentsdb: plannedData('OpenTSDB transfers data through its query and put JSON APIs.', [portableJson]),
