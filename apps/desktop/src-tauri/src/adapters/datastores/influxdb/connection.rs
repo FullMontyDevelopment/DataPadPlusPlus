@@ -8,6 +8,7 @@ use super::super::super::*;
 pub(super) struct InfluxDbResponse {
     pub(super) status_code: u16,
     pub(super) body: String,
+    pub(super) server_version: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,7 +61,43 @@ pub(super) async fn influxdb_get(
             format!("InfluxDB could not be reached over HTTP: {error}"),
         )
     })?;
+    read_influxdb_response(response).await
+}
+
+pub(super) async fn influxdb_post(
+    connection: &ResolvedConnectionProfile,
+    path_and_query: &str,
+    body: String,
+    content_type: &str,
+) -> Result<InfluxDbResponse, CommandError> {
+    let endpoint = InfluxDbEndpoint::from_connection(connection)?;
+    let client = influxdb_http_client(connection)?;
+    let mut request = client
+        .post(endpoint.url(path_and_query))
+        .header(header::ACCEPT, "application/json")
+        .header(header::CONTENT_TYPE, content_type)
+        .body(body);
+    if let Some(authorization) = influxdb_authorization(connection)? {
+        request = request.header(header::AUTHORIZATION, authorization);
+    }
+    let response = request.send().await.map_err(|error| {
+        CommandError::new(
+            "influxdb-http-error",
+            format!("InfluxDB could not be reached over HTTP: {error}"),
+        )
+    })?;
+    read_influxdb_response(response).await
+}
+
+async fn read_influxdb_response(
+    response: reqwest::Response,
+) -> Result<InfluxDbResponse, CommandError> {
     let status_code = response.status().as_u16();
+    let server_version = response
+        .headers()
+        .get("x-influxdb-version")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
     if response
         .content_length()
         .is_some_and(|length| length > MAX_INFLUXDB_RESPONSE_BYTES as u64)
@@ -84,7 +121,11 @@ pub(super) async fn influxdb_get(
     let body = String::from_utf8_lossy(&bytes).to_string();
 
     if (200..300).contains(&status_code) {
-        Ok(InfluxDbResponse { status_code, body })
+        Ok(InfluxDbResponse {
+            status_code,
+            body,
+            server_version,
+        })
     } else {
         Err(CommandError::new(
             "influxdb-http-error",

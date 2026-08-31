@@ -99,7 +99,24 @@ const DATA_SPECS: Record<DatastoreEngine, CapabilitySpec> = {
   cassandra: liveData('Cassandra streams native CQL JSON encodings through paged SELECT JSON and prepared INSERT JSON IF NOT EXISTS. Each row is applied independently and confirmed without overwriting an existing primary key.', [
     ['cql-json-lines', 'Cassandra CQL JSON Lines', 'native', ['jsonl', 'ndjson'], 'One native CQL JSON object per line, preserving Cassandra JSON encodings.'],
   ]),
-  influxdb: plannedData('InfluxDB uses version-aware line protocol and annotated CSV.', [['line-protocol', 'Line protocol', 'native', ['lp'], 'InfluxDB line protocol.'], ['annotated-csv', 'Annotated CSV', 'native', ['csv'], 'InfluxDB annotated CSV.']]),
+  influxdb: {
+    actions: ['import', 'export'],
+    formats: [['line-protocol', 'Line protocol', 'native', ['lp'], 'Lossless InfluxDB 1.x line protocol with native field types, tags, and nanosecond timestamps.']],
+    support: 'live',
+    description: 'InfluxDB 1.x streams measurements as native line protocol. Imports create a new database and roll it back if any bounded write batch fails.',
+    multiple: false,
+    requiresExistingTarget: false,
+    options: {
+      import: [{
+        id: 'targetDatabase',
+        label: 'New target database',
+        input: 'text',
+        required: true,
+        placeholder: 'metrics_imported',
+        description: 'Must not already exist. This prevents native point writes from overwriting a series and timestamp.',
+      }],
+    },
+  },
   prometheus: plannedData('Prometheus exports query results; import requires a detected remote-write receiver.', [['openmetrics', 'OpenMetrics', 'native', ['prom'], 'OpenMetrics text exposition.'], portableJson, portableCsv]),
   opentsdb: plannedData('OpenTSDB transfers data through its query and put JSON APIs.', [portableJson]),
   neo4j: plannedData('Neo4j transfers graph values through Bolt and transactional UNWIND batches.', [portableJson, portableCsv]),
