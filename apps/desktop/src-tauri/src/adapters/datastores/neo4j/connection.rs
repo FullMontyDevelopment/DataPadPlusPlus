@@ -66,6 +66,61 @@ async fn neo4j_run_bolt(
     connection: &ResolvedConnectionProfile,
     statement: &str,
 ) -> Result<Value, CommandError> {
+    let (graph, timeout, password_for_redaction) = neo4j_bolt_graph(connection).await?;
+    let operation = async {
+        let mut stream = graph.execute(query(statement)).await.map_err(|error| {
+            neo4j_bolt_error(
+                "neo4j-query-error",
+                "Neo4j rejected the Cypher statement.",
+                error,
+                &password_for_redaction,
+            )
+        })?;
+        let mut columns = Vec::new();
+        let mut rows = Vec::new();
+        while let Some(row) = stream.next().await.map_err(|error| {
+            neo4j_bolt_error(
+                "neo4j-query-read-failed",
+                "Neo4j Bolt result streaming failed.",
+                error,
+                &password_for_redaction,
+            )
+        })? {
+            let (row_columns, row_values) = neo4j_bolt_row(&row).map_err(|error| {
+                CommandError::new(
+                    "neo4j-bolt-value-invalid",
+                    format!("Neo4j returned a Bolt value that could not be normalized: {error}"),
+                )
+            })?;
+            if columns.is_empty() {
+                columns = row_columns;
+            }
+            rows.push(json!({ "row": row_values }));
+        }
+
+        Ok::<Value, CommandError>(json!({
+            "results": [{
+                "columns": columns,
+                "data": rows,
+                "stats": {}
+            }],
+            "errors": []
+        }))
+    };
+
+    tokio::time::timeout(std::time::Duration::from_millis(timeout), operation)
+        .await
+        .map_err(|_| {
+            CommandError::new(
+                "neo4j-query-timeout",
+                format!("Neo4j did not finish the request within {timeout} ms."),
+            )
+        })?
+}
+
+pub(super) async fn neo4j_bolt_graph(
+    connection: &ResolvedConnectionProfile,
+) -> Result<(Graph, u64, String), CommandError> {
     let options = connection.graph_options.as_ref();
     if options.and_then(|value| value.auth_mode.as_deref()) == Some("bearer-token") {
         return Err(CommandError::new(
@@ -116,63 +171,15 @@ async fn neo4j_run_bolt(
         .unwrap_or(30_000)
         .clamp(100, 3_600_000);
     let password_for_redaction = password.to_string();
-    let operation = async {
-        let graph = Graph::connect(config).await.map_err(|error| {
-            neo4j_bolt_error(
-                "neo4j-bolt-connect-failed",
-                "Neo4j Bolt connection failed.",
-                error,
-                &password_for_redaction,
-            )
-        })?;
-        let mut stream = graph.execute(query(statement)).await.map_err(|error| {
-            neo4j_bolt_error(
-                "neo4j-query-error",
-                "Neo4j rejected the Cypher statement.",
-                error,
-                &password_for_redaction,
-            )
-        })?;
-        let mut columns = Vec::new();
-        let mut rows = Vec::new();
-        while let Some(row) = stream.next().await.map_err(|error| {
-            neo4j_bolt_error(
-                "neo4j-query-read-failed",
-                "Neo4j Bolt result streaming failed.",
-                error,
-                &password_for_redaction,
-            )
-        })? {
-            let (row_columns, row_values) = neo4j_bolt_row(&row).map_err(|error| {
-                CommandError::new(
-                    "neo4j-bolt-value-invalid",
-                    format!("Neo4j returned a Bolt value that could not be normalized: {error}"),
-                )
-            })?;
-            if columns.is_empty() {
-                columns = row_columns;
-            }
-            rows.push(json!({ "row": row_values }));
-        }
-
-        Ok::<Value, CommandError>(json!({
-            "results": [{
-                "columns": columns,
-                "data": rows,
-                "stats": {}
-            }],
-            "errors": []
-        }))
-    };
-
-    tokio::time::timeout(std::time::Duration::from_millis(timeout), operation)
-        .await
-        .map_err(|_| {
-            CommandError::new(
-                "neo4j-query-timeout",
-                format!("Neo4j did not finish the request within {timeout} ms."),
-            )
-        })?
+    let graph = Graph::connect(config).await.map_err(|error| {
+        neo4j_bolt_error(
+            "neo4j-bolt-connect-failed",
+            "Neo4j Bolt connection failed.",
+            error,
+            &password_for_redaction,
+        )
+    })?;
+    Ok((graph, timeout, password_for_redaction))
 }
 
 fn neo4j_bolt_endpoint(connection: &ResolvedConnectionProfile) -> Result<String, CommandError> {

@@ -5,6 +5,7 @@ mod catalog;
 mod connection;
 mod diagnostics;
 mod explorer;
+mod import_export;
 mod query;
 mod query_request;
 mod query_results;
@@ -14,6 +15,7 @@ use catalog::*;
 use connection::test_neo4j_connection;
 use diagnostics::collect_neo4j_diagnostics;
 use explorer::{inspect_neo4j_explorer_node, list_neo4j_explorer_nodes};
+use import_export::execute_neo4j_import_export;
 use structure::load_neo4j_structure;
 
 pub(crate) struct Neo4jAdapter;
@@ -30,6 +32,31 @@ impl DatastoreAdapter for Neo4jAdapter {
 
     fn execution_capabilities(&self) -> ExecutionCapabilities {
         neo4j_execution_capabilities()
+    }
+
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        neo4j_operation_manifests(&self.manifest())
+    }
+
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if request.operation_id == "neo4j.data.import-export" {
+            return execute_neo4j_import_export(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
     }
 
     async fn test_connection(

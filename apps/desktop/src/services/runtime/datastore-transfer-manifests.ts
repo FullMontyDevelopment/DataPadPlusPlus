@@ -222,7 +222,7 @@ const DATA_SPECS: Record<DatastoreEngine, CapabilitySpec> = {
       ],
     },
   },
-  neo4j: plannedData('Neo4j transfers graph values through Bolt and transactional UNWIND batches.', [portableJson, portableCsv]),
+  neo4j: liveData('Neo4j streams the complete graph through Bolt using typed JSON Lines and restores it transactionally into an empty database.', [['neo4j-json', 'Neo4j typed JSON Lines', 'native', ['jsonl'], 'DataPad++ Neo4j graph stream preserving labels, relationship types, binary, temporal, spatial, and scalar property values.']], undefined, false),
   arango: liveData('ArangoDB streams collection exports through paged AQL cursors and imports through the complete, duplicate-safe Import API. _key and edge endpoints are preserved; server-owned revisions are regenerated.', [portableJson, portableNdjson]),
   janusgraph: plannedData('JanusGraph transfers vertices and edges as GraphSON 3 through Gremlin.', [['graphson3', 'GraphSON 3', 'native', ['json'], 'GraphSON 3 graph data.']]),
   dynamodb: liveData('DynamoDB Local and endpoint-override connections stream exact typed AttributeValue objects through paged Scan and conditional PutItem. Managed S3/Ion jobs remain cloud-gated.', [['dynamodb-json', 'DynamoDB JSON Lines', 'native', ['jsonl', 'ndjson'], 'One exact DynamoDB AttributeValue item per line.']], undefined, false),
