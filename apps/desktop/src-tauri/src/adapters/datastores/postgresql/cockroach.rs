@@ -6,6 +6,7 @@ mod diagnostics;
 mod explorer;
 mod operations;
 mod query_request;
+mod transfer;
 
 use catalog::*;
 use connection::*;
@@ -33,6 +34,30 @@ impl DatastoreAdapter for CockroachAdapter {
     fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
         let manifest = self.manifest();
         cockroach_operation_manifests(&manifest)
+    }
+
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if matches!(
+            request.operation_id.as_str(),
+            "cockroachdb.data.import-export" | "cockroachdb.data.backup-restore"
+        ) {
+            return transfer::execute_cockroach_transfer(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
     }
 
     async fn plan_operation(

@@ -63,6 +63,7 @@ pub(super) fn cockroach_operation_plan(
             },
             "External storage, protected timestamp, job ownership, and cluster cost checks are required before execution.",
         );
+        mark_live_transfer_plan(&mut plan);
     } else if operation_id.ends_with("cockroach.backup") {
         plan.generated_request =
             cockroach_backup_restore_request(object_name, parameters, "backup");
@@ -97,6 +98,7 @@ pub(super) fn cockroach_operation_plan(
             },
             "CockroachDB data movement uses external storage and can scan or write large datasets.",
         );
+        mark_live_transfer_plan(&mut plan);
     } else if operation_id.ends_with("cockroach.import") {
         plan.generated_request = cockroach_import_export_request(object_name, parameters, "import");
         plan.summary = "Prepared CockroachDB import workflow.".into();
@@ -124,6 +126,17 @@ pub(super) fn cockroach_operation_plan(
     }
 
     plan
+}
+
+fn mark_live_transfer_plan(plan: &mut OperationPlan) {
+    plan.warnings.retain(|warning| {
+        !warning.contains("preview-first")
+            && !warning.contains("guarded live support is explicitly enabled")
+    });
+    plan.estimated_cost = Some(
+        "CockroachDB validates the server-side storage destination and reports native job progress. DataPad++ waits for authoritative completion."
+            .into(),
+    );
 }
 
 fn mark_guarded_admin_plan(plan: &mut OperationPlan, permission: &str, scan_impact: &str) {
@@ -169,18 +182,18 @@ fn cockroach_backup_restore_request(
         .to_ascii_lowercase();
     let database = string_parameter(parameters, "database")
         .unwrap_or_else(|| cockroach_target_name(object_name));
-    let external_uri = sql_string_literal(
-        &string_parameter(parameters, "externalUri")
-            .unwrap_or_else(|| "external://backup-location".into()),
-    );
+    let external_uri = sql_string_literal(&storage_parameter(parameters, "backup-location"));
 
     if mode == "restore" {
-        let into_db = string_parameter(parameters, "intoDatabase")
-            .map(|database| format!(" with into_db = {}", sql_string_literal(&database)))
+        let new_db_name = string_parameter(parameters, "targetDatabase")
+            .or_else(|| string_parameter(parameters, "intoDatabase"))
+            .map(|database| format!(", new_db_name = {}", sql_string_literal(&database)))
             .unwrap_or_default();
         return [
-            "-- CockroachDB RESTORE is destructive and remains preview-first.".into(),
-            format!("restore database {database} from {external_uri}{into_db};"),
+            "-- CockroachDB RESTORE creates a new database and is monitored as a native job.".into(),
+            format!(
+                "restore database {database} from latest in {external_uri} with detached{new_db_name};"
+            ),
             "show jobs;".into(),
         ]
         .join("\n");
@@ -219,10 +232,10 @@ fn cockroach_import_export_request(
         .to_ascii_lowercase();
     let target =
         string_parameter(parameters, "table").unwrap_or_else(|| cockroach_target_name(object_name));
-    let external_uri = sql_string_literal(
-        &string_parameter(parameters, "externalUri")
-            .unwrap_or_else(|| format!("external://{mode}-location/data.{format}")),
-    );
+    let external_uri = sql_string_literal(&storage_parameter(
+        parameters,
+        &format!("{mode}-location/data.{format}"),
+    ));
 
     if mode == "import" || mode == "append" || mode == "insert" {
         let skip_rows = numeric_parameter(parameters, "skipRows").unwrap_or(1);
@@ -244,6 +257,18 @@ fn cockroach_import_export_request(
         "show jobs;".into(),
     ]
     .join("\n")
+}
+
+fn storage_parameter(parameters: Option<&BTreeMap<String, Value>>, fallback: &str) -> String {
+    [
+        "transferDestination",
+        "externalUri",
+        "sourcePath",
+        "targetPath",
+    ]
+    .into_iter()
+    .find_map(|key| string_parameter(parameters, key))
+    .unwrap_or_else(|| format!("external://{fallback}"))
 }
 
 fn cockroach_zone_config_request(

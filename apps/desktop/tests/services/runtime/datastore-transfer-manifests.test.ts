@@ -30,6 +30,7 @@ describe('datastore transfer manifests', () => {
       'redis', 'valkey', 'litedb', 'duckdb', 'memcached', 'timescaledb', 'clickhouse', 'arango',
       'cassandra',
       'elasticsearch', 'opensearch',
+      'cockroachdb',
     ] as const) {
       const capabilities = datastoreTransferManifest(engine).capabilities
       expect(capabilities.find((item) => item.action === 'import')?.executionSupport).toBe('live')
@@ -37,6 +38,8 @@ describe('datastore transfer manifests', () => {
     }
     expect(datastoreTransferManifest('sqlite').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
     expect(datastoreTransferManifest('duckdb').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
+    expect(datastoreTransferManifest('cockroachdb').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
+    expect(datastoreTransferManifest('cockroachdb').capabilities.find((item) => item.action === 'restore')?.executionSupport).toBe('live')
   })
 
   it('requires explicit Memcached import metadata without claiming key enumeration', () => {
@@ -115,6 +118,21 @@ describe('datastore transfer manifests', () => {
       ['cql-json-lines', 'native'],
     ])
     expect(capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('unsupported')
+  })
+
+  it('uses guarded native CockroachDB CSV and recovery jobs', () => {
+    const capabilities = datastoreTransferManifest('cockroachdb').capabilities
+    const imported = capabilities.find((item) => item.action === 'import')
+    const exported = capabilities.find((item) => item.action === 'export')
+    const restored = capabilities.find((item) => item.action === 'restore')
+
+    expect(imported?.executionSupport).toBe('live')
+    expect(imported?.requiresExistingTarget).toBe(true)
+    expect(imported?.formats.map((item) => item.id)).toEqual(['csv'])
+    expect(imported?.destinationKinds).toEqual(['cloud-uri', 'server-path'])
+    expect(exported?.executionSupport).toBe('live')
+    expect(restored?.executionSupport).toBe('live')
+    expect(restored?.options?.map((item) => item.id)).toEqual(['targetDatabase'])
   })
 
   it('uses a mappings, settings, and Bulk NDJSON folder for search transfers', () => {

@@ -63,7 +63,15 @@ const DATA_SPECS: Record<DatastoreEngine, CapabilitySpec> = {
     portableNdjson,
   ]),
   duckdb: liveData('DuckDB uses native COPY for table data.', [portableCsv, ['json', 'DuckDB JSON', 'native', ['json'], 'DuckDB JSON output.'], ['parquet', 'Parquet', 'native', ['parquet'], 'DuckDB Parquet data.']]),
-  cockroachdb: plannedData('CockroachDB IMPORT and EXPORT use server-accessible external storage and asynchronous jobs.', [portableCsv, ['avro', 'Avro', 'native', ['avro'], 'CockroachDB Avro import data.'], ['parquet', 'Parquet', 'native', ['parquet'], 'CockroachDB Parquet import data.']], ['cloud-uri', 'server-path']),
+  cockroachdb: {
+    actions: ['import', 'export'],
+    formats: [['csv', 'CockroachDB CSV', 'native', ['csv'], 'CockroachDB native CSV files in a server-side storage prefix.']],
+    destinations: ['cloud-uri', 'server-path'],
+    support: 'live',
+    description: 'CockroachDB exports native CSV to server-accessible storage and imports into an existing empty table through a monitored IMPORT job. Destinations must use credential-free external, userfile, or node-local references.',
+    multiple: true,
+    requiresExistingTarget: true,
+  },
   timescaledb: liveData('TimescaleDB streams PostgreSQL COPY data after validating hypertable metadata, the native time dimension, compression state, and any requested export window.', [postgresText, ['csv', 'PostgreSQL COPY CSV', 'native', ['csv'], 'Native PostgreSQL CSV COPY stream with a header row.'], postgresBinary], undefined, true, {
     export: [
       {
@@ -253,7 +261,12 @@ const NATIVE_BACKUP_ENGINES = new Set<DatastoreEngine>([
   'clickhouse', 'arango', 'dynamodb', 'cosmosdb', 'snowflake', 'bigquery', 'neptune',
 ])
 
-const LIVE_BACKUP_ENGINES = new Set<DatastoreEngine>(['sqlite', 'duckdb'])
+const LIVE_BACKUP_ENGINES = new Set<DatastoreEngine>(['sqlite', 'duckdb', 'cockroachdb'])
+
+function isLiveBackupAction(engine: DatastoreEngine, action: 'backup' | 'restore') {
+  return engine === 'cockroachdb'
+    || (LIVE_BACKUP_ENGINES.has(engine) && action === 'backup')
+}
 
 export function datastoreTransferManifest(engine: DatastoreEngine): DatastoreTransferManifest {
   const data = DATA_SPECS[engine]
@@ -261,24 +274,26 @@ export function datastoreTransferManifest(engine: DatastoreEngine): DatastoreTra
   const backupNative = NATIVE_BACKUP_ENGINES.has(engine)
 
   for (const action of ['backup', 'restore'] as const) {
+    const live = isLiveBackupAction(engine, action)
     capabilities.push(capability(engine, action, {
       actions: [action],
       formats: backupFormats(engine),
       destinations: backupDestinations(engine),
-      support: LIVE_BACKUP_ENGINES.has(engine) && action === 'backup' ? 'live' : backupNative ? 'plan-only' : 'unsupported',
+      support: live ? 'live' : backupNative ? 'plan-only' : 'unsupported',
       operationIds: backupOperationIds(engine),
       description: backupNative
         ? nativeBackupDescription(engine)
         : 'This datastore has no supported in-process or server API for a full native backup artifact.',
       disabledReason: backupNative
-        ? action === 'restore' && LIVE_BACKUP_ENGINES.has(engine)
+        ? action === 'restore' && LIVE_BACKUP_ENGINES.has(engine) && !live
           ? `${engineLabel(engine)} restore remains validation-only until isolated-target restore checks are complete.`
-          : LIVE_BACKUP_ENGINES.has(engine)
+          : live
             ? undefined
             : `${engineLabel(engine)} native ${action} execution is not implemented yet.`
         : `Full ${engineLabel(engine)} backup and restore require excluded vendor tooling or storage-backend access.`,
       multiple: true,
       requiresExistingTarget: false,
+      options: backupOptions(engine, action),
     }))
   }
 
@@ -366,6 +381,23 @@ function dataScope(engine: DatastoreEngine): DatastoreTransferCapability['scope'
 function backupOperationIds(engine: DatastoreEngine): CapabilitySpec['operationIds'] {
   if (engine === 'sqlite') return { backup: 'sqlite.database.backup' }
   return undefined
+}
+
+function backupOptions(
+  engine: DatastoreEngine,
+  action: 'backup' | 'restore',
+): CapabilitySpec['options'] {
+  if (engine !== 'cockroachdb' || action !== 'restore') return undefined
+  return {
+    restore: [{
+      id: 'targetDatabase',
+      label: 'New target database',
+      input: 'text',
+      required: true,
+      placeholder: 'restored_database',
+      description: 'Must not already exist. CockroachDB restores the backup under this new database name.',
+    }],
+  }
 }
 
 function backupFormats(engine: DatastoreEngine): FormatSpec[] {

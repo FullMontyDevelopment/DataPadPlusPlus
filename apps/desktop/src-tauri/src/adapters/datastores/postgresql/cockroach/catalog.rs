@@ -34,6 +34,21 @@ pub(super) fn cockroach_operation_manifests(
     manifest: &AdapterManifest,
 ) -> Vec<DatastoreOperationManifest> {
     let mut operations = operation_manifests_for_manifest(manifest);
+    for operation in &mut operations {
+        if matches!(
+            operation.id.as_str(),
+            "cockroachdb.data.import-export" | "cockroachdb.data.backup-restore"
+        ) {
+            operation.execution_support = "live".into();
+            operation.disabled_reason = None;
+            operation.preview_only = Some(false);
+            operation.description = if operation.id.ends_with("import-export") {
+                "Run guarded CockroachDB CSV IMPORT INTO or EXPORT jobs through credential-free external storage references and monitor native job evidence.".into()
+            } else {
+                "Run guarded CockroachDB BACKUP or new-database RESTORE jobs through credential-free external storage references and monitor native job evidence.".into()
+            };
+        }
+    }
     operations.extend([
         operation_manifest(
             manifest,
