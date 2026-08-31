@@ -84,6 +84,15 @@ pub(super) fn timescale_operation_manifests(
             true,
         ),
     ]);
+    for operation in &mut operations {
+        if operation.id == "timescaledb.data.import-export" {
+            operation.execution_support = "live".into();
+            operation.disabled_reason = None;
+            operation.preview_only = Some(false);
+            operation.scope = "table".into();
+            operation.description = "Stream native PostgreSQL COPY data after validating TimescaleDB hypertable, time-dimension, compression, and time-window constraints.".into();
+        }
+    }
     operations
 }
 

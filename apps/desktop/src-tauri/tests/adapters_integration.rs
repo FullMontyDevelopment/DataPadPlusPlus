@@ -2050,6 +2050,211 @@ fn postgres_transfer_request(
 }
 
 #[tokio::test]
+async fn timescale_adapter_native_copy_roundtrip() -> Result<(), CommandError> {
+    if !fixtures_enabled() {
+        return Ok(());
+    }
+
+    let connection = ResolvedConnectionProfile {
+        id: "conn-timescaledb-transfer".into(),
+        name: "Fixture TimescaleDB Transfer".into(),
+        engine: "timescaledb".into(),
+        family: "timeseries".into(),
+        host: env_or("DATAPADPLUSPLUS_TIMESCALE_HOST", "127.0.0.1"),
+        port: Some(
+            env_or("DATAPADPLUSPLUS_TIMESCALE_PORT", "54330")
+                .parse()
+                .unwrap_or(54330),
+        ),
+        database: Some(env_or("DATAPADPLUSPLUS_TIMESCALE_DB", "metrics")),
+        username: Some(env_or("DATAPADPLUSPLUS_TIMESCALE_USER", "datapadplusplus")),
+        password: Some(env_or(
+            "DATAPADPLUSPLUS_TIMESCALE_PASSWORD",
+            "datapadplusplus",
+        )),
+        connection_string: None,
+        redis_options: None,
+        memcached_options: None,
+        sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        mongodb_options: None,
+        warehouse_options: None,
+        read_only: false,
+    };
+    let options = PgConnectOptions::new()
+        .host(&connection.host)
+        .port(connection.port.unwrap_or(5432))
+        .database(connection.database.as_deref().unwrap_or("metrics"))
+        .username(connection.username.as_deref().unwrap_or("postgres"))
+        .password(connection.password.as_deref().unwrap_or_default());
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await?;
+    pool.execute("drop table if exists public.datapad_timescale_copy_target cascade")
+        .await?;
+    pool.execute("drop table if exists public.datapad_timescale_copy_source cascade")
+        .await?;
+    pool.execute(
+        "create table public.datapad_timescale_copy_source (
+            observed_at timestamptz not null,
+            device_id text not null,
+            reading numeric(20,6) not null,
+            payload jsonb not null,
+            primary key (observed_at, device_id)
+        )",
+    )
+    .await?;
+    pool.execute(
+        "create table public.datapad_timescale_copy_target
+         (like public.datapad_timescale_copy_source including all)",
+    )
+    .await?;
+    pool.execute(
+        "select create_hypertable('public.datapad_timescale_copy_source', 'observed_at', if_not_exists => true)",
+    )
+    .await?;
+    pool.execute(
+        "select create_hypertable('public.datapad_timescale_copy_target', 'observed_at', if_not_exists => true)",
+    )
+    .await?;
+    pool.execute(
+        "insert into public.datapad_timescale_copy_source
+            (observed_at, device_id, reading, payload)
+         values
+            ('2026-08-30T23:59:59Z', 'outside', 1.000000, '{\"window\":false}'::jsonb),
+            ('2026-08-31T00:00:00Z', 'München', 123456789012.340000, '{\"window\":true,\"items\":[1,2]}'::jsonb),
+            ('2026-08-31T12:30:00+02:00', '東京', -0.000001, '{\"window\":true,\"unicode\":\"東京\"}'::jsonb),
+            ('2026-09-01T00:00:00Z', 'outside-end', 2.000000, '{\"window\":false}'::jsonb)",
+    )
+    .await?;
+
+    let temp_root = env::temp_dir().join(format!(
+        "datapad-timescale-copy-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&temp_root)?;
+    let path = temp_root.join("bounded-window.csv");
+    let export = adapters::execute_operation(
+        &connection,
+        &timescale_transfer_request(
+            "export",
+            "datapad_timescale_copy_source",
+            "targetPath",
+            &path,
+            true,
+        ),
+    )
+    .await?;
+    assert!(
+        export.executed,
+        "TimescaleDB export warnings: {:?}",
+        export.warnings
+    );
+    assert!(path.is_file());
+
+    let import = adapters::execute_operation(
+        &connection,
+        &timescale_transfer_request(
+            "import",
+            "datapad_timescale_copy_target",
+            "sourcePath",
+            &path,
+            false,
+        ),
+    )
+    .await?;
+    assert!(
+        import.executed,
+        "TimescaleDB import warnings: {:?}",
+        import.warnings
+    );
+    assert_eq!(
+        import
+            .metadata
+            .as_ref()
+            .and_then(|value| value.get("insertedCount"))
+            .and_then(serde_json::Value::as_u64),
+        Some(2),
+    );
+    let target_count: i64 =
+        sqlx::query_scalar("select count(*) from public.datapad_timescale_copy_target")
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(target_count, 2);
+    let source_checksum: Option<String> = sqlx::query_scalar(
+        "select md5(string_agg(concat_ws('|', observed_at::text, device_id, reading::text, payload::text), E'\\n' order by observed_at, device_id))
+         from public.datapad_timescale_copy_source
+         where observed_at >= '2026-08-31T00:00:00Z' and observed_at < '2026-09-01T00:00:00Z'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    let target_checksum: Option<String> = sqlx::query_scalar(
+        "select md5(string_agg(concat_ws('|', observed_at::text, device_id, reading::text, payload::text), E'\\n' order by observed_at, device_id))
+         from public.datapad_timescale_copy_target",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(source_checksum, target_checksum);
+
+    pool.execute("drop table public.datapad_timescale_copy_target cascade")
+        .await?;
+    pool.execute("drop table public.datapad_timescale_copy_source cascade")
+        .await?;
+    pool.close().await;
+    fs::remove_dir_all(temp_root)?;
+    Ok(())
+}
+
+fn timescale_transfer_request(
+    mode: &str,
+    table: &str,
+    path_key: &str,
+    path: &Path,
+    bounded: bool,
+) -> OperationExecutionRequest {
+    let mut parameters = HashMap::from([
+        ("mode".into(), json!(mode)),
+        ("format".into(), json!("csv")),
+        ("schema".into(), json!("public")),
+        ("table".into(), json!(table)),
+        (path_key.into(), json!(path.display().to_string())),
+        ("overwrite".into(), json!(false)),
+        ("conflictPolicy".into(), json!("fail")),
+    ]);
+    if bounded {
+        parameters.extend([
+            ("timeColumn".into(), json!("observed_at")),
+            ("start".into(), json!("2026-08-31T00:00:00Z")),
+            ("end".into(), json!("2026-09-01T00:00:00Z")),
+        ]);
+    }
+    OperationExecutionRequest {
+        connection_id: "conn-timescaledb-transfer".into(),
+        environment_id: "env-dev".into(),
+        operation_id: "timescaledb.data.import-export".into(),
+        object_name: Some(format!("public.{table}")),
+        parameters: Some(parameters),
+        confirmation_text: Some("CONFIRM TIMESCALEDB".into()),
+        row_limit: None,
+        tab_id: None,
+    }
+}
+
+#[tokio::test]
 async fn sqlserver_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     if !fixtures_enabled() {
         return Ok(());

@@ -1348,6 +1348,7 @@ export interface DatastoreTransferOption {
   min?: number
   max?: number
   choices?: DatastoreTransferOptionChoice[]
+  requiredWith?: string[]
 }
 
 export interface DatastoreTransferCapability {

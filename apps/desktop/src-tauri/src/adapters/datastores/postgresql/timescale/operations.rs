@@ -99,15 +99,23 @@ pub(super) fn timescale_operation_plan(
             .to_ascii_lowercase();
         plan.generated_request = timescale_import_export_request(object_name, parameters, &mode);
         plan.summary = format!("Prepared TimescaleDB {mode} workflow.");
-        mark_guarded_timescale_plan(
-            &mut plan,
-            if ["import", "append", "insert"].contains(&mode.as_str()) {
-                "INSERT privilege on the target hypertable plus validated file access"
+        plan.confirmation_text = Some("CONFIRM TIMESCALEDB".into());
+        plan.required_permissions =
+            vec![if ["import", "append", "insert"].contains(&mode.as_str()) {
+                "INSERT privilege on the target hypertable plus validated local file access".into()
             } else {
-                "SELECT privilege on the target hypertable plus validated export path access"
-            },
-            "TimescaleDB data movement can scan or write hypertable chunks and can affect continuous aggregate freshness.",
+                "SELECT privilege on the target hypertable plus validated local file access".into()
+            }];
+        plan.estimated_cost = Some(
+            "Native COPY streams without buffering the dataset; datastore cost depends on affected hypertable chunks."
+                .into(),
         );
+        plan.estimated_scan_impact = Some(
+            "Exports use the validated time window when supplied; imports route rows through native hypertable chunk logic."
+                .into(),
+        );
+        plan.warnings
+            .retain(|warning| !warning.contains("beta adapter"));
     } else if operation_id.ends_with("data.backup-restore")
         || operation_id.contains("backup-restore")
     {
@@ -207,48 +215,25 @@ fn timescale_import_export_request(
         .to_ascii_lowercase();
     let relation = timescale_relation_identifier(object_name, parameters);
     let (schema, table) = timescale_relation_parts(object_name, parameters);
-    let file_path = sql_string_literal(
-        &parameter_string(parameters, "filePath")
-            .unwrap_or_else(|| format!("<selected-file>.{}", timescale_format_extension(&format))),
-    );
-    let mut lines = timescale_execution_boundary_prelude(
-        if ["import", "append", "insert"].contains(&mode.as_str()) {
-            "import file workflow"
-        } else {
-            "export file workflow"
-        },
-    );
+    let mut lines = vec![
+        "-- DataPad++ TimescaleDB native transfer boundary: the local path remains backend-owned and data streams through PostgreSQL COPY STDIN/STDOUT.".into(),
+        "-- The connected server validates target columns and native types atomically; an import conflict or conversion failure rolls back the COPY statement.".into(),
+    ];
+    lines.extend(timescale_hypertable_preflight(&schema, &table));
 
     if ["import", "append", "insert"].contains(&mode.as_str()) {
-        if ["json", "jsonl", "ndjson"].contains(&format.as_str()) {
-            lines.push("-- TimescaleDB JSON/NDJSON import remains preview-first until column mapping and chunk policy checks pass.".into());
-            lines.extend(timescale_hypertable_preflight(&schema, &table));
-            lines.push(
-                "create temporary table datapad_timescale_import_payload (payload jsonb);".into(),
-            );
-            lines.push(format!(
-                "copy datapad_timescale_import_payload from {file_path} with (format text);"
-            ));
-            lines.push(format!(
-                "-- Map validated payload fields into {relation} inside an explicit transaction after identity, trigger, and compression checks."
-            ));
-            lines.push("select * from timescaledb_information.jobs order by job_id;".into());
-            return lines.join("\n");
-        }
-
-        lines.push("-- TimescaleDB import is preview-first until file, column, compression, retention, and continuous aggregate checks pass.".into());
-        lines.extend(timescale_hypertable_preflight(&schema, &table));
         lines.push(format!(
-            "copy {relation} from {file_path} with ({});",
+            "COPY {relation} (<validated transferable columns>) FROM STDIN WITH ({});",
             timescale_copy_options(&format)
         ));
-        lines.push("-- After import: review retention/compression jobs and refresh affected continuous aggregates over the imported time window.".into());
+        lines.push("-- After import, review retention/compression jobs and refresh affected continuous aggregates over the imported time window.".into());
         lines.push("select * from timescaledb_information.jobs order by job_id;".into());
         return lines.join("\n");
     }
 
     let time_column = quote_identifier(&strip_identifier(
-        &parameter_string(parameters, "timeColumn").unwrap_or_else(|| "time".into()),
+        &parameter_string(parameters, "timeColumn")
+            .unwrap_or_else(|| "<detected-time-dimension>".into()),
     ));
     let bounded_select = format!(
         "select * from {relation}{}",
@@ -256,78 +241,33 @@ fn timescale_import_export_request(
     );
 
     lines.push(
-        "-- TimescaleDB export should be bounded by time and reviewed for compressed chunk fan-out."
-            .into(),
+        "-- Omit the time window only when a deliberate full-hypertable scan is acceptable.".into(),
     );
-    lines.extend(timescale_hypertable_preflight(&schema, &table));
-    if ["json", "jsonl", "ndjson"].contains(&format.as_str()) {
-        lines.push(format!(
-            "copy (select row_to_json(row_data) from ({bounded_select}) row_data) to {file_path};"
-        ));
-    } else {
-        lines.push(format!(
-            "copy ({bounded_select}) to {file_path} with ({});",
-            timescale_copy_options(&format)
-        ));
-    }
+    lines.push(format!(
+        "COPY ({bounded_select}) TO STDOUT WITH ({});",
+        timescale_copy_options(&format)
+    ));
     lines.join("\n")
 }
 
 fn timescale_backup_restore_request(
-    connection: &ResolvedConnectionProfile,
-    object_name: Option<&str>,
+    _connection: &ResolvedConnectionProfile,
+    _object_name: Option<&str>,
     parameters: Option<&BTreeMap<String, Value>>,
     default_mode: &str,
 ) -> String {
     let mode = parameter_string(parameters, "mode")
         .unwrap_or_else(|| default_mode.into())
         .to_ascii_lowercase();
-    let database = parameter_string(parameters, "database")
-        .or_else(|| connection.database.clone())
-        .unwrap_or_else(|| "<database>".into());
-    let file_path =
-        parameter_string(parameters, "filePath").unwrap_or_else(|| "<selected-file>.dump".into());
-    let relation = timescale_relation_identifier(object_name, parameters);
-    let scoped_table = if relation.contains('<') {
-        String::new()
-    } else {
-        format!(" --table={}", relation.replace('"', ""))
-    };
-
-    if mode == "restore" {
-        let mut lines = timescale_execution_boundary_prelude("restore file workflow");
-        lines.extend([
-            "-- TimescaleDB restore is destructive and remains preview-first until extension/version and policy checks pass.".into(),
-            "select e.extversion, n.nspname as extension_schema from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'timescaledb';".into(),
-            format!(
-                "pg_restore --clean --if-exists --dbname={} {}",
-                shell_token(&database),
-                shell_token(&file_path)
-            ),
-            "select * from timescaledb_information.hypertables order by hypertable_schema, hypertable_name;".into(),
-            "select * from timescaledb_information.continuous_aggregates order by view_schema, view_name;".into(),
-            "select * from timescaledb_information.jobs order by job_id;".into(),
-            "-- Review compression policies, retention policies, continuous aggregate refresh windows, and job schedules before allowing writes.".into(),
-        ]);
-        return lines.join("\n");
-    }
-
-    let mut lines = timescale_execution_boundary_prelude("backup file workflow");
-    lines.extend([
-        "-- TimescaleDB backup should capture extension metadata, hypertables, chunks, policies, jobs, and continuous aggregates.".into(),
-        "select e.extversion, n.nspname as extension_schema from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'timescaledb';".into(),
-        "select * from timescaledb_information.hypertables order by hypertable_schema, hypertable_name;".into(),
-        "select * from timescaledb_information.chunks order by hypertable_schema, hypertable_name, range_start desc limit 50;".into(),
-        "select * from timescaledb_information.continuous_aggregates order by view_schema, view_name;".into(),
-        "select * from timescaledb_information.jobs order by job_id;".into(),
-        format!(
-            "pg_dump --format=custom --file={}{} {}",
-            shell_token(&file_path),
-            scoped_table,
-            shell_token(&database)
-        ),
-    ]);
-    lines.join("\n")
+    serde_json::to_string_pretty(&serde_json::json!({
+        "workflow": format!("timescaledb.database.{mode}-unavailable"),
+        "mode": mode,
+        "executionGate": {
+            "defaultSupport": "unsupported",
+            "reason": "Full TimescaleDB backup and restore require PostgreSQL backup tooling, which DataPad++ does not bundle or execute."
+        }
+    }))
+    .unwrap_or_else(|_| "{}".into())
 }
 
 fn timescale_job_control_request(parameters: Option<&BTreeMap<String, Value>>) -> String {
@@ -409,16 +349,9 @@ fn timescale_where_clause(
 fn timescale_copy_options(format: &str) -> &'static str {
     match format {
         "tsv" => "format csv, delimiter E'\\t', header true",
-        "binary" => "format binary",
+        "binary" | "binary-copy" | "bin" => "format binary",
+        "text" | "txt" => "format text",
         _ => "format csv, header true",
-    }
-}
-
-fn timescale_format_extension(format: &str) -> &str {
-    match format {
-        "jsonl" => "ndjson",
-        "csv" | "tsv" | "json" | "ndjson" | "binary" => format,
-        _ => "csv",
     }
 }
 
@@ -485,17 +418,6 @@ fn quote_identifier(value: &str) -> String {
         return value.into();
     }
     format!("\"{}\"", value.replace('"', "\"\""))
-}
-
-fn shell_token(value: &str) -> String {
-    if value.starts_with('<') && value.ends_with('>') {
-        return value.into();
-    }
-    if value.contains(' ') {
-        format!("\"{}\"", value.replace('"', "\\\""))
-    } else {
-        value.into()
-    }
 }
 
 #[cfg(test)]

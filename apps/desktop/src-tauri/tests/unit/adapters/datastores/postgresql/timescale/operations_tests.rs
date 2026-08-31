@@ -85,7 +85,7 @@ fn timescale_continuous_aggregate_refresh_preview_is_guarded() {
 }
 
 #[test]
-fn timescale_import_export_and_backup_previews_are_native() {
+fn timescale_copy_plan_is_live_and_backup_is_unavailable() {
     let manifest = timescale_manifest();
     let connection = resolved_connection();
     let parameters = BTreeMap::from([
@@ -93,6 +93,7 @@ fn timescale_import_export_and_backup_previews_are_native() {
         ("table".into(), json!("order_metrics")),
         ("start".into(), json!("2026-05-01T00:00:00Z")),
         ("end".into(), json!("2026-06-01T00:00:00Z")),
+        ("timeColumn".into(), json!("time")),
     ]);
 
     let export = timescale_operation_plan(
@@ -104,10 +105,7 @@ fn timescale_import_export_and_backup_previews_are_native() {
     );
     assert!(export
         .generated_request
-        .contains("execution boundary: export file workflow stays plan-only"));
-    assert!(export
-        .generated_request
-        .contains("copy (select * from \"public\".\"order_metrics\""));
+        .contains("COPY (select * from \"public\".\"order_metrics\""));
     assert!(export
         .generated_request
         .contains("timescaledb_information.chunks"));
@@ -120,7 +118,7 @@ fn timescale_import_export_and_backup_previews_are_native() {
         ("schema".into(), json!("public")),
         ("table".into(), json!("order_metrics")),
         ("mode".into(), json!("import")),
-        ("format".into(), json!("ndjson")),
+        ("format".into(), json!("csv")),
     ]);
     let import = timescale_operation_plan(
         &connection,
@@ -129,15 +127,10 @@ fn timescale_import_export_and_backup_previews_are_native() {
         Some("\"public\".\"order_metrics\""),
         Some(&import_parameters),
     );
+    assert!(import.generated_request.contains("FROM STDIN"));
     assert!(import
         .generated_request
-        .contains("execution boundary: import file workflow stays plan-only"));
-    assert!(import
-        .generated_request
-        .contains("datapad_timescale_import_payload"));
-    assert!(import
-        .generated_request
-        .contains("column mapping and chunk policy checks"));
+        .contains("validated transferable columns"));
 
     let backup = timescale_operation_plan(
         &connection,
@@ -146,13 +139,8 @@ fn timescale_import_export_and_backup_previews_are_native() {
         None,
         None,
     );
-    assert!(backup
-        .generated_request
-        .contains("execution boundary: backup file workflow stays plan-only"));
-    assert!(backup.generated_request.contains("pg_dump --format=custom"));
-    assert!(backup
-        .generated_request
-        .contains("timescaledb_information.continuous_aggregates"));
+    assert!(backup.generated_request.contains("backup-unavailable"));
+    assert!(!backup.generated_request.contains("pg_dump"));
     assert!(!backup.destructive);
     assert!(backup.confirmation_text.is_some());
 }

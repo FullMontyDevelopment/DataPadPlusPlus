@@ -32,7 +32,7 @@ pub(crate) async fn execute_postgres_file_operation(
     mut warnings: Vec<String>,
 ) -> Result<OperationExecutionResponse, CommandError> {
     match request.operation_id.as_str() {
-        "postgresql.data.import-export" => {
+        "postgresql.data.import-export" | "timescaledb.data.import-export" => {
             let mode = workflow_mode(request, "export");
             if matches!(
                 mode.as_str(),
@@ -171,8 +171,20 @@ async fn execute_postgres_table_export(
         .connect_with(postgres_connect_options(connection)?)
         .await?;
     if let Some(copy_format) = native_copy_format(&format) {
-        let (bytes_written, columns) =
-            stream_postgres_copy_out(&pool, &schema, &table, copy_format, &target_path).await?;
+        let predicate = if connection.engine == "timescaledb" {
+            timescale_export_predicate(&pool, &schema, &table, request, warnings).await?
+        } else {
+            None
+        };
+        let (bytes_written, columns) = stream_postgres_copy_out(
+            &pool,
+            &schema,
+            &table,
+            copy_format,
+            &target_path,
+            predicate.as_deref(),
+        )
+        .await?;
         pool.close().await;
         messages.push(format!(
             "PostgreSQL streamed {bytes_written} byte(s) from {}.{} using native COPY {}.",
@@ -186,7 +198,7 @@ async fn execute_postgres_table_export(
             plan,
             true,
             Some(json!({
-                "workflow": "postgresql.table.export",
+                "workflow": format!("{}.table.export", connection.engine),
                 "schema": schema,
                 "table": table,
                 "format": copy_format,
@@ -334,6 +346,9 @@ async fn execute_postgres_table_import(
             .max_connections(1)
             .connect_with(postgres_connect_options(connection)?)
             .await?;
+        if connection.engine == "timescaledb" {
+            let _ = timescale_transfer_context(&pool, &schema, &table, warnings).await?;
+        }
         let (rows_affected, bytes_read, columns) =
             stream_postgres_copy_in(&pool, &schema, &table, copy_format, &source_path).await?;
         pool.close().await;
@@ -349,7 +364,7 @@ async fn execute_postgres_table_import(
             plan,
             true,
             Some(json!({
-                "workflow": "postgresql.table.import",
+                "workflow": format!("{}.table.import", connection.engine),
                 "schema": schema,
                 "table": table,
                 "format": copy_format,
@@ -772,6 +787,7 @@ async fn stream_postgres_copy_out(
     table: &str,
     format: &str,
     target_path: &Path,
+    predicate: Option<&str>,
 ) -> Result<(u64, Vec<String>), CommandError> {
     let columns = pg_table_column_info(pool, schema, table)
         .await?
@@ -785,7 +801,7 @@ async fn stream_postgres_copy_out(
             "PostgreSQL COPY requires an existing table with at least one transferable column.",
         ));
     }
-    let statement = postgres_copy_statement(schema, table, &columns, format, false);
+    let statement = postgres_copy_out_statement(schema, table, &columns, format, predicate);
     let mut stream = pool.copy_out_raw(&statement).await?;
     let mut file = tokio::fs::OpenOptions::new()
         .write(true)
@@ -871,21 +887,185 @@ fn postgres_copy_statement(
     format: &str,
     importing: bool,
 ) -> String {
+    if !importing {
+        return postgres_copy_out_statement(schema, table, columns, format, None);
+    }
     let column_list = columns
         .iter()
         .map(|column| quote_pg_identifier(column))
         .collect::<Vec<_>>()
         .join(", ");
-    let direction = if importing { "FROM STDIN" } else { "TO STDOUT" };
     let options = match format {
         "csv" => "FORMAT CSV, HEADER TRUE, ENCODING 'UTF8'",
         "binary" => "FORMAT BINARY",
         _ => "FORMAT TEXT, ENCODING 'UTF8'",
     };
     format!(
-        "COPY {} ({column_list}) {direction} WITH ({options})",
+        "COPY {} ({column_list}) FROM STDIN WITH ({options})",
         qualified_pg_name(schema, table)
     )
+}
+
+fn postgres_copy_out_statement(
+    schema: &str,
+    table: &str,
+    columns: &[String],
+    format: &str,
+    predicate: Option<&str>,
+) -> String {
+    let column_list = columns
+        .iter()
+        .map(|column| quote_pg_identifier(column))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let options = match format {
+        "csv" => "FORMAT CSV, HEADER TRUE, ENCODING 'UTF8'",
+        "binary" => "FORMAT BINARY",
+        _ => "FORMAT TEXT, ENCODING 'UTF8'",
+    };
+    if let Some(predicate) = predicate {
+        return format!(
+            "COPY (SELECT {column_list} FROM {} WHERE {predicate}) TO STDOUT WITH ({options})",
+            qualified_pg_name(schema, table)
+        );
+    }
+    format!(
+        "COPY {} ({column_list}) TO STDOUT WITH ({options})",
+        qualified_pg_name(schema, table)
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TimescaleTransferContext {
+    hypertable: bool,
+    time_column: Option<String>,
+    compression_enabled: bool,
+}
+
+async fn timescale_transfer_context(
+    pool: &PgPool,
+    schema: &str,
+    table: &str,
+    warnings: &mut Vec<String>,
+) -> Result<TimescaleTransferContext, CommandError> {
+    let row = sqlx::query(
+        "select compression_enabled
+         from timescaledb_information.hypertables
+         where hypertable_schema = $1 and hypertable_name = $2",
+    )
+    .bind(schema)
+    .bind(table)
+    .fetch_optional(pool)
+    .await?;
+    let Some(row) = row else {
+        warnings.push(format!(
+            "TimescaleDB target {schema}.{table} is not a registered hypertable; PostgreSQL COPY semantics will be used without time-dimension routing checks."
+        ));
+        return Ok(TimescaleTransferContext {
+            hypertable: false,
+            time_column: None,
+            compression_enabled: false,
+        });
+    };
+    let compression_enabled = row
+        .try_get::<bool, _>("compression_enabled")
+        .unwrap_or(false);
+    let time_column = sqlx::query_scalar::<_, String>(
+        "select column_name
+         from timescaledb_information.dimensions
+         where hypertable_schema = $1 and hypertable_name = $2
+         order by dimension_number
+         limit 1",
+    )
+    .bind(schema)
+    .bind(table)
+    .fetch_optional(pool)
+    .await?;
+    if compression_enabled {
+        warnings.push(
+            "The TimescaleDB hypertable has compression enabled; imports are routed by the server and may decompress or create chunks according to the connected version and policies."
+                .into(),
+        );
+    }
+    Ok(TimescaleTransferContext {
+        hypertable: true,
+        time_column,
+        compression_enabled,
+    })
+}
+
+async fn timescale_export_predicate(
+    pool: &PgPool,
+    schema: &str,
+    table: &str,
+    request: &OperationExecutionRequest,
+    warnings: &mut Vec<String>,
+) -> Result<Option<String>, CommandError> {
+    let context = timescale_transfer_context(pool, schema, table, warnings).await?;
+    let start = string_parameter(request, "start");
+    let end = string_parameter(request, "end");
+    if start.is_none() && end.is_none() {
+        if context.hypertable {
+            warnings.push(
+                "No TimescaleDB export window was supplied; native COPY will scan every chunk visible to the selected hypertable."
+                    .into(),
+            );
+        }
+        return Ok(None);
+    }
+    let (Some(start), Some(end)) = (start, end) else {
+        return Err(CommandError::new(
+            "timescale-transfer-window-incomplete",
+            "TimescaleDB export requires both window start and end when either value is supplied.",
+        ));
+    };
+    if !context.hypertable {
+        return Err(CommandError::new(
+            "timescale-transfer-window-non-hypertable",
+            "A TimescaleDB time window can only be used with a registered hypertable.",
+        ));
+    }
+    let start_value = chrono::DateTime::parse_from_rfc3339(&start).map_err(|_| {
+        CommandError::new(
+            "timescale-transfer-window-invalid",
+            "TimescaleDB window start must be a timezone-bearing ISO-8601 value.",
+        )
+    })?;
+    let end_value = chrono::DateTime::parse_from_rfc3339(&end).map_err(|_| {
+        CommandError::new(
+            "timescale-transfer-window-invalid",
+            "TimescaleDB window end must be a timezone-bearing ISO-8601 value.",
+        )
+    })?;
+    if start_value >= end_value {
+        return Err(CommandError::new(
+            "timescale-transfer-window-order-invalid",
+            "TimescaleDB window end must be later than its start.",
+        ));
+    }
+    let detected_column = context.time_column.ok_or_else(|| {
+        CommandError::new(
+            "timescale-transfer-time-column-missing",
+            "TimescaleDB did not report a native time dimension for the selected hypertable.",
+        )
+    })?;
+    if let Some(requested_column) = string_parameter(request, "timeColumn") {
+        if requested_column != detected_column {
+            return Err(CommandError::new(
+                "timescale-transfer-time-column-mismatch",
+                format!(
+                    "TimescaleDB time column `{requested_column}` does not match the hypertable dimension `{detected_column}`."
+                ),
+            ));
+        }
+    }
+    Ok(Some(format!(
+        "{} >= TIMESTAMPTZ '{}' AND {} < TIMESTAMPTZ '{}'",
+        quote_pg_identifier(&detected_column),
+        start_value.to_rfc3339(),
+        quote_pg_identifier(&detected_column),
+        end_value.to_rfc3339(),
+    )))
 }
 
 fn validated_csv_copy_columns(

@@ -396,6 +396,10 @@ function transferOptionsValid(options: DatastoreTransferOption[] | undefined, va
     const value = values[option.id]
     if (option.input === 'boolean') return !option.required || typeof value === 'boolean'
     if (option.required && (typeof value !== 'string' || value.trim() === '')) return false
+    if (typeof value === 'string' && value.trim() !== '' && option.requiredWith?.some((id) => {
+      const related = values[id]
+      return typeof related !== 'string' || related.trim() === ''
+    })) return false
     if (option.input !== 'integer' || value === undefined || value === '') return true
     const parsed = Number(value)
     return Number.isSafeInteger(parsed)

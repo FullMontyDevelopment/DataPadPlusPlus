@@ -25,6 +25,27 @@ impl DatastoreAdapter for TimescaleAdapter {
         true
     }
 
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if request.operation_id == "timescaledb.data.import-export" {
+            return execute_postgres_file_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
+    }
+
     fn manifest(&self) -> AdapterManifest {
         timescale_manifest()
     }

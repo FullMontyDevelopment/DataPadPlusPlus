@@ -27,7 +27,7 @@ describe('datastore transfer manifests', () => {
   it('promotes only the currently executable Wave 1 paths', () => {
     for (const engine of [
       'postgresql', 'mysql', 'mariadb', 'sqlserver', 'sqlite', 'mongodb',
-      'redis', 'valkey', 'litedb', 'duckdb', 'memcached',
+      'redis', 'valkey', 'litedb', 'duckdb', 'memcached', 'timescaledb',
     ] as const) {
       const capabilities = datastoreTransferManifest(engine).capabilities
       expect(capabilities.find((item) => item.action === 'import')?.executionSupport).toBe('live')
@@ -68,6 +68,15 @@ describe('datastore transfer manifests', () => {
       ['json', 'portable'],
       ['ndjson', 'portable'],
     ])
+  })
+
+  it('keeps TimescaleDB COPY live and its external-tool backup unavailable', () => {
+    const capabilities = datastoreTransferManifest('timescaledb').capabilities
+    const exported = capabilities.find((item) => item.action === 'export')
+    expect(exported?.executionSupport).toBe('live')
+    expect(exported?.formats.map((item) => item.id)).toEqual(['text', 'csv', 'binary-copy'])
+    expect(exported?.options?.map((item) => item.id)).toEqual(['timeColumn', 'start', 'end'])
+    expect(capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('unsupported')
   })
 
   it('recognizes generic and engine-specific transfer operations', () => {
