@@ -4,6 +4,7 @@ mod catalog;
 mod connection;
 mod diagnostics;
 mod explorer;
+mod import_export;
 mod protocol;
 mod query;
 mod query_results;
@@ -19,6 +20,27 @@ pub(crate) struct MemcachedAdapter;
 impl DatastoreAdapter for MemcachedAdapter {
     fn supports_standard_live_operations(&self) -> bool {
         true
+    }
+
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if request.operation_id == "memcached.data.import-export" {
+            return import_export::execute_memcached_transfer(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
     }
 
     fn manifest(&self) -> AdapterManifest {

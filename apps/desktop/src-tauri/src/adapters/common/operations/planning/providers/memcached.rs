@@ -5,7 +5,6 @@ pub(super) fn memcached_operation_request(
     object_name: &str,
     parameters: Option<&BTreeMap<String, Value>>,
 ) -> String {
-    let class_id = string_parameter(parameters, "classId");
     let key = string_parameter(parameters, "key")
         .filter(|value| memcached_key_is_single_token(value))
         .unwrap_or_else(|| object_name.into());
@@ -41,11 +40,33 @@ pub(super) fn memcached_operation_request(
     }
 
     if operation_id.ends_with("data.import-export") {
+        let mode = string_parameter(parameters, "mode").unwrap_or_else(|| "export".into());
+        let path = string_parameter(
+            parameters,
+            if mode == "import" {
+                "sourcePath"
+            } else {
+                "targetPath"
+            },
+        )
+        .unwrap_or_else(|| {
+            if mode == "import" {
+                "<selected-input>".into()
+            } else {
+                "<selected-output>".into()
+            }
+        });
+        if mode == "import" {
+            let flags = numeric_parameter(parameters, "flags").unwrap_or(0);
+            let expiry = numeric_parameter(parameters, "expirySeconds")
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "<required-expiry-seconds>".into());
+            return format!(
+                "add {key} {flags} {expiry} <exact-file-byte-length>\n<raw bytes from {path}>\n# add fails safely when the key already exists."
+            );
+        }
         return format!(
-            "lru_crawler enable\n{}\n# Values are not exported unless keys are explicitly selected.",
-            class_id
-                .map(|value| format!("lru_crawler metadump {value}"))
-                .unwrap_or_else(|| "lru_crawler metadump all".into())
+            "gets {key}\n# Write the returned value bytes unchanged to {path}; report flags separately.\n# Memcached does not expose the remaining expiry."
         );
     }
 

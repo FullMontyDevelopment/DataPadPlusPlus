@@ -27,7 +27,7 @@ describe('datastore transfer manifests', () => {
   it('promotes only the currently executable Wave 1 paths', () => {
     for (const engine of [
       'postgresql', 'mysql', 'mariadb', 'sqlserver', 'sqlite', 'mongodb',
-      'redis', 'valkey', 'litedb', 'duckdb',
+      'redis', 'valkey', 'litedb', 'duckdb', 'memcached',
     ] as const) {
       const capabilities = datastoreTransferManifest(engine).capabilities
       expect(capabilities.find((item) => item.action === 'import')?.executionSupport).toBe('live')
@@ -35,6 +35,18 @@ describe('datastore transfer manifests', () => {
     }
     expect(datastoreTransferManifest('sqlite').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
     expect(datastoreTransferManifest('duckdb').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
+  })
+
+  it('requires explicit Memcached import metadata without claiming key enumeration', () => {
+    const manifest = datastoreTransferManifest('memcached')
+    const importCapability = manifest.capabilities.find((item) => item.action === 'import')
+    const exportCapability = manifest.capabilities.find((item) => item.action === 'export')
+
+    expect(importCapability?.executionSupport).toBe('live')
+    expect(importCapability?.supportsMultipleObjects).toBe(false)
+    expect(importCapability?.formats.map((item) => item.id)).toEqual(['raw'])
+    expect(importCapability?.options?.map((item) => item.id)).toEqual(['flags', 'expirySeconds'])
+    expect(exportCapability?.options).toBeUndefined()
   })
 
   it('does not mislabel custom logical packages as native backups', () => {

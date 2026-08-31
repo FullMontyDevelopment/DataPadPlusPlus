@@ -137,4 +137,43 @@ describe('DatastoreTransferDialog', () => {
     }))
     expect(screen.getByRole('button', { name: 'Start Export' })).toBeDisabled()
   })
+
+  it('requires and serializes validated datastore-specific options', async () => {
+    vi.spyOn(desktopClient, 'selectDatastoreTransferFile').mockResolvedValue({
+      selectionId: 'selection-memcached',
+      fileName: 'value.bin',
+      destinationKind: 'local-file',
+      expiresAt: '2026-09-01T00:00:00Z',
+    })
+    const onPlan = vi.fn().mockResolvedValue({ ...plan, operationId: 'memcached.data.import-export', engine: 'memcached' })
+    render(
+      <DatastoreTransferDialog
+        connection={{ ...connection, engine: 'memcached', name: 'Local Memcached' }}
+        environment={environment}
+        manifest={datastoreTransferManifest('memcached')}
+        request={{
+          connectionId: connection.id,
+          environmentId: environment.id,
+          operationId: 'memcached.data.import-export',
+          objectName: 'cache:user:42',
+          parameters: { mode: 'import' },
+        }}
+        runtime="tauri"
+        onClose={vi.fn()}
+        onPlan={onPlan}
+        onStart={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Source' }))
+    expect(await screen.findByText('value.bin')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Validate Transfer' })).toBeDisabled()
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: /Expiry in seconds/ }), { target: { value: '300' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Validate Transfer' }))
+    expect(await screen.findByText(/Validation completed/)).toBeInTheDocument()
+    expect(onPlan).toHaveBeenCalledWith(expect.objectContaining({
+      parameters: expect.objectContaining({ flags: 0, expirySeconds: 300 }),
+    }))
+  })
 })

@@ -1332,6 +1332,24 @@ export interface DatastoreTransferFormat {
   warning?: string
 }
 
+export interface DatastoreTransferOptionChoice {
+  value: string
+  label: string
+}
+
+export interface DatastoreTransferOption {
+  id: string
+  label: string
+  input: 'text' | 'integer' | 'boolean' | 'select'
+  required: boolean
+  description?: string
+  placeholder?: string
+  defaultValue?: string | number | boolean
+  min?: number
+  max?: number
+  choices?: DatastoreTransferOptionChoice[]
+}
+
 export interface DatastoreTransferCapability {
   action: DatastoreTransferAction
   kind: 'data' | 'backup'
@@ -1339,6 +1357,7 @@ export interface DatastoreTransferCapability {
   scope: DatastoreOperationScope
   executionSupport: DatastoreOperationExecutionSupport
   formats: DatastoreTransferFormat[]
+  options?: DatastoreTransferOption[]
   destinationKinds: DatastoreTransferDestinationKind[]
   supportsMultipleObjects: boolean
   requiresExistingTarget: boolean

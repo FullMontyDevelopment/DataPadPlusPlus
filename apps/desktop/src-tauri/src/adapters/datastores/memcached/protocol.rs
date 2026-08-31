@@ -26,6 +26,13 @@ pub(super) async fn memcached_request_bytes(
     connection: &ResolvedConnectionProfile,
     request: &str,
 ) -> Result<Vec<u8>, CommandError> {
+    memcached_request_payload_bytes(connection, request.as_bytes()).await
+}
+
+pub(super) async fn memcached_request_payload_bytes(
+    connection: &ResolvedConnectionProfile,
+    request: &[u8],
+) -> Result<Vec<u8>, CommandError> {
     let address = memcached_address(connection);
     let mut stream = memcached_connect(connection, &address).await?;
     if connection
@@ -38,7 +45,7 @@ pub(super) async fn memcached_request_bytes(
     }
 
     memcached_io_timeout(connection, async {
-        stream.write_all(request.as_bytes()).await?;
+        stream.write_all(request).await?;
         stream.shutdown().await?;
         Ok::<(), CommandError>(())
     })

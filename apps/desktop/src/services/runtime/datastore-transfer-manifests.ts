@@ -7,6 +7,7 @@ import type {
   DatastoreTransferFidelity,
   DatastoreTransferFormat,
   DatastoreTransferManifest,
+  DatastoreTransferOption,
 } from '@datapadplusplus/shared-types'
 
 type FormatSpec = [id: string, label: string, fidelity: DatastoreTransferFidelity, extensions: string[], description: string, warning?: string]
@@ -16,6 +17,7 @@ type CapabilitySpec = {
   destinations?: DatastoreTransferDestinationKind[]
   support?: DatastoreOperationExecutionSupport
   operationIds?: Partial<Record<DatastoreTransferAction, string>>
+  options?: Partial<Record<DatastoreTransferAction, DatastoreTransferOption[]>>
   description: string
   disabledReason?: string
   multiple?: boolean
@@ -75,7 +77,30 @@ const DATA_SPECS: Record<DatastoreEngine, CapabilitySpec> = {
   snowflake: plannedData('Snowflake loads and unloads through named stages with COPY INTO.', [portableCsv, portableJson, ['parquet', 'Parquet', 'native', ['parquet'], 'Snowflake Parquet stage data.']], ['named-stage', 'cloud-uri']),
   bigquery: plannedData('BigQuery uses managed load and extract jobs through Cloud Storage.', [portableCsv, portableNdjson, ['avro', 'Avro', 'native', ['avro'], 'BigQuery Avro data.'], ['parquet', 'Parquet', 'native', ['parquet'], 'BigQuery Parquet data.']], ['cloud-uri']),
   neptune: plannedData('Neptune imports through its S3 bulk loader and exports bounded graph queries.', [['graphson', 'GraphSON', 'native', ['json'], 'Property graph GraphSON.'], ['rdf', 'RDF', 'native', ['ttl', 'nt', 'rdf'], 'RDF graph data.'], portableCsv], ['cloud-uri']),
-  memcached: plannedData('Memcached can transfer only explicit known keys; expiry cannot be discovered reliably.', [['raw', 'Raw value', 'native', ['bin'], 'Raw value bytes plus flags.']], ['local-file'], false),
+  memcached: liveData('Memcached transfers only an explicitly selected key. The artifact contains the exact raw value bytes; flags and expiry are explicit protocol inputs.', [['raw', 'Raw value bytes', 'native', ['bin'], 'The exact bytes accepted by the Memcached storage command.']], undefined, false, {
+    import: [
+      {
+        id: 'flags',
+        label: 'Flags',
+        input: 'integer',
+        required: true,
+        min: 0,
+        max: 4_294_967_295,
+        defaultValue: 0,
+        description: 'The unsigned application flags stored with the value.',
+      },
+      {
+        id: 'expirySeconds',
+        label: 'Expiry in seconds',
+        input: 'integer',
+        required: true,
+        min: 0,
+        max: 2_592_000,
+        placeholder: '0 keeps the value until eviction',
+        description: 'Required because Memcached cannot report the original expiry. Use 0 for no expiry.',
+      },
+    ],
+  }),
 }
 
 const NATIVE_BACKUP_ENGINES = new Set<DatastoreEngine>([
@@ -120,8 +145,14 @@ export function isDatastoreTransferOperation(operationId: string) {
     || /^(?:sqlite\.table\.(?:import|export)|sqlite\.database\.backup|mongodb\.collection\.(?:import|export)|(?:redis|valkey)\.key\.(?:import|export)|cockroach\.(?:import|export|backup|restore))$/.test(operationId)
 }
 
-function liveData(description: string, formats: FormatSpec[], operationIds?: CapabilitySpec['operationIds'], multiple = true): CapabilitySpec {
-  return { actions: ['import', 'export'], formats, support: 'live', description, operationIds, multiple, requiresExistingTarget: true }
+function liveData(
+  description: string,
+  formats: FormatSpec[],
+  operationIds?: CapabilitySpec['operationIds'],
+  multiple = true,
+  options?: CapabilitySpec['options'],
+): CapabilitySpec {
+  return { actions: ['import', 'export'], formats, support: 'live', description, operationIds, multiple, options, requiresExistingTarget: true }
 }
 
 function plannedData(description: string, formats: FormatSpec[], destinations: DatastoreTransferDestinationKind[] = ['local-file'], multiple = true): CapabilitySpec {
@@ -137,6 +168,7 @@ function capability(engine: DatastoreEngine, action: DatastoreTransferAction, sp
     scope: kind === 'backup' ? 'database' : dataScope(engine),
     executionSupport: spec.support ?? 'plan-only',
     formats: spec.formats.map(format),
+    options: spec.options?.[action],
     destinationKinds: spec.destinations ?? ['local-file'],
     supportsMultipleObjects: spec.multiple ?? true,
     requiresExistingTarget: spec.requiresExistingTarget ?? true,

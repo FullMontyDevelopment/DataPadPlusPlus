@@ -241,3 +241,18 @@ pub(super) fn extend_memcached(
         ]);
     }
 }
+
+pub(super) fn customize_import_export(
+    manifest: &AdapterManifest,
+    operation: &mut DatastoreOperationManifest,
+) {
+    if manifest.engine != "memcached" {
+        return;
+    }
+    operation.label = "Import Or Export Known Key".into();
+    operation.scope = "key".into();
+    operation.description = "Transfer the exact raw bytes for one explicitly selected Memcached key. Import uses add so an existing key is never overwritten; flags and expiry are explicit inputs.".into();
+    operation.execution_support = "live".into();
+    operation.disabled_reason = None;
+    operation.preview_only = Some(false);
+}

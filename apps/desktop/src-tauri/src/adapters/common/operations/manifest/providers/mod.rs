@@ -100,4 +100,5 @@ pub(super) fn customize_import_export(
     operation: &mut DatastoreOperationManifest,
 ) {
     embedded::customize_import_export(manifest, operation);
+    keyvalue::customize_import_export(manifest, operation);
 }

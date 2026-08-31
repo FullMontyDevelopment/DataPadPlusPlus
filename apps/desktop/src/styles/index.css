@@ -11864,8 +11864,48 @@ button:disabled:hover {
 
 .datastore-transfer-wide-field,
 .datastore-transfer-picker,
+.datastore-transfer-options,
 .datastore-transfer-callout {
   grid-column: 1 / -1;
+}
+
+.datastore-transfer-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  margin: 2px 0 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+}
+
+.datastore-transfer-options legend {
+  padding: 0 5px;
+  color: var(--heading);
+  font-size: 10px;
+}
+
+.datastore-transfer-option small {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.datastore-transfer-option--checkbox {
+  display: flex !important;
+  grid-column: 1 / -1;
+  align-items: flex-start;
+  gap: 7px !important;
+}
+
+.datastore-transfer-option--checkbox input {
+  width: 13px;
+  height: 13px;
+  margin-top: 1px;
+}
+
+.datastore-transfer-option--checkbox > span {
+  display: grid;
+  gap: 3px;
 }
 
 .datastore-transfer-wide-field small,

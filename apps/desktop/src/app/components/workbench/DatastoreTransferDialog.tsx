@@ -4,6 +4,7 @@ import type {
   DatastoreTransferAction,
   DatastoreTransferCapability,
   DatastoreTransferManifest,
+  DatastoreTransferOption,
   DatastoreTransferSelection,
   EnvironmentProfile,
   OperationExecutionRequest,
@@ -53,6 +54,9 @@ export function DatastoreTransferDialog({
   const [destinationKind, setDestinationKind] = useState(capability?.destinationKinds[0] ?? 'local-file')
   const [selection, setSelection] = useState<DatastoreTransferSelection>()
   const [remoteDestination, setRemoteDestination] = useState('')
+  const [optionValues, setOptionValues] = useState<Record<string, string | boolean>>(
+    () => initialOptionValues(capability?.options),
+  )
   const [plan, setPlan] = useState<OperationPlan>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -64,7 +68,8 @@ export function DatastoreTransferDialog({
     capability
     && capability.executionSupport !== 'unsupported'
     && selectedFormat
-    && (localDestination ? runtime === 'browser' || selection : remoteDestination.trim()),
+    && (localDestination ? runtime === 'browser' || selection : remoteDestination.trim())
+    && transferOptionsValid(capability.options, optionValues),
   )
   const canStart = Boolean(plan && runtime === 'tauri' && capability?.executionSupport === 'live')
   const close = useCallback(async () => {
@@ -111,6 +116,7 @@ export function DatastoreTransferDialog({
     setFormatId(next.formats[0]?.id ?? '')
     setDestinationKind(next.destinationKinds[0] ?? 'local-file')
     setRemoteDestination('')
+    setOptionValues(initialOptionValues(next.options))
     setPlan(undefined)
     setError('')
   }
@@ -173,6 +179,7 @@ export function DatastoreTransferDialog({
       transferFileName: selection?.fileName,
       transferDestinationKind: destinationKind,
       transferDestination: localDestination ? undefined : remoteDestination.trim(),
+      ...serializedOptionValues(capability.options, optionValues),
       [action === 'import' || action === 'restore' ? 'sourcePath' : 'targetPath']:
         selection
           ? `<selected-${destinationKind}>/${selection.fileName}`
@@ -272,6 +279,23 @@ export function DatastoreTransferDialog({
                     </label>
                   )}
                   {selectedFormat?.warning ? <p className="datastore-transfer-callout is-warning"><WarningIcon />{selectedFormat.warning}</p> : null}
+                  {capability.options?.length ? (
+                    <fieldset className="datastore-transfer-options">
+                      <legend>Datastore options</legend>
+                      {capability.options.map((option) => (
+                        <TransferOptionField
+                          key={option.id}
+                          option={option}
+                          value={optionValues[option.id]}
+                          disabled={busy}
+                          onChange={(value) => {
+                            setOptionValues((current) => ({ ...current, [option.id]: value }))
+                            setPlan(undefined)
+                          }}
+                        />
+                      ))}
+                    </fieldset>
+                  ) : null}
                 </div>
               )}
             </section>
@@ -312,6 +336,80 @@ export function DatastoreTransferDialog({
       </section>
     </div>
   )
+}
+
+function TransferOptionField({
+  option,
+  value,
+  disabled,
+  onChange,
+}: {
+  option: DatastoreTransferOption
+  value: string | boolean | undefined
+  disabled: boolean
+  onChange(value: string | boolean): void
+}) {
+  if (option.input === 'boolean') {
+    return (
+      <label className="datastore-transfer-option datastore-transfer-option--checkbox">
+        <input type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
+        <span>{option.label}{option.description ? <small>{option.description}</small> : null}</span>
+      </label>
+    )
+  }
+  return (
+    <label className="datastore-transfer-option">
+      <span>{option.label}{option.required ? ' *' : ''}</span>
+      {option.input === 'select' ? (
+        <select value={typeof value === 'string' ? value : ''} disabled={disabled} required={option.required} onChange={(event) => onChange(event.target.value)}>
+          <option value="">Choose…</option>
+          {option.choices?.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
+        </select>
+      ) : (
+        <input
+          type={option.input === 'integer' ? 'number' : 'text'}
+          value={typeof value === 'string' ? value : ''}
+          disabled={disabled}
+          required={option.required}
+          min={option.min}
+          max={option.max}
+          step={option.input === 'integer' ? 1 : undefined}
+          placeholder={option.placeholder}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
+      {option.description ? <small>{option.description}</small> : null}
+    </label>
+  )
+}
+
+function initialOptionValues(options?: DatastoreTransferOption[]) {
+  return Object.fromEntries(
+    (options ?? [])
+      .filter((option) => option.defaultValue !== undefined)
+      .map((option) => [option.id, typeof option.defaultValue === 'boolean' ? option.defaultValue : String(option.defaultValue)]),
+  )
+}
+
+function transferOptionsValid(options: DatastoreTransferOption[] | undefined, values: Record<string, string | boolean>) {
+  return (options ?? []).every((option) => {
+    const value = values[option.id]
+    if (option.input === 'boolean') return !option.required || typeof value === 'boolean'
+    if (option.required && (typeof value !== 'string' || value.trim() === '')) return false
+    if (option.input !== 'integer' || value === undefined || value === '') return true
+    const parsed = Number(value)
+    return Number.isSafeInteger(parsed)
+      && (option.min === undefined || parsed >= option.min)
+      && (option.max === undefined || parsed <= option.max)
+  })
+}
+
+function serializedOptionValues(options: DatastoreTransferOption[] | undefined, values: Record<string, string | boolean>) {
+  return Object.fromEntries((options ?? []).flatMap((option) => {
+    const value = values[option.id]
+    if (value === undefined || value === '') return []
+    return [[option.id, option.input === 'integer' ? Number(value) : value]]
+  }))
 }
 
 async function releaseSelection(selection?: DatastoreTransferSelection) {
