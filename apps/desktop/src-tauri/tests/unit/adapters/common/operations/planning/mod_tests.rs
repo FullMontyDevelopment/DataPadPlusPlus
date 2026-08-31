@@ -1884,7 +1884,11 @@ fn document_and_cache_operation_plans_use_native_request_shapes() {
         ("indexName".into(), json!("idx_products_sku")),
         ("field".into(), json!("sku")),
     ]);
-    let memcached_parameters = BTreeMap::from([("classId".into(), json!("2"))]);
+    let memcached_parameters = BTreeMap::from([
+        ("key".into(), json!("session:1")),
+        ("mode".into(), json!("export")),
+        ("targetPath".into(), json!("<selected-output>")),
+    ]);
     let redis_parameters = BTreeMap::from([
         ("database".into(), json!("0")),
         ("key".into(), json!("session:1")),
@@ -2146,7 +2150,9 @@ fn document_and_cache_operation_plans_use_native_request_shapes() {
         "class:2",
         Some(&memcached_parameters),
     );
-    assert!(memcached_request.contains("lru_crawler metadump 2"));
+    assert!(memcached_request.contains("gets session:1"));
+    assert!(memcached_request.contains("returned value bytes unchanged"));
+    assert!(!memcached_request.contains("lru_crawler metadump"));
 
     let memcached_flush_request = generated_operation_request(
         &connection,
