@@ -4,7 +4,9 @@ use serde_json::{json, Value};
 
 use super::super::super::*;
 use super::explorer::oracle_table_from_scope;
-use super::sidecar::{execute_oracle_managed_csv_transfer, oracle_execution_runtime};
+use super::sidecar::{
+    execute_oracle_managed_csv_transfer, execute_oracle_managed_data_pump, oracle_execution_runtime,
+};
 
 pub(super) async fn execute_oracle_import_export(
     connection: &ResolvedConnectionProfile,
@@ -101,6 +103,212 @@ pub(super) async fn execute_oracle_import_export(
         messages,
         warnings,
     })
+}
+
+pub(super) async fn execute_oracle_backup_restore(
+    connection: &ResolvedConnectionProfile,
+    request: &OperationExecutionRequest,
+    operation: DatastoreOperationManifest,
+    plan: OperationPlan,
+    mut messages: Vec<String>,
+    warnings: Vec<String>,
+) -> Result<OperationExecutionResponse, CommandError> {
+    if oracle_execution_runtime(connection) != "managed" {
+        return Err(CommandError::new(
+            "oracle-datapump-runtime-unsupported",
+            "Oracle Data Pump requires the bundled managed runtime. SQL*Plus remains available for interactive queries only.",
+        ));
+    }
+    let mode = parameter_string(request, "mode").unwrap_or_else(|| "backup".into());
+    let importing = matches!(mode.as_str(), "restore" | "recover" | "import");
+    if importing && connection.read_only {
+        return Err(CommandError::new(
+            "oracle-datapump-read-only",
+            "Oracle Data Pump restore is unavailable because this connection is read-only.",
+        ));
+    }
+    if parameter_string(request, "conflictPolicy").as_deref() != Some("fail") {
+        return Err(CommandError::new(
+            "oracle-datapump-conflict-policy-invalid",
+            "Oracle Data Pump requires the fail-safe conflict policy.",
+        ));
+    }
+    let format = parameter_string(request, "format").unwrap_or_else(|| "datapump".into());
+    if format != "datapump" {
+        return Err(CommandError::new(
+            "oracle-datapump-format-invalid",
+            "Oracle backup and restore require the native Data Pump format.",
+        ));
+    }
+
+    let location = transfer_server_location(request, importing)?;
+    let (directory_name, dump_file_name) = parse_data_pump_location(&location)?;
+    let scope = parameter_string(request, "dataPumpScope").unwrap_or_else(|| "schema".into());
+    if !matches!(scope.as_str(), "schema" | "table") {
+        return Err(CommandError::new(
+            "oracle-datapump-scope-invalid",
+            "Oracle Data Pump scope must be schema or table.",
+        ));
+    }
+    let source_schema = parameter_string(request, "sourceSchema")
+        .or_else(|| parameter_string(request, "schema"))
+        .or_else(|| {
+            connection
+                .username
+                .as_ref()
+                .map(|value| value.to_ascii_uppercase())
+        })
+        .ok_or_else(|| {
+            CommandError::new(
+                "oracle-datapump-source-schema-missing",
+                "Oracle Data Pump requires the source schema name.",
+            )
+        })?;
+    validate_data_pump_identifier(&source_schema, "source schema")?;
+    let table = if scope == "table" {
+        let table = parameter_string(request, "table")
+            .or_else(|| parameter_string(request, "tableName"))
+            .ok_or_else(|| {
+                CommandError::new(
+                    "oracle-datapump-table-missing",
+                    "Oracle table Data Pump transfer requires the table name.",
+                )
+            })?;
+        validate_data_pump_identifier(&table, "table")?;
+        Some(table)
+    } else {
+        None
+    };
+    let target_schema = importing
+        .then(|| {
+            parameter_string(request, "targetSchema")
+                .or_else(|| {
+                    connection
+                        .username
+                        .as_ref()
+                        .map(|value| value.to_ascii_uppercase())
+                })
+                .ok_or_else(|| {
+                    CommandError::new(
+                        "oracle-datapump-target-schema-missing",
+                        "Oracle Data Pump restore requires the target schema name.",
+                    )
+                })
+        })
+        .transpose()?;
+    if let Some(value) = target_schema.as_deref() {
+        validate_data_pump_identifier(value, "target schema")?;
+    }
+    let target_table = importing
+        .then(|| parameter_string(request, "targetTable").or_else(|| table.clone()))
+        .flatten();
+    if let Some(value) = target_table.as_deref() {
+        validate_data_pump_identifier(value, "target table")?;
+    }
+
+    let metadata = execute_oracle_managed_data_pump(
+        connection,
+        if importing {
+            "dataPumpImport"
+        } else {
+            "dataPumpExport"
+        },
+        &directory_name,
+        &dump_file_name,
+        &scope,
+        &source_schema,
+        target_schema.as_deref(),
+        table.as_deref(),
+        target_table.as_deref(),
+    )
+    .await?;
+    let completed_mode = if importing { "restore" } else { "backup" };
+    messages.push(format!(
+        "Oracle Data Pump {completed_mode} completed for {source_schema} using directory object {directory_name}."
+    ));
+    Ok(OperationExecutionResponse {
+        connection_id: request.connection_id.clone(),
+        environment_id: request.environment_id.clone(),
+        operation_id: request.operation_id.clone(),
+        execution_support: operation.execution_support,
+        executed: true,
+        plan,
+        result: None,
+        permission_inspection: None,
+        diagnostics: None,
+        metadata: Some(json!({
+            "workflow": format!("oracle.datapump.{completed_mode}"),
+            "format": "datapump",
+            "scope": scope,
+            "directoryName": directory_name,
+            "dumpFileName": dump_file_name,
+            "details": metadata,
+        })),
+        messages,
+        warnings,
+    })
+}
+
+fn transfer_server_location(
+    request: &OperationExecutionRequest,
+    importing: bool,
+) -> Result<String, CommandError> {
+    let keys: &[&str] = if importing {
+        &["sourcePath", "inputPath", "transferDestination"]
+    } else {
+        &["targetPath", "outputPath", "transferDestination"]
+    };
+    keys.iter()
+        .find_map(|key| parameter_string(request, key))
+        .ok_or_else(|| {
+            CommandError::new(
+                "oracle-datapump-location-missing",
+                "Enter the Oracle DIRECTORY_OBJECT:dump-file.dmp location.",
+            )
+        })
+}
+
+fn parse_data_pump_location(value: &str) -> Result<(String, String), CommandError> {
+    let (directory, file_name) = value.split_once(':').ok_or_else(|| {
+        CommandError::new(
+            "oracle-datapump-location-invalid",
+            "Oracle Data Pump locations use DIRECTORY_OBJECT:dump-file.dmp.",
+        )
+    })?;
+    validate_data_pump_identifier(directory, "directory object")?;
+    if file_name.is_empty()
+        || file_name.len() > 200
+        || !file_name.to_ascii_lowercase().ends_with(".dmp")
+        || file_name
+            .chars()
+            .any(|value| !(value.is_ascii_alphanumeric() || matches!(value, '.' | '_' | '-')))
+    {
+        return Err(CommandError::new(
+            "oracle-datapump-file-invalid",
+            "Oracle Data Pump requires a .dmp file name without a directory path.",
+        ));
+    }
+    Ok((directory.to_ascii_uppercase(), file_name.into()))
+}
+
+fn validate_data_pump_identifier(value: &str, label: &str) -> Result<(), CommandError> {
+    let mut characters = value.chars();
+    let first_valid = characters
+        .next()
+        .is_some_and(|value| value.is_ascii_alphabetic());
+    if !first_valid
+        || value.len() > 128
+        || characters
+            .any(|value| !(value.is_ascii_alphanumeric() || matches!(value, '_' | '$' | '#')))
+    {
+        return Err(CommandError::new(
+            "oracle-datapump-identifier-invalid",
+            format!(
+                "Oracle Data Pump requires one unquoted {label} using letters, numbers, _, $, or #."
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn transfer_table(

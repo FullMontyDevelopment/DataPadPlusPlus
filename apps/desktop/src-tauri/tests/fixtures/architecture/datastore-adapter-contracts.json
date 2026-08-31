@@ -11551,11 +11551,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan backup and restore workflows with environment and permission guardrails.",
+        "description": "Create and restore native Oracle Data Pump table or schema archives in an authorized server DIRECTORY object with fail-safe conflict checks.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       }
     ]
   },

@@ -770,11 +770,11 @@ const ORACLE_RELATIONAL_PROFILE = profile({
     'Oracle writes are available through guarded managed-driver editor execution. Scoped data-grid insert/update/delete flows retain primary-key or ROWID identity, bounded before/after evidence, read-only and confirmation guards, and the explicit SQLPlus legacy executor until those edit plans are moved to the managed protocol.',
     [
       'Optional extension: add thin/OCI driver execution, richer affected-row telemetry, cancellation, and fixture variants for proxy-user, wallet, and role-gated edit failures.',
-      'Keep DDL, grant, compile, import/export, Data Pump, and RMAN workflows preview-first until Oracle permission checks and rollback boundaries are adapter-backed.',
+      'Keep DDL, grant, compile, and RMAN workflows preview-first until Oracle permission checks and rollback boundaries are adapter-backed.',
     ],
   ),
   'guarded-operations': strong(
-    'Oracle guarded operations cover query explain/profile, index create/drop, object refresh, create/drop previews, session/security/storage/metrics inspections, SQLPlus/SQLcl import/export plans, Data Pump wording, and RMAN backup/restore previews with explicit review, permission, and preview-first boundaries in browser and Rust planners.',
+    'Oracle guarded operations cover query explain/profile, index create/drop, object refresh, create/drop previews, session/security/storage/metrics inspections, live managed-driver CSV table transfer, and live DBMS_DATAPUMP table/schema backup and restore through authorized DIRECTORY objects. RMAN physical backup remains explicitly unavailable.',
     [
       'Optional extension: add permission-aware live executors for selected compile/grant/DDL/session actions only after transaction, confirmation, and rollback handling are proven.',
     ],
@@ -786,13 +786,13 @@ const ORACLE_RELATIONAL_PROFILE = profile({
     ],
   ),
   'import-export': strong(
-    'Oracle import/export and backup/restore are covered as native preview workflows: SQLPlus/SQLcl bounded CSV-style export/import evidence, Data Pump review wording, RMAN backup/restore request templates, object-view actions, browser/Rust operation plans, and optional fixture boundary checks are in place while file/database execution stays preview-first.',
+    'Oracle import/export and backup/restore use the bundled managed runtime: CSV export streams through a temporary artifact, CSV import validates exact insertable columns and uses array binding, and DBMS_DATAPUMP creates/restores native table or schema archives in authorized DIRECTORY objects. Restore requires an empty schema or absent table, supports schema/table remapping, rejects existing artifacts and targets, verifies job completion, and validates restored objects. RMAN physical backup is not advertised.',
     [
-      'Optional extension: promote selected Data Pump, SQLcl file, or RMAN workflows only after directory grants, file paths, TDE/wallet state, recovery target, and rollback/confirmation guardrails are adapter-backed.',
+      'Optional extension: add cloud-URI Data Pump credentials and broader TDE/wallet fixture variants after their permission and key-management boundaries are live validated.',
     ],
   ),
   tests: strong(
-    'Oracle has managed-sidecar protocol, connection descriptor, script splitting, read-only classification, transaction, type conversion, error redaction, runtime selection, live metadata hierarchy, structure-map, generated SQL, query-builder, IntelliSense, result error, guardrail, SQLPlus fallback, and optional Oracle fixture coverage.',
+    'Oracle has managed-sidecar protocol, connection descriptor, script splitting, read-only classification, transaction, type conversion, error redaction, runtime selection, live metadata hierarchy, structure-map, generated SQL, query-builder, IntelliSense, result error, guardrail, SQLPlus fallback, CSV transfer tests, and live Data Pump table/schema backup and restore fixture coverage including remapping and conflict rejection.',
     [
       'Add optional live wallet, TNS alias, proxy-user, administrative-role, and permission-limited deployment variants.',
       'Keep release smoke tests proving each installer and portable archive contains the matching managed runtime.',
@@ -1550,7 +1550,7 @@ const ENGINE_OVERRIDES: Partial<
     nativeScore: 5,
     targetPhase: 2,
     summary:
-      'Oracle Database 19c+ is native-complete for the scoped bundled-driver workflow: self-contained managed runtime packaging, real connection tests, SQL and PL/SQL execution, per-run transactions, cancellation, bounded typed results, permission-aware live explorer and structure metadata, Oracle-specific generated SQL and IntelliSense, shared write guardrails, DBMS output and plan/profile payloads, optional SQLPlus legacy execution, and Oracle fixture validation. Cross-run pinned transactions, Data Pump/RMAN execution, managed data-grid row editing, and broader licensed/admin diagnostics remain optional extensions.',
+      'Oracle Database 19c+ is native-complete for the scoped bundled-driver workflow: self-contained managed runtime packaging, real connection tests, SQL and PL/SQL execution, per-run transactions, cancellation, bounded typed results, permission-aware live explorer and structure metadata, Oracle-specific generated SQL and IntelliSense, shared write guardrails, DBMS output and plan/profile payloads, managed-driver CSV transfer, live DBMS_DATAPUMP table/schema backup and restore with remapping and conflict checks, optional SQLPlus legacy execution, and Oracle fixture validation. Cross-run pinned transactions, RMAN physical backup, managed data-grid row editing, and broader licensed/admin diagnostics remain optional extensions.',
     profile: ORACLE_RELATIONAL_PROFILE,
   },
   timescaledb: {

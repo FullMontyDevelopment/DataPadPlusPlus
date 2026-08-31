@@ -218,6 +218,38 @@ function sqlImportExportRequest(connection: ConnectionProfile, objectName: strin
 }
 
 function sqlBackupRestoreRequest(connection: ConnectionProfile, objectName: string, parameters: Record<string, unknown>) {
+  if (connection.engine === 'oracle') {
+    const mode = (stringParameter(parameters, 'mode') ?? 'backup').toLowerCase()
+    const restoring = ['restore', 'recover', 'import'].includes(mode)
+    return JSON.stringify({
+      workflow: restoring ? 'oracle.datapump.restore' : 'oracle.datapump.backup',
+      mode,
+      format: 'datapump',
+      scope: stringParameter(parameters, 'dataPumpScope') ?? 'schema',
+      location: stringParameter(parameters, restoring ? 'sourcePath' : 'targetPath') ?? 'DATA_PUMP_DIR:datapadplusplus.dmp',
+      sourceSchema: stringParameter(parameters, 'sourceSchema') ?? '<source-schema>',
+      targetSchema: restoring ? stringParameter(parameters, 'targetSchema') ?? '<empty-target-schema>' : undefined,
+      table: stringParameter(parameters, 'table') ?? stringParameter(parameters, 'tableName'),
+      targetTable: restoring ? stringParameter(parameters, 'targetTable') : undefined,
+      conflictPolicy: 'fail',
+      executionGate: {
+        owner: 'oracle-managed-sidecar',
+        defaultSupport: 'live',
+        requiresConfirmation: true,
+        guards: [
+          'managed Oracle runtime required',
+          'authorized DIRECTORY_OBJECT:dump-file.dmp location',
+          'existing dump artifact conflict rejection',
+          'empty target schema or absent target table',
+          'read-only restore block',
+          'DBMS_DATAPUMP completion state verification',
+          'post-restore object validation',
+        ],
+        residualRisk: 'Oracle DIRECTORY grants, server storage capacity, and Data Pump role assignment remain administrator-managed',
+      },
+    }, null, 2)
+  }
+
   if (connection.engine === 'sqlserver') {
     return `backup database [database_name]\nto disk = '<selected-folder>\\database_name.bak'\nwith compression, checksum;`
   }

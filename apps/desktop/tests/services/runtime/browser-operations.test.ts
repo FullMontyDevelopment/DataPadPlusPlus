@@ -4,7 +4,7 @@ import { buildOperationManifestsForConnection, executeOperationLocally, planOper
 
 describe('browser operation runtime', () => {
   it('keeps risky and plan-only operation manifests explicit', () => {
-    const connections = [mongoConnection, redisConnection, valkeyConnection, sqlServerConnection, postgresConnection, mysqlConnection, mariaDbConnection, searchConnection, dynamoConnection, cassandraConnection, prometheusConnection, influxConnection, openTsdbConnection, neo4jConnection, neptuneConnection, snowflakeConnection, bigQueryConnection, clickHouseConnection, cosmosConnection, liteDbConnection, memcachedConnection]
+    const connections = [mongoConnection, redisConnection, valkeyConnection, sqlServerConnection, oracleConnection, postgresConnection, mysqlConnection, mariaDbConnection, searchConnection, dynamoConnection, cassandraConnection, prometheusConnection, influxConnection, openTsdbConnection, neo4jConnection, neptuneConnection, snowflakeConnection, bigQueryConnection, clickHouseConnection, cosmosConnection, liteDbConnection, memcachedConnection]
 
     for (const connection of connections) {
       const operations = buildOperationManifestsForConnection(connection)
@@ -1269,6 +1269,65 @@ describe('browser operation runtime', () => {
         defaultSupport: 'live',
       },
     })
+  })
+
+  it('generates live Oracle Data Pump backup and restore requests', () => {
+    const snapshot = snapshotWith(oracleConnection)
+    const operations = buildOperationManifestsForConnection(oracleConnection)
+    expect(operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'oracle.data.backup-restore',
+        executionSupport: 'live',
+        previewOnly: false,
+      }),
+    ]))
+
+    const backup = planOperationLocally(snapshot, {
+      connectionId: oracleConnection.id,
+      environmentId: 'env-local',
+      operationId: 'oracle.data.backup-restore',
+      objectName: 'DATAPADPLUSPLUS',
+      parameters: {
+        mode: 'backup',
+        format: 'datapump',
+        targetPath: 'DATA_PUMP_DIR:workspace.dmp',
+        dataPumpScope: 'schema',
+        sourceSchema: 'DATAPADPLUSPLUS',
+      },
+    })
+    expect(JSON.parse(backup.plan.generatedRequest)).toMatchObject({
+      workflow: 'oracle.datapump.backup',
+      location: 'DATA_PUMP_DIR:workspace.dmp',
+      sourceSchema: 'DATAPADPLUSPLUS',
+      executionGate: { defaultSupport: 'live' },
+    })
+
+    const restore = planOperationLocally(snapshot, {
+      connectionId: oracleConnection.id,
+      environmentId: 'env-local',
+      operationId: 'oracle.data.backup-restore',
+      objectName: 'DATAPADPLUSPLUS',
+      parameters: {
+        mode: 'restore',
+        format: 'datapump',
+        sourcePath: 'DATA_PUMP_DIR:workspace.dmp',
+        dataPumpScope: 'table',
+        sourceSchema: 'DATAPADPLUSPLUS',
+        targetSchema: 'DATAPAD_RESTORE',
+        table: 'ACCOUNTS',
+        targetTable: 'ACCOUNTS_RESTORED',
+      },
+    })
+    const request = JSON.parse(restore.plan.generatedRequest)
+    expect(request).toMatchObject({
+      workflow: 'oracle.datapump.restore',
+      scope: 'table',
+      targetSchema: 'DATAPAD_RESTORE',
+      targetTable: 'ACCOUNTS_RESTORED',
+      conflictPolicy: 'fail',
+      executionGate: { defaultSupport: 'live' },
+    })
+    expect(request.executionGate.guards).toContain('empty target schema or absent target table')
   })
 
   it('generates CockroachDB cluster and data-movement operation previews', () => {
@@ -4131,6 +4190,17 @@ const sqlServerConnection: ConnectionProfile = {
   auth: {},
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const oracleConnection: ConnectionProfile = {
+  ...sqlServerConnection,
+  id: 'conn-oracle',
+  name: 'Oracle',
+  engine: 'oracle',
+  port: 1522,
+  database: 'FREEPDB1',
+  icon: 'oracle',
+  auth: { username: 'DATAPADPLUSPLUS' },
 }
 
 const postgresConnection: ConnectionProfile = {

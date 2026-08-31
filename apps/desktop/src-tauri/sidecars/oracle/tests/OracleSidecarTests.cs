@@ -153,6 +153,43 @@ public sealed class OracleSidecarTests
         Assert.Equal("oracle-schema-invalid", error.Code);
     }
 
+    [Theory]
+    [InlineData("data_pump_dir", "DATA_PUMP_DIR")]
+    [InlineData("SALES$ARCHIVE#1", "SALES$ARCHIVE#1")]
+    public void DataPumpIdentifiersAreCanonicalAndInjectionSafe(string value, string expected)
+    {
+        Assert.Equal(expected, Program.RequiredDataPumpIdentifier(value, "directory object"));
+    }
+
+    [Theory]
+    [InlineData("quoted directory")]
+    [InlineData("1INVALID")]
+    [InlineData("SAFE'); DROP TABLE ACCOUNTS; --")]
+    public void DataPumpIdentifiersRejectUnsafeValues(string value)
+    {
+        var error = Assert.Throws<SidecarException>(() => Program.RequiredDataPumpIdentifier(value, "directory object"));
+        Assert.Equal("oracle-datapump-identifier-invalid", error.Code);
+    }
+
+    [Theory]
+    [InlineData("backup-2026.dmp")]
+    [InlineData("schema_archive_01.DMP")]
+    public void DataPumpFilesAcceptOnlyPlainDumpNames(string value)
+    {
+        Assert.Equal(value, Program.RequiredDataPumpFileName(value));
+    }
+
+    [Theory]
+    [InlineData("../backup.dmp")]
+    [InlineData("folder/backup.dmp")]
+    [InlineData("backup.zip")]
+    [InlineData("backup.dmp'); drop table accounts; --")]
+    public void DataPumpFilesRejectPathsAndInjectedValues(string value)
+    {
+        var error = Assert.Throws<SidecarException>(() => Program.RequiredDataPumpFileName(value));
+        Assert.Equal("oracle-datapump-file-invalid", error.Code);
+    }
+
     private static OracleConnectionInput Connection(
         string? connectMode = "service",
         string? serviceName = null,

@@ -388,6 +388,45 @@ pub(super) async fn execute_oracle_managed_csv_transfer(
     .await
 }
 
+pub(super) async fn execute_oracle_managed_data_pump(
+    connection: &ResolvedConnectionProfile,
+    operation: &str,
+    directory_name: &str,
+    dump_file_name: &str,
+    scope: &str,
+    source_schema: &str,
+    target_schema: Option<&str>,
+    table: Option<&str>,
+    target_table: Option<&str>,
+) -> Result<Value, CommandError> {
+    let timeout_ms = oracle_request_timeout_ms(connection);
+    oracle_sidecar_request(
+        json!({
+            "protocolVersion": ORACLE_SIDECAR_PROTOCOL_VERSION,
+            "requestId": oracle_request_id("datapump"),
+            "operation": operation,
+            "connection": oracle_connection_payload(connection)?,
+            "timeoutMs": timeout_ms,
+            "fetchSize": connection.oracle_options.as_ref().and_then(|options| options.fetch_size),
+            "readOnly": connection.read_only,
+            "captureDbmsOutput": false,
+            "conflictPolicy": "fail",
+            "format": "datapump",
+            "directoryName": directory_name,
+            "dumpFileName": dump_file_name,
+            "dataPumpScope": scope,
+            "sourceSchema": source_schema,
+            "targetSchema": target_schema,
+            "table": table,
+            "targetTable": target_table,
+            "currentSchema": target_schema.unwrap_or(source_schema),
+        }),
+        timeout_ms,
+        OracleSidecarRequestOrigin::Interactive,
+    )
+    .await
+}
+
 fn oracle_metadata_error(error: CommandError, timeout_ms: u64) -> CommandError {
     if matches!(
         error.code.as_str(),

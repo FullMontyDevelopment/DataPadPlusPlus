@@ -43,6 +43,49 @@ fn import_requires_an_absolute_existing_file() {
     );
 }
 
+#[test]
+fn data_pump_location_requires_directory_object_and_dump_file() {
+    assert_eq!(
+        parse_data_pump_location("data_pump_dir:backup-2026.dmp").unwrap(),
+        ("DATA_PUMP_DIR".into(), "backup-2026.dmp".into())
+    );
+    assert_eq!(
+        parse_data_pump_location("C:\\temp\\backup.dmp")
+            .unwrap_err()
+            .code,
+        "oracle-datapump-file-invalid"
+    );
+    assert_eq!(
+        parse_data_pump_location("DATA_PUMP_DIR:../backup.dmp")
+            .unwrap_err()
+            .code,
+        "oracle-datapump-file-invalid"
+    );
+    assert_eq!(
+        parse_data_pump_location("DATA_PUMP_DIR:backup.zip")
+            .unwrap_err()
+            .code,
+        "oracle-datapump-file-invalid"
+    );
+}
+
+#[test]
+fn data_pump_identifiers_are_unquoted_and_bounded() {
+    assert!(validate_data_pump_identifier("SALES_2026$ARCHIVE#1", "schema").is_ok());
+    assert_eq!(
+        validate_data_pump_identifier("Quoted Schema", "schema")
+            .unwrap_err()
+            .code,
+        "oracle-datapump-identifier-invalid"
+    );
+    assert_eq!(
+        validate_data_pump_identifier("1INVALID", "schema")
+            .unwrap_err()
+            .code,
+        "oracle-datapump-identifier-invalid"
+    );
+}
+
 fn request(parameters: Value) -> OperationExecutionRequest {
     OperationExecutionRequest {
         connection_id: "connection-oracle".into(),

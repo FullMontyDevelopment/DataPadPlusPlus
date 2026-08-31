@@ -16,7 +16,7 @@ use connection::test_oracle_connection;
 use diagnostics::collect_oracle_diagnostics;
 use editing::{execute_oracle_data_edit, oracle_data_edit_plan};
 use explorer::{inspect_oracle_explorer_node, list_oracle_explorer_nodes};
-use import_export::execute_oracle_import_export;
+use import_export::{execute_oracle_backup_restore, execute_oracle_import_export};
 use sidecar::{cancel_oracle_managed, oracle_execution_runtime};
 use structure::load_oracle_structure;
 
@@ -55,6 +55,12 @@ impl DatastoreAdapter for OracleAdapter {
     ) -> Result<OperationExecutionResponse, CommandError> {
         if request.operation_id == "oracle.data.import-export" {
             return execute_oracle_import_export(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        if request.operation_id == "oracle.data.backup-restore" {
+            return execute_oracle_backup_restore(
                 connection, request, operation, plan, messages, warnings,
             )
             .await;

@@ -1129,10 +1129,23 @@ fn sql_family_operation_plans_are_dialect_aware() {
         &oracle_manifest,
         "oracle.data.backup-restore",
         "APP",
-        None,
+        Some(&BTreeMap::from([
+            ("mode".into(), json!("backup")),
+            ("targetPath".into(), json!("DATA_PUMP_DIR:app-backup.dmp")),
+            ("dataPumpScope".into(), json!("schema")),
+            ("sourceSchema".into(), json!("APP")),
+        ])),
     );
-    assert!(oracle_backup.contains("rman target /"));
-    assert!(oracle_backup.contains("backup database plus archivelog"));
+    let oracle_backup_value = serde_json::from_str::<serde_json::Value>(&oracle_backup).unwrap();
+    assert_eq!(oracle_backup_value["workflow"], "oracle.datapump.backup");
+    assert_eq!(
+        oracle_backup_value["location"],
+        "DATA_PUMP_DIR:app-backup.dmp"
+    );
+    assert_eq!(
+        oracle_backup_value["executionGate"]["defaultSupport"],
+        "live"
+    );
 }
 
 #[test]

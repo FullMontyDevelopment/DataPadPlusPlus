@@ -139,6 +139,8 @@ internal static partial class Program
                 "execute" => await ExecuteAsync(request, active, cancellation.Token),
                 "exportcsv" => await ExportCsvAsync(request, active, cancellation.Token),
                 "importcsv" => await ImportCsvAsync(request, active, cancellation.Token),
+                "datapumpexport" => await ExecuteDataPumpAsync(request, active, false, cancellation.Token),
+                "datapumpimport" => await ExecuteDataPumpAsync(request, active, true, cancellation.Token),
                 _ => throw new SidecarException(
                     "oracle-sidecar-operation-unsupported",
                     $"Oracle runtime operation '{request.Operation}' is not supported."),
@@ -1032,7 +1034,13 @@ internal sealed record OracleRequest(
     string? Schema,
     string? Table,
     string? ConflictPolicy,
-    string? Format);
+    string? Format,
+    string? DirectoryName,
+    string? DumpFileName,
+    string? DataPumpScope,
+    string? SourceSchema,
+    string? TargetSchema,
+    string? TargetTable);
 
 internal sealed record OracleConnectionInput(
     string? Host,

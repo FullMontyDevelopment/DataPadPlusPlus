@@ -261,11 +261,10 @@ const NATIVE_BACKUP_ENGINES = new Set<DatastoreEngine>([
   'clickhouse', 'arango', 'dynamodb', 'cosmosdb', 'snowflake', 'bigquery', 'neptune',
 ])
 
-const LIVE_BACKUP_ENGINES = new Set<DatastoreEngine>(['sqlite', 'duckdb', 'cockroachdb', 'sqlserver'])
+const LIVE_BACKUP_ENGINES = new Set<DatastoreEngine>(['sqlite', 'duckdb', 'cockroachdb', 'sqlserver', 'oracle'])
 
-function isLiveBackupAction(engine: DatastoreEngine, action: 'backup' | 'restore') {
-  return engine === 'cockroachdb' || engine === 'sqlserver' || engine === 'duckdb' || engine === 'sqlite'
-    || (LIVE_BACKUP_ENGINES.has(engine) && action === 'backup')
+function isLiveBackupAction(engine: DatastoreEngine) {
+  return LIVE_BACKUP_ENGINES.has(engine)
 }
 
 export function datastoreTransferManifest(engine: DatastoreEngine): DatastoreTransferManifest {
@@ -274,7 +273,7 @@ export function datastoreTransferManifest(engine: DatastoreEngine): DatastoreTra
   const backupNative = NATIVE_BACKUP_ENGINES.has(engine)
 
   for (const action of ['backup', 'restore'] as const) {
-    const live = isLiveBackupAction(engine, action)
+    const live = isLiveBackupAction(engine)
     capabilities.push(capability(engine, action, {
       actions: [action],
       formats: backupFormats(engine),
@@ -387,6 +386,56 @@ function backupOptions(
   engine: DatastoreEngine,
   action: 'backup' | 'restore',
 ): CapabilitySpec['options'] {
+  if (engine === 'oracle') {
+    const common: DatastoreTransferOption[] = [
+      {
+        id: 'dataPumpScope',
+        label: 'Archive scope',
+        input: 'select',
+        required: true,
+        defaultValue: 'schema',
+        choices: [{ value: 'schema', label: 'Schema' }, { value: 'table', label: 'Table' }],
+        description: 'Table scope also requires a table name below.',
+      },
+      {
+        id: 'sourceSchema',
+        label: 'Source schema',
+        input: 'text',
+        required: true,
+        placeholder: 'DATAPADPLUSPLUS',
+        description: 'Use the exact unquoted Oracle schema name stored in the dump.',
+      },
+      {
+        id: 'table',
+        label: 'Source table (table scope)',
+        input: 'text',
+        required: false,
+        placeholder: 'ACCOUNTS',
+      },
+    ]
+    return {
+      [action]: action === 'backup'
+        ? common
+        : [
+            ...common,
+            {
+              id: 'targetSchema',
+              label: 'Empty target schema',
+              input: 'text',
+              required: true,
+              placeholder: 'DATAPAD_RESTORE',
+              description: 'Schema restores require an existing empty schema; table restores require an absent target table.',
+            },
+            {
+              id: 'targetTable',
+              label: 'New target table (table scope)',
+              input: 'text',
+              required: false,
+              placeholder: 'ACCOUNTS_RESTORED',
+            },
+          ],
+    }
+  }
   if (!['cockroachdb', 'sqlserver', 'duckdb', 'sqlite'].includes(engine) || action !== 'restore') return undefined
   if (engine === 'sqlite') {
     return {

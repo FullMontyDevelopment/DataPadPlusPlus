@@ -35,5 +35,14 @@ pub(super) fn oracle_operation_manifests(
         operation.preview_only = Some(false);
         operation.description = "Stream Oracle table data as CSV through the bundled managed driver and use array binding for guarded imports into existing empty tables.".into();
     }
+    if let Some(operation) = operations
+        .iter_mut()
+        .find(|operation| operation.id == "oracle.data.backup-restore")
+    {
+        operation.execution_support = "live".into();
+        operation.disabled_reason = None;
+        operation.preview_only = Some(false);
+        operation.description = "Create and restore native Oracle Data Pump table or schema archives in an authorized server DIRECTORY object with fail-safe conflict checks.".into();
+    }
     operations
 }

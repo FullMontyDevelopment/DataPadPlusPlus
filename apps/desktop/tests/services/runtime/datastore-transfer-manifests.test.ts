@@ -147,7 +147,7 @@ describe('datastore transfer manifests', () => {
     expect(restored?.options?.map((item) => item.id)).toEqual(['targetDatabase'])
   })
 
-  it('uses the bundled managed Oracle runtime for CSV table transfer', () => {
+  it('uses the bundled managed Oracle runtime for CSV and Data Pump transfer', () => {
     const capabilities = datastoreTransferManifest('oracle').capabilities
     const imported = capabilities.find((item) => item.action === 'import')
     const exported = capabilities.find((item) => item.action === 'export')
@@ -157,7 +157,18 @@ describe('datastore transfer manifests', () => {
     expect(imported?.formats.map((item) => item.id)).toEqual(['csv'])
     expect(imported?.supportsMultipleObjects).toBe(false)
     expect(exported?.executionSupport).toBe('live')
-    expect(capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('plan-only')
+    const backup = capabilities.find((item) => item.action === 'backup')
+    const restore = capabilities.find((item) => item.action === 'restore')
+    expect(backup).toMatchObject({
+      executionSupport: 'live',
+      destinationKinds: ['server-path'],
+      formats: [expect.objectContaining({ id: 'datapump', fidelity: 'native' })],
+    })
+    expect(backup?.options?.map((item) => item.id)).toEqual(['dataPumpScope', 'sourceSchema', 'table'])
+    expect(restore?.executionSupport).toBe('live')
+    expect(restore?.options?.map((item) => item.id)).toEqual([
+      'dataPumpScope', 'sourceSchema', 'table', 'targetSchema', 'targetTable',
+    ])
   })
 
   it('uses one lossless typed graph stream for Neo4j', () => {

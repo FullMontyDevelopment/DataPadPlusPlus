@@ -18,7 +18,62 @@ pub(super) fn oracle_operation_request(
     }
 
     if operation_id.ends_with("data.backup-restore") || operation_id.contains("backup-restore") {
-        return "-- Oracle RMAN backup/restore plan.\n-- Review retention policy, archivelog mode, wallet/TDE state, and recovery target before execution.\nrman target /\nbackup database plus archivelog;\n-- restore database preview requires explicit target time/SCN and mount state validation.".into();
+        let parameters = serde_json::from_str::<serde_json::Value>(parameter_json)
+            .unwrap_or_else(|_| serde_json::json!({}));
+        let mode = parameters
+            .get("mode")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("backup")
+            .to_ascii_lowercase();
+        let restoring = matches!(mode.as_str(), "restore" | "recover" | "import");
+        let location_key = if restoring {
+            "sourcePath"
+        } else {
+            "targetPath"
+        };
+        let location = parameters
+            .get(location_key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("DATA_PUMP_DIR:datapadplusplus.dmp");
+        let scope = parameters
+            .get("dataPumpScope")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("schema");
+        let source_schema = parameters
+            .get("sourceSchema")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("<source-schema>");
+        let target_schema = parameters
+            .get("targetSchema")
+            .and_then(serde_json::Value::as_str);
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "workflow": if restoring { "oracle.datapump.restore" } else { "oracle.datapump.backup" },
+            "mode": mode,
+            "format": "datapump",
+            "scope": scope,
+            "location": location,
+            "sourceSchema": source_schema,
+            "targetSchema": target_schema,
+            "table": parameters.get("table").or_else(|| parameters.get("tableName")),
+            "targetTable": parameters.get("targetTable"),
+            "conflictPolicy": "fail",
+            "executionGate": {
+                "owner": "oracle-managed-sidecar",
+                "defaultSupport": "live",
+                "requiresConfirmation": true,
+                "guards": [
+                    "managed Oracle runtime required",
+                    "authorized DIRECTORY_OBJECT:dump-file.dmp location",
+                    "existing dump artifact conflict rejection",
+                    "empty target schema or absent target table",
+                    "read-only restore block",
+                    "DBMS_DATAPUMP completion state verification",
+                    "post-restore object validation"
+                ],
+                "residualRisk": "Oracle DIRECTORY grants, server storage capacity, and Data Pump role assignment remain administrator-managed"
+            }
+        }))
+        .unwrap_or_else(|_| "{}".into());
     }
 
     match operation_id.rsplit('.').next().unwrap_or(operation_id) {

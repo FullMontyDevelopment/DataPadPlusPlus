@@ -254,6 +254,15 @@ function promoteScopedLiveWorkflows(
         previewOnly: false,
       }
     }
+    if (connection.engine === 'oracle' && operation.id === 'oracle.data.backup-restore') {
+      return {
+        ...operation,
+        description: 'Create and restore native Oracle Data Pump table or schema archives in an authorized DIRECTORY object.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
     if (connection.engine === 'mysql' && operation.id === 'mysql.data.import-export') {
       return {
         ...operation,
@@ -306,7 +315,7 @@ function promoteScopedLiveWorkflows(
       return {
         ...operation,
         description:
-          'Create guarded DuckDB EXPORT DATABASE backup folders; restore remains preview-first.',
+          'Create guarded DuckDB EXPORT DATABASE backup folders and restore them into new isolated database files.',
         risk: 'costly' as const,
         executionSupport: 'live' as const,
         disabledReason: undefined,

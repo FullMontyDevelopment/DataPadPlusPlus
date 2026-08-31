@@ -345,7 +345,168 @@ try {
     await rm(transferFolder, { recursive: true, force: true })
   }
 
-  console.log(`Managed Oracle fixture OK: ${tested.containerName}, schema ${tested.currentSchema}, ${tables.length} tables, ${objects.pages.length} object pages, ${fields.pages.length} field pages, legacy PLAN_TABLE explain, child metadata, bounded SQL, PL/SQL output, CSV export/import, and read-only guardrails.`)
+  const dumpFileName = `dpp-transfer-${Date.now()}.dmp`
+  let dumpLogFileName
+  try {
+    expectSuccess(await request('execute', {
+      statement: `
+        begin execute immediate 'drop table DPP_DATAPUMP_RESTORED purge'; exception when others then if sqlcode != -942 then raise; end if; end;
+        /
+        begin execute immediate 'drop table DPP_DATAPUMP_SOURCE purge'; exception when others then if sqlcode != -942 then raise; end if; end;
+        /
+        create table DPP_DATAPUMP_SOURCE (
+          ID number primary key,
+          AMOUNT number(30, 5),
+          EVENT_TIME timestamp with time zone,
+          PAYLOAD varchar2(200),
+          RAW_VALUE raw(16)
+        );
+        insert into DPP_DATAPUMP_SOURCE values (1, 9007199254740993.12500, timestamp '2026-08-31 12:30:45.123456789 UTC', 'Data Pump 室内', hextoraw('00112233445566778899AABBCCDDEEFF'));
+        insert into DPP_DATAPUMP_SOURCE values (2, -0.00001, timestamp '2026-08-31 13:30:45 UTC', null, null);
+      `,
+      readOnly: false,
+    }), 'Oracle Data Pump setup')
+
+    const backedUp = expectSuccess(await request('dataPumpExport', {
+      directoryName: 'DATA_PUMP_DIR',
+      dumpFileName,
+      dataPumpScope: 'table',
+      sourceSchema: 'DATAPADPLUSPLUS',
+      table: 'DPP_DATAPUMP_SOURCE',
+      format: 'datapump',
+      conflictPolicy: 'fail',
+      readOnly: false,
+      timeoutMs: 120_000,
+    }), 'Oracle Data Pump backup')
+    expect(backedUp.jobState === 'COMPLETED', 'Oracle Data Pump backup did not complete.')
+    expect(backedUp.artifactBytes > 0, 'Oracle Data Pump backup produced an empty dump.')
+    dumpLogFileName = backedUp.logFileName
+
+    const duplicateBackup = await request('dataPumpExport', {
+      directoryName: 'DATA_PUMP_DIR',
+      dumpFileName,
+      dataPumpScope: 'table',
+      sourceSchema: 'DATAPADPLUSPLUS',
+      table: 'DPP_DATAPUMP_SOURCE',
+      format: 'datapump',
+      conflictPolicy: 'fail',
+      readOnly: false,
+    })
+    expect(!duplicateBackup.ok && duplicateBackup.code === 'oracle-datapump-target-exists', 'Oracle Data Pump backup overwrote an existing dump.')
+
+    const restored = expectSuccess(await request('dataPumpImport', {
+      directoryName: 'DATA_PUMP_DIR',
+      dumpFileName,
+      dataPumpScope: 'table',
+      sourceSchema: 'DATAPADPLUSPLUS',
+      targetSchema: 'DATAPADPLUSPLUS',
+      table: 'DPP_DATAPUMP_SOURCE',
+      targetTable: 'DPP_DATAPUMP_RESTORED',
+      format: 'datapump',
+      conflictPolicy: 'fail',
+      readOnly: false,
+      timeoutMs: 120_000,
+    }), 'Oracle Data Pump restore')
+    expect(restored.jobState === 'COMPLETED', 'Oracle Data Pump restore did not complete.')
+    expect(restored.importedObjectCount > 0, 'Oracle Data Pump restore did not create the target table.')
+
+    const restoredValues = expectSuccess(await request('execute', {
+      statement: `select id, case when amount = 9007199254740993.12500 then 'MATCH' else 'MISMATCH' end, payload, rawtohex(raw_value) from DPP_DATAPUMP_RESTORED order by id`,
+    }), 'Oracle Data Pump restored values')
+    expect(restoredValues.sections[0].rows.length === 2, 'Oracle Data Pump restore did not preserve both rows.')
+    expect(restoredValues.sections[0].rows[0][1] === 'MATCH', 'Oracle Data Pump restore lost decimal precision.')
+    expect(restoredValues.sections[0].rows[0][2] === 'Data Pump 室内', 'Oracle Data Pump restore lost Unicode text.')
+    expect(restoredValues.sections[0].rows[0][3] === '00112233445566778899AABBCCDDEEFF', 'Oracle Data Pump restore lost binary data.')
+
+    const duplicateRestore = await request('dataPumpImport', {
+      directoryName: 'DATA_PUMP_DIR',
+      dumpFileName,
+      dataPumpScope: 'table',
+      sourceSchema: 'DATAPADPLUSPLUS',
+      targetSchema: 'DATAPADPLUSPLUS',
+      table: 'DPP_DATAPUMP_SOURCE',
+      targetTable: 'DPP_DATAPUMP_RESTORED',
+      format: 'datapump',
+      conflictPolicy: 'fail',
+      readOnly: false,
+    })
+    expect(!duplicateRestore.ok && duplicateRestore.code === 'oracle-datapump-target-not-empty', 'Oracle Data Pump restore did not reject an existing target table.')
+  } finally {
+    await request('execute', {
+      statement: `
+        begin execute immediate 'drop table DPP_DATAPUMP_RESTORED purge'; exception when others then if sqlcode != -942 then raise; end if; end;
+        /
+        begin execute immediate 'drop table DPP_DATAPUMP_SOURCE purge'; exception when others then if sqlcode != -942 then raise; end if; end;
+        /
+        begin utl_file.fremove('DATA_PUMP_DIR', '${dumpFileName}'); exception when others then null; end;
+        /
+        ${dumpLogFileName ? `begin utl_file.fremove('DATA_PUMP_DIR', '${dumpLogFileName}'); exception when others then null; end;
+        /` : ''}
+      `,
+      readOnly: false,
+    })
+  }
+
+  const schemaDumpFileName = `dpp-schema-${Date.now()}.dmp`
+  let schemaDumpLogFileName
+  try {
+    const schemaBackup = expectSuccess(await request('dataPumpExport', {
+      directoryName: 'DATA_PUMP_DIR',
+      dumpFileName: schemaDumpFileName,
+      dataPumpScope: 'schema',
+      sourceSchema: 'DATAPAD_PUMP_SOURCE',
+      format: 'datapump',
+      conflictPolicy: 'fail',
+      readOnly: false,
+      timeoutMs: 120_000,
+    }), 'Oracle Data Pump schema backup')
+    schemaDumpLogFileName = schemaBackup.logFileName
+    expect(schemaBackup.jobState === 'COMPLETED' && schemaBackup.artifactBytes > 0, 'Oracle Data Pump schema backup did not create a valid dump.')
+
+    const schemaRestore = expectSuccess(await request('dataPumpImport', {
+      directoryName: 'DATA_PUMP_DIR',
+      dumpFileName: schemaDumpFileName,
+      dataPumpScope: 'schema',
+      sourceSchema: 'DATAPAD_PUMP_SOURCE',
+      targetSchema: 'DATAPAD_RESTORE',
+      format: 'datapump',
+      conflictPolicy: 'fail',
+      readOnly: false,
+      timeoutMs: 120_000,
+    }), 'Oracle Data Pump schema restore')
+    expect(schemaRestore.jobState === 'COMPLETED' && schemaRestore.importedObjectCount > 0, 'Oracle Data Pump schema restore did not create target objects.')
+
+    const restoredSchema = expectSuccess(await request('execute', {
+      statement: `select id, payload from datapad_restore.schema_transfer_data order by id`,
+    }), 'Oracle Data Pump restored schema values')
+    expect(restoredSchema.sections[0].rows[0][1] === 'schema-backup-室内', 'Oracle Data Pump schema remapping lost seeded data.')
+
+    const schemaConflict = await request('dataPumpImport', {
+      directoryName: 'DATA_PUMP_DIR',
+      dumpFileName: schemaDumpFileName,
+      dataPumpScope: 'schema',
+      sourceSchema: 'DATAPAD_PUMP_SOURCE',
+      targetSchema: 'DATAPAD_RESTORE',
+      format: 'datapump',
+      conflictPolicy: 'fail',
+      readOnly: false,
+    })
+    expect(!schemaConflict.ok && schemaConflict.code === 'oracle-datapump-target-not-empty', 'Oracle Data Pump schema restore did not reject a non-empty target schema.')
+  } finally {
+    await request('execute', {
+      statement: `
+        begin execute immediate 'drop table datapad_restore.schema_transfer_data cascade constraints purge'; exception when others then if sqlcode != -942 then raise; end if; end;
+        /
+        begin utl_file.fremove('DATA_PUMP_DIR', '${schemaDumpFileName}'); exception when others then null; end;
+        /
+        ${schemaDumpLogFileName ? `begin utl_file.fremove('DATA_PUMP_DIR', '${schemaDumpLogFileName}'); exception when others then null; end;
+        /` : ''}
+      `,
+      readOnly: false,
+    })
+  }
+
+  console.log(`Managed Oracle fixture OK: ${tested.containerName}, schema ${tested.currentSchema}, ${tables.length} tables, ${objects.pages.length} object pages, ${fields.pages.length} field pages, legacy PLAN_TABLE explain, child metadata, bounded SQL, PL/SQL output, CSV transfer, Data Pump table/schema backup and restore, and read-only guardrails.`)
 } finally {
   child.stdin.end()
   lines.close()
