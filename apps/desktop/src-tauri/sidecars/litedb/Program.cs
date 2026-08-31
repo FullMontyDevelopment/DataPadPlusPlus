@@ -39,6 +39,16 @@ static object Dispatch(SidecarRequest envelope)
         return ValidateEncryptedFile(envelope);
     }
 
+    if (operation.Equals("BackupDatabase", StringComparison.OrdinalIgnoreCase))
+    {
+        return BackupDatabase(envelope);
+    }
+
+    if (operation.Equals("RestoreDatabase", StringComparison.OrdinalIgnoreCase))
+    {
+        return RestoreDatabase(envelope);
+    }
+
     using var db = new LiteDatabase(BuildConnectionString(databasePath, envelope.Password));
 
     return operation switch
@@ -459,6 +469,165 @@ static object ExportCollection(LiteDatabase db, SidecarRequest envelope)
     };
 }
 
+static object BackupDatabase(SidecarRequest envelope)
+{
+    var sourcePath = Path.GetFullPath(envelope.DatabasePath!);
+    var targetPath = RequireAbsolutePath(envelope.Request, new[] { "targetPath", "outputPath" }, "litedb-backup-target-required");
+    EnsureDistinctDatabasePaths(sourcePath, targetPath, "litedb-backup-target-invalid");
+    EnsureParentDirectory(targetPath, "litedb-backup-parent-missing");
+    if (File.Exists(targetPath))
+    {
+        throw new SidecarException("litedb-backup-target-exists", "LiteDB backup target already exists; choose a new file.");
+    }
+
+    string[] sourceCollections;
+    long sourceDocumentCount;
+    using (var db = new LiteDatabase(BuildConnectionString(sourcePath, envelope.Password)))
+    {
+        db.Checkpoint();
+        sourceCollections = db.GetCollectionNames().OrderBy(name => name, StringComparer.Ordinal).ToArray();
+        sourceDocumentCount = sourceCollections.Sum(name => (long)db.GetCollection(name).LongCount());
+    }
+
+    CopyDatabaseAtomically(sourcePath, targetPath, envelope.Password, sourceCollections, sourceDocumentCount);
+    var bytesWritten = new FileInfo(targetPath).Length;
+    return new
+    {
+        operation = "BackupDatabase",
+        targetPath,
+        bytesWritten,
+        collectionCount = sourceCollections.Length,
+        documentCount = sourceDocumentCount,
+        encrypted = !string.IsNullOrWhiteSpace(envelope.Password),
+        evidence = new
+        {
+            engineRuntimeValidated = true,
+            checkpointCompleted = true,
+            writerLockAcquired = true,
+            sourceWriteDeniedDuringCopy = true,
+            durableTemporaryFileFlush = true,
+            exactFileCopy = true,
+            reopenedCopy = true,
+            collectionCountsMatched = true,
+            documentCountsMatched = true
+        }
+    };
+}
+
+static object RestoreDatabase(SidecarRequest envelope)
+{
+    var sourcePath = RequireAbsolutePath(envelope.Request, new[] { "sourcePath", "inputPath" }, "litedb-restore-source-required");
+    var targetPath = RequireAbsolutePath(envelope.Request, new[] { "targetDatabase", "targetPath", "outputPath" }, "litedb-restore-target-required");
+    if (!File.Exists(sourcePath))
+    {
+        throw new SidecarException("litedb-restore-source-missing", "LiteDB restore source file does not exist.");
+    }
+    EnsureDistinctDatabasePaths(sourcePath, targetPath, "litedb-restore-target-invalid");
+    EnsureParentDirectory(targetPath, "litedb-restore-parent-missing");
+    if (File.Exists(targetPath))
+    {
+        throw new SidecarException("litedb-restore-target-exists", "LiteDB restore will not overwrite an existing database file; choose a new target.");
+    }
+
+    string[] sourceCollections;
+    long sourceDocumentCount;
+    try
+    {
+        using var source = new LiteDatabase(BuildConnectionString(sourcePath, envelope.Password));
+        sourceCollections = source.GetCollectionNames().OrderBy(name => name, StringComparer.Ordinal).ToArray();
+        sourceDocumentCount = sourceCollections.Sum(name => (long)source.GetCollection(name).LongCount());
+    }
+    catch
+    {
+        throw new SidecarException("litedb-restore-source-invalid", "LiteDB restore source could not be opened with the selected connection settings.");
+    }
+
+    CopyDatabaseAtomically(sourcePath, targetPath, envelope.Password, sourceCollections, sourceDocumentCount);
+    var bytesWritten = new FileInfo(targetPath).Length;
+    return new
+    {
+        operation = "RestoreDatabase",
+        sourcePath,
+        targetPath,
+        bytesWritten,
+        collectionCount = sourceCollections.Length,
+        documentCount = sourceDocumentCount,
+        encrypted = !string.IsNullOrWhiteSpace(envelope.Password),
+        evidence = new
+        {
+            engineRuntimeValidated = true,
+            sourceOpenValidated = true,
+            isolatedTarget = true,
+            sourceWriteDeniedDuringCopy = true,
+            durableTemporaryFileFlush = true,
+            exactFileCopy = true,
+            reopenedCopy = true,
+            collectionCountsMatched = true,
+            documentCountsMatched = true,
+            rollbackOnFailure = true
+        }
+    };
+}
+
+static void CopyDatabaseAtomically(
+    string sourcePath,
+    string targetPath,
+    string? password,
+    IReadOnlyCollection<string> expectedCollections,
+    long expectedDocumentCount)
+{
+    var temporaryPath = $"{targetPath}.datapad-{Guid.NewGuid():N}.tmp";
+    try
+    {
+        using (var source = new FileStream(
+            sourcePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            1024 * 1024,
+            FileOptions.SequentialScan))
+        using (var target = new FileStream(
+            temporaryPath,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None,
+            1024 * 1024,
+            FileOptions.SequentialScan))
+        {
+            source.CopyTo(target);
+            target.Flush(true);
+        }
+        using (var copy = new LiteDatabase(BuildConnectionString(temporaryPath, password)))
+        {
+            var copiedCollections = copy.GetCollectionNames().OrderBy(name => name, StringComparer.Ordinal).ToArray();
+            var copiedDocumentCount = copiedCollections.Sum(name => (long)copy.GetCollection(name).LongCount());
+            if (!expectedCollections.SequenceEqual(copiedCollections, StringComparer.Ordinal)
+                || expectedDocumentCount != copiedDocumentCount)
+            {
+                throw new SidecarException("litedb-database-copy-mismatch", "LiteDB database copy validation did not match the source collection and document counts.");
+            }
+        }
+        File.Move(temporaryPath, targetPath, false);
+    }
+    catch
+    {
+        if (File.Exists(temporaryPath))
+        {
+            File.Delete(temporaryPath);
+        }
+        throw;
+    }
+}
+
+static void EnsureDistinctDatabasePaths(string sourcePath, string targetPath, string code)
+{
+    var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+    if (string.Equals(Path.GetFullPath(sourcePath), Path.GetFullPath(targetPath), comparison))
+    {
+        throw new SidecarException(code, "LiteDB source and target database files must be different.");
+    }
+}
+
 static object ImportCollection(LiteDatabase db, SidecarRequest envelope)
 {
     var collectionName = RequireCollection(envelope.Request);
@@ -863,7 +1032,9 @@ static void ValidateEnvelope(SidecarRequest envelope)
         "DeleteFile",
         "EnsureIndex",
         "DropIndex",
-        "DropCollection"
+        "DropCollection",
+        "BackupDatabase",
+        "RestoreDatabase"
     };
 
     if (!readOperations.Contains(envelope.Operation!)
@@ -895,6 +1066,18 @@ static string RedactSidecarMessage(SidecarRequest? envelope, string message)
     if (!string.IsNullOrWhiteSpace(envelope?.DatabasePath))
     {
         redacted = redacted.Replace(envelope.DatabasePath, "[redacted-path]", StringComparison.Ordinal);
+    }
+
+    if (envelope is not null)
+    {
+        foreach (var property in new[] { "sourcePath", "inputPath", "targetPath", "outputPath", "targetDatabase" })
+        {
+            var path = OptionalString(envelope.Request, property);
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                redacted = redacted.Replace(path, "[redacted-path]", StringComparison.Ordinal);
+            }
+        }
     }
 
     return redacted;

@@ -189,16 +189,38 @@ pub(super) fn litedb_operation_request(
     }
 
     if operation_id.ends_with("data.backup-restore") {
+        let mode = string_parameter(parameters, "mode").unwrap_or_else(|| "backup".into());
+        let source_path = string_parameter(parameters, "sourcePath")
+            .or_else(|| string_parameter(parameters, "inputPath"))
+            .unwrap_or_else(|| "<selected-file>.db".into());
+        let target_path = string_parameter(parameters, "targetDatabase")
+            .or_else(|| string_parameter(parameters, "targetPath"))
+            .or_else(|| string_parameter(parameters, "outputPath"))
+            .unwrap_or_else(|| "<new-database>.db".into());
         return litedb_operation_plan(
-            serde_json::json!({
-                "operation": "LiteDB.Backup",
-                "databaseFile": database_file.clone(),
-                "outputFile": "<selected-folder>/backup.db",
-                "preflight": ["checkpoint", "verify-file-lock", "preserve-encryption-settings"]
-            }),
+            if mode == "restore" {
+                serde_json::json!({
+                    "operation": "LiteDB.RestoreDatabase",
+                    "databaseFile": database_file.clone(),
+                    "sourcePath": source_path,
+                    "targetDatabase": target_path,
+                    "conflictPolicy": "fail",
+                    "preflight": ["open-backup-with-configured-password", "require-new-target", "copy-to-temporary-sibling"],
+                    "validation": ["open-restored-copy", "compare-collection-counts", "compare-document-counts", "atomic-rename"]
+                })
+            } else {
+                serde_json::json!({
+                    "operation": "LiteDB.BackupDatabase",
+                    "databaseFile": database_file.clone(),
+                    "targetPath": target_path,
+                    "conflictPolicy": "fail",
+                    "preflight": ["acquire-writer-lock", "checkpoint", "require-new-target", "preserve-encryption-settings"],
+                    "validation": ["open-backup-copy", "compare-collection-counts", "compare-document-counts", "atomic-rename"]
+                })
+            },
             &database_file,
-            "data-backup",
-            false,
+            &format!("data-{mode}"),
+            true,
         );
     }
 

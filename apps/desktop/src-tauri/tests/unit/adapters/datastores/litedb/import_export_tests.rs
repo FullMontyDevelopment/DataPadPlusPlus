@@ -225,6 +225,123 @@ async fn litedb_import_blocks_read_only_connection() {
 }
 
 #[tokio::test]
+async fn litedb_database_backup_and_restore_require_verified_isolated_copies() {
+    let suffix = format!(
+        "{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+    let backup_path = std::env::temp_dir().join(format!("datapad-litedb-backup-{suffix}.db"));
+    let restore_path = std::env::temp_dir().join(format!("datapad-litedb-restore-{suffix}.db"));
+    let _ = fs::remove_file(&backup_path);
+    let _ = fs::remove_file(&restore_path);
+
+    let backup_request = request_with_id(
+        "litedb.data.backup-restore",
+        parameter_map(&[
+            ("mode", json!("backup")),
+            ("format", json!("litedb-database")),
+            ("targetPath", json!(backup_path.display().to_string())),
+            ("conflictPolicy", json!("fail")),
+        ]),
+        None,
+        None,
+    );
+    let backup = execute_litedb_file_operation(
+        &connection(false, true),
+        &backup_request,
+        operation_with_id("litedb.data.backup-restore"),
+        plan_with_id("litedb.data.backup-restore"),
+        Vec::new(),
+        Vec::new(),
+    )
+    .await
+    .expect("backup response");
+    assert!(backup.executed);
+    assert_eq!(
+        backup
+            .metadata
+            .as_ref()
+            .and_then(|value| value.pointer("/sidecarResponse/evidence/writerLockAcquired"))
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+
+    fs::write(&backup_path, b"fixture sidecar source").expect("write restore source");
+    let restore_request = request_with_id(
+        "litedb.data.backup-restore",
+        parameter_map(&[
+            ("mode", json!("restore")),
+            ("format", json!("litedb-database")),
+            ("sourcePath", json!(backup_path.display().to_string())),
+            ("targetDatabase", json!(restore_path.display().to_string())),
+            ("conflictPolicy", json!("fail")),
+        ]),
+        None,
+        None,
+    );
+    let restore = execute_litedb_file_operation(
+        &connection(false, true),
+        &restore_request,
+        operation_with_id("litedb.data.backup-restore"),
+        plan_with_id("litedb.data.backup-restore"),
+        Vec::new(),
+        Vec::new(),
+    )
+    .await
+    .expect("restore response");
+    assert!(restore.executed);
+    assert_eq!(
+        restore
+            .metadata
+            .as_ref()
+            .and_then(|value| value.get("isolatedTarget"))
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        restore
+            .metadata
+            .as_ref()
+            .and_then(|value| value.pointer("/sidecarResponse/evidence/rollbackOnFailure"))
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+
+    let _ = fs::remove_file(backup_path);
+    let _ = fs::remove_file(restore_path);
+}
+
+#[tokio::test]
+async fn litedb_database_backup_is_blocked_for_read_only_connections() {
+    let request = request_with_id(
+        "litedb.data.backup-restore",
+        parameter_map(&[
+            ("mode", json!("backup")),
+            ("targetPath", json!("C:/tmp/backup.db")),
+            ("conflictPolicy", json!("fail")),
+        ]),
+        None,
+        None,
+    );
+    let response = execute_litedb_file_operation(
+        &connection(true, true),
+        &request,
+        operation_with_id("litedb.data.backup-restore"),
+        plan_with_id("litedb.data.backup-restore"),
+        Vec::new(),
+        Vec::new(),
+    )
+    .await
+    .expect("blocked backup");
+    assert!(!response.executed);
+    assert!(response
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("writer lock")));
+}
+
+#[tokio::test]
 async fn litedb_file_storage_export_uses_sidecar_boundary() {
     let target_path = std::env::temp_dir().join(format!(
         "datapad-litedb-file-export-{}.txt",

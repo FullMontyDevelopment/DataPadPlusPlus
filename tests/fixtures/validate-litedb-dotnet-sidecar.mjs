@@ -61,6 +61,10 @@ try {
   const databasePath = path.join(workspace, 'fixture.db')
   const encryptedDatabasePath = path.join(workspace, 'encrypted-fixture.db')
   const exportPath = path.join(workspace, 'products-export.json')
+  const backupPath = path.join(workspace, 'fixture-backup.db')
+  const restoredDatabasePath = path.join(workspace, 'fixture-restored.db')
+  const encryptedBackupPath = path.join(workspace, 'encrypted-fixture-backup.db')
+  const encryptedRestoredPath = path.join(workspace, 'encrypted-fixture-restored.db')
   const encryptedPassword = 'super-secret-encrypted-fixture-password'
   const wrongEncryptedPassword = 'wrong-super-secret-encrypted-fixture-password'
 
@@ -714,6 +718,93 @@ try {
     false,
   )
 
+  const backup = runSidecar({
+    engine: 'litedb',
+    protocolVersion: 1,
+    databasePath,
+    operation: 'BackupDatabase',
+    request: { targetPath: backupPath },
+    rowLimit: 50,
+    readOnly: false,
+  })
+
+  assert.equal(backup.ok, true)
+  assert.equal(backup.response.operation, 'BackupDatabase')
+  assert.equal(backup.response.evidence.checkpointCompleted, true)
+  assert.equal(backup.response.evidence.writerLockAcquired, true)
+  assert.equal(backup.response.evidence.sourceWriteDeniedDuringCopy, true)
+  assert.equal(backup.response.evidence.durableTemporaryFileFlush, true)
+  assert.equal(backup.response.evidence.reopenedCopy, true)
+  assert.equal(backup.response.evidence.documentCountsMatched, true)
+  assert.equal(existsSync(backupPath), true)
+
+  const duplicateBackup = runSidecar({
+    engine: 'litedb',
+    protocolVersion: 1,
+    databasePath,
+    operation: 'BackupDatabase',
+    request: { targetPath: backupPath },
+    rowLimit: 50,
+    readOnly: false,
+  })
+  assert.equal(duplicateBackup.ok, false)
+  assert.equal(duplicateBackup.code, 'litedb-backup-target-exists')
+
+  const postBackupMutation = runSidecar({
+    engine: 'litedb',
+    protocolVersion: 1,
+    databasePath,
+    operation: 'InsertDocument',
+    request: {
+      collection: 'products',
+      id: 999,
+      document: { _id: 999, sku: 'post-backup-only', category: 'fixture' },
+    },
+    rowLimit: 50,
+    readOnly: false,
+  })
+  assert.equal(postBackupMutation.ok, true)
+
+  const restore = runSidecar({
+    engine: 'litedb',
+    protocolVersion: 1,
+    databasePath,
+    operation: 'RestoreDatabase',
+    request: { sourcePath: backupPath, targetDatabase: restoredDatabasePath },
+    rowLimit: 50,
+    readOnly: false,
+  })
+  assert.equal(restore.ok, true)
+  assert.equal(restore.response.operation, 'RestoreDatabase')
+  assert.equal(restore.response.evidence.isolatedTarget, true)
+  assert.equal(restore.response.evidence.sourceWriteDeniedDuringCopy, true)
+  assert.equal(restore.response.evidence.rollbackOnFailure, true)
+  assert.equal(restore.response.evidence.reopenedCopy, true)
+
+  const restoredProducts = runSidecar({
+    engine: 'litedb',
+    protocolVersion: 1,
+    databasePath: restoredDatabasePath,
+    operation: 'Find',
+    request: { collection: 'products', limit: 100 },
+    rowLimit: 100,
+    readOnly: true,
+  })
+  assert.equal(restoredProducts.ok, true)
+  assert.equal(restoredProducts.response.documents.some((document) => document._id === 999), false)
+
+  const duplicateRestore = runSidecar({
+    engine: 'litedb',
+    protocolVersion: 1,
+    databasePath,
+    operation: 'RestoreDatabase',
+    request: { sourcePath: backupPath, targetDatabase: restoredDatabasePath },
+    rowLimit: 50,
+    readOnly: false,
+  })
+  assert.equal(duplicateRestore.ok, false)
+  assert.equal(duplicateRestore.code, 'litedb-restore-target-exists')
+
   const encryptedSeed = runSidecar(
     {
       engine: 'litedb',
@@ -738,6 +829,45 @@ try {
 
   assert.equal(encryptedSeed.ok, true)
   assert.equal(encryptedSeed.response.inserted, 2)
+
+  const encryptedBackup = runSidecar({
+    engine: 'litedb',
+    protocolVersion: 1,
+    databasePath: encryptedDatabasePath,
+    password: encryptedPassword,
+    operation: 'BackupDatabase',
+    request: { targetPath: encryptedBackupPath },
+    rowLimit: 50,
+    readOnly: false,
+  })
+  assert.equal(encryptedBackup.ok, true)
+  assert.equal(encryptedBackup.response.encrypted, true)
+
+  const encryptedRestore = runSidecar({
+    engine: 'litedb',
+    protocolVersion: 1,
+    databasePath: encryptedDatabasePath,
+    password: encryptedPassword,
+    operation: 'RestoreDatabase',
+    request: { sourcePath: encryptedBackupPath, targetDatabase: encryptedRestoredPath },
+    rowLimit: 50,
+    readOnly: false,
+  })
+  assert.equal(encryptedRestore.ok, true)
+  assert.equal(encryptedRestore.response.encrypted, true)
+
+  const encryptedRestoredProbe = runSidecar({
+    engine: 'litedb',
+    protocolVersion: 1,
+    databasePath: encryptedRestoredPath,
+    password: encryptedPassword,
+    operation: 'ValidateEncryptedFile',
+    request: {},
+    rowLimit: 50,
+    readOnly: true,
+  })
+  assert.equal(encryptedRestoredProbe.ok, true)
+  assert.deepEqual(encryptedRestoredProbe.response.encryptedFile.collections, ['secureProducts'])
 
   const encryptedProbe = runSidecar({
     engine: 'litedb',
@@ -792,7 +922,7 @@ try {
   assert.equal(JSON.stringify(encryptedWrongPassword).includes(encryptedPassword), false)
   assert.equal(JSON.stringify(encryptedWrongPassword).includes(encryptedDatabasePath), false)
 
-  console.log('LiteDB .NET sidecar live validation passed with read, guarded document CRUD, encrypted-file success/failure, collection import/export, file-storage import/export/delete, and index/collection management execution evidence.')
+  console.log('LiteDB .NET sidecar live validation passed with read, guarded document CRUD, encrypted-file success/failure, collection import/export, file-storage import/export/delete, index/collection management, checkpointed full-file backup, and isolated restore execution evidence.')
 } finally {
   rmSync(workspace, { recursive: true, force: true })
 }

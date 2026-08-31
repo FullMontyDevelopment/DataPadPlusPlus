@@ -48,6 +48,15 @@ describe('datastore transfer manifests', () => {
     const duckdbRestore = datastoreTransferManifest('duckdb').capabilities.find((item) => item.action === 'restore')
     expect(duckdbRestore?.executionSupport).toBe('live')
     expect(duckdbRestore?.options?.map((item) => item.id)).toEqual(['targetDatabase'])
+    const liteDbBackup = datastoreTransferManifest('litedb').capabilities.find((item) => item.action === 'backup')
+    const liteDbRestore = datastoreTransferManifest('litedb').capabilities.find((item) => item.action === 'restore')
+    expect(liteDbBackup).toMatchObject({
+      executionSupport: 'live',
+      destinationKinds: ['local-file'],
+      formats: [expect.objectContaining({ id: 'litedb-database', fidelity: 'native' })],
+    })
+    expect(liteDbRestore?.executionSupport).toBe('live')
+    expect(liteDbRestore?.options?.map((item) => item.id)).toEqual(['targetDatabase'])
     expect(datastoreTransferManifest('cockroachdb').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
     expect(datastoreTransferManifest('cockroachdb').capabilities.find((item) => item.action === 'restore')?.executionSupport).toBe('live')
     expect(datastoreTransferManifest('sqlserver').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
@@ -241,6 +250,34 @@ describe('datastore transfer manifests', () => {
       ])
       expect(imported?.options?.map((item) => item.id)).toEqual(['targetIndex'])
       expect(exported?.supportsMultipleObjects).toBe(false)
+    }
+  })
+
+  it('explains the real-service gates for managed-cloud transfers', () => {
+    const expectedGate = {
+      snowflake: /authenticated SQL transport.*real Snowflake account/i,
+      bigquery: /authenticated Jobs and Cloud Storage APIs.*real Google Cloud project/i,
+      neptune: /SigV4-authenticated S3 bulk-loader runtime.*real Neptune cluster/i,
+    } as const
+
+    for (const [engine, reason] of Object.entries(expectedGate)) {
+      const capabilities = datastoreTransferManifest(engine as keyof typeof expectedGate).capabilities
+      expect(capabilities.find((item) => item.action === 'import')).toMatchObject({
+        executionSupport: 'plan-only',
+        disabledReason: expect.stringMatching(reason),
+      })
+      expect(capabilities.find((item) => item.action === 'export')).toMatchObject({
+        executionSupport: 'plan-only',
+        disabledReason: expect.stringMatching(reason),
+      })
+      expect(capabilities.find((item) => item.action === 'backup')).toMatchObject({
+        executionSupport: 'plan-only',
+        disabledReason: expect.stringMatching(/opt-in validation/i),
+      })
+      expect(capabilities.find((item) => item.action === 'restore')).toMatchObject({
+        executionSupport: 'plan-only',
+        disabledReason: expect.stringMatching(/opt-in validation/i),
+      })
     }
   })
 

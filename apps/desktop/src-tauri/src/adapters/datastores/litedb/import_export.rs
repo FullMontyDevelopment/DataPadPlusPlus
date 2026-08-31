@@ -42,6 +42,17 @@ pub(crate) async fn execute_litedb_file_operation(
                 .await
             }
         }
+        "litedb.data.backup-restore" => {
+            execute_litedb_database_backup_restore(
+                connection,
+                request,
+                &operation,
+                plan,
+                &mut messages,
+                &mut warnings,
+            )
+            .await
+        }
         "litedb.file-storage.import" => {
             execute_litedb_stored_file_import(
                 connection,
@@ -79,6 +90,212 @@ pub(crate) async fn execute_litedb_file_operation(
             request, &operation, plan, false, None, messages, warnings,
         )),
     }
+}
+
+async fn execute_litedb_database_backup_restore(
+    connection: &ResolvedConnectionProfile,
+    request: &OperationExecutionRequest,
+    operation: &DatastoreOperationManifest,
+    plan: OperationPlan,
+    messages: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) -> Result<OperationExecutionResponse, CommandError> {
+    if connection.read_only {
+        warnings.push(
+            "LiteDB backup and restore require a writable connection so the sidecar can acquire the writer lock and checkpoint or validate the database copy."
+                .into(),
+        );
+        return Ok(operation_response(
+            request,
+            operation,
+            plan,
+            false,
+            None,
+            messages.clone(),
+            warnings.clone(),
+        ));
+    }
+    if string_parameter(request, "conflictPolicy").as_deref() != Some("fail") {
+        return Err(CommandError::new(
+            "litedb-backup-conflict-policy-invalid",
+            "LiteDB backup and restore require the fail-safe conflict policy.",
+        ));
+    }
+    let Some(sidecar_path) = litedb_sidecar_path(connection) else {
+        warnings.push(
+            "LiteDB backup and restore require a configured SidecarPath before live execution."
+                .into(),
+        );
+        return Ok(operation_response(
+            request,
+            operation,
+            plan,
+            false,
+            None,
+            messages.clone(),
+            warnings.clone(),
+        ));
+    };
+
+    let mode = string_parameter(request, "mode")
+        .unwrap_or_else(|| "backup".into())
+        .to_ascii_lowercase();
+    let (sidecar_operation, source_path, target_path) = match mode.as_str() {
+        "backup" => {
+            let target_path = required_new_database_path(
+                request,
+                &["targetPath", "outputPath"],
+                "target",
+                "backup",
+            )?;
+            ("BackupDatabase", None, target_path)
+        }
+        "restore" => {
+            let source_path = required_existing_database_path(
+                request,
+                &["sourcePath", "inputPath"],
+                "source",
+                "restore",
+            )?;
+            let target_path = required_new_database_path(
+                request,
+                &["targetDatabase", "targetPath", "outputPath"],
+                "target",
+                "restore",
+            )?;
+            ("RestoreDatabase", Some(source_path), target_path)
+        }
+        _ => {
+            return Err(CommandError::new(
+                "litedb-backup-mode-invalid",
+                "LiteDB database transfer mode must be backup or restore.",
+            ))
+        }
+    };
+
+    let sidecar_request = json!({
+        "operation": sidecar_operation,
+        "sourcePath": source_path.as_ref().map(|path| path.display().to_string()),
+        "targetPath": target_path.display().to_string(),
+        "targetDatabase": target_path.display().to_string(),
+        "conflictPolicy": "fail",
+    });
+    let normalized_request = normalize_litedb_request(sidecar_operation, sidecar_request, 50);
+    let outcome = execute_litedb_sidecar_operation(
+        connection,
+        sidecar_operation,
+        &normalized_request,
+        50,
+        &sidecar_path,
+        false,
+    )
+    .await?;
+    let executed = outcome
+        .response
+        .pointer("/evidence/exactFileCopy")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        && outcome
+            .response
+            .pointer("/evidence/reopenedCopy")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+    if !executed {
+        return Err(CommandError::new(
+            "litedb-backup-evidence-missing",
+            "LiteDB sidecar did not return complete copy and reopen validation evidence.",
+        ));
+    }
+
+    messages.push(if mode == "backup" {
+        format!(
+            "LiteDB checkpointed and copied the complete database to `{}`.",
+            target_path.display()
+        )
+    } else {
+        format!(
+            "LiteDB restored the complete backup into new database `{}`.",
+            target_path.display()
+        )
+    });
+    let sidecar_boundary = litedb_live_sidecar_boundary(
+        Some(&sidecar_path),
+        sidecar_operation,
+        outcome.evidence,
+        true,
+    );
+    Ok(operation_response(
+        request,
+        operation,
+        plan,
+        true,
+        Some(json!({
+            "workflow": format!("litedb.database.{mode}"),
+            "sourcePath": source_path.as_ref().map(|path| path.display().to_string()),
+            "targetPath": target_path.display().to_string(),
+            "conflictPolicy": "fail",
+            "isolatedTarget": mode == "restore",
+            "sidecarResponse": outcome.response,
+            "sidecarExecutionBoundary": sidecar_boundary,
+            "request": normalized_request,
+        })),
+        messages.clone(),
+        warnings.clone(),
+    ))
+}
+
+fn required_existing_database_path(
+    request: &OperationExecutionRequest,
+    keys: &[&str],
+    object_key: &str,
+    action: &str,
+) -> Result<PathBuf, CommandError> {
+    let path = concrete_file_path(file_path_parameter(request, keys, object_key), object_key)
+        .ok_or_else(|| {
+            CommandError::new(
+                "litedb-database-path-missing",
+                format!("Choose an absolute LiteDB {action} {object_key} file."),
+            )
+        })?;
+    if !path.is_file() {
+        return Err(CommandError::new(
+            "litedb-database-source-missing",
+            format!("LiteDB {action} source does not exist or is not a file."),
+        ));
+    }
+    Ok(path)
+}
+
+fn required_new_database_path(
+    request: &OperationExecutionRequest,
+    keys: &[&str],
+    object_key: &str,
+    action: &str,
+) -> Result<PathBuf, CommandError> {
+    let path = concrete_file_path(file_path_parameter(request, keys, object_key), object_key)
+        .ok_or_else(|| {
+            CommandError::new(
+                "litedb-database-path-missing",
+                format!("Choose an absolute LiteDB {action} {object_key} file."),
+            )
+        })?;
+    if path.exists() {
+        return Err(CommandError::new(
+            "litedb-database-target-exists",
+            format!("LiteDB {action} will not overwrite an existing target file."),
+        ));
+    }
+    if path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .is_some_and(|parent| !parent.is_dir())
+    {
+        return Err(CommandError::new(
+            "litedb-database-target-parent-missing",
+            format!("LiteDB {action} target folder does not exist."),
+        ));
+    }
+    Ok(path)
 }
 
 async fn execute_litedb_collection_export(

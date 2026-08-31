@@ -2106,15 +2106,17 @@ fn document_and_cache_operation_plans_use_native_request_shapes() {
         &litedb_manifest,
         "litedb.data.backup-restore",
         "catalog.db",
-        Some(&BTreeMap::from([(
-            "databaseFile".into(),
-            json!("catalog.db"),
-        )])),
+        Some(&BTreeMap::from([
+            ("databaseFile".into(), json!("catalog.db")),
+            ("mode".into(), json!("backup")),
+            ("targetPath".into(), json!("C:/backups/catalog.db")),
+        ])),
     );
     let litedb_backup_value =
         serde_json::from_str::<serde_json::Value>(&litedb_backup_request).unwrap();
-    assert_eq!(litedb_backup_value["operation"], "LiteDB.Backup");
+    assert_eq!(litedb_backup_value["operation"], "LiteDB.BackupDatabase");
     assert_eq!(litedb_backup_value["databaseFile"], "catalog.db");
+    assert_eq!(litedb_backup_value["targetPath"], "C:/backups/catalog.db");
     assert_eq!(
         litedb_backup_value["sidecarExecutionBoundary"]["runtime"],
         "dotnet-litedb-sidecar"

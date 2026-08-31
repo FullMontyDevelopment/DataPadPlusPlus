@@ -170,12 +170,16 @@ pub(super) fn finalize_litedb(
                     | "litedb.file-storage.import"
                     | "litedb.file-storage.export"
                     | "litedb.file-storage.delete"
+                    | "litedb.data.backup-restore"
             ) {
                 operation.execution_support = "live".into();
                 operation.disabled_reason = None;
-                operation.preview_only =
-                    Some(matches!(operation.risk.as_str(), "write" | "destructive"));
-                if operation.id.contains("file-storage") {
+                operation.preview_only = Some(false);
+                if operation.id == "litedb.data.backup-restore" {
+                    operation.description =
+                        "Checkpoint and copy the complete LiteDB database or restore an exact backup into a new isolated file through the configured sidecar."
+                            .into();
+                } else if operation.id.contains("file-storage") {
                     operation.description =
                             "Run guarded LiteDB file-storage import, export, or delete through the configured sidecar with before/after evidence."
                                 .into();

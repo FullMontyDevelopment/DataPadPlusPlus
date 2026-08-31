@@ -37,6 +37,7 @@ impl DatastoreAdapter for LiteDbAdapter {
         if matches!(
             request.operation_id.as_str(),
             "litedb.data.import-export"
+                | "litedb.data.backup-restore"
                 | "litedb.file-storage.import"
                 | "litedb.file-storage.export"
                 | "litedb.file-storage.delete"

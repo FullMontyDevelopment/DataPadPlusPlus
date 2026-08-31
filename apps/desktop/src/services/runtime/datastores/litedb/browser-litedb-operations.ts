@@ -164,16 +164,31 @@ export function liteDbOperationRequest(request: OperationPlanRequest) {
   }
 
   if (request.operationId.endsWith('data.backup-restore')) {
+    const mode = stringParameter(parameters, 'mode') || 'backup'
+    const sourcePath = stringParameter(parameters, 'sourcePath') || stringParameter(parameters, 'inputPath') || '<selected-file>.db'
+    const targetPath = stringParameter(parameters, 'targetDatabase') || stringParameter(parameters, 'targetPath') || stringParameter(parameters, 'outputPath') || '<new-database>.db'
     return stringifyLiteDbPlan(
-      {
-        operation: 'LiteDB.Backup',
-        databaseFile,
-        outputFile: '<selected-folder>/backup.db',
-        preflight: ['checkpoint', 'verify-file-lock', 'preserve-encryption-settings'],
-      },
+      mode === 'restore'
+        ? {
+            operation: 'LiteDB.RestoreDatabase',
+            databaseFile,
+            sourcePath,
+            targetDatabase: targetPath,
+            conflictPolicy: 'fail',
+            preflight: ['open-backup-with-configured-password', 'require-new-target', 'copy-to-temporary-sibling'],
+            validation: ['open-restored-copy', 'compare-collection-counts', 'compare-document-counts', 'atomic-rename'],
+          }
+        : {
+            operation: 'LiteDB.BackupDatabase',
+            databaseFile,
+            targetPath,
+            conflictPolicy: 'fail',
+            preflight: ['acquire-writer-lock', 'checkpoint', 'require-new-target', 'preserve-encryption-settings'],
+            validation: ['open-backup-copy', 'compare-collection-counts', 'compare-document-counts', 'atomic-rename'],
+          },
       databaseFile,
-      'data-backup',
-      false,
+      `data-${mode}`,
+      true,
     )
   }
 

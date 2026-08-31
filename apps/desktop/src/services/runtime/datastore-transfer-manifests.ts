@@ -227,9 +227,9 @@ const DATA_SPECS: Record<DatastoreEngine, CapabilitySpec> = {
   janusgraph: liveData('JanusGraph streams vertices and edges as GraphSON 3 with an explicit schema manifest, preserving identifiers, labels, property cardinality, meta-properties, and native values.', [['graphson3', 'GraphSON 3', 'native', ['graphson', 'jsonl'], 'GraphSON 3 graph stream with a JanusGraph schema compatibility manifest.']], undefined, false),
   dynamodb: liveData('DynamoDB Local and endpoint-override connections stream exact typed AttributeValue objects through paged Scan and conditional PutItem. Managed S3/Ion jobs remain cloud-gated.', [['dynamodb-json', 'DynamoDB JSON Lines', 'native', ['jsonl', 'ndjson'], 'One exact DynamoDB AttributeValue item per line.']], undefined, false),
   cosmosdb: liveData('Cosmos DB NoSQL streams lossless documents with explicit identity and hierarchical partition-routing metadata. Imports use create semantics and never replace an existing id/partition pair.', [['cosmos-json-lines', 'Cosmos DB JSON Lines', 'native', ['jsonl', 'ndjson'], 'One document envelope per line with partition-key paths, resolved routing values, and source concurrency metadata.']], undefined, false),
-  snowflake: plannedData('Snowflake loads and unloads through named stages with COPY INTO.', [portableCsv, portableJson, ['parquet', 'Parquet', 'native', ['parquet'], 'Snowflake Parquet stage data.']], ['named-stage', 'cloud-uri']),
-  bigquery: plannedData('BigQuery uses managed load and extract jobs through Cloud Storage.', [portableCsv, portableNdjson, ['avro', 'Avro', 'native', ['avro'], 'BigQuery Avro data.'], ['parquet', 'Parquet', 'native', ['parquet'], 'BigQuery Parquet data.']], ['cloud-uri']),
-  neptune: plannedData('Neptune imports through its S3 bulk loader and exports bounded graph queries.', [['graphson', 'GraphSON', 'native', ['json'], 'Property graph GraphSON.'], ['rdf', 'RDF', 'native', ['ttl', 'nt', 'rdf'], 'RDF graph data.'], portableCsv], ['cloud-uri']),
+  snowflake: plannedData('Snowflake loads and unloads through named stages with COPY INTO.', [portableCsv, portableJson, ['parquet', 'Parquet', 'native', ['parquet'], 'Snowflake Parquet stage data.']], ['named-stage', 'cloud-uri'], true, 'Live Snowflake transfer requires an authenticated SQL transport, a configured named stage, and opt-in validation against a real Snowflake account.'),
+  bigquery: plannedData('BigQuery uses managed load and extract jobs through Cloud Storage.', [portableCsv, portableNdjson, ['avro', 'Avro', 'native', ['avro'], 'BigQuery Avro data.'], ['parquet', 'Parquet', 'native', ['parquet'], 'BigQuery Parquet data.']], ['cloud-uri'], true, 'Live BigQuery transfer requires authenticated Jobs and Cloud Storage APIs plus opt-in validation against a real Google Cloud project.'),
+  neptune: plannedData('Neptune imports through its S3 bulk loader and exports bounded graph queries.', [['graphson', 'GraphSON', 'native', ['json'], 'Property graph GraphSON.'], ['rdf', 'RDF', 'native', ['ttl', 'nt', 'rdf'], 'RDF graph data.'], portableCsv], ['cloud-uri'], true, 'Live Neptune transfer requires a SigV4-authenticated S3 bulk-loader runtime and opt-in validation against a real Neptune cluster.'),
   memcached: liveData('Memcached transfers only an explicitly selected key. The artifact contains the exact raw value bytes; flags and expiry are explicit protocol inputs.', [['raw', 'Raw value bytes', 'native', ['bin'], 'The exact bytes accepted by the Memcached storage command.']], undefined, false, {
     import: [
       {
@@ -257,12 +257,12 @@ const DATA_SPECS: Record<DatastoreEngine, CapabilitySpec> = {
 }
 
 const NATIVE_BACKUP_ENGINES = new Set<DatastoreEngine>([
-  'sqlite', 'duckdb', 'cockroachdb', 'sqlserver', 'oracle', 'elasticsearch', 'opensearch',
+  'sqlite', 'duckdb', 'litedb', 'cockroachdb', 'sqlserver', 'oracle', 'elasticsearch', 'opensearch',
   'clickhouse', 'arango', 'dynamodb', 'cosmosdb', 'snowflake', 'bigquery', 'neptune',
 ])
 
 const LIVE_BACKUP_ENGINES = new Set<DatastoreEngine>([
-  'sqlite', 'duckdb', 'cockroachdb', 'sqlserver', 'oracle', 'clickhouse', 'elasticsearch', 'opensearch',
+  'sqlite', 'duckdb', 'litedb', 'cockroachdb', 'sqlserver', 'oracle', 'clickhouse', 'elasticsearch', 'opensearch',
 ])
 
 function isLiveBackupAction(engine: DatastoreEngine) {
@@ -290,7 +290,7 @@ export function datastoreTransferManifest(engine: DatastoreEngine): DatastoreTra
           ? `${engineLabel(engine)} restore remains validation-only until isolated-target restore checks are complete.`
           : live
             ? undefined
-            : `${engineLabel(engine)} native ${action} execution is not implemented yet.`
+            : planOnlyBackupReason(engine, action)
         : `Full ${engineLabel(engine)} backup and restore require excluded vendor tooling or storage-backend access.`,
       multiple: !['elasticsearch', 'opensearch'].includes(engine),
       requiresExistingTarget: false,
@@ -316,8 +316,14 @@ function liveData(
   return { actions: ['import', 'export'], formats, support: 'live', description, operationIds, multiple, options, requiresExistingTarget: true }
 }
 
-function plannedData(description: string, formats: FormatSpec[], destinations: DatastoreTransferDestinationKind[] = ['local-file'], multiple = true): CapabilitySpec {
-  return { actions: ['import', 'export'], formats, destinations, support: 'plan-only', description, multiple, requiresExistingTarget: true, disabledReason: 'Native execution for this datastore is not implemented yet; review the generated plan without running it.' }
+function plannedData(
+  description: string,
+  formats: FormatSpec[],
+  destinations: DatastoreTransferDestinationKind[] = ['local-file'],
+  multiple = true,
+  disabledReason = 'Native execution for this datastore is not implemented yet; review the generated plan without running it.',
+): CapabilitySpec {
+  return { actions: ['import', 'export'], formats, destinations, support: 'plan-only', description, multiple, requiresExistingTarget: true, disabledReason }
 }
 
 function liveSearchData(description: string): CapabilitySpec {
@@ -497,7 +503,19 @@ function backupOptions(
           ],
     }
   }
-  if (!['cockroachdb', 'sqlserver', 'duckdb', 'sqlite'].includes(engine) || action !== 'restore') return undefined
+  if (!['cockroachdb', 'sqlserver', 'duckdb', 'sqlite', 'litedb'].includes(engine) || action !== 'restore') return undefined
+  if (engine === 'litedb') {
+    return {
+      restore: [{
+        id: 'targetDatabase',
+        label: 'New database file',
+        input: 'text',
+        required: true,
+        placeholder: 'C:\\data\\restored.db',
+        description: 'Enter an absolute path that does not exist. LiteDB restores the exact backup into this new isolated database file.',
+      }],
+    }
+  }
   if (engine === 'sqlite') {
     return {
       restore: [{
@@ -536,6 +554,7 @@ function backupOptions(
 
 function backupFormats(engine: DatastoreEngine): FormatSpec[] {
   if (engine === 'sqlite') return [['sqlite', 'SQLite database', 'native', ['sqlite', 'sqlite3', 'db'], 'Complete SQLite database file.']]
+  if (engine === 'litedb') return [['litedb-database', 'LiteDB database', 'native', ['db', 'litedb'], 'Complete checkpointed LiteDB database file preserving encryption and FileStorage content.']]
   if (engine === 'duckdb') return [['parquet', 'DuckDB Parquet directory', 'native', [], 'DuckDB EXPORT DATABASE directory using Parquet.'], ['csv', 'DuckDB CSV directory', 'native', [], 'DuckDB EXPORT DATABASE directory using CSV.']]
   if (engine === 'sqlserver') return [['bak', 'SQL Server backup', 'native', ['bak'], 'Native SQL Server backup artifact.']]
   if (engine === 'oracle') return [['datapump', 'Oracle Data Pump', 'native', ['dmp'], 'Oracle Data Pump dump set.']]
@@ -545,7 +564,7 @@ function backupFormats(engine: DatastoreEngine): FormatSpec[] {
 }
 
 function backupDestinations(engine: DatastoreEngine): DatastoreTransferDestinationKind[] {
-  if (engine === 'sqlite') return ['local-file']
+  if (engine === 'sqlite' || engine === 'litedb') return ['local-file']
   if (engine === 'duckdb') return ['local-folder']
   if (engine === 'oracle') return ['server-path']
   if (engine === 'sqlserver') return ['server-path', 'cloud-uri']
@@ -558,6 +577,7 @@ function backupDestinations(engine: DatastoreEngine): DatastoreTransferDestinati
 function nativeBackupDescription(engine: DatastoreEngine) {
   const descriptions: Partial<Record<DatastoreEngine, string>> = {
     sqlite: 'SQLite creates a complete local database snapshot.',
+    litedb: 'LiteDB checkpoints and copies the complete database file, then reopens and verifies the copy.',
     duckdb: 'DuckDB exports a complete database directory.',
     cockroachdb: 'CockroachDB uses managed BACKUP and RESTORE jobs.',
     oracle: 'Oracle uses DBMS_DATAPUMP for table and schema archives.',
@@ -572,6 +592,18 @@ function nativeBackupDescription(engine: DatastoreEngine) {
     neptune: 'Neptune uses managed cluster snapshots and restore.',
   }
   return descriptions[engine] ?? 'The datastore exposes a native managed backup workflow.'
+}
+
+function planOnlyBackupReason(engine: DatastoreEngine, action: 'backup' | 'restore') {
+  const reasons: Partial<Record<DatastoreEngine, string>> = {
+    arango: 'ArangoDB Hot Backup execution requires an Enterprise server exposing the Hot Backup API, sufficient permissions, and opt-in real-service validation.',
+    dynamodb: 'DynamoDB managed backup and restore require cloud credentials, an isolated target table, and opt-in validation against a real AWS account.',
+    cosmosdb: 'Cosmos DB managed restore requires Azure control-plane identity, an eligible backup policy, an isolated destination account, and opt-in real-service validation.',
+    snowflake: 'Snowflake clone and Time Travel recovery require an authenticated SQL transport, recovery-enabled source objects, and opt-in validation against a real Snowflake account.',
+    bigquery: 'BigQuery copy, snapshot, and clone recovery require authenticated Jobs APIs, an isolated destination, and opt-in validation against a real Google Cloud project.',
+    neptune: 'Neptune snapshot and restore require a SigV4-authenticated control-plane runtime, an isolated destination cluster, and opt-in validation against a real AWS account.',
+  }
+  return reasons[engine] ?? `${engineLabel(engine)} native ${action} execution is not implemented yet.`
 }
 
 function engineLabel(engine: DatastoreEngine) {

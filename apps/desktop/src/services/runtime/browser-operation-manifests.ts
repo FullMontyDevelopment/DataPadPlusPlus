@@ -355,6 +355,16 @@ function promoteScopedLiveWorkflows(
         previewOnly: false,
       }
     }
+    if (connection.engine === 'litedb' && operation.id === 'litedb.data.backup-restore') {
+      return {
+        ...operation,
+        description:
+          'Checkpoint and copy the complete LiteDB database or restore an exact backup into a new isolated file through the configured sidecar.',
+        executionSupport: 'live' as const,
+        disabledReason: undefined,
+        previewOnly: false,
+      }
+    }
     if (
       connection.engine === 'litedb' &&
       ['litedb.index.create', 'litedb.index.drop', 'litedb.object.drop'].includes(operation.id)

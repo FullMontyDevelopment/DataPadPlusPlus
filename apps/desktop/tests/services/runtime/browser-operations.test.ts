@@ -3922,6 +3922,8 @@ describe('browser operation runtime', () => {
           id: 'litedb.data.backup-restore',
           label: 'Backup / Restore',
           risk: 'destructive',
+          executionSupport: 'live',
+          previewOnly: false,
         }),
       ]),
     )
@@ -4099,11 +4101,14 @@ describe('browser operation runtime', () => {
       objectName: 'catalog.db',
       parameters: {
         databaseFile: 'catalog.db',
+        mode: 'backup',
+        targetPath: 'C:/backups/catalog.db',
       },
     })
     expect(JSON.parse(liteDbBackup.plan.generatedRequest)).toMatchObject({
-      operation: 'LiteDB.Backup',
+      operation: 'LiteDB.BackupDatabase',
       databaseFile: 'catalog.db',
+      targetPath: 'C:/backups/catalog.db',
       localFilePreflight: {
         encryptionBoundary: {
           requiredForEncryptedFiles: expect.arrayContaining([

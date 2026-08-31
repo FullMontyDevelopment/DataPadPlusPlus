@@ -794,6 +794,48 @@ fn litedb_fixture_sidecar_response(
                 "fixture": true
             }
         }),
+        "BackupDatabase" => json!({
+            "operation": "BackupDatabase",
+            "targetPath": request.get("targetPath").and_then(Value::as_str).unwrap_or("fixture-backup.db"),
+            "bytesWritten": 4096,
+            "collectionCount": 2,
+            "documentCount": 4,
+            "encrypted": false,
+            "evidence": {
+                "engineRuntimeValidated": true,
+                "checkpointCompleted": true,
+                "writerLockAcquired": true,
+                "sourceWriteDeniedDuringCopy": true,
+                "durableTemporaryFileFlush": true,
+                "exactFileCopy": true,
+                "reopenedCopy": true,
+                "collectionCountsMatched": true,
+                "documentCountsMatched": true,
+                "fixture": true
+            }
+        }),
+        "RestoreDatabase" => json!({
+            "operation": "RestoreDatabase",
+            "sourcePath": request.get("sourcePath").and_then(Value::as_str).unwrap_or("fixture-backup.db"),
+            "targetPath": request.get("targetPath").and_then(Value::as_str).unwrap_or("fixture-restored.db"),
+            "bytesWritten": 4096,
+            "collectionCount": 2,
+            "documentCount": 4,
+            "encrypted": false,
+            "evidence": {
+                "engineRuntimeValidated": true,
+                "sourceOpenValidated": true,
+                "isolatedTarget": true,
+                "sourceWriteDeniedDuringCopy": true,
+                "durableTemporaryFileFlush": true,
+                "exactFileCopy": true,
+                "reopenedCopy": true,
+                "collectionCountsMatched": true,
+                "documentCountsMatched": true,
+                "rollbackOnFailure": true,
+                "fixture": true
+            }
+        }),
         "ListFiles" => json!({
             "operation": "ListFiles",
             "files": [

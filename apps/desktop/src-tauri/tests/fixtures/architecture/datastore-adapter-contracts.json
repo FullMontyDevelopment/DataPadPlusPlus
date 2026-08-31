@@ -23775,7 +23775,7 @@
         "requiresConfirmation": true,
         "executionSupport": "live",
         "disabledReason": null,
-        "previewOnly": true
+        "previewOnly": false
       },
       {
         "id": "litedb.index.create",
@@ -23796,7 +23796,7 @@
         "requiresConfirmation": true,
         "executionSupport": "live",
         "disabledReason": null,
-        "previewOnly": true
+        "previewOnly": false
       },
       {
         "id": "litedb.index.drop",
@@ -23816,7 +23816,7 @@
         "requiresConfirmation": true,
         "executionSupport": "live",
         "disabledReason": null,
-        "previewOnly": true
+        "previewOnly": false
       },
       {
         "id": "litedb.index.hide",
@@ -23941,7 +23941,7 @@
         "requiresConfirmation": true,
         "executionSupport": "live",
         "disabledReason": null,
-        "previewOnly": true
+        "previewOnly": false
       },
       {
         "id": "litedb.file-storage.export",
@@ -23982,7 +23982,7 @@
         "requiresConfirmation": true,
         "executionSupport": "live",
         "disabledReason": null,
-        "previewOnly": true
+        "previewOnly": false
       },
       {
         "id": "litedb.diagnostics.metrics",
@@ -24042,11 +24042,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan backup and restore workflows with environment and permission guardrails.",
+        "description": "Checkpoint and copy the complete LiteDB database or restore an exact backup into a new isolated file through the configured sidecar.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       }
     ]
   },
