@@ -3976,6 +3976,239 @@ async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
 }
 
 #[tokio::test]
+async fn clickhouse_native_transfer_roundtrips_all_formats() -> Result<(), CommandError> {
+    if !fixtures_enabled() || !fixture_profile_enabled("analytics") {
+        return Ok(());
+    }
+
+    let connection = ResolvedConnectionProfile {
+        id: "conn-clickhouse-transfer".into(),
+        name: "Fixture ClickHouse Transfer".into(),
+        engine: "clickhouse".into(),
+        family: "warehouse".into(),
+        host: env_or("DATAPADPLUSPLUS_CLICKHOUSE_HOST", "127.0.0.1"),
+        port: Some(
+            env_or("DATAPADPLUSPLUS_CLICKHOUSE_HTTP_PORT", "8124")
+                .parse()
+                .unwrap_or(8124),
+        ),
+        database: Some(env_or("DATAPADPLUSPLUS_CLICKHOUSE_DB", "analytics")),
+        username: Some(env_or("DATAPADPLUSPLUS_CLICKHOUSE_USER", "datapadplusplus")),
+        password: Some(env_or(
+            "DATAPADPLUSPLUS_CLICKHOUSE_PASSWORD",
+            "datapadplusplus",
+        )),
+        connection_string: None,
+        redis_options: None,
+        memcached_options: None,
+        sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        mongodb_options: None,
+        warehouse_options: None,
+        read_only: false,
+    };
+    let database = connection.database.as_deref().unwrap_or("analytics");
+    for table in [
+        "datapad_transfer_source",
+        "datapad_transfer_csv",
+        "datapad_transfer_tsv",
+        "datapad_transfer_json",
+        "datapad_transfer_parquet",
+    ] {
+        clickhouse_fixture_request(
+            &connection,
+            &format!("DROP TABLE IF EXISTS `{database}`.`{table}`"),
+        )
+        .await?;
+    }
+    clickhouse_fixture_request(
+        &connection,
+        &format!(
+            "CREATE TABLE `{database}`.`datapad_transfer_source` (
+                event_time DateTime64(3, 'UTC'),
+                id UUID,
+                label String,
+                amount Decimal(20, 6),
+                tags Array(String),
+                optional Nullable(String)
+             ) ENGINE = MergeTree ORDER BY (event_time, id)"
+        ),
+    )
+    .await?;
+    clickhouse_fixture_request(
+        &connection,
+        &format!(
+            "INSERT INTO `{database}`.`datapad_transfer_source` VALUES
+              ('2026-08-31 08:15:30.123', '00000000-0000-0000-0000-000000000001', 'München', 123456789012.340000, ['one','two'], NULL),
+              ('2026-08-31 10:15:30.456', '00000000-0000-0000-0000-000000000002', '東京', -0.000001, ['東京','line\\nvalue'], 'present')"
+        ),
+    )
+    .await?;
+
+    let temp_root = env::temp_dir().join(format!(
+        "datapad-clickhouse-transfer-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&temp_root)?;
+    for (format, extension, target) in [
+        ("csv", "csv", "datapad_transfer_csv"),
+        ("tsv", "tsv", "datapad_transfer_tsv"),
+        ("json-each-row", "jsonl", "datapad_transfer_json"),
+        ("parquet", "parquet", "datapad_transfer_parquet"),
+    ] {
+        clickhouse_fixture_request(
+            &connection,
+            &format!(
+                "CREATE TABLE `{database}`.`{target}` AS `{database}`.`datapad_transfer_source`"
+            ),
+        )
+        .await?;
+        let path = temp_root.join(format!("roundtrip.{extension}"));
+        let export = adapters::execute_operation(
+            &connection,
+            &clickhouse_transfer_request(
+                "export",
+                format,
+                "datapad_transfer_source",
+                "targetPath",
+                &path,
+            ),
+        )
+        .await?;
+        assert!(
+            export.executed,
+            "ClickHouse {format} export warnings: {:?}",
+            export.warnings
+        );
+        assert!(path.metadata()?.len() > 0);
+
+        let import = adapters::execute_operation(
+            &connection,
+            &clickhouse_transfer_request("import", format, target, "sourcePath", &path),
+        )
+        .await?;
+        assert!(
+            import.executed,
+            "ClickHouse {format} import warnings: {:?}",
+            import.warnings
+        );
+        assert_eq!(
+            import
+                .metadata
+                .as_ref()
+                .and_then(|value| value.get("insertedCount"))
+                .and_then(serde_json::Value::as_u64),
+            Some(2),
+        );
+        let source_checksum = clickhouse_fixture_request(
+            &connection,
+            &clickhouse_checksum_query(database, "datapad_transfer_source"),
+        )
+        .await?;
+        let target_checksum =
+            clickhouse_fixture_request(&connection, &clickhouse_checksum_query(database, target))
+                .await?;
+        assert_eq!(
+            source_checksum.trim(),
+            target_checksum.trim(),
+            "ClickHouse semantic checksum mismatch for {format}"
+        );
+    }
+
+    for table in [
+        "datapad_transfer_csv",
+        "datapad_transfer_tsv",
+        "datapad_transfer_json",
+        "datapad_transfer_parquet",
+        "datapad_transfer_source",
+    ] {
+        clickhouse_fixture_request(&connection, &format!("DROP TABLE `{database}`.`{table}`"))
+            .await?;
+    }
+    fs::remove_dir_all(temp_root)?;
+    Ok(())
+}
+
+fn clickhouse_transfer_request(
+    mode: &str,
+    format: &str,
+    table: &str,
+    path_key: &str,
+    path: &Path,
+) -> OperationExecutionRequest {
+    OperationExecutionRequest {
+        connection_id: "conn-clickhouse-transfer".into(),
+        environment_id: "env-dev".into(),
+        operation_id: "clickhouse.data.import-export".into(),
+        object_name: Some(format!("analytics.{table}")),
+        parameters: Some(HashMap::from([
+            ("mode".into(), json!(mode)),
+            ("format".into(), json!(format)),
+            ("database".into(), json!("analytics")),
+            ("table".into(), json!(table)),
+            (path_key.into(), json!(path.display().to_string())),
+            ("overwrite".into(), json!(false)),
+            ("conflictPolicy".into(), json!("fail")),
+        ])),
+        confirmation_text: Some("CONFIRM CLICKHOUSE".into()),
+        row_limit: None,
+        tab_id: None,
+    }
+}
+
+async fn clickhouse_fixture_request(
+    connection: &ResolvedConnectionProfile,
+    statement: &str,
+) -> Result<String, CommandError> {
+    let url = format!(
+        "http://{}:{}/?database={}",
+        connection.host,
+        connection.port.unwrap_or(8123),
+        connection.database.as_deref().unwrap_or("default")
+    );
+    let mut request = reqwest::Client::new().post(url).body(statement.to_string());
+    if let Some(username) = connection.username.as_deref() {
+        request = request.header("X-ClickHouse-User", username);
+    }
+    if let Some(password) = connection.password.as_deref() {
+        request = request.header("X-ClickHouse-Key", password);
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|error| CommandError::new("clickhouse-fixture-http", error.to_string()))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|error| CommandError::new("clickhouse-fixture-http", error.to_string()))?;
+    if !status.is_success() {
+        return Err(CommandError::new("clickhouse-fixture-query", body));
+    }
+    Ok(body)
+}
+
+fn clickhouse_checksum_query(database: &str, table: &str) -> String {
+    format!(
+        "SELECT cityHash64(groupArray(tuple(toString(event_time), toString(id), label, toString(amount), toString(tags), ifNull(optional, '<null>'))))
+         FROM (SELECT * FROM `{database}`.`{table}` ORDER BY event_time, id) FORMAT TSV"
+    )
+}
+
+#[tokio::test]
 async fn search_profile_fixture_roundtrips() -> Result<(), CommandError> {
     if !fixtures_enabled() || !fixture_profile_enabled("search") {
         return Ok(());

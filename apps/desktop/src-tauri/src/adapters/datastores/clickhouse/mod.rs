@@ -5,6 +5,7 @@ mod connection;
 mod diagnostics;
 mod explorer;
 mod http_client;
+mod import_export;
 mod payloads;
 mod query;
 mod query_request;
@@ -22,12 +23,104 @@ impl DatastoreAdapter for ClickHouseAdapter {
         true
     }
 
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if request.operation_id == "clickhouse.data.import-export" {
+            return import_export::execute_clickhouse_transfer(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
+    }
+
     fn manifest(&self) -> AdapterManifest {
         clickhouse_manifest()
     }
 
     fn execution_capabilities(&self) -> ExecutionCapabilities {
         clickhouse_execution_capabilities()
+    }
+
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        clickhouse_operation_manifests(&self.manifest())
+    }
+
+    async fn plan_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        operation_id: &str,
+        object_name: Option<&str>,
+        parameters: Option<&BTreeMap<String, Value>>,
+    ) -> Result<OperationPlan, CommandError> {
+        let mut plan = default_operation_plan(
+            connection,
+            &self.manifest(),
+            operation_id,
+            object_name,
+            parameters,
+        );
+        if operation_id == "clickhouse.data.import-export" {
+            let mode = parameters
+                .and_then(|values| values.get("mode"))
+                .and_then(Value::as_str)
+                .unwrap_or("export");
+            let format = parameters
+                .and_then(|values| values.get("format"))
+                .and_then(Value::as_str)
+                .unwrap_or("csv");
+            let object = object_name.unwrap_or("<database>.<table>");
+            let wire_format = match format {
+                "tsv" => "TabSeparatedWithNames",
+                "json-each-row" | "ndjson" => "JSONEachRow",
+                "parquet" => "Parquet",
+                _ => "CSVWithNames",
+            };
+            plan.generated_request = if mode == "import" {
+                format!(
+                    "HTTP POST /?query=INSERT%20INTO%20{object}%20FORMAT%20{wire_format}\n<body: selected local file>"
+                )
+            } else {
+                format!(
+                    "HTTP POST /?query=SELECT%20<transferable-columns>%20FROM%20{object}%20FORMAT%20{wire_format}\n<response: selected local file>"
+                )
+            };
+            plan.request_language = "clickhouse-http".into();
+            plan.summary = format!(
+                "Prepared native ClickHouse {mode} stream for {object} using {wire_format}."
+            );
+            plan.required_permissions = vec![if mode == "import" {
+                "INSERT and SELECT privileges on an existing empty target table".into()
+            } else {
+                "SELECT privilege on the source table and system.columns".into()
+            }];
+            plan.confirmation_text = Some("CONFIRM CLICKHOUSE".into());
+            plan.estimated_scan_impact = Some(if mode == "import" {
+                "The server validates and inserts the complete selected stream; the fail-safe policy requires an empty target.".into()
+            } else {
+                "The native export scans the complete selected table without buffering it in DataPad++.".into()
+            });
+            plan.warnings.retain(|warning| {
+                !warning.contains("beta adapter returns a guarded operation plan")
+            });
+            if mode == "import" {
+                plan.warnings.push(
+                    "Import is append-oriented in ClickHouse, so DataPad++ requires the target table to be empty before sending the stream."
+                        .into(),
+                );
+            }
+        }
+        Ok(plan)
     }
 
     async fn test_connection(

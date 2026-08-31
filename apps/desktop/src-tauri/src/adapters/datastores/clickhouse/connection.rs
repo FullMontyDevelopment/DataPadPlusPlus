@@ -1,5 +1,5 @@
 use futures_util::StreamExt;
-use reqwest::header;
+use reqwest::{header, RequestBuilder, Response};
 use url::Url;
 
 use super::super::super::*;
@@ -21,36 +21,16 @@ pub(super) async fn clickhouse_query(
     connection: &ResolvedConnectionProfile,
     query: &str,
 ) -> Result<String, CommandError> {
-    let endpoint = ClickHouseEndpoint::from_connection(connection)?;
-    let url = endpoint.url(&format!(
-        "/?database={}",
-        encode_query_component(&endpoint.database)
-    ));
-    let client = clickhouse_http_client(connection)?;
-    let (username, password) = clickhouse_credentials(connection)?;
-    let mut request = client
-        .post(url)
+    let request = clickhouse_http_request(connection, None)?
         .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
         .body(query.to_string());
-    if let Some(username) = username {
-        request = request.header("X-ClickHouse-User", username);
-    }
-    if let Some(password) = password {
-        request = request.header("X-ClickHouse-Key", password);
-    }
-
     let response = request.send().await.map_err(|error| {
         CommandError::new(
             "clickhouse-http-error",
             format!("ClickHouse could not be reached over HTTP: {error}"),
         )
     })?;
-    let status = response.status();
-    let exception_code = response
-        .headers()
-        .get("X-ClickHouse-Exception-Code")
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_string);
+    let response = ensure_clickhouse_success(response).await?;
     if response
         .content_length()
         .is_some_and(|length| length > MAX_CLICKHOUSE_RESPONSE_BYTES as u64)
@@ -73,18 +53,54 @@ pub(super) async fn clickhouse_query(
     }
     let body = String::from_utf8_lossy(&bytes).to_string();
 
-    if !status.is_success() || exception_code.is_some() {
-        let detail = sanitized_clickhouse_error(&body).unwrap_or("ClickHouse request failed.");
-        let code = exception_code
-            .map(|value| format!(" ClickHouse code: {value}."))
-            .unwrap_or_default();
-        return Err(CommandError::new(
-            "clickhouse-http-error",
-            format!("{detail}{code} HTTP status: {}.", status.as_u16()),
-        ));
-    }
-
     Ok(body)
+}
+
+pub(super) fn clickhouse_http_request(
+    connection: &ResolvedConnectionProfile,
+    query: Option<&str>,
+) -> Result<RequestBuilder, CommandError> {
+    let endpoint = ClickHouseEndpoint::from_connection(connection)?;
+    let client = clickhouse_http_client(connection)?;
+    let (username, password) = clickhouse_credentials(connection)?;
+    let mut parameters = vec![("database", endpoint.database.as_str())];
+    if let Some(query) = query {
+        parameters.push(("query", query));
+    }
+    let mut request = client.post(endpoint.url("/")).query(&parameters);
+    if query.is_some() {
+        request = request.header(header::CONTENT_LENGTH, 0);
+    }
+    if let Some(username) = username {
+        request = request.header("X-ClickHouse-User", username);
+    }
+    if let Some(password) = password {
+        request = request.header("X-ClickHouse-Key", password);
+    }
+    Ok(request)
+}
+
+pub(super) async fn ensure_clickhouse_success(
+    response: Response,
+) -> Result<Response, CommandError> {
+    let status = response.status();
+    let exception_code = response
+        .headers()
+        .get("X-ClickHouse-Exception-Code")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    if status.is_success() && exception_code.is_none() {
+        return Ok(response);
+    }
+    let body = response.text().await.unwrap_or_default();
+    let detail = sanitized_clickhouse_error(&body).unwrap_or("ClickHouse request failed.");
+    let code = exception_code
+        .map(|value| format!(" ClickHouse code: {value}."))
+        .unwrap_or_default();
+    Err(CommandError::new(
+        "clickhouse-http-error",
+        format!("{detail}{code} HTTP status: {}.", status.as_u16()),
+    ))
 }
 
 fn clickhouse_credentials(
@@ -114,6 +130,7 @@ fn valid_header_value(value: &str) -> Result<&str, CommandError> {
     Ok(value)
 }
 
+#[cfg(test)]
 fn encode_query_component(value: &str) -> String {
     value.bytes().fold(String::new(), |mut output, byte| {
         match byte {

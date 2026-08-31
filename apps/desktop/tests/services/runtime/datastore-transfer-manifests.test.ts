@@ -27,7 +27,7 @@ describe('datastore transfer manifests', () => {
   it('promotes only the currently executable Wave 1 paths', () => {
     for (const engine of [
       'postgresql', 'mysql', 'mariadb', 'sqlserver', 'sqlite', 'mongodb',
-      'redis', 'valkey', 'litedb', 'duckdb', 'memcached', 'timescaledb',
+      'redis', 'valkey', 'litedb', 'duckdb', 'memcached', 'timescaledb', 'clickhouse',
     ] as const) {
       const capabilities = datastoreTransferManifest(engine).capabilities
       expect(capabilities.find((item) => item.action === 'import')?.executionSupport).toBe('live')
@@ -77,6 +77,21 @@ describe('datastore transfer manifests', () => {
     expect(exported?.formats.map((item) => item.id)).toEqual(['text', 'csv', 'binary-copy'])
     expect(exported?.options?.map((item) => item.id)).toEqual(['timeColumn', 'start', 'end'])
     expect(capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('unsupported')
+  })
+
+  it('advertises only native ClickHouse HTTP streaming formats', () => {
+    const capabilities = datastoreTransferManifest('clickhouse').capabilities
+    const imported = capabilities.find((item) => item.action === 'import')
+    const exported = capabilities.find((item) => item.action === 'export')
+    expect(imported?.executionSupport).toBe('live')
+    expect(imported?.requiresExistingTarget).toBe(true)
+    expect(exported?.formats.map((item) => [item.id, item.fidelity])).toEqual([
+      ['csv', 'native'],
+      ['tsv', 'native'],
+      ['json-each-row', 'native'],
+      ['parquet', 'native'],
+    ])
+    expect(capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('plan-only')
   })
 
   it('recognizes generic and engine-specific transfer operations', () => {
