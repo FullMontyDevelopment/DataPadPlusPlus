@@ -530,7 +530,35 @@ fn postgres_import_export_request(
     } else {
         "target"
     };
-    let path_value = format!("<selected-file>.{format}");
+    let normalized_format = match format.as_str() {
+        "binary-copy" | "binary" | "bin" => "binary",
+        "text" | "txt" => "text",
+        value => value,
+    };
+    let extension = match normalized_format {
+        "binary" => "bin",
+        "text" => "txt",
+        value => value,
+    };
+    let path_value = format!("<selected-file>.{extension}");
+    let native_copy = matches!(normalized_format, "text" | "csv" | "binary");
+    let native_request = native_copy.then(|| {
+        let direction = if workflow.ends_with(".import") {
+            "FROM STDIN"
+        } else {
+            "TO STDOUT"
+        };
+        let options = match normalized_format {
+            "csv" => "FORMAT CSV, HEADER TRUE, ENCODING 'UTF8'",
+            "binary" => "FORMAT BINARY",
+            _ => "FORMAT TEXT, ENCODING 'UTF8'",
+        };
+        format!(
+            "COPY {}.{} (<validated transferable columns>) {direction} WITH ({options})",
+            quote_postgres_identifier(&schema),
+            quote_postgres_identifier(&table),
+        )
+    });
 
     let mut request = serde_json::json!({
         "workflow": workflow,
@@ -538,7 +566,9 @@ fn postgres_import_export_request(
         "schema": schema,
         "table": table,
         "format": format,
-        "rowLimit": numeric_parameter(parameters, "rowLimit").unwrap_or(10_000),
+        "nativeRequest": native_request,
+        "streaming": native_copy,
+        "rowLimit": if native_copy { None } else { Some(numeric_parameter(parameters, "rowLimit").unwrap_or(10_000)) },
         "executionGate": {
             "owner": "postgresql-adapter",
             "defaultSupport": "live",
@@ -546,8 +576,8 @@ fn postgres_import_export_request(
             "guards": [
                 "concrete absolute file path",
                 "read-only connection check for import",
-                "row limit",
-                "type-aware target column validation"
+                if native_copy { "driver-level streaming with no full-file buffer" } else { "portable conversion row limit" },
+                "server-atomic type and target-column validation"
             ]
         }
     });

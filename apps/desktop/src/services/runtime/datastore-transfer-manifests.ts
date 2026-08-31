@@ -27,9 +27,11 @@ type CapabilitySpec = {
 const portableCsv: FormatSpec = ['csv', 'CSV', 'portable-lossy', ['csv'], 'Portable delimited rows.', 'CSV can lose nested values and datastore-specific type information.']
 const portableJson: FormatSpec = ['json', 'JSON', 'portable', ['json'], 'Portable JSON document or row array.']
 const portableNdjson: FormatSpec = ['ndjson', 'NDJSON', 'portable', ['ndjson', 'jsonl'], 'One JSON document or row per line.']
+const postgresText: FormatSpec = ['text', 'PostgreSQL COPY text', 'native', ['txt'], 'Native PostgreSQL text COPY stream.']
+const postgresBinary: FormatSpec = ['binary-copy', 'PostgreSQL binary COPY', 'native', ['bin'], 'Lossless PostgreSQL binary COPY stream. Binary imports require the same ordered column types.']
 
 const DATA_SPECS: Record<DatastoreEngine, CapabilitySpec> = {
-  postgresql: liveData('PostgreSQL currently provides guarded CSV/JSON row transfer; binary COPY remains unavailable until its native codec is complete.', [portableCsv, portableJson, portableNdjson]),
+  postgresql: liveData('PostgreSQL streams native text, CSV, and binary data through driver-level COPY. JSON and NDJSON remain portable conversions.', [postgresText, ['csv', 'PostgreSQL COPY CSV', 'native', ['csv'], 'Native PostgreSQL CSV COPY stream with a header row.'], postgresBinary, portableJson, portableNdjson]),
   mysql: liveData('MySQL uses guarded local or server file loading and streamed row export.', [portableCsv, portableJson, portableNdjson]),
   mariadb: liveData('MariaDB uses guarded local or server file loading and streamed row export.', [portableCsv, portableJson, portableNdjson]),
   sqlserver: liveData('SQL Server validates identity, computed, collation, temporal, binary, and GUID columns before transfer.', [portableCsv, portableJson, portableNdjson]),
@@ -60,7 +62,7 @@ const DATA_SPECS: Record<DatastoreEngine, CapabilitySpec> = {
   ]),
   duckdb: liveData('DuckDB uses native COPY for table data.', [portableCsv, ['json', 'DuckDB JSON', 'native', ['json'], 'DuckDB JSON output.'], ['parquet', 'Parquet', 'native', ['parquet'], 'DuckDB Parquet data.']]),
   cockroachdb: plannedData('CockroachDB IMPORT and EXPORT use server-accessible external storage and asynchronous jobs.', [portableCsv, ['avro', 'Avro', 'native', ['avro'], 'CockroachDB Avro import data.'], ['parquet', 'Parquet', 'native', ['parquet'], 'CockroachDB Parquet import data.']], ['cloud-uri', 'server-path']),
-  timescaledb: plannedData('TimescaleDB will reuse PostgreSQL COPY with hypertable and time-window validation.', [portableCsv, portableJson, portableNdjson]),
+  timescaledb: plannedData('TimescaleDB will reuse PostgreSQL COPY with hypertable and time-window validation.', [postgresText, ['csv', 'PostgreSQL COPY CSV', 'native', ['csv'], 'Native PostgreSQL CSV COPY stream with a header row.'], postgresBinary, portableJson, portableNdjson]),
   oracle: plannedData('Oracle local data transfer will use managed-driver array binding.', [portableCsv]),
   elasticsearch: plannedData('Elasticsearch uses PIT/search-after export and Bulk API NDJSON import.', [portableNdjson]),
   opensearch: plannedData('OpenSearch uses its version-compatible search and Bulk APIs.', [portableNdjson]),

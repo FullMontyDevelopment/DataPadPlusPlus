@@ -358,8 +358,13 @@ fn sql_family_operation_plans_are_dialect_aware() {
     );
     assert_eq!(
         postgres_import_value["executionGate"]["guards"][3],
-        "type-aware target column validation"
+        "server-atomic type and target-column validation"
     );
+    assert_eq!(postgres_import_value["streaming"], true);
+    assert!(postgres_import_value["nativeRequest"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("FROM STDIN"));
 
     let postgres_backup = generated_operation_request(
         &connection,

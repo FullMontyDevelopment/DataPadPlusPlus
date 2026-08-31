@@ -58,6 +58,18 @@ describe('datastore transfer manifests', () => {
     expect(datastoreTransferManifest('sqlserver').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('plan-only')
   })
 
+  it('advertises driver-native PostgreSQL COPY formats separately from portable conversions', () => {
+    const formats = datastoreTransferManifest('postgresql').capabilities
+      .find((item) => item.action === 'export')?.formats
+    expect(formats?.map((item) => [item.id, item.fidelity])).toEqual([
+      ['text', 'native'],
+      ['csv', 'native'],
+      ['binary-copy', 'native'],
+      ['json', 'portable'],
+      ['ndjson', 'portable'],
+    ])
+  })
+
   it('recognizes generic and engine-specific transfer operations', () => {
     expect(isDatastoreTransferOperation('postgresql.data.import-export')).toBe(true)
     expect(isDatastoreTransferOperation('sqlite.table.export')).toBe(true)

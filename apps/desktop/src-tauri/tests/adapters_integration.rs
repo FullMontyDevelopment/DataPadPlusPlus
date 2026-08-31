@@ -18,6 +18,7 @@ use datapadplusplus_desktop_lib::{
     },
 };
 use serde_json::json;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::Executor;
 
 fn fixtures_enabled() -> bool {
@@ -1900,7 +1901,152 @@ async fn postgres_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         cells.iter().all(|cell| !cell.starts_with('<')),
         "known PostgreSQL scalar types should not render as placeholders: {cells:?}"
     );
+
+    let options = PgConnectOptions::new()
+        .host(&connection.host)
+        .port(connection.port.unwrap_or(5432))
+        .database(connection.database.as_deref().unwrap_or("postgres"))
+        .username(connection.username.as_deref().unwrap_or("postgres"))
+        .password(connection.password.as_deref().unwrap_or_default());
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await?;
+    pool.execute("drop table if exists public.datapad_copy_csv_target")
+        .await?;
+    pool.execute("drop table if exists public.datapad_copy_binary_target")
+        .await?;
+    pool.execute("drop table if exists public.datapad_copy_source")
+        .await?;
+    pool.execute(
+        "create table public.datapad_copy_source (
+            id integer primary key,
+            label text not null,
+            amount numeric(20,4) not null,
+            observed_at timestamptz not null,
+            payload jsonb not null,
+            bytes bytea not null,
+            generated_label text generated always as (label || '-generated') stored
+        )",
+    )
+    .await?;
+    pool.execute(
+        "insert into public.datapad_copy_source (id, label, amount, observed_at, payload, bytes)
+         values
+           (1, 'München', 123456789012.3400, '2026-08-31T10:15:30+02:00', '{\"nested\":[1,true,null]}'::jsonb, decode('00ff10', 'hex')),
+           (2, '東京', -0.0001, '2026-08-31T08:15:30Z', '{\"text\":\"line\\nvalue\"}'::jsonb, decode('deadbeef', 'hex'))",
+    )
+    .await?;
+    pool.execute("create table public.datapad_copy_csv_target (like public.datapad_copy_source including all)").await?;
+    pool.execute("create table public.datapad_copy_binary_target (like public.datapad_copy_source including all)").await?;
+
+    let temp_root = env::temp_dir().join(format!(
+        "datapad-postgres-copy-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&temp_root)?;
+    for (format, extension, target) in [
+        ("csv", "csv", "datapad_copy_csv_target"),
+        ("binary-copy", "bin", "datapad_copy_binary_target"),
+    ] {
+        let path = temp_root.join(format!("roundtrip.{extension}"));
+        let export = adapters::execute_operation(
+            &connection,
+            &postgres_transfer_request(
+                "export",
+                format,
+                "datapad_copy_source",
+                "targetPath",
+                &path,
+            ),
+        )
+        .await?;
+        assert!(
+            export.executed,
+            "PostgreSQL {format} export did not execute: {:?}",
+            export.warnings
+        );
+        assert!(path.is_file());
+        assert!(path.metadata()?.len() > 0);
+
+        let import = adapters::execute_operation(
+            &connection,
+            &postgres_transfer_request("import", format, target, "sourcePath", &path),
+        )
+        .await?;
+        assert!(
+            import.executed,
+            "PostgreSQL {format} import did not execute: {:?}",
+            import.warnings
+        );
+        assert_eq!(
+            import
+                .metadata
+                .as_ref()
+                .and_then(|value| value.get("insertedCount"))
+                .and_then(serde_json::Value::as_u64),
+            Some(2),
+        );
+    }
+
+    for target in ["datapad_copy_csv_target", "datapad_copy_binary_target"] {
+        let checksum_sql = format!(
+            "select md5(string_agg(concat_ws('|', id::text, label, amount::text, observed_at::text, payload::text, encode(bytes, 'hex')), E'\\n' order by id)) from public.{target}"
+        );
+        let source_checksum: Option<String> = sqlx::query_scalar(
+            "select md5(string_agg(concat_ws('|', id::text, label, amount::text, observed_at::text, payload::text, encode(bytes, 'hex')), E'\\n' order by id)) from public.datapad_copy_source",
+        )
+        .fetch_one(&pool)
+        .await?;
+        let target_checksum: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(checksum_sql))
+            .fetch_one(&pool)
+            .await?;
+        assert_eq!(
+            source_checksum, target_checksum,
+            "PostgreSQL COPY semantic checksum mismatch for {target}"
+        );
+    }
+
+    pool.execute("drop table public.datapad_copy_csv_target")
+        .await?;
+    pool.execute("drop table public.datapad_copy_binary_target")
+        .await?;
+    pool.execute("drop table public.datapad_copy_source")
+        .await?;
+    pool.close().await;
+    fs::remove_dir_all(temp_root)?;
     Ok(())
+}
+
+fn postgres_transfer_request(
+    mode: &str,
+    format: &str,
+    table: &str,
+    path_key: &str,
+    path: &Path,
+) -> OperationExecutionRequest {
+    OperationExecutionRequest {
+        connection_id: "conn-postgres".into(),
+        environment_id: "env-dev".into(),
+        operation_id: "postgresql.data.import-export".into(),
+        object_name: Some(format!("public.{table}")),
+        parameters: Some(HashMap::from([
+            ("mode".into(), json!(mode)),
+            ("format".into(), json!(format)),
+            ("schema".into(), json!("public")),
+            ("table".into(), json!(table)),
+            (path_key.into(), json!(path.display().to_string())),
+            ("overwrite".into(), json!(false)),
+            ("conflictPolicy".into(), json!("fail")),
+        ])),
+        confirmation_text: Some("CONFIRM POSTGRESQL".into()),
+        row_limit: None,
+        tab_id: None,
+    }
 }
 
 #[tokio::test]

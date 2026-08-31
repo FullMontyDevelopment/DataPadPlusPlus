@@ -1,17 +1,19 @@
 use std::{
     collections::BTreeMap,
     fs::{self, File},
-    io::{Read, Write},
+    io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
 };
 
+use futures_util::TryStreamExt;
 use serde_json::{json, Map, Value};
 use sqlx::{
-    postgres::{PgArguments, PgPool, PgPoolOptions, PgRow},
+    postgres::{PgArguments, PgPool, PgPoolCopyExt, PgPoolOptions, PgRow},
     query::Query,
     types::Json,
     Column, Postgres, Row, ValueRef,
 };
+use tokio::io::AsyncWriteExt as TokioAsyncWriteExt;
 
 use super::super::super::*;
 use super::cells::stringify_pg_cell;
@@ -142,9 +144,12 @@ async fn execute_postgres_table_export(
         ));
     };
     let format = workflow_format(request, &target_path, "csv");
-    if !matches!(format.as_str(), "csv" | "json" | "ndjson") {
+    if !matches!(
+        format.as_str(),
+        "csv" | "text" | "binary" | "binary-copy" | "json" | "ndjson"
+    ) {
         warnings.push(format!(
-            "PostgreSQL table export format `{format}` is not supported. Use csv, json, or ndjson."
+            "PostgreSQL table export format `{format}` is not supported. Use text, csv, binary-copy, json, or ndjson."
         ));
         return Ok(operation_response(
             request,
@@ -161,11 +166,42 @@ async fn execute_postgres_table_export(
         fs::remove_file(&target_path)?;
     }
 
-    let row_limit = workflow_row_limit(request);
     let pool = PgPoolOptions::new()
         .max_connections(1)
         .connect_with(postgres_connect_options(connection)?)
         .await?;
+    if let Some(copy_format) = native_copy_format(&format) {
+        let (bytes_written, columns) =
+            stream_postgres_copy_out(&pool, &schema, &table, copy_format, &target_path).await?;
+        pool.close().await;
+        messages.push(format!(
+            "PostgreSQL streamed {bytes_written} byte(s) from {}.{} using native COPY {}.",
+            schema,
+            table,
+            copy_format.to_ascii_uppercase(),
+        ));
+        return Ok(operation_response(
+            request,
+            operation,
+            plan,
+            true,
+            Some(json!({
+                "workflow": "postgresql.table.export",
+                "schema": schema,
+                "table": table,
+                "format": copy_format,
+                "targetPath": target_path.display().to_string(),
+                "columns": columns,
+                "bytesWritten": bytes_written,
+                "nativeStreaming": true,
+                "truncated": false,
+            })),
+            messages.clone(),
+            warnings.clone(),
+        ));
+    }
+
+    let row_limit = workflow_row_limit(request);
     let rows = fetch_pg_table_rows(&pool, &schema, &table, row_limit).await?;
     pool.close().await;
 
@@ -275,9 +311,12 @@ async fn execute_postgres_table_import(
         ));
     };
     let format = workflow_format(request, &source_path, "csv");
-    if !matches!(format.as_str(), "csv" | "json" | "ndjson") {
+    if !matches!(
+        format.as_str(),
+        "csv" | "text" | "binary" | "binary-copy" | "json" | "ndjson"
+    ) {
         warnings.push(format!(
-            "PostgreSQL table import format `{format}` is not supported. Use csv, json, or ndjson."
+            "PostgreSQL table import format `{format}` is not supported. Use text, csv, binary-copy, json, or ndjson."
         ));
         return Ok(operation_response(
             request,
@@ -285,6 +324,42 @@ async fn execute_postgres_table_import(
             plan,
             false,
             None,
+            messages.clone(),
+            warnings.clone(),
+        ));
+    }
+
+    if let Some(copy_format) = native_copy_format(&format) {
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(postgres_connect_options(connection)?)
+            .await?;
+        let (rows_affected, bytes_read, columns) =
+            stream_postgres_copy_in(&pool, &schema, &table, copy_format, &source_path).await?;
+        pool.close().await;
+        messages.push(format!(
+            "PostgreSQL imported {rows_affected} row(s) into {}.{} using native COPY {}.",
+            schema,
+            table,
+            copy_format.to_ascii_uppercase(),
+        ));
+        return Ok(operation_response(
+            request,
+            operation,
+            plan,
+            true,
+            Some(json!({
+                "workflow": "postgresql.table.import",
+                "schema": schema,
+                "table": table,
+                "format": copy_format,
+                "sourcePath": source_path.display().to_string(),
+                "columns": columns,
+                "insertedCount": rows_affected,
+                "bytesRead": bytes_read,
+                "nativeStreaming": true,
+                "conflictPolicy": "fail",
+            })),
             messages.clone(),
             warnings.clone(),
         ));
@@ -669,6 +744,7 @@ struct PgFetchedRows {
 struct PgColumnInfo {
     name: String,
     type_name: String,
+    generated: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -679,6 +755,210 @@ struct PgBackupTable {
     rows: Vec<Vec<String>>,
     objects: Vec<Value>,
     truncated: bool,
+}
+
+fn native_copy_format(format: &str) -> Option<&'static str> {
+    match format {
+        "csv" => Some("csv"),
+        "text" | "txt" => Some("text"),
+        "binary" | "binary-copy" | "bin" => Some("binary"),
+        _ => None,
+    }
+}
+
+async fn stream_postgres_copy_out(
+    pool: &PgPool,
+    schema: &str,
+    table: &str,
+    format: &str,
+    target_path: &Path,
+) -> Result<(u64, Vec<String>), CommandError> {
+    let columns = pg_table_column_info(pool, schema, table)
+        .await?
+        .into_iter()
+        .filter(|column| !column.generated)
+        .map(|column| column.name)
+        .collect::<Vec<_>>();
+    if columns.is_empty() {
+        return Err(CommandError::new(
+            "postgres-copy-target-invalid",
+            "PostgreSQL COPY requires an existing table with at least one transferable column.",
+        ));
+    }
+    let statement = postgres_copy_statement(schema, table, &columns, format, false);
+    let mut stream = pool.copy_out_raw(&statement).await?;
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(target_path)
+        .await?;
+    let mut bytes_written = 0_u64;
+    let transfer = async {
+        while let Some(chunk) = stream.try_next().await? {
+            file.write_all(&chunk).await?;
+            bytes_written = bytes_written.saturating_add(chunk.len() as u64);
+        }
+        file.flush().await?;
+        Ok::<(), CommandError>(())
+    }
+    .await;
+    if let Err(error) = transfer {
+        drop(file);
+        let _ = tokio::fs::remove_file(target_path).await;
+        return Err(error);
+    }
+    Ok((bytes_written, columns))
+}
+
+async fn stream_postgres_copy_in(
+    pool: &PgPool,
+    schema: &str,
+    table: &str,
+    format: &str,
+    source_path: &Path,
+) -> Result<(u64, u64, Vec<String>), CommandError> {
+    let metadata = fs::metadata(source_path)?;
+    if !metadata.is_file() || metadata.len() == 0 {
+        return Err(CommandError::new(
+            "postgres-copy-source-invalid",
+            "PostgreSQL COPY import requires a non-empty file.",
+        ));
+    }
+    if format == "binary" {
+        validate_postgres_binary_copy_header(source_path)?;
+    }
+
+    let table_columns = pg_table_column_info(pool, schema, table).await?;
+    if table_columns.is_empty() {
+        return Err(CommandError::new(
+            "postgres-copy-target-invalid",
+            "PostgreSQL COPY requires an existing target table.",
+        ));
+    }
+    let columns = if format == "csv" {
+        validated_csv_copy_columns(source_path, &table_columns)?
+    } else {
+        table_columns
+            .iter()
+            .filter(|column| !column.generated)
+            .map(|column| column.name.clone())
+            .collect::<Vec<_>>()
+    };
+    if columns.is_empty() {
+        return Err(CommandError::new(
+            "postgres-copy-columns-invalid",
+            "PostgreSQL COPY import did not resolve any insertable columns.",
+        ));
+    }
+
+    let statement = postgres_copy_statement(schema, table, &columns, format, true);
+    let mut copy = pool.copy_in_raw(&statement).await?;
+    let file = tokio::fs::File::open(source_path).await?;
+    if let Err(error) = copy.read_from(file).await {
+        let _ = copy
+            .abort("DataPad++ COPY import failed while reading the selected file")
+            .await;
+        return Err(CommandError::from(error));
+    }
+    let rows_affected = copy.finish().await?;
+    Ok((rows_affected, metadata.len(), columns))
+}
+
+fn postgres_copy_statement(
+    schema: &str,
+    table: &str,
+    columns: &[String],
+    format: &str,
+    importing: bool,
+) -> String {
+    let column_list = columns
+        .iter()
+        .map(|column| quote_pg_identifier(column))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let direction = if importing { "FROM STDIN" } else { "TO STDOUT" };
+    let options = match format {
+        "csv" => "FORMAT CSV, HEADER TRUE, ENCODING 'UTF8'",
+        "binary" => "FORMAT BINARY",
+        _ => "FORMAT TEXT, ENCODING 'UTF8'",
+    };
+    format!(
+        "COPY {} ({column_list}) {direction} WITH ({options})",
+        qualified_pg_name(schema, table)
+    )
+}
+
+fn validated_csv_copy_columns(
+    path: &Path,
+    table_columns: &[PgColumnInfo],
+) -> Result<Vec<String>, CommandError> {
+    let columns = read_csv_header(path)?;
+    let mut seen = std::collections::BTreeSet::new();
+    if columns.is_empty()
+        || columns
+            .iter()
+            .any(|column| column.is_empty() || !seen.insert(column.clone()))
+    {
+        return Err(CommandError::new(
+            "postgres-copy-csv-header-invalid",
+            "PostgreSQL native CSV import requires a non-empty header with unique column names.",
+        ));
+    }
+    let available = table_columns
+        .iter()
+        .map(|column| (column.name.as_str(), column))
+        .collect::<BTreeMap<_, _>>();
+    let invalid = columns
+        .iter()
+        .filter(|column| {
+            available
+                .get(column.as_str())
+                .is_none_or(|info| info.generated)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if !invalid.is_empty() {
+        return Err(CommandError::new(
+            "postgres-copy-csv-schema-mismatch",
+            format!(
+                "PostgreSQL CSV columns are missing or generated on the target table: {}.",
+                invalid.join(", ")
+            ),
+        ));
+    }
+    Ok(columns)
+}
+
+fn read_csv_header(path: &Path) -> Result<Vec<String>, CommandError> {
+    const MAX_HEADER_BYTES: u64 = 1024 * 1024;
+    let mut line = String::new();
+    BufReader::new(File::open(path)?)
+        .take(MAX_HEADER_BYTES)
+        .read_line(&mut line)?;
+    let rows = parse_csv_rows(&line)?;
+    let Some(header) = rows.first() else {
+        return Err(CommandError::new(
+            "postgres-copy-csv-header-missing",
+            "PostgreSQL native CSV import requires a header row.",
+        ));
+    };
+    Ok(header
+        .iter()
+        .map(|value| value.trim().to_string())
+        .collect())
+}
+
+fn validate_postgres_binary_copy_header(path: &Path) -> Result<(), CommandError> {
+    const SIGNATURE: &[u8] = b"PGCOPY\n\xFF\r\n\0";
+    let mut signature = [0_u8; 11];
+    File::open(path)?.read_exact(&mut signature)?;
+    if signature != SIGNATURE {
+        return Err(CommandError::new(
+            "postgres-copy-binary-header-invalid",
+            "The selected file is not a PostgreSQL binary COPY stream.",
+        ));
+    }
+    Ok(())
 }
 
 async fn fetch_pg_table_rows(
@@ -747,7 +1027,9 @@ async fn pg_table_column_info(
     table: &str,
 ) -> Result<Vec<PgColumnInfo>, CommandError> {
     let rows = sqlx::query(
-        "select a.attname as column_name, pg_catalog.format_type(a.atttypid, a.atttypmod) as type_name
+        "select a.attname as column_name,
+                pg_catalog.format_type(a.atttypid, a.atttypmod) as type_name,
+                a.attgenerated <> '' as generated
          from pg_catalog.pg_attribute a
          join pg_catalog.pg_class c on c.oid = a.attrelid
          join pg_catalog.pg_namespace n on n.oid = c.relnamespace
@@ -769,6 +1051,7 @@ async fn pg_table_column_info(
             type_name: row
                 .try_get::<String, _>("type_name")
                 .unwrap_or_else(|_| "text".into()),
+            generated: row.try_get::<bool, _>("generated").unwrap_or(false),
         })
         .filter(|column| !column.name.is_empty())
         .collect())
