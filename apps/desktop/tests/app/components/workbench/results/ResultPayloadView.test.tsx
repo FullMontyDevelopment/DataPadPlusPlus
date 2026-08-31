@@ -53,6 +53,23 @@ afterEach(() => {
 })
 
 describe('ResultPayloadView', () => {
+  it('renders exact datastore values in table results', () => {
+    render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'table',
+          columns: ['password', 'token', 'database_mask'],
+          rows: [['open-sesame', 'super-secret-token', '*']],
+        }}
+      />,
+    )
+
+    expect(screen.getByText('open-sesame')).toBeInTheDocument()
+    expect(screen.getByText('super-secret-token')).toBeInTheDocument()
+    expect(screen.getByText('*')).toBeInTheDocument()
+    expect(screen.queryByText('********')).not.toBeInTheDocument()
+  })
+
   it('renders batch payload sections in order', () => {
     const { container } = render(
       <ResultPayloadView
@@ -126,6 +143,29 @@ describe('ResultPayloadView', () => {
     expect(screen.getByText('profile')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Expand profile' }))
     expect(screen.getByText('Team')).toBeInTheDocument()
+  })
+
+  it('renders exact secret-like document fields without guessing that they are credentials', () => {
+    render(
+      <ResultPayloadView
+        payload={{
+          renderer: 'document',
+          documents: [{
+            _id: 'account-secret-fixture',
+            password: 'open-sesame',
+            token: 'super-secret-token',
+          }],
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand account-secret-fixture' }))
+
+    expect(screen.getByText('password')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'open-sesame' })).toBeInTheDocument()
+    expect(screen.getByText('token')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'super-secret-token' })).toBeInTheDocument()
+    expect(screen.queryByText('********')).not.toBeInTheDocument()
   })
 
   it('keeps mounted document rows bounded for large full-mode results', () => {
@@ -2103,7 +2143,12 @@ describe('ResultPayloadView', () => {
   })
 
   it('loads the authoritative full value for viewing and copying', async () => {
-    const fullValue = JSON.stringify({ items: Array.from({ length: 2000 }, (_, index) => ({ index })) })
+    const fullValue = JSON.stringify({
+      password: 'open-sesame',
+      token: 'super-secret-token',
+      databaseMask: '*',
+      items: Array.from({ length: 2000 }, (_, index) => ({ index })),
+    })
     const onReadKeyValue = vi.fn(async () => fullTextValue(fullValue))
 
     render(

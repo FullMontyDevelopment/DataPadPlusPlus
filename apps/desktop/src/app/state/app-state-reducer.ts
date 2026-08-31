@@ -19,7 +19,10 @@ import {
   mergeExplorerCacheEntry,
   openMessagesPayload,
 } from './app-state-reducer-helpers'
-import { reduceConnectionHealth } from './app-state-reducer-connection-health'
+import {
+  reconcileConnectionHealth,
+  reduceConnectionHealth,
+} from './app-state-reducer-connection-health'
 import { reduceAppUpdateAction } from './app-state-reducer-updates'
 
 export const initialState: StateShape = {
@@ -79,6 +82,11 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         status: 'ready',
         payload,
         diagnostics: payload.diagnostics,
+        connectionHealthByKey: reconcileConnectionHealth(
+          state.connectionHealthByKey,
+          state.payload?.snapshot,
+          payload.snapshot,
+        ),
         executionStatus:
           Object.keys(state.executionsByTab).length > 0 ? 'loading' : 'ready',
       }

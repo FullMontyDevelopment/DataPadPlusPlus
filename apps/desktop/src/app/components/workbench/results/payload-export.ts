@@ -3,7 +3,6 @@ import {
   createResultExportFile,
   defaultExportOptionForPayload,
 } from './payload-export-serializers'
-import { sanitizeExportText } from './payload-export-sanitizers'
 
 export {
   createResultExportFile,
@@ -15,18 +14,15 @@ export {
   type ResultExportFormat,
   type ResultExportOption,
 } from './payload-export-serializers'
-export { sanitizePayloadForExport, sanitizeExportText } from './payload-export-sanitizers'
 
 export async function copyText(value: string) {
-  const safeValue = sanitizeExportText(value)
-
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(safeValue)
+    await navigator.clipboard.writeText(value)
     return
   }
 
   const textarea = document.createElement('textarea')
-  textarea.value = safeValue
+  textarea.value = value
   textarea.setAttribute('readonly', 'true')
   textarea.style.position = 'fixed'
   textarea.style.opacity = '0'

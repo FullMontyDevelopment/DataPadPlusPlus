@@ -17,13 +17,13 @@ use super::{
         merge_environment_plan_into_operation_response, operation_execution_blocked_response,
     },
     response_redaction::{
+        prepare_execution_result_for_workspace, prepare_redis_key_scan_response_for_workspace,
         redact_adapter_diagnostics_for_environment, redact_data_edit_plan_response_for_environment,
-        redact_data_edit_response_for_environment, redact_execution_result_for_environment,
-        redact_explorer_inspection_for_environment, redact_explorer_response_for_environment,
-        redact_key_value_content_for_environment, redact_operation_plan_response_for_environment,
+        redact_data_edit_response_for_environment, redact_explorer_inspection_for_environment,
+        redact_explorer_response_for_environment, redact_operation_plan_response_for_environment,
         redact_operation_response_for_environment,
         redact_permission_inspection_response_for_environment,
-        redact_redis_key_scan_response_for_environment, redact_structure_response_for_environment,
+        redact_structure_response_for_environment,
     },
     timestamp_now, ManagedAppState,
 };
@@ -109,7 +109,7 @@ impl ManagedAppState {
         let profile = self.connection_by_id(&request.connection_id)?;
         let (resolved, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
-        Ok(redact_redis_key_scan_response_for_environment(
+        Ok(prepare_redis_key_scan_response_for_workspace(
             adapters::scan_redis_keys(&resolved, &request).await?,
             &resolved_environment,
         ))
@@ -130,7 +130,7 @@ impl ManagedAppState {
         let profile = self.connection_by_id(&request.connection_id)?;
         let (resolved, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
-        let result = std::sync::Arc::new(redact_execution_result_for_environment(
+        let result = std::sync::Arc::new(prepare_execution_result_for_workspace(
             adapters::inspect_redis_key(&resolved, &request).await?,
             &resolved_environment,
         ));
@@ -186,12 +186,9 @@ impl ManagedAppState {
         self.ensure_unlocked()?;
         validate_key_value_read_request(&mut request)?;
         let profile = self.connection_by_id(&request.connection_id)?;
-        let (resolved, resolved_environment, _) =
+        let (resolved, _, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
-        Ok(redact_key_value_content_for_environment(
-            adapters::read_key_value(&resolved, &request).await?,
-            &resolved_environment,
-        ))
+        adapters::read_key_value(&resolved, &request).await
     }
 
     pub fn list_datastore_experiences(&self) -> Result<DatastoreExperienceResponse, CommandError> {

@@ -612,7 +612,7 @@ async fn execute_mcp_query(
         let error = enrich_sql_execution_error(&resolved_connection, &query_text, error);
         command_to_mcp(error)
     })?;
-    Ok(redact_execution_result_for_environment(
+    Ok(redact_execution_result_for_external_boundary(
         result,
         &resolved_environment,
     ))

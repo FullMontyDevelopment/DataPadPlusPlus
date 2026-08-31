@@ -21,30 +21,46 @@ export function redactForEnvironment<T>(value: T, environment: ResolvedEnvironme
   return redactUnknown(value, secretValues(environment)) as T
 }
 
-export function redactExecutionResultForEnvironment(
+export function prepareExecutionResultForWorkspace(
   result: ExecutionResultEnvelope,
   environment: ResolvedEnvironment,
 ): ExecutionResultEnvelope
-export function redactExecutionResultForEnvironment(
+export function prepareExecutionResultForWorkspace(
   result: undefined,
   environment: ResolvedEnvironment,
 ): undefined
-export function redactExecutionResultForEnvironment(
+export function prepareExecutionResultForWorkspace(
   result: ExecutionResultEnvelope | undefined,
   environment: ResolvedEnvironment,
 ): ExecutionResultEnvelope | undefined
-export function redactExecutionResultForEnvironment(
+export function prepareExecutionResultForWorkspace(
   result: ExecutionResultEnvelope | undefined,
   environment: ResolvedEnvironment,
 ): ExecutionResultEnvelope | undefined {
-  return result ? redactForEnvironment(result, environment) : undefined
+  if (!result) {
+    return undefined
+  }
+
+  const secrets = secretValues(environment)
+  return {
+    ...result,
+    summary: redactRuntimeString(result.summary, secrets),
+    notices: result.notices.map((notice) => ({
+      ...notice,
+      message: redactRuntimeString(notice.message, secrets),
+    })),
+  }
 }
 
-export function redactResultPageForEnvironment(
+export function prepareResultPageForWorkspace(
   response: ResultPageResponse,
   environment: ResolvedEnvironment,
 ) {
-  return redactForEnvironment(response, environment)
+  const secrets = secretValues(environment)
+  return {
+    ...response,
+    notices: response.notices.map((notice) => redactRuntimeString(notice, secrets)),
+  }
 }
 
 export function redactConnectionTestForEnvironment(
@@ -153,28 +169,13 @@ export function redactStructureResponseForEnvironment(
   }
 }
 
-export function redactRedisKeyScanForEnvironment(
+export function prepareRedisKeyScanForWorkspace(
   response: RedisKeyScanResponse,
   environment: ResolvedEnvironment,
 ): RedisKeyScanResponse {
   return {
     ...response,
-    cursor: redactTextForEnvironment(response.cursor, environment),
-    nextCursor: response.nextCursor
-      ? redactTextForEnvironment(response.nextCursor, environment)
-      : undefined,
-    moduleTypes: response.moduleTypes.map((value) => redactTextForEnvironment(value, environment)),
     warnings: response.warnings.map((value) => redactTextForEnvironment(value, environment)),
-    keys: response.keys.map((key) => ({
-      ...key,
-      key: redactTextForEnvironment(key.key, environment),
-      type: redactTextForEnvironment(key.type, environment),
-      ttlLabel: key.ttlLabel ? redactTextForEnvironment(key.ttlLabel, environment) : undefined,
-      memoryUsageLabel: key.memoryUsageLabel
-        ? redactTextForEnvironment(key.memoryUsageLabel, environment)
-        : undefined,
-      encoding: key.encoding ? redactTextForEnvironment(key.encoding, environment) : undefined,
-    })),
   }
 }
 
@@ -189,7 +190,11 @@ export function redactOperationResponseForEnvironment(
   response: OperationExecutionResponse,
   environment: ResolvedEnvironment,
 ) {
-  return redactForEnvironment(response, environment)
+  const redacted = redactForEnvironment({ ...response, result: undefined }, environment)
+  return {
+    ...redacted,
+    result: prepareExecutionResultForWorkspace(response.result, environment),
+  }
 }
 
 export function redactDataEditPlanForEnvironment(
@@ -203,7 +208,21 @@ export function redactDataEditResponseForEnvironment(
   response: DataEditExecutionResponse,
   environment: ResolvedEnvironment,
 ) {
-  return redactForEnvironment(response, environment)
+  const documentEvidence = response.metadata?.documentEvidence
+  const redacted = redactForEnvironment({
+    ...response,
+    result: undefined,
+    metadata: response.metadata
+      ? { ...response.metadata, documentEvidence: undefined }
+      : undefined,
+  }, environment)
+  return {
+    ...redacted,
+    result: prepareExecutionResultForWorkspace(response.result, environment),
+    metadata: redacted.metadata
+      ? { ...redacted.metadata, documentEvidence }
+      : response.metadata,
+  }
 }
 
 export function redactDiagnosticsForEnvironment(

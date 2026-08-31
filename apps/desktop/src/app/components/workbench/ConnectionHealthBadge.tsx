@@ -5,7 +5,6 @@ import {
 } from '../../state/connection-health'
 import {
   ConnectionConnectedIcon,
-  ConnectionUnknownIcon,
   EnvironmentsIcon,
   RefreshIcon,
   RenameIcon,
@@ -23,8 +22,12 @@ export function ConnectionHealthBadge({
   environmentLabel,
   compact = false,
 }: ConnectionHealthBadgeProps) {
-  const status = health?.status ?? 'unknown'
-  const label = health ? healthLabel(health) : 'Not checked this session'
+  if (!health || health.status === 'unknown') {
+    return null
+  }
+
+  const status = health.status
+  const label = healthLabel(health)
   const title = connectionHealthTitle(health, environmentLabel)
 
   return (
@@ -40,9 +43,7 @@ export function ConnectionHealthBadge({
         <ConnectionConnectedIcon className="connection-health-icon" />
       ) : status === 'degraded' || status === 'issue' ? (
         <WarningIcon className="connection-health-icon" />
-      ) : (
-        <ConnectionUnknownIcon className="connection-health-icon" />
-      )}
+      ) : null}
     </span>
   )
 }

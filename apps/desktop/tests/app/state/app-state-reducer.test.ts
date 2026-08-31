@@ -365,105 +365,128 @@ describe('app-state reducer connection health', () => {
     expect(health?.message).toBe('Query completed')
   })
 
-  it('does not let a stale health check settle a newer check', () => {
-    let state = reducer(initialState, {
-      type: 'CONNECTION_HEALTH_CHECKING',
-      connectionId: 'connection-sql',
-      environmentId: 'env-local',
-      source: 'startup',
-      checkId: 'startup-old',
-    })
-
-    state = reducer(state, {
-      type: 'CONNECTION_HEALTH_CHECKING',
-      connectionId: 'connection-sql',
-      environmentId: 'env-local',
-      source: 'startup',
-      checkId: 'startup-new',
-    })
-
-    state = reducer(state, {
-      type: 'CONNECTION_HEALTH_SETTLED',
-      connectionId: 'connection-sql',
-      environmentId: 'env-local',
-      source: 'startup',
-      checkId: 'startup-old',
-    })
-
-    const health =
-      state.connectionHealthByKey[connectionHealthKey('connection-sql', 'env-local')]
-    expect(health?.status).toBe('checking')
-    expect(health?.checkId).toBe('startup-new')
-  })
-
-  it('ignores a stale health result for a newer active check', () => {
-    let state = reducer(initialState, {
-      type: 'CONNECTION_HEALTH_CHECKING',
-      connectionId: 'connection-sql',
-      environmentId: 'env-local',
-      source: 'startup',
-      checkId: 'startup-new',
-    })
-
-    state = reducer(state, {
-      type: 'CONNECTION_HEALTH_READY',
-      connectionId: 'connection-sql',
-      environmentId: 'env-local',
-      source: 'startup',
-      checkId: 'startup-old',
-      result: {
-        ok: true,
-        engine: 'sqlserver',
-        message: 'Connection ready',
-        warnings: [],
-        resolvedHost: 'localhost',
-        durationMs: 5,
-      },
-    })
-
-    const health =
-      state.connectionHealthByKey[connectionHealthKey('connection-sql', 'env-local')]
-    expect(health?.status).toBe('checking')
-    expect(health?.checkId).toBe('startup-new')
-  })
-
-  it('does not let a slow startup result replace newer health', () => {
-    let state = reducer(initialState, {
-      type: 'CONNECTION_HEALTH_CHECKING',
-      connectionId: 'connection-sql',
-      environmentId: 'env-local',
-      source: 'startup',
-      checkId: 'startup-old',
-    })
-
+  it('retains session health across unrelated workspace payload updates', () => {
+    const payload = createSeedBootstrapPayload()
+    let state: StateShape = {
+      ...initialState,
+      status: 'ready',
+      payload,
+    }
     state = reducer(state, {
       type: 'CONNECTION_HEALTH_CONNECTED',
-      connectionId: 'connection-sql',
-      environmentId: 'env-local',
+      connectionId: 'conn-analytics',
+      environmentId: 'env-dev',
       source: 'metadata',
       message: 'Metadata loaded',
     })
+    const nextPayload = structuredClone(payload)
+    nextPayload.snapshot.workspaceRevision += 1
+    nextPayload.snapshot.ui.explorerFilter = 'orders'
 
+    state = reducer(state, { type: 'COMMAND_SUCCESS', payload: nextPayload })
+
+    expect(
+      state.connectionHealthByKey[connectionHealthKey('conn-analytics', 'env-dev')]
+        ?.status,
+    ).toBe('connected')
+  })
+
+  it('invalidates only health belonging to a revised or deleted connection', () => {
+    const payload = createSeedBootstrapPayload()
+    let state: StateShape = {
+      ...initialState,
+      status: 'ready',
+      payload,
+    }
     state = reducer(state, {
-      type: 'CONNECTION_HEALTH_READY',
-      connectionId: 'connection-sql',
-      environmentId: 'env-local',
-      source: 'startup',
-      checkId: 'startup-old',
-      result: {
-        ok: false,
-        engine: 'sqlserver',
-        message: 'Connection refused',
-        warnings: [],
-        resolvedHost: 'localhost',
-        durationMs: 50,
-      },
+      type: 'CONNECTION_HEALTH_CONNECTED',
+      connectionId: 'conn-analytics',
+      environmentId: 'env-dev',
+      source: 'query',
     })
+    state = reducer(state, {
+      type: 'CONNECTION_HEALTH_CONNECTED',
+      connectionId: 'conn-orders',
+      environmentId: 'env-uat',
+      source: 'query',
+    })
+    const revisedPayload = structuredClone(payload)
+    revisedPayload.snapshot.workspaceRevision += 1
+    const analytics = revisedPayload.snapshot.connections.find(
+      (connection) => connection.id === 'conn-analytics',
+    )
+    if (!analytics) throw new Error('Expected analytics connection fixture.')
+    analytics.updatedAt = '2026-08-30T10:00:00.000Z'
 
-    const health =
-      state.connectionHealthByKey[connectionHealthKey('connection-sql', 'env-local')]
-    expect(health?.status).toBe('connected')
-    expect(health?.source).toBe('metadata')
+    state = reducer(state, { type: 'COMMAND_SUCCESS', payload: revisedPayload })
+
+    expect(
+      state.connectionHealthByKey[connectionHealthKey('conn-analytics', 'env-dev')],
+    ).toBeUndefined()
+    expect(
+      state.connectionHealthByKey[connectionHealthKey('conn-orders', 'env-uat')]
+        ?.status,
+    ).toBe('connected')
+
+    const deletedPayload = structuredClone(revisedPayload)
+    deletedPayload.snapshot.workspaceRevision += 1
+    deletedPayload.snapshot.connections = deletedPayload.snapshot.connections.filter(
+      (connection) => connection.id !== 'conn-orders',
+    )
+    state = reducer(state, { type: 'COMMAND_SUCCESS', payload: deletedPayload })
+
+    expect(
+      state.connectionHealthByKey[connectionHealthKey('conn-orders', 'env-uat')],
+    ).toBeUndefined()
+  })
+
+  it('invalidates only health belonging to a revised or deleted environment', () => {
+    const payload = createSeedBootstrapPayload()
+    let state: StateShape = {
+      ...initialState,
+      status: 'ready',
+      payload,
+    }
+    state = reducer(state, {
+      type: 'CONNECTION_HEALTH_CONNECTED',
+      connectionId: 'conn-analytics',
+      environmentId: 'env-dev',
+      source: 'query',
+    })
+    state = reducer(state, {
+      type: 'CONNECTION_HEALTH_CONNECTED',
+      connectionId: 'conn-analytics',
+      environmentId: 'env-prod',
+      source: 'query',
+    })
+    const revisedPayload = structuredClone(payload)
+    revisedPayload.snapshot.workspaceRevision += 1
+    const development = revisedPayload.snapshot.environments.find(
+      (environment) => environment.id === 'env-dev',
+    )
+    if (!development) throw new Error('Expected development environment fixture.')
+    development.updatedAt = '2026-08-30T10:00:00.000Z'
+
+    state = reducer(state, { type: 'COMMAND_SUCCESS', payload: revisedPayload })
+
+    expect(
+      state.connectionHealthByKey[connectionHealthKey('conn-analytics', 'env-dev')],
+    ).toBeUndefined()
+    expect(
+      state.connectionHealthByKey[connectionHealthKey('conn-analytics', 'env-prod')]
+        ?.status,
+    ).toBe('connected')
+
+    const deletedPayload = structuredClone(revisedPayload)
+    deletedPayload.snapshot.workspaceRevision += 1
+    deletedPayload.snapshot.environments = deletedPayload.snapshot.environments.filter(
+      (environment) => environment.id !== 'env-prod',
+    )
+    state = reducer(state, { type: 'COMMAND_SUCCESS', payload: deletedPayload })
+
+    expect(
+      state.connectionHealthByKey[connectionHealthKey('conn-analytics', 'env-prod')],
+    ).toBeUndefined()
   })
 
   it('redacts secret-looking values from health messages', () => {

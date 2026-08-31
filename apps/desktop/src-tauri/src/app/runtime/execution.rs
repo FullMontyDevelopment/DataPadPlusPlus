@@ -6,7 +6,7 @@ use super::{
     environments::resolve_string_template,
     generate_id,
     response_redaction::{
-        redact_execution_result_for_environment, redact_result_page_for_environment,
+        prepare_execution_result_for_workspace, prepare_result_page_for_workspace,
     },
     sql_hints::{enrich_sql_execution_error, sql_dialect_hint_message},
     timestamp_now,
@@ -178,9 +178,10 @@ impl ManagedAppState {
             )
             .await
             {
-                Ok(result) => Some(std::sync::Arc::new(
-                    redact_execution_result_for_environment(result, &resolved_environment),
-                )),
+                Ok(result) => Some(std::sync::Arc::new(prepare_execution_result_for_workspace(
+                    result,
+                    &resolved_environment,
+                ))),
                 Err(error) => {
                     return Err(enrich_sql_execution_error(
                         &resolved_connection,
@@ -297,7 +298,7 @@ impl ManagedAppState {
             .map(|value| resolve_string_template(value, &resolved_environment.variables))
             .transpose()?;
         let response = adapters::fetch_result_page(&resolved, &resolved_request).await?;
-        Ok(redact_result_page_for_environment(
+        Ok(prepare_result_page_for_workspace(
             response,
             &resolved_environment,
         ))

@@ -4,7 +4,7 @@ import {
   referencedSensitiveEnvironmentVariableKeys,
 } from '../../app/state/environment-variables'
 import { createId, evaluateGuardrails, resolveEnvironment, simulateExecution } from '../../app/state/helpers'
-import { redactExecutionResultForEnvironment, redactForEnvironment } from './browser-response-redaction'
+import { prepareExecutionResultForWorkspace, redactForEnvironment } from './browser-response-redaction'
 import {
   fetchDocumentNodeChildrenFromResult,
   summarizeDocumentResultForEfficiencyMode,
@@ -260,7 +260,7 @@ export function applyExecutionRequestLocally(
     }
   }
 
-  result = redactExecutionResultForEnvironment(result, resolvedEnvironment)
+  result = prepareExecutionResultForWorkspace(result, resolvedEnvironment)
   const redactedDiagnostics = redactForEnvironment(diagnostics, resolvedEnvironment)
 
   tab.queryText = request.queryText

@@ -3,18 +3,20 @@ use std::collections::HashMap;
 use serde_json::json;
 
 use super::response_redaction::{
-    redact_connection_test_result_for_environment, redact_execution_result_for_environment,
+    prepare_execution_result_for_workspace, prepare_redis_key_scan_response_for_workspace,
+    prepare_result_page_for_workspace, redact_connection_test_result_for_environment,
+    redact_data_edit_response_for_environment, redact_execution_result_for_external_boundary,
     redact_explorer_response_for_environment,
-    redact_permission_inspection_response_for_environment,
-    redact_redis_key_scan_response_for_environment, redact_result_page_for_environment,
-    redact_runtime_value_for_environment, redact_structure_response_for_environment,
+    redact_permission_inspection_response_for_environment, redact_runtime_value_for_environment,
+    redact_structure_response_for_environment,
 };
 use crate::domain::models::{
-    ConnectionTestResult, ExecutionCapabilities, ExecutionResultEnvelope, ExplorerNode,
-    ExplorerResponse, PermissionInspection, PermissionInspectionResponse,
-    PermissionUnavailableAction, QueryExecutionNotice, RedisKeyScanResponse, RedisKeySummary,
-    ResolvedEnvironment, ResultPageInfo, ResultPageResponse, StructureEdge, StructureField,
-    StructureGroup, StructureMetric, StructureNode, StructureResponse,
+    ConnectionTestResult, DataEditExecutionResponse, ExecutionCapabilities,
+    ExecutionResultEnvelope, ExplorerNode, ExplorerResponse, OperationPlan, PermissionInspection,
+    PermissionInspectionResponse, PermissionUnavailableAction, QueryExecutionNotice,
+    RedisKeyScanResponse, RedisKeySummary, ResolvedEnvironment, ResultPageInfo, ResultPageResponse,
+    StructureEdge, StructureField, StructureGroup, StructureMetric, StructureNode,
+    StructureResponse,
 };
 
 fn environment_with_secret() -> ResolvedEnvironment {
@@ -93,14 +95,80 @@ fn capabilities() -> ExecutionCapabilities {
 }
 
 #[test]
-fn execution_results_redact_resolved_secret_environment_values() {
-    let redacted =
-        redact_execution_result_for_environment(result_with_secrets(), &environment_with_secret());
+fn workspace_execution_results_preserve_datastore_values_and_sanitize_messages() {
+    let prepared =
+        prepare_execution_result_for_workspace(result_with_secrets(), &environment_with_secret());
+    let serialized = serde_json::to_string(&prepared).expect("serialize result");
+
+    assert_eq!(prepared.summary, "Ran with token ********");
+    assert_eq!(prepared.notices[0].message, "Used ********");
+    assert_eq!(
+        prepared.continuation_token.as_deref(),
+        Some("cursor-super-secret-token")
+    );
+    assert!(serialized.contains("super-secret-token"));
+    assert!(serialized.contains("plain-password"));
+}
+
+#[test]
+fn external_execution_results_redact_datastore_values_recursively() {
+    let redacted = redact_execution_result_for_external_boundary(
+        result_with_secrets(),
+        &environment_with_secret(),
+    );
     let serialized = serde_json::to_string(&redacted).expect("serialize result");
 
     assert!(!serialized.contains("super-secret-token"));
     assert!(!serialized.contains("plain-password"));
     assert!(serialized.contains("********"));
+}
+
+#[test]
+fn data_edit_responses_preserve_document_evidence_and_sanitize_diagnostics() {
+    let response = DataEditExecutionResponse {
+        connection_id: "conn-1".into(),
+        environment_id: "env-qa".into(),
+        edit_kind: "set-value".into(),
+        execution_support: "live".into(),
+        executed: true,
+        plan: OperationPlan {
+            operation_id: "mongodb.data-edit.set-value".into(),
+            engine: "mongodb".into(),
+            summary: "Update super-secret-token".into(),
+            generated_request: "set super-secret-token".into(),
+            request_language: "mongodb".into(),
+            destructive: false,
+            estimated_cost: None,
+            estimated_scan_impact: None,
+            required_permissions: vec!["write".into()],
+            confirmation_text: None,
+            warnings: Vec::new(),
+        },
+        messages: vec!["Updated super-secret-token".into()],
+        warnings: Vec::new(),
+        result: None,
+        metadata: Some(json!({
+            "diagnosticToken": "super-secret-token",
+            "documentEvidence": {
+                "beforeDocument": { "_id": 1, "password": "before-secret" },
+                "afterDocument": { "_id": 1, "password": "super-secret-token" }
+            }
+        })),
+    };
+
+    let prepared = redact_data_edit_response_for_environment(response, &environment_with_secret());
+    let metadata = prepared.metadata.expect("edit metadata");
+
+    assert_eq!(prepared.messages, vec!["Updated ********"]);
+    assert_eq!(metadata["diagnosticToken"], "********");
+    assert_eq!(
+        metadata["documentEvidence"]["beforeDocument"]["password"],
+        "before-secret"
+    );
+    assert_eq!(
+        metadata["documentEvidence"]["afterDocument"]["password"],
+        "super-secret-token"
+    );
 }
 
 #[test]
@@ -123,7 +191,7 @@ fn secret_like_payload_keys_are_redacted_without_environment_secrets() {
 }
 
 #[test]
-fn result_pages_redact_payloads_and_notices() {
+fn result_pages_preserve_payloads_and_cursors_while_sanitizing_notices() {
     let page = ResultPageResponse {
         tab_id: "tab-1".into(),
         result_id: Some("result-1".into()),
@@ -136,17 +204,22 @@ fn result_pages_redact_payloads_and_notices() {
             page_index: 1,
             buffered_rows: 1,
             has_more: false,
-            next_cursor: None,
+            next_cursor: Some("cursor-super-secret-token".into()),
             total_rows_known: Some(1),
         },
         notices: vec!["Loaded with super-secret-token".into()],
     };
 
-    let redacted = redact_result_page_for_environment(page, &environment_with_secret());
-    let serialized = serde_json::to_string(&redacted).expect("serialize page");
+    let prepared = prepare_result_page_for_workspace(page, &environment_with_secret());
+    let serialized = serde_json::to_string(&prepared).expect("serialize page");
 
-    assert!(!serialized.contains("super-secret-token"));
+    assert!(serialized.contains("super-secret-token"));
     assert!(serialized.contains("********"));
+    assert_eq!(
+        prepared.page_info.next_cursor.as_deref(),
+        Some("cursor-super-secret-token")
+    );
+    assert_eq!(prepared.notices, vec!["Loaded with ********"]);
 }
 
 #[test]
@@ -305,7 +378,7 @@ fn structure_metadata_redacts_display_samples_and_metrics() {
 }
 
 #[test]
-fn redis_scan_metadata_redacts_key_strings_and_warnings() {
+fn redis_scan_preserves_functional_data_and_sanitizes_warnings() {
     let response = RedisKeyScanResponse {
         connection_id: "conn-1".into(),
         environment_id: "env-qa".into(),
@@ -331,12 +404,21 @@ fn redis_scan_metadata_redacts_key_strings_and_warnings() {
         warnings: vec!["warning super-secret-token".into()],
     };
 
-    let redacted =
-        redact_redis_key_scan_response_for_environment(response, &environment_with_secret());
-    let serialized = serde_json::to_string(&redacted).expect("serialize redis scan");
+    let prepared =
+        prepare_redis_key_scan_response_for_workspace(response, &environment_with_secret());
 
-    assert!(!serialized.contains("super-secret-token"));
-    assert!(serialized.contains("********"));
+    assert_eq!(prepared.cursor, "cursor-super-secret-token");
+    assert_eq!(
+        prepared.next_cursor.as_deref(),
+        Some("next-super-secret-token")
+    );
+    assert_eq!(prepared.keys[0].key, "session:super-secret-token");
+    assert_eq!(
+        prepared.keys[0].ttl_label.as_deref(),
+        Some("expires with super-secret-token")
+    );
+    assert_eq!(prepared.module_types, vec!["module-super-secret-token"]);
+    assert_eq!(prepared.warnings, vec!["warning ********"]);
 }
 
 #[test]

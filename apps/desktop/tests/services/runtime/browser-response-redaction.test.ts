@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { ResolvedEnvironment } from '@datapadplusplus/shared-types'
 import {
+  prepareExecutionResultForWorkspace,
+  prepareRedisKeyScanForWorkspace,
+  prepareResultPageForWorkspace,
   redactConnectionTestForEnvironment,
+  redactDataEditResponseForEnvironment,
   redactExplorerInspectForEnvironment,
   redactExplorerResponseForEnvironment,
   redactForEnvironment,
-  redactRedisKeyScanForEnvironment,
-  redactResultPageForEnvironment,
   redactStructureResponseForEnvironment,
 } from '../../../src/services/runtime/browser-response-redaction'
 
@@ -73,8 +75,96 @@ describe('browser response redaction', () => {
     expect(serialized).not.toContain('plain-token')
   })
 
-  it('redacts result page payloads and notices before they reach the UI', () => {
-    const redacted = redactResultPageForEnvironment(
+  it('preserves execution result data while sanitizing application messages', () => {
+    const prepared = prepareExecutionResultForWorkspace(
+      {
+        id: 'result-1',
+        engine: 'postgresql',
+        summary: 'Loaded super-secret-token',
+        defaultRenderer: 'json',
+        rendererModes: ['json'],
+        payloads: [{
+          renderer: 'json',
+          value: {
+            password: 'plain-password',
+            token: 'super-secret-token',
+            maskedByDatastore: '*',
+          },
+        }],
+        notices: [{
+          code: 'notice',
+          level: 'info',
+          message: 'Notice super-secret-token',
+        }],
+        executedAt: '2026-08-30T12:00:00.000Z',
+        durationMs: 1,
+        continuationToken: 'cursor-super-secret-token',
+        explainPayload: {
+          renderer: 'json',
+          value: { accessToken: 'super-secret-token' },
+        },
+      },
+      secretEnvironment(),
+    )
+
+    expect(prepared.summary).toBe('Loaded ********')
+    expect(prepared.notices[0]?.message).toBe('Notice ********')
+    expect(prepared.continuationToken).toBe('cursor-super-secret-token')
+    expect(prepared.payloads[0]).toEqual({
+      renderer: 'json',
+      value: {
+        password: 'plain-password',
+        token: 'super-secret-token',
+        maskedByDatastore: '*',
+      },
+    })
+    expect(prepared.explainPayload).toEqual({
+      renderer: 'json',
+      value: { accessToken: 'super-secret-token' },
+    })
+  })
+
+  it('preserves authoritative document evidence while sanitizing edit diagnostics', () => {
+    const prepared = redactDataEditResponseForEnvironment(
+      {
+        connectionId: 'conn-1',
+        environmentId: 'env-qa',
+        editKind: 'set-value',
+        executionSupport: 'live',
+        executed: true,
+        plan: {
+          operationId: 'mongodb.data-edit.set-value',
+          engine: 'mongodb',
+          summary: 'Update super-secret-token',
+          generatedRequest: 'set super-secret-token',
+          requestLanguage: 'mongodb',
+          destructive: false,
+          requiredPermissions: ['write'],
+          warnings: [],
+        },
+        messages: ['Updated super-secret-token'],
+        warnings: [],
+        metadata: {
+          diagnosticToken: 'super-secret-token',
+          documentEvidence: {
+            beforeDocument: { _id: 1, password: 'before-secret' },
+            afterDocument: { _id: 1, password: 'super-secret-token' },
+          },
+        },
+      },
+      secretEnvironment(),
+    )
+
+    expect(prepared.messages).toEqual(['Updated ********'])
+    expect(prepared.metadata?.diagnosticToken).toBe('********')
+    expect(prepared.metadata?.documentEvidence).toEqual({
+      beforeDocument: { _id: 1, password: 'before-secret' },
+      afterDocument: { _id: 1, password: 'super-secret-token' },
+    })
+  })
+
+  it('preserves paged result data and functional cursors while sanitizing notices', () => {
+    const prepared = prepareResultPageForWorkspace(
       {
         tabId: 'tab-1',
         payload: {
@@ -86,17 +176,21 @@ describe('browser response redaction', () => {
           pageSize: 20,
           pageIndex: 1,
           bufferedRows: 1,
-          hasMore: false,
+          hasMore: true,
+          nextCursor: 'cursor-super-secret-token',
         },
         notices: ['loaded super-secret-token'],
       },
       secretEnvironment(),
     )
 
-    const serialized = JSON.stringify(redacted)
-
-    expect(serialized).not.toContain('super-secret-token')
-    expect(serialized).toContain('********')
+    expect(prepared.payload).toEqual({
+      renderer: 'table',
+      columns: ['token'],
+      rows: [['super-secret-token']],
+    })
+    expect(prepared.pageInfo.nextCursor).toBe('cursor-super-secret-token')
+    expect(prepared.notices).toEqual(['loaded ********'])
   })
 
   it('redacts connection test output with environment and inline secret values', () => {
@@ -278,8 +372,8 @@ describe('browser response redaction', () => {
     expect(serialized).not.toContain('plain-password')
   })
 
-  it('redacts Redis scan key metadata before display', () => {
-    const redacted = redactRedisKeyScanForEnvironment(
+  it('preserves Redis keys and cursors while sanitizing warnings', () => {
+    const prepared = prepareRedisKeyScanForWorkspace(
       {
         connectionId: 'conn-1',
         environmentId: 'env-qa',
@@ -303,9 +397,13 @@ describe('browser response redaction', () => {
       secretEnvironment(),
     )
 
-    const serialized = JSON.stringify(redacted)
-
-    expect(serialized).not.toContain('super-secret-token')
-    expect(serialized).toContain('********')
+    expect(prepared.cursor).toBe('cursor-super-secret-token')
+    expect(prepared.nextCursor).toBe('next-super-secret-token')
+    expect(prepared.keys[0]?.key).toBe('session:super-secret-token')
+    expect(prepared.keys[0]?.ttlLabel).toBe('expires super-secret-token')
+    expect(prepared.keys[0]?.memoryUsageLabel).toBe('96 B super-secret-token')
+    expect(prepared.keys[0]?.encoding).toBe('raw super-secret-token')
+    expect(prepared.moduleTypes).toEqual(['module-super-secret-token'])
+    expect(prepared.warnings).toEqual(['warning ********'])
   })
 })

@@ -4,10 +4,6 @@ import type {
   ResultPayload,
   SingleResultPayload,
 } from '@datapadplusplus/shared-types'
-import {
-  sanitizeExportText,
-  sanitizePayloadForExport,
-} from './payload-export-sanitizers'
 import { formatResultCellValue } from './result-cell-format'
 
 export type ResultExportFormat = 'csv' | 'json' | 'ndjson' | 'txt'
@@ -110,21 +106,19 @@ export function serializePayloadForExport(
   payload: ResultPayload,
   format: ResultExportFormat,
 ) {
-  const safePayload = sanitizePayloadForExport(payload)
-
   if (format === 'csv') {
-    return sanitizeExportText(payloadToCsv(safePayload))
+    return payloadToCsv(payload)
   }
 
   if (format === 'ndjson') {
-    return sanitizeExportText(payloadToNdjson(safePayload))
+    return payloadToNdjson(payload)
   }
 
   if (format === 'txt') {
-    return sanitizeExportText(payloadToPlainText(safePayload))
+    return payloadToPlainText(payload)
   }
 
-  return sanitizeExportText(JSON.stringify(payloadToJsonValue(safePayload), null, 2))
+  return JSON.stringify(payloadToJsonValue(payload), null, 2)
 }
 
 function payloadToJsonValue(payload: ResultPayload): unknown {

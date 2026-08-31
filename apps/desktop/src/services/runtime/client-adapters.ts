@@ -2,11 +2,11 @@ import type { AdapterDiagnosticsRequest, AdapterDiagnosticsResponse, DataEditExe
 import { buildDatastoreExperiences, executeDataEditLocally, planDataEditLocally } from './browser-datastore-platform'
 import { buildOperationManifestsForConnection, collectDiagnosticsLocally, executeOperationLocally, inspectPermissionsLocally, planOperationLocally } from './browser-operations'
 import {
-  redactExecutionResultForEnvironment,
+  prepareExecutionResultForWorkspace,
+  prepareRedisKeyScanForWorkspace,
   redactExplorerInspectForEnvironment,
   redactExplorerResponseForEnvironment,
   redactForEnvironment,
-  redactRedisKeyScanForEnvironment,
   redactStructureResponseForEnvironment,
 } from './browser-response-redaction'
 import { createStructureResponseLocally } from './browser-structure'
@@ -95,7 +95,7 @@ export const clientAdapters = {
       .filter((item) => !pattern || item.key.toLowerCase().includes(pattern))
       .filter((item) => typeFilter === 'all' || item.type === typeFilter)
 
-    return redactRedisKeyScanForEnvironment({
+    return prepareRedisKeyScanForWorkspace({
       connectionId: request.connectionId,
       environmentId: request.environmentId,
       databaseIndex: request.databaseIndex ?? 0,
@@ -139,7 +139,7 @@ export const clientAdapters = {
       disabledActions: {},
     }
     const rendererModes: ResultRenderer[] = ['keyvalue', 'json', 'raw']
-    const result: ExecutionResultEnvelope = redactExecutionResultForEnvironment({
+    const result: ExecutionResultEnvelope = prepareExecutionResultForWorkspace({
       id: `result-${Date.now()}`,
       engine: connection.engine,
       summary: `Redis key \`${request.key}\` loaded as ${value.type}.`,
@@ -178,13 +178,25 @@ export const clientAdapters = {
       ],
     }
 
-    return redactForEnvironment({
+    const response: ExecutionResponse = {
       executionId: `execution-${Date.now()}`,
       tab: nextTab,
       result,
       guardrail: { status: 'allow', reasons: [], safeModeApplied: false },
       diagnostics: [],
-    }, resolveEnvironment(snapshot.environments, request.environmentId))
+    }
+    const environment = resolveEnvironment(snapshot.environments, request.environmentId)
+    const redacted = redactForEnvironment({
+      ...response,
+      result: undefined,
+      tab: { ...response.tab, result: undefined },
+    }, environment)
+
+    return {
+      ...redacted,
+      tab: { ...redacted.tab, result },
+      result,
+    }
   },
 
   async readKeyValue(request: KeyValueValueReadRequest): Promise<KeyValueValueReadResult> {

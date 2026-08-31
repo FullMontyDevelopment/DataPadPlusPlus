@@ -334,7 +334,9 @@ async fn execute_custom_endpoint(
     )
     .await
     {
-        Ok(result) => redact_execution_result_for_environment(result, &resolved_environment),
+        Ok(result) => {
+            redact_execution_result_for_external_boundary(result, &resolved_environment)
+        }
         Err(error) => {
             return Err(
                 enrich_sql_execution_error(&resolved_connection, &query_template, error).into(),
@@ -701,7 +703,9 @@ async fn execute_resource_read(
     )
     .await
     {
-        Ok(result) => redact_execution_result_for_environment(result, &resolved_environment),
+        Ok(result) => {
+            redact_execution_result_for_external_boundary(result, &resolved_environment)
+        }
         Err(error) => {
             return Err(enrich_sql_execution_error(&resolved_connection, &query_text, error).into())
         }

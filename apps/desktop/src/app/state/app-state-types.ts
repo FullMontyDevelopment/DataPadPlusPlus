@@ -217,14 +217,12 @@ export type AppAction =
       environmentId: string
       source: ConnectionHealthSource
       message?: string
-      checkId?: string
     }
   | {
       type: 'CONNECTION_HEALTH_SETTLED'
       connectionId: string
       environmentId: string
       source: ConnectionHealthSource
-      checkId?: string
     }
   | {
       type: 'CONNECTION_HEALTH_READY'
@@ -232,7 +230,6 @@ export type AppAction =
       environmentId: string
       source: ConnectionHealthSource
       result: ConnectionTestResult
-      checkId?: string
     }
   | {
       type: 'CONNECTION_HEALTH_CONNECTED'

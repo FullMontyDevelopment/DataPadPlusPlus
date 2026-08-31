@@ -11,17 +11,14 @@ import {
 } from '../../../../src/app/components/workbench/ConnectionHealthBadge'
 
 describe('ConnectionHealthBadge', () => {
-  it('renders unknown and connected connection states compactly', () => {
+  it('renders nothing until connection health has real session evidence', () => {
     const { rerender } = render(<ConnectionHealthBadge environmentLabel="QA" compact />)
 
-    expect(screen.getByRole('status', { name: 'Not checked this session' })).toHaveAttribute(
-      'title',
-      'Not checked this session for QA.',
-    )
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
 
     rerender(
       <ConnectionHealthBadge
-        health={connectionHealthConnected('connection-sql', 'env-qa', 'startup', 'Ready', 11)}
+        health={connectionHealthConnected('connection-sql', 'env-qa', 'manual-test', 'Ready', 11)}
         environmentLabel="QA"
         compact
       />,
@@ -36,7 +33,7 @@ describe('ConnectionHealthBadge', () => {
     const health = connectionHealthIssue(
       'connection-mongo',
       'env-qa',
-      'startup',
+      'manual-test',
       'Connection failed with password=open-sesame',
     )
 
@@ -66,7 +63,7 @@ describe('ConnectionHealthBadge', () => {
         health={connectionHealthIssue(
           'connection-mongo',
           'env-qa',
-          'startup',
+          'manual-test',
           'Connection refused',
         )}
         environmentLabel="QA"
@@ -83,7 +80,7 @@ describe('ConnectionHealthBadge', () => {
         health={connectionHealthIssue(
           'connection-mongo',
           'env-qa',
-          'startup',
+          'manual-test',
           'Missing environment secret API_TOKEN',
         )}
         environmentLabel="QA"
@@ -105,7 +102,7 @@ describe('ConnectionHealthBadge', () => {
   it('renders chips only for degraded or issue states', () => {
     const { rerender } = render(
       <ConnectionHealthChip
-        health={connectionHealthConnected('connection-sql', 'env-qa', 'startup')}
+        health={connectionHealthConnected('connection-sql', 'env-qa', 'manual-test')}
         environmentLabel="QA"
       />,
     )
@@ -117,7 +114,7 @@ describe('ConnectionHealthBadge', () => {
         health={connectionHealthIssue(
           'connection-sql',
           'env-qa',
-          'startup',
+          'manual-test',
           'Connection refused',
         )}
         environmentLabel="QA"

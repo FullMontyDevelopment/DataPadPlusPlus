@@ -15,7 +15,21 @@ use super::response_redaction_keys::is_secret_like_payload_key;
 
 const SECRET_REPLACEMENT: &str = "********";
 
-pub(super) fn redact_execution_result_for_environment(
+pub(super) fn prepare_execution_result_for_workspace(
+    mut result: ExecutionResultEnvelope,
+    environment: &ResolvedEnvironment,
+) -> ExecutionResultEnvelope {
+    let secret_values = secret_values(environment);
+
+    result.summary = redact_runtime_string(&result.summary, &secret_values);
+    for notice in &mut result.notices {
+        notice.message = redact_runtime_string(&notice.message, &secret_values);
+    }
+
+    result
+}
+
+pub(super) fn redact_execution_result_for_external_boundary(
     mut result: ExecutionResultEnvelope,
     environment: &ResolvedEnvironment,
 ) -> ExecutionResultEnvelope {
@@ -38,24 +52,12 @@ pub(super) fn redact_execution_result_for_environment(
     result
 }
 
-pub(super) fn redact_key_value_content_for_environment(
-    mut content: crate::domain::models::KeyValueValueContent,
-    environment: &ResolvedEnvironment,
-) -> crate::domain::models::KeyValueValueContent {
-    if let Ok(text) = std::str::from_utf8(&content.bytes) {
-        content.bytes = redact_runtime_string(text, &secret_values(environment)).into_bytes();
-        content.content_kind = "text".into();
-    }
-    content
-}
-
-pub(super) fn redact_result_page_for_environment(
+pub(super) fn prepare_result_page_for_workspace(
     mut response: ResultPageResponse,
     environment: &ResolvedEnvironment,
 ) -> ResultPageResponse {
     let secret_values = secret_values(environment);
 
-    redact_runtime_value(&mut response.payload, &secret_values);
     response.notices = response
         .notices
         .into_iter()
@@ -175,23 +177,13 @@ pub(super) fn redact_structure_response_for_environment(
     response
 }
 
-pub(super) fn redact_redis_key_scan_response_for_environment(
+pub(super) fn prepare_redis_key_scan_response_for_workspace(
     mut response: RedisKeyScanResponse,
     environment: &ResolvedEnvironment,
 ) -> RedisKeyScanResponse {
     let secret_values = secret_values(environment);
 
-    response.cursor = redact_runtime_string(&response.cursor, &secret_values);
-    response.next_cursor = redact_optional_string(&response.next_cursor, &secret_values);
-    response.module_types = redact_strings(response.module_types, &secret_values);
     response.warnings = redact_strings(response.warnings, &secret_values);
-    for key in &mut response.keys {
-        key.key = redact_runtime_string(&key.key, &secret_values);
-        key.key_type = redact_runtime_string(&key.key_type, &secret_values);
-        key.ttl_label = redact_optional_string(&key.ttl_label, &secret_values);
-        key.memory_usage_label = redact_optional_string(&key.memory_usage_label, &secret_values);
-        key.encoding = redact_optional_string(&key.encoding, &secret_values);
-    }
 
     response
 }
@@ -216,7 +208,7 @@ pub(super) fn redact_operation_response_for_environment(
     response.warnings = redact_strings(response.warnings, &secret_values);
     response.result = response
         .result
-        .map(|result| redact_execution_result_for_environment(result, environment));
+        .map(|result| prepare_execution_result_for_workspace(result, environment));
     response.permission_inspection = response
         .permission_inspection
         .map(|inspection| redact_permission_inspection(inspection, &secret_values));
@@ -250,9 +242,17 @@ pub(super) fn redact_data_edit_response_for_environment(
     response.warnings = redact_strings(response.warnings, &secret_values);
     response.result = response
         .result
-        .map(|result| redact_execution_result_for_environment(result, environment));
+        .map(|result| prepare_execution_result_for_workspace(result, environment));
     if let Some(metadata) = &mut response.metadata {
+        let document_evidence = metadata
+            .as_object_mut()
+            .and_then(|object| object.remove("documentEvidence"));
         redact_runtime_value(metadata, &secret_values);
+        if let (Some(object), Some(document_evidence)) =
+            (metadata.as_object_mut(), document_evidence)
+        {
+            object.insert("documentEvidence".into(), document_evidence);
+        }
     }
 
     response

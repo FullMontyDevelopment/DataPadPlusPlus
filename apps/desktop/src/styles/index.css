@@ -3146,10 +3146,6 @@ button:disabled:hover {
   color: var(--danger);
 }
 
-.connection-health-badge.is-unknown {
-  opacity: 0.52;
-}
-
 .connection-health-chip {
   min-width: 0;
   display: inline-flex;

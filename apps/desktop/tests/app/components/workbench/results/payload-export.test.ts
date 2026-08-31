@@ -5,16 +5,15 @@ import {
   createResultExportFile,
   exportOptionsForPayload,
   payloadToText,
-  sanitizePayloadForExport,
   serializePayloadForExport,
 } from '../../../../../src/app/components/workbench/results/payload-export'
 
-describe('payload export security', () => {
+describe('exact payload export', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('redacts secret-like table columns and connection strings', () => {
+  it('preserves secret-like table columns and credential-shaped datastore strings', () => {
     const payload: ResultPayload = {
       renderer: 'table',
       columns: ['username', 'password', 'notes'],
@@ -28,11 +27,11 @@ describe('payload export security', () => {
     }
 
     expect(payloadToText(payload)).toBe(
-      'username,password,notes\nadmin,********,mongodb://********@localhost:27017/catalog',
+      'username,password,notes\nadmin,open-sesame,mongodb://user:secret@localhost:27017/catalog',
     )
   })
 
-  it('redacts scalar secret fields from document exports', () => {
+  it('preserves scalar secret-like fields from document exports', () => {
     const payload: ResultPayload = {
       renderer: 'document',
       documents: [
@@ -47,13 +46,12 @@ describe('payload export security', () => {
       ],
     }
 
-    expect(payloadToText(payload)).toContain('"token": "********"')
-    expect(payloadToText(payload)).not.toContain('abc123')
-    expect(payloadToText(payload)).not.toContain('camel-secret')
+    expect(payloadToText(payload)).toContain('"token": "abc123"')
+    expect(payloadToText(payload)).toContain('"accessToken": "camel-secret"')
     expect(payloadToText(payload)).toContain('Fixture User')
   })
 
-  it('redacts key/value entries when the key name is secret-like', () => {
+  it('preserves key/value entries when the key name is secret-like', () => {
     const payload: ResultPayload = {
       renderer: 'keyvalue',
       entries: {
@@ -62,18 +60,11 @@ describe('payload export security', () => {
       },
     }
 
-    const exported = sanitizePayloadForExport(payload)
-
-    expect(exported).toMatchObject({
-      renderer: 'keyvalue',
-      entries: {
-        password: '********',
-        status: 'active',
-      },
-    })
+    expect(serializePayloadForExport(payload, 'json')).toContain('"password": "redis-secret"')
+    expect(payloadToText(payload)).toContain('"password": "redis-secret"')
   })
 
-  it('redacts copied text before writing to the clipboard', async () => {
+  it('copies the exact displayed text to the clipboard', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -82,7 +73,7 @@ describe('payload export security', () => {
 
     await copyText('Bearer abc123 password=open-sesame')
 
-    expect(writeText).toHaveBeenCalledWith('Bearer ******** password=********')
+    expect(writeText).toHaveBeenCalledWith('Bearer abc123 password=open-sesame')
   })
 
   it('offers row-oriented export formats for document payloads', () => {
@@ -105,7 +96,7 @@ describe('payload export security', () => {
     expect(serializePayloadForExport(payload, 'ndjson')).toContain('{"_id":1')
   })
 
-  it('builds sanitized export file requests with the selected format', () => {
+  it('builds exact export file requests with the selected format', () => {
     const payload: ResultPayload = {
       renderer: 'table',
       columns: ['token', 'value'],
@@ -120,7 +111,7 @@ describe('payload export security', () => {
       extension: 'json',
       mimeType: 'application/json;charset=utf-8',
     })
-    expect(file.contents).toContain('********')
-    expect(file.contents).not.toContain('plain-secret')
+    expect(file.contents).toContain('plain-secret')
+    expect(file.contents).not.toContain('********')
   })
 })

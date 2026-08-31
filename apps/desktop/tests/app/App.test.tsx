@@ -20,7 +20,6 @@ import {
 import { createObjectViewTabInSnapshot } from '../../src/services/runtime/browser-tabs'
 import { App } from '../../src/app/App'
 import { createBlankBootstrapPayload } from '../../src/app/data/workspace-factory'
-import { startupConnectionHealthTargets } from '../../src/app/state/app-state'
 import { createDefaultCosmosSqlBuilderState } from '../../src/app/components/workbench/query-builder/cosmos-sql'
 
 vi.mock('@monaco-editor/react', () => ({
@@ -397,76 +396,6 @@ function cosmosQuerySnapshot(customEditor = false) {
 }
 
 describe('App', () => {
-  it('keys startup connection checks by connection and environment revision', () => {
-    const payload = createBlankBootstrapPayload()
-    payload.snapshot.environments = [testEnvironment('env-local', 'Local')]
-    payload.snapshot.ui.activeEnvironmentId = 'env-local'
-    payload.snapshot.connections = [startupConnection('conn-revision', 'Revision SQL')]
-
-    const [initialTarget] = startupConnectionHealthTargets(payload)
-    expect(startupConnectionHealthTargets(payload)).toHaveLength(1)
-
-    const connection = payload.snapshot.connections[0]
-    if (!connection) {
-      throw new Error('Expected startup test connection.')
-    }
-    payload.snapshot.connections[0] = {
-      ...connection,
-      updatedAt: '2026-06-01T00:01:00.000Z',
-    }
-
-    const [updatedTarget] = startupConnectionHealthTargets(payload)
-    expect(updatedTarget?.key).not.toBe(initialTarget?.key)
-    expect(updatedTarget?.key).toContain('conn-revision::env-local')
-  })
-
-  it('includes remote network connections during startup health checks', () => {
-    const payload = createBlankBootstrapPayload()
-    payload.snapshot.environments = [testEnvironment('env-local', 'Local')]
-    payload.snapshot.ui.activeEnvironmentId = 'env-local'
-    payload.snapshot.connections = [
-      startupConnection('conn-local', 'Local SQL'),
-      {
-        ...startupConnection('conn-remote-mongo', 'Remote Mongo'),
-        engine: 'mongodb',
-        family: 'document',
-        host: 'mongo.work.internal',
-        port: 27017,
-        database: 'catalog',
-        icon: 'MG',
-      },
-      {
-        ...startupConnection('conn-remote-uri', 'Remote URI Mongo'),
-        engine: 'mongodb',
-        family: 'document',
-        host: '',
-        port: undefined,
-        database: 'catalog',
-        connectionMode: 'connection-string',
-        connectionString: 'mongodb+srv://cluster.example.com/catalog',
-        icon: 'MG',
-      },
-      {
-        ...startupConnection('conn-local-uri', 'Local URI Mongo'),
-        engine: 'mongodb',
-        family: 'document',
-        host: '',
-        port: undefined,
-        database: 'catalog',
-        connectionMode: 'connection-string',
-        connectionString: 'mongodb://localhost:27017/catalog',
-        icon: 'MG',
-      },
-    ]
-
-    expect(startupConnectionHealthTargets(payload).map((target) => target.connection.id)).toEqual([
-      'conn-local',
-      'conn-remote-mongo',
-      'conn-remote-uri',
-      'conn-local-uri',
-    ])
-  })
-
   afterEach(() => {
     vi.restoreAllMocks()
     window.localStorage.clear()
@@ -764,112 +693,16 @@ describe('App', () => {
     expect(screen.queryByLabelText('Bottom panel')).not.toBeInTheDocument()
   })
 
-  it('tests saved connections for their environments on startup', async () => {
+  it('does not health-test saved connections or show unchecked errors on startup', async () => {
     const snapshot = createBlankBootstrapPayload().snapshot
     snapshot.environments = [testEnvironment('env-local', 'Local'), testEnvironment('env-prod', 'Prod')]
     snapshot.ui.activeEnvironmentId = 'env-local'
     snapshot.connections = [
-      {
-        id: 'conn-startup',
-        name: 'Startup SQL',
-        engine: 'postgresql',
-        family: 'sql',
-        host: 'localhost',
-        port: 5432,
-        database: 'app',
-        environmentIds: ['env-local', 'env-prod'],
-        tags: [],
-        favorite: false,
-        readOnly: false,
-        icon: 'PG',
-        auth: {},
-        createdAt: '2026-06-01T00:00:00.000Z',
-        updatedAt: '2026-06-01T00:00:00.000Z',
-      },
+      { ...startupConnection('conn-local', 'Local SQL'), environmentIds: ['env-local'] },
+      { ...startupConnection('conn-prod', 'Production SQL'), environmentIds: ['env-prod'] },
     ]
     saveBrowserSnapshot(snapshot)
-    const testConnectionSpy = vi.spyOn(desktopClient, 'testConnection').mockResolvedValue({
-      ok: true,
-      engine: 'postgresql',
-      message: 'Connection ready.',
-      warnings: [],
-      resolvedHost: 'localhost',
-      resolvedDatabase: 'app',
-      durationMs: 2,
-    })
-
-    render(<App />)
-
-    await waitFor(() => {
-      expect(testConnectionSpy).toHaveBeenCalledTimes(2)
-    })
-    expect(testConnectionSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        profile: expect.objectContaining({ id: 'conn-startup' }),
-        environmentId: 'env-local',
-      }),
-    )
-    expect(testConnectionSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        profile: expect.objectContaining({ id: 'conn-startup' }),
-        environmentId: 'env-prod',
-      }),
-    )
-    await screen.findByLabelText('library sidebar', {}, { timeout: 5_000 })
-    await waitFor(() => {
-      expect(screen.getByRole('status', { name: 'Connected' })).toBeInTheDocument()
-    })
-    expect(screen.queryByRole('status', { name: 'Checking connection' })).not.toBeInTheDocument()
-  })
-
-  it('starts all saved connection tests in parallel on startup', async () => {
-    const snapshot = createBlankBootstrapPayload().snapshot
-    snapshot.environments = [testEnvironment('env-local', 'Local')]
-    snapshot.ui.activeEnvironmentId = 'env-local'
-    snapshot.connections = Array.from({ length: 6 }, (_, index) =>
-      startupConnection(`conn-parallel-${index}`, `Parallel SQL ${index + 1}`),
-    )
-    saveBrowserSnapshot(snapshot)
-
-    const resolvers: Array<(result: ConnectionTestResult) => void> = []
-    const testConnectionSpy = vi
-      .spyOn(desktopClient, 'testConnection')
-      .mockImplementation(
-        (request) =>
-          new Promise<ConnectionTestResult>((resolve) => {
-            resolvers.push(resolve)
-          }).then(() => resolvedConnectionTestResult(request.profile.engine)),
-      )
-
-    render(<App />)
-
-    await waitFor(() => {
-      expect(testConnectionSpy).toHaveBeenCalledTimes(6)
-    })
-    expect(resolvers).toHaveLength(6)
-
-    for (const resolve of resolvers) {
-      resolve(resolvedConnectionTestResult('postgresql'))
-    }
-
-    await waitFor(() => {
-      expect(screen.queryByRole('status', { name: 'Checking connection' })).not.toBeInTheDocument()
-    })
-    await waitFor(() => {
-      expect(screen.getAllByRole('status', { name: 'Connected' })).toHaveLength(6)
-    })
-  })
-
-  it('settles startup connection tests after React StrictMode effect replay', async () => {
-    const snapshot = createBlankBootstrapPayload().snapshot
-    snapshot.environments = [testEnvironment('env-local', 'Local')]
-    snapshot.ui.activeEnvironmentId = 'env-local'
-    snapshot.connections = [startupConnection('conn-strict-startup', 'Strict Startup SQL')]
-    saveBrowserSnapshot(snapshot)
-
-    const testConnectionSpy = vi.spyOn(desktopClient, 'testConnection').mockResolvedValue(
-      resolvedConnectionTestResult('postgresql'),
-    )
+    const testConnectionSpy = vi.spyOn(desktopClient, 'testConnection')
 
     render(
       <StrictMode>
@@ -877,84 +710,14 @@ describe('App', () => {
       </StrictMode>,
     )
 
-    await waitFor(() => {
-      expect(testConnectionSpy).toHaveBeenCalled()
-    })
-    await waitFor(() => {
-      expect(screen.queryByRole('status', { name: 'Checking connection' })).not.toBeInTheDocument()
-    })
-    expect(screen.getByRole('status', { name: 'Connected' })).toBeInTheDocument()
-  })
-
-  it('tests the inherited Library environment on startup', async () => {
-    const snapshot = createBlankBootstrapPayload().snapshot
-    snapshot.environments = [testEnvironment('env-local', 'Local'), testEnvironment('env-qa', 'QA')]
-    snapshot.ui.activeEnvironmentId = 'env-local'
-    snapshot.connections = [
-      {
-        id: 'conn-inherited',
-        name: 'Inherited Mongo',
-        engine: 'mongodb',
-        family: 'document',
-        host: 'localhost',
-        port: 27017,
-        database: 'catalog',
-        environmentIds: [],
-        tags: [],
-        favorite: false,
-        readOnly: false,
-        icon: 'MG',
-        auth: {},
-        createdAt: '2026-06-01T00:00:00.000Z',
-        updatedAt: '2026-06-01T00:00:00.000Z',
-      },
-    ]
-    snapshot.libraryNodes = [
-      {
-        id: 'folder-qa',
-        kind: 'folder',
-        name: 'QA',
-        tags: [],
-        environmentId: 'env-qa',
-        createdAt: '2026-06-01T00:00:00.000Z',
-        updatedAt: '2026-06-01T00:00:00.000Z',
-      },
-      {
-        id: 'library-connection-inherited',
-        kind: 'connection',
-        parentId: 'folder-qa',
-        name: 'Inherited Mongo',
-        tags: [],
-        connectionId: 'conn-inherited',
-        createdAt: '2026-06-01T00:00:00.000Z',
-        updatedAt: '2026-06-01T00:00:00.000Z',
-      },
-    ]
-    saveBrowserSnapshot(snapshot)
-    const testConnectionSpy = vi.spyOn(desktopClient, 'testConnection').mockResolvedValue({
-      ok: true,
-      engine: 'mongodb',
-      message: 'Connection ready.',
-      warnings: [],
-      resolvedHost: 'localhost',
-      resolvedDatabase: 'catalog',
-      durationMs: 2,
-    })
-
-    render(<App />)
-
-    await waitFor(() => {
-      expect(testConnectionSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          profile: expect.objectContaining({ id: 'conn-inherited' }),
-          environmentId: 'env-qa',
-        }),
-      )
-    })
     await screen.findByLabelText('library sidebar', {}, { timeout: 5_000 })
-    await waitFor(() => {
-      expect(screen.getByRole('status', { name: 'Connected' })).toBeInTheDocument()
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
     })
+    expect(testConnectionSpy).not.toHaveBeenCalled()
+    expect(screen.queryByRole('status', { name: 'Not checked this session' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: 'Checking connection' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: 'Connection issue' })).not.toBeInTheDocument()
   })
 
   it('keeps icon controls accessible and disables tab-only actions until a connection exists', async () => {

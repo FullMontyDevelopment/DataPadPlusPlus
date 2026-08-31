@@ -1,6 +1,6 @@
 import type { ResultPageRequest, ResultPageResponse, StructureRequest, StructureResponse, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import { resolveEnvironment } from '../../app/state/helpers'
-import { redactResultPageForEnvironment } from './browser-response-redaction'
+import { prepareResultPageForWorkspace } from './browser-response-redaction'
 import { findConnection } from './browser-store'
 
 export function createStructureResponseLocally(
@@ -207,7 +207,7 @@ export function fetchResultPageLocally(
       page: pageIndex,
     }))
 
-    return redactResultPageForEnvironment({
+    return prepareResultPageForWorkspace({
       tabId: request.tabId,
       payload: { renderer: 'document', documents },
       pageInfo: {
@@ -225,7 +225,7 @@ export function fetchResultPageLocally(
     `Buffered row ${offset + index + 1}`,
   ])
 
-  return redactResultPageForEnvironment({
+  return prepareResultPageForWorkspace({
     tabId: request.tabId,
     payload: { renderer: 'table', columns: ['id', 'name'], rows },
     pageInfo: {

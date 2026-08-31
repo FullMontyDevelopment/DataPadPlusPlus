@@ -1,17 +1,14 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useReducer, useRef, useState } from 'react'
-import type { Dispatch, ReactNode } from 'react'
-import type { BootstrapPayload, ConnectionProfile } from '@datapadplusplus/shared-types'
+import type { ReactNode } from 'react'
+import type { BootstrapPayload } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
-import { effectiveConnectionEnvironmentIds } from '../../services/runtime/library-connection-helpers'
 import { useAppActions } from './app-actions'
 import { initialState, reducer } from './app-state-reducer'
 import { dispatchBootstrapPayload } from './app-state-payload'
 import { toUserError, toUserMessage } from './app-state-selectors'
-import { buildConnectionTestFailure } from './connection-test-results'
-import { connectionHealthKey } from './connection-health'
 import { useStartupUpdateCheck } from './use-startup-update-check'
-import type { Actions, AppAction, AppContextValue, StateShape, AppErrorOptions } from './app-state-types'
+import type { Actions, AppContextValue, StateShape, AppErrorOptions } from './app-state-types'
 export type { WorkbenchMessage, WorkbenchMessageSeverity } from './app-state-types'
 const noop = async () => {}
 const noopFalse = async () => false
@@ -172,25 +169,13 @@ const AppStateContext = createContext<AppContextValue>({
   actions: defaultActions,
 })
 
-const STARTUP_CONNECTION_TEST_TIMEOUT_MS = 20_000
-
 export function shouldDispatchCommandError(options?: AppErrorOptions) {
   return !options?.suppressWorkbenchMessage
-}
-
-interface StartupConnectionHealthTarget {
-  connection: ConnectionProfile
-  environmentId: string
-  key: string
-  checkId: string
-  connectionUpdatedAt: string
-  environmentUpdatedAt: string
 }
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState)
   const stateRef = useRef<StateShape>(state)
-  const startupConnectionHealthKeysRef = useRef<Set<string>>(new Set())
   const providerMountedRef = useRef(true)
   const [windowRole, setWindowRole] = useState<'main' | 'editor' | undefined>(undefined)
   const workspaceRefreshTimerRef = useRef<number | undefined>(undefined)
@@ -331,78 +316,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     status: state.status,
   })
 
-  useEffect(() => {
-    const payload = state.payload
-    if (windowRole !== 'main' || !payload || payload.snapshot.lockState.isLocked) {
-      return
-    }
-
-    const pendingTargets = startupConnectionHealthTargets(payload).filter((target) => {
-      if (startupConnectionHealthKeysRef.current.has(target.key)) {
-        return false
-      }
-      startupConnectionHealthKeysRef.current.add(target.key)
-      return true
-    })
-
-    if (pendingTargets.length === 0) {
-      return
-    }
-
-    for (const target of pendingTargets) {
-      dispatch({
-        type: 'CONNECTION_HEALTH_CHECKING',
-        connectionId: target.connection.id,
-        environmentId: target.environmentId,
-        source: 'startup',
-        message: 'Testing connection',
-        checkId: target.checkId,
-      })
-    }
-
-    void runStartupConnectionHealthChecks(pendingTargets, async (target) => {
-      try {
-        const result = await startupConnectionTestWithTimeout(target)
-
-        if (!providerMountedRef.current) {
-          return
-        }
-
-        if (!isStartupHealthTargetCurrent(stateRef.current.payload, target)) {
-          settleStartupConnectionHealth(dispatch, target)
-          return
-        }
-
-        dispatch({
-          type: 'CONNECTION_HEALTH_READY',
-          connectionId: target.connection.id,
-          environmentId: target.environmentId,
-          source: 'startup',
-          result,
-          checkId: target.checkId,
-        })
-      } catch (error) {
-        if (!providerMountedRef.current) {
-          return
-        }
-
-        if (!isStartupHealthTargetCurrent(stateRef.current.payload, target)) {
-          settleStartupConnectionHealth(dispatch, target)
-          return
-        }
-
-        dispatch({
-          type: 'CONNECTION_HEALTH_READY',
-          connectionId: target.connection.id,
-          environmentId: target.environmentId,
-          source: 'startup',
-          result: buildConnectionTestFailure(target.connection, error),
-          checkId: target.checkId,
-        })
-      }
-    })
-  }, [state.payload, stateRef, windowRole])
-
   const value: AppContextValue = {
     ...state,
     activeConnection,
@@ -411,126 +324,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>
-}
-
-export function startupConnectionHealthTargets(payload: BootstrapPayload): StartupConnectionHealthTarget[] {
-  const snapshot = payload.snapshot
-  const environmentsById = new Map(
-    snapshot.environments.map((environment) => [environment.id, environment]),
-  )
-  const fallbackEnvironmentId =
-    snapshot.ui.activeEnvironmentId || snapshot.environments[0]?.id || ''
-  const targets: StartupConnectionHealthTarget[] = []
-  const targetKeys = new Set<string>()
-
-  const addTarget = (connection: ConnectionProfile, environmentId: string | undefined) => {
-    if (!environmentId) {
-      return
-    }
-    const environment = environmentsById.get(environmentId)
-    if (!environment) {
-      return
-    }
-
-    const healthKey = connectionHealthKey(connection.id, environmentId)
-    const key = `${healthKey}::${connection.updatedAt}::${environment.updatedAt}`
-    if (targetKeys.has(key)) {
-      return
-    }
-
-    targetKeys.add(key)
-    targets.push({
-      connection,
-      environmentId,
-      key,
-      checkId: key,
-      connectionUpdatedAt: connection.updatedAt,
-      environmentUpdatedAt: environment.updatedAt,
-    })
-  }
-
-  for (const connection of snapshot.connections) {
-    const effectiveEnvironmentIds = effectiveConnectionEnvironmentIds(snapshot, connection)
-    for (const environmentId of uniqueValues(
-      [...effectiveEnvironmentIds, ...connection.environmentIds, fallbackEnvironmentId].filter(
-        (item): item is string => Boolean(item),
-      ),
-    )) {
-      addTarget(connection, environmentId)
-    }
-  }
-
-  return targets
-}
-
-async function startupConnectionTestWithTimeout(target: StartupConnectionHealthTarget) {
-  let timeoutId: number | undefined
-
-  try {
-    return await Promise.race([
-      desktopClient.testConnection({
-        profile: target.connection,
-        environmentId: target.environmentId,
-      }),
-      new Promise<never>((_, reject) => {
-        timeoutId = window.setTimeout(
-          () =>
-            reject(
-              new Error(
-                `Connection test did not finish within ${Math.round(
-                  STARTUP_CONNECTION_TEST_TIMEOUT_MS / 1000,
-                )} seconds.`,
-              ),
-            ),
-          STARTUP_CONNECTION_TEST_TIMEOUT_MS,
-        )
-      }),
-    ])
-  } finally {
-    if (typeof timeoutId === 'number') {
-      window.clearTimeout(timeoutId)
-    }
-  }
-}
-
-async function runStartupConnectionHealthChecks(
-  targets: StartupConnectionHealthTarget[],
-  testTarget: (target: StartupConnectionHealthTarget) => Promise<void>,
-) {
-  await Promise.allSettled(targets.map((target) => testTarget(target)))
-}
-
-function isStartupHealthTargetCurrent(
-  payload: BootstrapPayload | undefined,
-  target: StartupConnectionHealthTarget,
-) {
-  const currentConnection = payload?.snapshot.connections.find(
-    (connection) => connection.id === target.connection.id,
-  )
-  const currentEnvironment = payload?.snapshot.environments.find(
-    (environment) => environment.id === target.environmentId,
-  )
-  return (
-    currentConnection?.updatedAt === target.connectionUpdatedAt &&
-    currentEnvironment?.updatedAt === target.environmentUpdatedAt
-  )
-}
-
-function settleStartupConnectionHealth(
-  dispatch: Dispatch<AppAction>,
-  target: StartupConnectionHealthTarget,
-) {
-  dispatch({
-    type: 'CONNECTION_HEALTH_SETTLED',
-    connectionId: target.connection.id,
-    environmentId: target.environmentId,
-    source: 'startup',
-    checkId: target.checkId,
-  })
-}
-
-function uniqueValues(values: string[]) {
-  return [...new Set(values)]
 }
 
 export function useAppState() {

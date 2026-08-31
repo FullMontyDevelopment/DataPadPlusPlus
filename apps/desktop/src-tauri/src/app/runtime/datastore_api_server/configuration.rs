@@ -16,7 +16,7 @@ use tokio::{
 use super::{
     environments::resolve_string_template,
     generate_id,
-    response_redaction::redact_execution_result_for_environment,
+    response_redaction::redact_execution_result_for_external_boundary,
     sql_hints::{enrich_sql_execution_error, sql_dialect_hint_message},
     timestamp_now, ManagedAppState, SharedAppState,
 };
