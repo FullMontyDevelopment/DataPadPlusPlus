@@ -137,6 +137,8 @@ internal static partial class Program
                 "health" => Health(),
                 "test" => await TestConnectionAsync(request, active, cancellation.Token),
                 "execute" => await ExecuteAsync(request, active, cancellation.Token),
+                "exportcsv" => await ExportCsvAsync(request, active, cancellation.Token),
+                "importcsv" => await ImportCsvAsync(request, active, cancellation.Token),
                 _ => throw new SidecarException(
                     "oracle-sidecar-operation-unsupported",
                     $"Oracle runtime operation '{request.Operation}' is not supported."),
@@ -159,14 +161,14 @@ internal static partial class Program
             await WriteResponseAsync(OracleResponse.Failure(
                 request.RequestId,
                 error.Number == 0 ? "oracle-runtime-error" : $"ORA-{Math.Abs(error.Number):00000}",
-                SanitizeOracleMessage(error.Message)));
+                SanitizeOracleRequestMessage(error.Message, request)));
         }
         catch (Exception error)
         {
             await WriteResponseAsync(OracleResponse.Failure(
                 request.RequestId,
                 "oracle-runtime-error",
-                SanitizeOracleMessage(error.Message)));
+                SanitizeOracleRequestMessage(error.Message, request)));
         }
         finally
         {
@@ -952,6 +954,16 @@ internal static partial class Program
         return firstLine.Length <= 2_000 ? firstLine : firstLine[..2_000];
     }
 
+    private static string SanitizeOracleRequestMessage(string message, OracleRequest request)
+    {
+        return string.IsNullOrWhiteSpace(request.TransferPath)
+            ? SanitizeOracleMessage(message)
+            : SanitizeOracleMessage(message.Replace(
+                request.TransferPath,
+                "<local transfer file>",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
     private static string? ValueAsString(object value) => value is DBNull ? null : value.ToString();
 
     private static async Task WriteResponseAsync(OracleResponse response)
@@ -1015,7 +1027,12 @@ internal sealed record OracleRequest(
     bool ReadOnly,
     bool CaptureDbmsOutput,
     string? TargetRequestId,
-    string? CurrentSchema);
+    string? CurrentSchema,
+    string? TransferPath,
+    string? Schema,
+    string? Table,
+    string? ConflictPolicy,
+    string? Format);
 
 internal sealed record OracleConnectionInput(
     string? Host,

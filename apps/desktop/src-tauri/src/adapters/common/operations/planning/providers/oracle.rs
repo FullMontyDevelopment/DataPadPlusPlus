@@ -13,7 +13,7 @@ pub(super) fn oracle_operation_request(
 
     if operation_id.ends_with("data.import-export") || operation_id.contains("import-export") {
         return format!(
-            "-- Oracle SQLcl/SQL*Plus CSV export plan.\nset markup csv on\nspool <selected-file>.csv\nselect * from {object_name} fetch first 1000 rows only;\nspool off\n-- Data Pump import/export should be reviewed with DIRECTORY grants, schemas, remap rules, and table filters before execution."
+            "-- Oracle managed-driver CSV transfer for {object_name}.\n-- Export streams every selected row to a temporary local artifact before atomic completion.\n-- Import validates the exact insertable-column header, requires an empty target, and uses array binding in guarded batches."
         );
     }
 

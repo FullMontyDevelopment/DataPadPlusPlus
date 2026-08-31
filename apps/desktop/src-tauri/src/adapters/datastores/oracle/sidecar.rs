@@ -356,6 +356,38 @@ pub(super) async fn execute_oracle_managed_read(
     .map_err(|error| oracle_metadata_error(error, timeout_ms))
 }
 
+pub(super) async fn execute_oracle_managed_csv_transfer(
+    connection: &ResolvedConnectionProfile,
+    operation: &str,
+    schema: &str,
+    table: &str,
+    path: &Path,
+    conflict_policy: Option<&str>,
+) -> Result<Value, CommandError> {
+    let timeout_ms = oracle_request_timeout_ms(connection);
+    oracle_sidecar_request(
+        json!({
+            "protocolVersion": ORACLE_SIDECAR_PROTOCOL_VERSION,
+            "requestId": oracle_request_id("transfer"),
+            "operation": operation,
+            "connection": oracle_connection_payload(connection)?,
+            "timeoutMs": timeout_ms,
+            "fetchSize": connection.oracle_options.as_ref().and_then(|options| options.fetch_size),
+            "readOnly": connection.read_only,
+            "captureDbmsOutput": false,
+            "transferPath": path,
+            "schema": schema,
+            "table": table,
+            "conflictPolicy": conflict_policy,
+            "format": "csv",
+            "currentSchema": schema,
+        }),
+        timeout_ms,
+        OracleSidecarRequestOrigin::Interactive,
+    )
+    .await
+}
+
 fn oracle_metadata_error(error: CommandError, timeout_ms: u64) -> CommandError {
     if matches!(
         error.code.as_str(),

@@ -1,7 +1,9 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { createInterface } from 'node:readline'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 
 const runtimeNames = {
   'win32-x64': 'datapadplusplus-oracle-runtime-x86_64-pc-windows-msvc.exe',
@@ -265,7 +267,85 @@ try {
   })
   expect(!blocked.ok && blocked.code === 'oracle-read-only-blocked', 'Read-only Oracle execution did not fail closed.')
 
-  console.log(`Managed Oracle fixture OK: ${tested.containerName}, schema ${tested.currentSchema}, ${tables.length} tables, ${objects.pages.length} object pages, ${fields.pages.length} field pages, legacy PLAN_TABLE explain, child metadata, bounded SQL, PL/SQL output, and read-only guardrails.`)
+  const transferFolder = await mkdtemp(join(tmpdir(), 'datapad-oracle-transfer-'))
+  const transferPath = join(transferFolder, 'oracle-transfer.csv')
+  try {
+    expectSuccess(await request('execute', {
+      statement: `
+        begin execute immediate 'drop table DPP_TRANSFER_TARGET purge'; exception when others then if sqlcode != -942 then raise; end if; end;
+        /
+        begin execute immediate 'drop table DPP_TRANSFER_SOURCE purge'; exception when others then if sqlcode != -942 then raise; end if; end;
+        /
+        create table DPP_TRANSFER_SOURCE (
+          ID number primary key,
+          AMOUNT number(30, 5),
+          EVENT_TIME timestamp with time zone,
+          PAYLOAD varchar2(200),
+          RAW_VALUE raw(16)
+        );
+        create table DPP_TRANSFER_TARGET (
+          ID number primary key,
+          AMOUNT number(30, 5),
+          EVENT_TIME timestamp with time zone,
+          PAYLOAD varchar2(200),
+          RAW_VALUE raw(16)
+        );
+        insert into DPP_TRANSFER_SOURCE values (1, 9007199254740993.12500, timestamp '2026-08-31 12:30:45.123456789 UTC', '室内,"quoted"' || chr(10) || 'line', hextoraw('00112233445566778899AABBCCDDEEFF'));
+        insert into DPP_TRANSFER_SOURCE values (2, -0.00001, timestamp '2026-08-31 13:30:45 UTC', null, null);
+      `,
+      readOnly: false,
+    }), 'Oracle transfer setup')
+
+    const exported = expectSuccess(await request('exportCsv', {
+      schema: 'DATAPADPLUSPLUS',
+      table: 'DPP_TRANSFER_SOURCE',
+      transferPath,
+      format: 'csv',
+    }), 'Oracle CSV export')
+    expect(exported.exportedCount === 2, 'Oracle CSV export returned the wrong row count.')
+    expect(exported.bytesWritten > 0, 'Oracle CSV export produced an empty artifact.')
+
+    const imported = expectSuccess(await request('importCsv', {
+      schema: 'DATAPADPLUSPLUS',
+      table: 'DPP_TRANSFER_TARGET',
+      transferPath,
+      format: 'csv',
+      conflictPolicy: 'fail',
+      readOnly: false,
+    }), 'Oracle CSV import')
+    expect(imported.importedCount === 2, 'Oracle CSV array binding returned the wrong row count.')
+
+    const transferred = expectSuccess(await request('execute', {
+      statement: `select id, case when amount = 9007199254740993.12500 then 'MATCH' else 'MISMATCH' end, payload, rawtohex(raw_value) from DPP_TRANSFER_TARGET order by id`,
+    }), 'Oracle transferred values')
+    expect(transferred.sections[0].rows.length === 2, 'Oracle CSV import did not persist both rows.')
+    expect(transferred.sections[0].rows[0][1] === 'MATCH', 'Oracle CSV import lost decimal precision.')
+    expect(transferred.sections[0].rows[0][2] === '室内,"quoted"\nline', 'Oracle CSV import lost Unicode or multiline text.')
+    expect(transferred.sections[0].rows[0][3] === '00112233445566778899AABBCCDDEEFF', 'Oracle CSV import lost binary data.')
+
+    const conflict = await request('importCsv', {
+      schema: 'DATAPADPLUSPLUS',
+      table: 'DPP_TRANSFER_TARGET',
+      transferPath,
+      format: 'csv',
+      conflictPolicy: 'fail',
+      readOnly: false,
+    })
+    expect(!conflict.ok && conflict.code === 'oracle-import-target-not-empty', 'Oracle CSV import did not refuse a non-empty target.')
+  } finally {
+    await request('execute', {
+      statement: `
+        begin execute immediate 'drop table DPP_TRANSFER_TARGET purge'; exception when others then if sqlcode != -942 then raise; end if; end;
+        /
+        begin execute immediate 'drop table DPP_TRANSFER_SOURCE purge'; exception when others then if sqlcode != -942 then raise; end if; end;
+        /
+      `,
+      readOnly: false,
+    })
+    await rm(transferFolder, { recursive: true, force: true })
+  }
+
+  console.log(`Managed Oracle fixture OK: ${tested.containerName}, schema ${tested.currentSchema}, ${tables.length} tables, ${objects.pages.length} object pages, ${fields.pages.length} field pages, legacy PLAN_TABLE explain, child metadata, bounded SQL, PL/SQL output, CSV export/import, and read-only guardrails.`)
 } finally {
   child.stdin.end()
   lines.close()

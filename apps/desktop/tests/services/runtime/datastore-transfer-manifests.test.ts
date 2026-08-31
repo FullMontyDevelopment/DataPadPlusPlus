@@ -31,6 +31,7 @@ describe('datastore transfer manifests', () => {
       'cassandra',
       'elasticsearch', 'opensearch',
       'cockroachdb',
+      'oracle',
     ] as const) {
       const capabilities = datastoreTransferManifest(engine).capabilities
       expect(capabilities.find((item) => item.action === 'import')?.executionSupport).toBe('live')
@@ -133,6 +134,19 @@ describe('datastore transfer manifests', () => {
     expect(exported?.executionSupport).toBe('live')
     expect(restored?.executionSupport).toBe('live')
     expect(restored?.options?.map((item) => item.id)).toEqual(['targetDatabase'])
+  })
+
+  it('uses the bundled managed Oracle runtime for CSV table transfer', () => {
+    const capabilities = datastoreTransferManifest('oracle').capabilities
+    const imported = capabilities.find((item) => item.action === 'import')
+    const exported = capabilities.find((item) => item.action === 'export')
+
+    expect(imported?.executionSupport).toBe('live')
+    expect(imported?.requiresExistingTarget).toBe(true)
+    expect(imported?.formats.map((item) => item.id)).toEqual(['csv'])
+    expect(imported?.supportsMultipleObjects).toBe(false)
+    expect(exported?.executionSupport).toBe('live')
+    expect(capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('plan-only')
   })
 
   it('uses a mappings, settings, and Bulk NDJSON folder for search transfers', () => {

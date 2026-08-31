@@ -102,7 +102,7 @@ const DATA_SPECS: Record<DatastoreEngine, CapabilitySpec> = {
       },
     ],
   }),
-  oracle: plannedData('Oracle local data transfer will use managed-driver array binding.', [portableCsv]),
+  oracle: liveData('Oracle streams CSV through the bundled managed driver and imports into an existing empty table with array binding and exact column validation.', [portableCsv], undefined, false),
   elasticsearch: liveSearchData('Elasticsearch exports with PIT/search-after and imports into a new rollback-safe index through conflict-safe Bulk create actions.'),
   opensearch: liveSearchData('OpenSearch exports with version-compatible scroll paging and imports into a new rollback-safe index through conflict-safe Bulk create actions.'),
   clickhouse: liveData('ClickHouse streams native SELECT FORMAT and INSERT FORMAT payloads through its HTTP interface. Imports require an existing empty table so the fail-safe conflict policy cannot append to existing data.', [['csv', 'CSVWithNames', 'native', ['csv'], 'ClickHouse CSV data with a native column-name header.'], ['tsv', 'TabSeparatedWithNames', 'native', ['tsv'], 'ClickHouse tab-separated data with a native column-name header.'], ['json-each-row', 'JSONEachRow', 'native', ['jsonl'], 'ClickHouse JSONEachRow data.'], ['parquet', 'Parquet', 'native', ['parquet'], 'ClickHouse Parquet data.']]),

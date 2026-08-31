@@ -608,6 +608,14 @@ pub(super) fn oracle_schema_from_scope(
         })
 }
 
+pub(super) fn oracle_table_from_scope(
+    connection: &ResolvedConnectionProfile,
+    scope: &str,
+) -> Option<(String, String)> {
+    let (context, kind, object_name) = OracleObjectContext::from_object_scope(connection, scope)?;
+    (kind == "table").then_some((context.schema, object_name))
+}
+
 async fn category_object_nodes(
     connection: &ResolvedConnectionProfile,
     scope: &str,

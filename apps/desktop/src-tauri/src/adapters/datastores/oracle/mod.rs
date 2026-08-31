@@ -5,6 +5,7 @@ mod connection;
 mod diagnostics;
 mod editing;
 mod explorer;
+mod import_export;
 mod query;
 mod session;
 mod sidecar;
@@ -15,6 +16,7 @@ use connection::test_oracle_connection;
 use diagnostics::collect_oracle_diagnostics;
 use editing::{execute_oracle_data_edit, oracle_data_edit_plan};
 use explorer::{inspect_oracle_explorer_node, list_oracle_explorer_nodes};
+use import_export::execute_oracle_import_export;
 use sidecar::{cancel_oracle_managed, oracle_execution_runtime};
 use structure::load_oracle_structure;
 
@@ -36,6 +38,31 @@ impl DatastoreAdapter for OracleAdapter {
 
     fn execution_capabilities(&self) -> ExecutionCapabilities {
         oracle_execution_capabilities()
+    }
+
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        oracle_operation_manifests(&self.manifest())
+    }
+
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if request.operation_id == "oracle.data.import-export" {
+            return execute_oracle_import_export(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
     }
 
     async fn test_connection(
