@@ -659,6 +659,8 @@ async fn execute_cosmosdb_gremlin(
         username: Some(&username),
         password: Some(&password),
         graphson: GremlinGraphSon::V2,
+        bindings: None,
+        preserve_graphson_types: false,
         timeout_ms,
         send_basic_header: true,
         verify_certificates: !connection

@@ -4,6 +4,7 @@ mod catalog;
 mod connection;
 mod diagnostics;
 mod explorer;
+mod import_export;
 mod query;
 mod query_request;
 mod query_results;
@@ -13,6 +14,7 @@ use catalog::*;
 use connection::test_janusgraph_connection;
 use diagnostics::collect_janusgraph_diagnostics;
 use explorer::{inspect_janusgraph_explorer_node, list_janusgraph_explorer_nodes};
+use import_export::execute_janusgraph_import_export;
 use structure::load_janusgraph_structure;
 
 pub(crate) struct JanusGraphAdapter;
@@ -29,6 +31,31 @@ impl DatastoreAdapter for JanusGraphAdapter {
 
     fn execution_capabilities(&self) -> ExecutionCapabilities {
         janusgraph_execution_capabilities()
+    }
+
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        janusgraph_operation_manifests(&self.manifest())
+    }
+
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if request.operation_id == "janusgraph.data.import-export" {
+            return execute_janusgraph_import_export(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
     }
 
     async fn test_connection(

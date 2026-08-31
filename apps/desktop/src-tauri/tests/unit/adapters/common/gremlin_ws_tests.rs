@@ -10,8 +10,9 @@ fn gremlin_partial_chunks_unwrap_graphson_lists() {
     append_gremlin_data(
         &mut values,
         Some(&json!({ "@type": "g:List", "@value": [1, 2] })),
+        false,
     );
-    append_gremlin_data(&mut values, Some(&json!([3])));
+    append_gremlin_data(&mut values, Some(&json!([3])), false);
 
     assert_eq!(values, vec![json!(1), json!(2), json!(3)]);
 }
@@ -27,6 +28,19 @@ fn graphson_maps_and_numbers_decode_to_plain_json() {
     }));
 
     assert_eq!(value, json!({ "label": "Account", "count": 100 }));
+}
+
+#[test]
+fn transfer_chunks_keep_nested_graphson_types() {
+    let typed = json!({ "@type": "g:Int64", "@value": 9_223_372_036_854_775_806_i64 });
+    let mut values = Vec::<Value>::new();
+    append_gremlin_data(
+        &mut values,
+        Some(&json!({ "@type": "g:List", "@value": [typed.clone()] })),
+        true,
+    );
+
+    assert_eq!(values, vec![typed]);
 }
 
 #[test]
@@ -64,6 +78,8 @@ fn gremlin_request(endpoint: &str) -> GremlinWebSocketRequest<'_> {
         username: None,
         password: None,
         graphson: GremlinGraphSon::V3,
+        bindings: None,
+        preserve_graphson_types: false,
         timeout_ms: 1_000,
         send_basic_header: false,
         verify_certificates: true,

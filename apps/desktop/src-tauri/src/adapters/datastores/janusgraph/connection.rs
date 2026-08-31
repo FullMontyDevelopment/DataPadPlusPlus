@@ -5,11 +5,11 @@ use super::super::super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct JanusGraphEndpoint {
-    scheme: String,
-    host: String,
-    port: u16,
-    prefix: String,
-    traversal_source: String,
+    pub(super) scheme: String,
+    pub(super) host: String,
+    pub(super) port: u16,
+    pub(super) prefix: String,
+    pub(super) traversal_source: String,
 }
 
 pub(super) async fn test_janusgraph_connection(
@@ -78,6 +78,8 @@ async fn janusgraph_run_websocket(
         username,
         password: connection.password.as_deref(),
         graphson: GremlinGraphSon::V3,
+        bindings: None,
+        preserve_graphson_types: false,
         timeout_ms: options
             .and_then(|value| value.query_timeout_ms)
             .unwrap_or(30_000),
@@ -256,7 +258,7 @@ impl JanusGraphEndpoint {
         )
     }
 
-    fn url(&self, path: &str) -> String {
+    pub(super) fn url(&self, path: &str) -> String {
         format!(
             "{}://{}:{}{}",
             self.scheme,
@@ -380,7 +382,7 @@ fn janusgraph_error_code(code: &str) -> &str {
     }
 }
 
-fn janusgraph_websocket_error(endpoint: &str, error: CommandError) -> CommandError {
+pub(super) fn janusgraph_websocket_error(endpoint: &str, error: CommandError) -> CommandError {
     let guidance = if endpoint.starts_with("ws://127.0.0.1:8183/")
         || endpoint.starts_with("ws://localhost:8183/")
     {

@@ -6,7 +6,7 @@ use serde_json::{json, Map, Value};
 use tokio_tungstenite::{
     connect_async_tls_with_config,
     tungstenite::{client::IntoClientRequest, http::HeaderValue, Message},
-    Connector,
+    Connector, MaybeTlsStream, WebSocketStream,
 };
 
 use super::CommandError;
@@ -36,12 +36,24 @@ pub(crate) struct GremlinWebSocketRequest<'a> {
     pub(crate) username: Option<&'a str>,
     pub(crate) password: Option<&'a str>,
     pub(crate) graphson: GremlinGraphSon,
+    pub(crate) bindings: Option<&'a Map<String, Value>>,
+    pub(crate) preserve_graphson_types: bool,
     pub(crate) timeout_ms: u64,
     pub(crate) send_basic_header: bool,
     pub(crate) verify_certificates: bool,
     pub(crate) ca_certificate_path: Option<&'a str>,
     pub(crate) client_certificate_path: Option<&'a str>,
     pub(crate) client_key_path: Option<&'a str>,
+}
+
+pub(crate) struct GremlinWebSocketSession {
+    socket: WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
+    traversal_source: String,
+    username: Option<String>,
+    password: Option<String>,
+    graphson: GremlinGraphSon,
+    timeout_ms: u64,
+    session_id: String,
 }
 
 pub(crate) async fn execute_gremlin_websocket(
@@ -101,7 +113,135 @@ async fn execute_gremlin_websocket_inner(
         })?;
     let request_id = gremlin_request_id(rand::random::<u128>());
     send_gremlin_eval(&mut socket, request, &request_id).await?;
+    let result = read_gremlin_response(
+        &mut socket,
+        &request_id,
+        request.graphson,
+        request.username,
+        request.password,
+        request.preserve_graphson_types,
+        None,
+    )
+    .await;
+    let _ = socket.close(None).await;
+    result
+}
 
+impl GremlinWebSocketSession {
+    pub(crate) async fn connect(
+        request: &GremlinWebSocketRequest<'_>,
+        session_id: String,
+    ) -> Result<Self, CommandError> {
+        let mut websocket_request = request.endpoint.into_client_request().map_err(|_| {
+            CommandError::new(
+                "gremlin-endpoint-invalid",
+                "The Gremlin WebSocket endpoint is invalid.",
+            )
+        })?;
+        if request.send_basic_header {
+            if let (Some(username), Some(password)) = (request.username, request.password) {
+                let encoded = BASE64.encode(format!("{username}:{password}"));
+                let value = HeaderValue::from_str(&format!("Basic {encoded}")).map_err(|_| {
+                    CommandError::new(
+                        "gremlin-auth-invalid",
+                        "The Gremlin authentication header could not be prepared.",
+                    )
+                })?;
+                websocket_request
+                    .headers_mut()
+                    .insert("Authorization", value);
+            }
+        }
+        let connector = gremlin_tls_connector(request)?;
+        let connect = connect_async_tls_with_config(websocket_request, None, false, connector);
+        let (socket, _) = tokio::time::timeout(
+            Duration::from_millis(request.timeout_ms.clamp(100, 3_600_000)),
+            connect,
+        )
+        .await
+        .map_err(|_| {
+            CommandError::new(
+                "gremlin-connect-timeout",
+                "The Gremlin session connection timed out.",
+            )
+        })?
+        .map_err(|error| {
+            sanitized_gremlin_error(
+                "gremlin-connect-failed",
+                "Could not open the Gremlin WebSocket endpoint.",
+                &error.to_string(),
+                request.password,
+            )
+        })?;
+        Ok(Self {
+            socket,
+            traversal_source: request.traversal_source.to_string(),
+            username: request.username.map(str::to_string),
+            password: request.password.map(str::to_string),
+            graphson: request.graphson,
+            timeout_ms: request.timeout_ms,
+            session_id,
+        })
+    }
+
+    pub(crate) async fn execute(
+        &mut self,
+        gremlin: &str,
+        bindings: &Map<String, Value>,
+        preserve_graphson_types: bool,
+    ) -> Result<Value, CommandError> {
+        let request_id = gremlin_request_id(rand::random::<u128>());
+        send_gremlin_session_eval(
+            &mut self.socket,
+            gremlin,
+            &self.traversal_source,
+            bindings,
+            &self.session_id,
+            &request_id,
+        )
+        .await?;
+        let response = read_gremlin_response(
+            &mut self.socket,
+            &request_id,
+            self.graphson,
+            self.username.as_deref(),
+            self.password.as_deref(),
+            preserve_graphson_types,
+            Some(&self.session_id),
+        );
+        tokio::time::timeout(
+            Duration::from_millis(self.timeout_ms.clamp(100, 3_600_000)),
+            response,
+        )
+        .await
+        .map_err(|_| {
+            CommandError::new(
+                "gremlin-query-timeout",
+                format!(
+                    "The Gremlin server did not finish the session request within {} ms.",
+                    self.timeout_ms
+                ),
+            )
+        })?
+    }
+
+    pub(crate) async fn close(mut self) {
+        let _ = self.socket.close(None).await;
+    }
+}
+
+async fn read_gremlin_response<S>(
+    socket: &mut tokio_tungstenite::WebSocketStream<S>,
+    request_id: &str,
+    graphson: GremlinGraphSon,
+    username: Option<&str>,
+    password: Option<&str>,
+    preserve_graphson_types: bool,
+    session_id: Option<&str>,
+) -> Result<Value, CommandError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     let mut data = Vec::new();
     let mut attributes = Map::new();
     let mut metadata = Value::Null;
@@ -115,7 +255,7 @@ async fn execute_gremlin_websocket_inner(
                 "gremlin-read-failed",
                 "The Gremlin response could not be read.",
                 &error.to_string(),
-                request.password,
+                password,
             )
         })?;
         let text = match message {
@@ -135,7 +275,6 @@ async fn execute_gremlin_websocket_inner(
         };
         received_bytes = received_bytes.saturating_add(text.len());
         if received_bytes > MAX_GREMLIN_RESPONSE_BYTES {
-            let _ = socket.close(None).await;
             return Err(CommandError::new(
                 "gremlin-response-too-large",
                 "The Gremlin response exceeded the 32 MiB safety limit.",
@@ -147,30 +286,40 @@ async fn execute_gremlin_websocket_inner(
                 format!("The Gremlin server returned invalid JSON: {error}"),
             )
         })?;
+        if value
+            .get("requestId")
+            .and_then(Value::as_str)
+            .is_some_and(|value| value != request_id)
+        {
+            continue;
+        }
         let status_code = value
             .pointer("/status/code")
             .and_then(Value::as_i64)
             .unwrap_or(500);
-
         if status_code == 407 && !authenticated {
-            let username = request.username.ok_or_else(|| {
+            let username = username.ok_or_else(|| {
                 CommandError::new(
                     "gremlin-auth-required",
                     "The Gremlin server requested authentication but no username was configured.",
                 )
             })?;
-            let password = request.password.ok_or_else(|| {
+            let password_value = password.ok_or_else(|| {
                 CommandError::new(
                     "gremlin-auth-required",
                     "The Gremlin server requested authentication but no password was configured.",
                 )
             })?;
-            let sasl = BASE64.encode(format!("\0{username}\0{password}"));
+            let sasl = BASE64.encode(format!("\0{username}\0{password_value}"));
+            let mut args = Map::from_iter([("sasl".to_string(), Value::String(sasl))]);
+            if let Some(session_id) = session_id {
+                args.insert("session".into(), Value::String(session_id.into()));
+            }
             let auth = json!({
                 "requestId": request_id,
                 "op": "authentication",
-                "processor": "traversal",
-                "args": { "sasl": sasl }
+                "processor": if session_id.is_some() { "session" } else { "traversal" },
+                "args": args
             });
             socket
                 .send(Message::Text(auth.to_string().into()))
@@ -184,7 +333,6 @@ async fn execute_gremlin_websocket_inner(
             authenticated = true;
             continue;
         }
-
         if !(200..300).contains(&status_code) {
             let detail = value
                 .pointer("/status/message")
@@ -194,37 +342,36 @@ async fn execute_gremlin_websocket_inner(
                 "gremlin-query-error",
                 "The Gremlin query failed.",
                 &format!("status {status_code}: {detail}"),
-                request.password,
+                password,
             ));
         }
-
         chunks = chunks.saturating_add(1);
-        append_gremlin_data(&mut data, value.pointer("/result/data"));
+        append_gremlin_data(
+            &mut data,
+            value.pointer("/result/data"),
+            preserve_graphson_types,
+        );
         if let Some(value_attributes) = value
             .pointer("/status/attributes")
             .cloned()
             .map(decode_graphson_value)
             .and_then(|value| value.as_object().cloned())
         {
-            for (key, value) in value_attributes {
-                attributes.insert(key, value);
-            }
+            attributes.extend(value_attributes);
         }
         if let Some(value_metadata) = value.pointer("/result/meta") {
             metadata = decode_graphson_value(value_metadata.clone());
         }
         if status_code != 206 {
-            let _ = socket.close(None).await;
             return Ok(json!({
                 "requestId": request_id,
                 "status": { "code": status_code, "attributes": attributes },
                 "result": { "data": data, "meta": metadata },
                 "chunks": chunks,
-                "graphson": request.graphson.mime_type()
+                "graphson": graphson.mime_type()
             }));
         }
     }
-
     Err(CommandError::new(
         "gremlin-empty-response",
         "The Gremlin WebSocket closed before returning a complete result.",
@@ -436,7 +583,7 @@ where
             "gremlin": request.gremlin,
             "language": "gremlin-groovy",
             "aliases": { "g": request.traversal_source },
-            "bindings": {}
+            "bindings": request.bindings.cloned().unwrap_or_default()
         }
     });
     socket
@@ -450,10 +597,60 @@ where
         })
 }
 
-fn append_gremlin_data(target: &mut Vec<Value>, value: Option<&Value>) {
+async fn send_gremlin_session_eval<S>(
+    socket: &mut tokio_tungstenite::WebSocketStream<S>,
+    gremlin: &str,
+    traversal_source: &str,
+    bindings: &Map<String, Value>,
+    session_id: &str,
+    request_id: &str,
+) -> Result<(), CommandError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let body = json!({
+        "requestId": request_id,
+        "op": "eval",
+        "processor": "session",
+        "args": {
+            "gremlin": gremlin,
+            "language": "gremlin-groovy",
+            "aliases": { "g": traversal_source },
+            "bindings": bindings,
+            "session": session_id,
+            "manageTransaction": false
+        }
+    });
+    socket
+        .send(Message::Text(body.to_string().into()))
+        .await
+        .map_err(|_| {
+            CommandError::new(
+                "gremlin-send-failed",
+                "The Gremlin session request could not be sent.",
+            )
+        })
+}
+
+fn append_gremlin_data(target: &mut Vec<Value>, value: Option<&Value>, preserve_types: bool) {
     let Some(value) = value else {
         return;
     };
+    if preserve_types {
+        if let Some(values) = value
+            .as_object()
+            .filter(|value| value.get("@type").and_then(Value::as_str) == Some("g:List"))
+            .and_then(|value| value.get("@value"))
+            .and_then(Value::as_array)
+        {
+            target.extend(values.iter().cloned());
+        } else if let Some(values) = value.as_array() {
+            target.extend(values.iter().cloned());
+        } else if !value.is_null() {
+            target.push(value.clone());
+        }
+        return;
+    }
     let value = decode_graphson_value(value.clone());
     if let Value::Array(values) = value {
         target.extend(values);

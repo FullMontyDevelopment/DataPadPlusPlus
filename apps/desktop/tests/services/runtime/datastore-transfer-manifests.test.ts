@@ -33,6 +33,7 @@ describe('datastore transfer manifests', () => {
       'cockroachdb',
       'oracle',
       'neo4j',
+      'janusgraph',
     ] as const) {
       const capabilities = datastoreTransferManifest(engine).capabilities
       expect(capabilities.find((item) => item.action === 'import')?.executionSupport).toBe('live')
@@ -160,6 +161,21 @@ describe('datastore transfer manifests', () => {
     expect(imported?.supportsMultipleObjects).toBe(false)
     expect(imported?.formats.map((item) => [item.id, item.fidelity])).toEqual([
       ['neo4j-json', 'native'],
+    ])
+    expect(exported?.executionSupport).toBe('live')
+    expect(capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('unsupported')
+  })
+
+  it('uses a schema-bound GraphSON 3 stream for JanusGraph', () => {
+    const capabilities = datastoreTransferManifest('janusgraph').capabilities
+    const imported = capabilities.find((item) => item.action === 'import')
+    const exported = capabilities.find((item) => item.action === 'export')
+
+    expect(imported?.executionSupport).toBe('live')
+    expect(imported?.requiresExistingTarget).toBe(true)
+    expect(imported?.supportsMultipleObjects).toBe(false)
+    expect(imported?.formats.map((item) => [item.id, item.fidelity])).toEqual([
+      ['graphson3', 'native'],
     ])
     expect(exported?.executionSupport).toBe('live')
     expect(capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('unsupported')
