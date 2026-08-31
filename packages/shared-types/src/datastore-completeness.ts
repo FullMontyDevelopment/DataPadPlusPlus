@@ -412,7 +412,7 @@ const POSTGRESQL_PROFILE = profile({
     ],
   ),
   'guarded-operations': strong(
-    'PostgreSQL guarded operations cover parameterized routine execution plans, backend cancel/terminate previews with PID and current-backend guards, vacuum/analyze/reindex, security inspection, role grant/revoke plans, extension update/drop plans, live guarded EXPLAIN ANALYZE JSON profile execution for read statements, and live desktop file workflows for bounded table import/export plus logical backup packages through matching browser and Rust planner contracts.',
+    'PostgreSQL guarded operations cover parameterized routine execution plans, backend cancel/terminate previews with PID and current-backend guards, vacuum/analyze/reindex, security inspection, role grant/revoke plans, extension update/drop plans, live guarded EXPLAIN ANALYZE JSON profile execution for read statements, and live desktop file workflows for bounded table import/export. Full native backup remains explicitly unavailable without excluded vendor tooling.',
     [
       'Optional extension: add relation-level privilege editors and guarded full pg_dump/pg_restore execution only if those workflows enter the scoped claim.',
     ],
@@ -430,7 +430,7 @@ const POSTGRESQL_PROFILE = profile({
     ],
   ),
   'import-export': strong(
-    'PostgreSQL now has guarded desktop live table/view export to CSV/JSON/NDJSON, CSV/JSON/NDJSON import into explicit existing tables with target-column/type validation and validation-only mode, and bounded JSON/SQL logical backup packages with concrete path, overwrite, read-only, row-limit, table-limit, and confirmation guardrails; browser preview emits the same workflow contracts while restore and full pg_dump/pg_restore execution remain optional extensions outside the scoped claim.',
+    'PostgreSQL has guarded desktop live table/view export to CSV/JSON/NDJSON and CSV/JSON/NDJSON import into explicit existing tables with target-column/type validation, validation-only mode, concrete file selection, read-only checks, row limits, and confirmation guardrails. Full native backup and restore are explicitly unavailable because pg_dump and pg_restore are excluded.',
     [
       'Optional extension: add generated/identity column, custom type, large-file, streaming, and full pg_dump/restore execution workflows only if those claims enter scope.',
     ],
@@ -528,7 +528,7 @@ const SQLSERVER_PROFILE = profile({
     ],
   ),
   'guarded-operations': strong(
-    'SQL Server guarded operations cover statistics, index maintenance, Query Store workload review, metrics, import/export, backup package creation, and restore-package validation with confirmation and read-only guardrails; destructive/native restore and broader live management execution remain preview-first.',
+    'SQL Server guarded operations cover statistics, index maintenance, Query Store workload review, metrics, and import/export. Native .bak backup/restore remains plan-only until server-visible destination execution and isolated restore validation are implemented; custom logical packages are not advertised as backups.',
     [
       'Optional extension: promote selected statistics, index, Agent, Extended Events, grants, and native BACKUP/RESTORE execution only after live fixture coverage and rollback boundaries are proven.',
     ],
@@ -540,7 +540,7 @@ const SQLSERVER_PROFILE = profile({
     ],
   ),
   'import-export': strong(
-    'SQL Server now has guarded desktop CSV/JSON/NDJSON table export/import, bounded JSON/SQL logical backup package creation, and restore-package validation with absolute path, overwrite, row/table limit, read-only, and column-validation guardrails.',
+    'SQL Server has guarded desktop CSV/JSON/NDJSON table export/import with backend-owned file selection, overwrite, row-limit, read-only, and column-validation guardrails. Native .bak backup and restore remain plan-only until server-visible destinations and isolated restore validation are implemented; custom logical packages are not advertised as backups.',
     [
       'Optional extension: native .bak BACKUP/RESTORE, bcp/sqlcmd, identity insert, and bulk-load workflows stay outside the scoped claim until live validated.',
     ],
@@ -598,7 +598,7 @@ const MYSQL_PROFILE = profile({
     ],
   ),
   'import-export': strong(
-    'MySQL now has guarded desktop CSV/JSON/NDJSON table export/import, validation-only import, insertable-column validation for auto/generated columns, read-only import blocking, bounded JSON/SQL logical backup package creation, and restore-package validation with concrete path, overwrite, row/table limit, and confirmation guardrails; browser and Rust planners emit matching workflow contracts.',
+    'MySQL has guarded desktop CSV/JSON/NDJSON table export/import, validation-only import, insertable-column validation for auto/generated columns, read-only import blocking, backend-owned file selection, row limits, and confirmation guardrails. Full native backup is explicitly unavailable because mysqlpump and mysqldump are excluded.',
     [
       'Optional extension: LOAD DATA INFILE, mysqlpump/mysqldump parity, generated-column mapping controls, and full restore execution stay outside the scoped claim until live validated.',
     ],
@@ -656,7 +656,7 @@ const MARIADB_PROFILE = profile({
     ],
   ),
   'import-export': strong(
-    'MariaDB now has guarded desktop CSV/JSON/NDJSON table export/import, validation-only import, insertable-column validation for generated/auto columns, read-only import blocking, bounded JSON/SQL logical backup package creation, and restore-package validation with concrete path, overwrite, row/table limit, and confirmation guardrails; browser and Rust planners emit matching mariadb.* workflow contracts.',
+    'MariaDB has guarded desktop CSV/JSON/NDJSON table export/import, validation-only import, insertable-column validation for generated/auto columns, read-only import blocking, backend-owned file selection, row limits, and confirmation guardrails. Full native backup is explicitly unavailable because mariadb-dump and mysql dump tooling are excluded.',
     [
       'Optional extension: LOAD DATA INFILE, mariadb-dump/mysql dump parity, generated-column mapping controls, and full restore execution stay outside the scoped claim until live validated.',
     ],
@@ -1502,7 +1502,7 @@ const ENGINE_OVERRIDES: Partial<
     nativeScore: 5,
     targetPhase: 2,
     summary:
-      'Native-complete for the scoped PostgreSQL workflow: typed native connection/profile options with right-drawer fields, Rust interpolation, timeout routing, and encoded DSN parameters, live SQL, live primary-key row edits pinned by desktop live-scope tests, before/after row evidence metadata for desktop row edits, PostgreSQL-aware IntelliSense with pg_catalog helpers, routine call/definition snippets, profile snippets, and safe identifier quoting, rendered EXPLAIN payloads, rendered EXPLAIN ANALYZE JSON profile dashboards with operator stages and plan/table/raw fallbacks, compact posture panels, live pg_stat_database metrics, pg_stat_activity session/wait/blocking profiles, pg_locks lock posture profiles, pg_stat_user_tables relation/vacuum/index-scan profiles, optional pg_stat_statements top-query profiles when available, extension-aware trees/views with update hints and extension-owned objects, role membership/default privilege/grant views, guarded parameterized routine execution plans, guarded pg_cancel_backend/pg_terminate_backend previews with PID and current-backend guards, guarded role grant/revoke and extension update/drop plans, live guarded EXPLAIN ANALYZE profile execution for read statements, guarded vacuum/analyze/reindex previews, guarded desktop CSV/JSON/NDJSON table export/import, bounded JSON/SQL logical backup execution, and optional PostgreSQL fixture validation for seeded volume, diagnostics, row evidence, permission denial, routine/profile primitives, import/export primitives, and bounded backup evidence. Full pg_dump/pg_restore execution, managed-provider IAM/proxy/certificate combinations, richer privilege editors, generated/custom-type stress fixtures, and restore execution remain optional extensions outside this scoped claim.',
+      'Native-complete for the scoped PostgreSQL workflow: typed native connection/profile options with right-drawer fields, Rust interpolation, timeout routing, and encoded DSN parameters, live SQL, live primary-key row edits pinned by desktop live-scope tests, before/after row evidence metadata for desktop row edits, PostgreSQL-aware IntelliSense with pg_catalog helpers, routine call/definition snippets, profile snippets, and safe identifier quoting, rendered EXPLAIN payloads, rendered EXPLAIN ANALYZE JSON profile dashboards with operator stages and plan/table/raw fallbacks, compact posture panels, live pg_stat_database metrics, pg_stat_activity session/wait/blocking profiles, pg_locks lock posture profiles, pg_stat_user_tables relation/vacuum/index-scan profiles, optional pg_stat_statements top-query profiles when available, extension-aware trees/views with update hints and extension-owned objects, role membership/default privilege/grant views, guarded parameterized routine execution plans, guarded pg_cancel_backend/pg_terminate_backend previews with PID and current-backend guards, guarded role grant/revoke and extension update/drop plans, live guarded EXPLAIN ANALYZE profile execution for read statements, guarded vacuum/analyze/reindex previews, guarded desktop CSV/JSON/NDJSON table export/import, and optional PostgreSQL fixture validation for seeded volume, diagnostics, row evidence, permission denial, routine/profile primitives, and import/export primitives. Full native backup is explicitly unavailable because pg_dump/pg_restore are excluded; managed-provider IAM/proxy/certificate combinations, richer privilege editors, and generated/custom-type stress fixtures remain optional extensions outside this scoped claim.',
     profile: POSTGRESQL_PROFILE,
   },
   cockroachdb: {
@@ -1518,7 +1518,7 @@ const ENGINE_OVERRIDES: Partial<
     nativeScore: 5,
     targetPhase: 2,
     summary:
-      'Native-complete for the scoped SQL Server/Azure SQL workflow: SQL Server has TDS SQL, live primary-key row edits pinned by desktop live-scope tests, typed SQL Server/Azure SQL connection option validation with per-mode Windows, Entra, managed identity, service principal, and certificate disabled reasons, rendered SHOWPLAN_TEXT explain payloads, XML Showplan profile payloads with operator tables and statement estimates, runtime DMV profile payloads for cached query stats, active requests, waits, file I/O, memory grants, transactions, and missing-index signals, compact storage/index/workload/security/Agent posture panels, Query Store status/top-query/forced-plan/regression payloads, database/server-scoped Extended Events session/event/target payloads, msdb-backed Agent service/job/schedule/alert/operator/proxy payloads, security payloads for users/roles/memberships/schemas/permissions/certificates/keys/credentials/audits, storage payloads for files/filegroups/partition schemes/functions/boundaries/allocation units, guarded statistics/index/Query Store previews, guarded desktop CSV/JSON/NDJSON table export/import, bounded JSON/SQL logical backup package execution, and restore-package validation. Native .bak BACKUP/RESTORE, bcp/sqlcmd bulk workflows, identity insert, and broader live maintenance/admin execution remain optional extensions outside the scoped claim.',
+      'Native-complete for the scoped SQL Server/Azure SQL workflow: SQL Server has TDS SQL, live primary-key row edits pinned by desktop live-scope tests, typed SQL Server/Azure SQL connection option validation with per-mode Windows, Entra, managed identity, service principal, and certificate disabled reasons, rendered SHOWPLAN_TEXT explain payloads, XML Showplan profile payloads with operator tables and statement estimates, runtime DMV profile payloads for cached query stats, active requests, waits, file I/O, memory grants, transactions, and missing-index signals, compact storage/index/workload/security/Agent posture panels, Query Store status/top-query/forced-plan/regression payloads, database/server-scoped Extended Events session/event/target payloads, msdb-backed Agent service/job/schedule/alert/operator/proxy payloads, security payloads for users/roles/memberships/schemas/permissions/certificates/keys/credentials/audits, storage payloads for files/filegroups/partition schemes/functions/boundaries/allocation units, guarded statistics/index/Query Store previews, and guarded desktop CSV/JSON/NDJSON table export/import. Native .bak BACKUP/RESTORE remains plan-only; custom logical packages are not advertised as backups. TDS bulk copy, server-visible destination execution, identity insert, and broader live maintenance/admin execution remain optional extensions outside the scoped claim.',
     profile: SQLSERVER_PROFILE,
   },
   mysql: {
@@ -1526,7 +1526,7 @@ const ENGINE_OVERRIDES: Partial<
     nativeScore: 5,
     targetPhase: 2,
     summary:
-      'Native-complete for the scoped MySQL workflow: MySQL has typed native connection/profile options, live SQL, a dialect-aware SELECT builder, MySQL-native IntelliSense/query-helper snippets, primary-key row edits pinned by desktop live-scope tests, Workbench-style trees, native storage/index/security/session/status/performance_schema/optimizer/InnoDB/replication object views, detailed statement digest, table/index I/O, metadata-lock, optimizer-trace, and status-counter sections, rendered EXPLAIN payloads, live performance_schema/status/optimizer diagnostics, structured guarded maintenance/routine/event/security/user previews, guarded desktop CSV/JSON/NDJSON table import/export, bounded JSON/SQL logical backup packages, and restore-package validation. Cleartext/IAM auth, selected live admin execution, LOAD DATA INFILE, mysqlpump/mysqldump parity, replication-channel depth, richer grant editing, and full restore execution remain optional extensions outside this scoped claim.',
+      'Native-complete for the scoped MySQL workflow: MySQL has typed native connection/profile options, live SQL, a dialect-aware SELECT builder, MySQL-native IntelliSense/query-helper snippets, primary-key row edits pinned by desktop live-scope tests, Workbench-style trees, native storage/index/security/session/status/performance_schema/optimizer/InnoDB/replication object views, detailed statement digest, table/index I/O, metadata-lock, optimizer-trace, and status-counter sections, rendered EXPLAIN payloads, live performance_schema/status/optimizer diagnostics, structured guarded maintenance/routine/event/security/user previews, and guarded desktop CSV/JSON/NDJSON table import/export. Full native backup is explicitly unavailable because mysqlpump/mysqldump are excluded; cleartext/IAM auth, selected live admin execution, LOAD DATA INFILE, replication-channel depth, and richer grant editing remain optional extensions outside this scoped claim.',
     profile: MYSQL_PROFILE,
   },
   mariadb: {
@@ -1534,7 +1534,7 @@ const ENGINE_OVERRIDES: Partial<
     nativeScore: 5,
     targetPhase: 2,
     summary:
-      'Native-complete for the scoped MariaDB workflow: MariaDB shares the MySQL live SQL/edit base and now has typed MariaDB connection/profile metadata, MariaDB-aware Workbench-style trees, native MariaDB object-view descriptors and posture cards for role mappings, server variables, storage engines, routines, events, diagnostics, and ANALYZE FORMAT=JSON profile metadata, explicit EXPLAIN FORMAT=JSON and guarded ANALYZE FORMAT=JSON previews, MariaDB-specific IntelliSense helpers, status/version/storage-engine diagnostics, Aria metrics, role-mapping security previews, structured preview-first routine/event/admin/user workflows, guarded desktop CSV/JSON/NDJSON table import/export, bounded JSON/SQL logical backup packages, and restore-package validation. Selected live admin execution, LOAD DATA INFILE, mariadb-dump/mysql dump parity, richer role/grant editing, and full restore execution remain optional extensions outside this scoped claim.',
+      'Native-complete for the scoped MariaDB workflow: MariaDB shares the MySQL live SQL/edit base and now has typed MariaDB connection/profile metadata, MariaDB-aware Workbench-style trees, native MariaDB object-view descriptors and posture cards for role mappings, server variables, storage engines, routines, events, diagnostics, and ANALYZE FORMAT=JSON profile metadata, explicit EXPLAIN FORMAT=JSON and guarded ANALYZE FORMAT=JSON previews, MariaDB-specific IntelliSense helpers, status/version/storage-engine diagnostics, Aria metrics, role-mapping security previews, structured preview-first routine/event/admin/user workflows, and guarded desktop CSV/JSON/NDJSON table import/export. Full native backup is explicitly unavailable because mariadb-dump/mysql dump tooling is excluded; selected live admin execution, LOAD DATA INFILE, and richer role/grant editing remain optional extensions outside this scoped claim.',
     profile: MARIADB_PROFILE,
   },
   sqlite: {

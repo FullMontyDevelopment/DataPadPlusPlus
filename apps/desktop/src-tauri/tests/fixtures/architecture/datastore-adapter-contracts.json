@@ -20,7 +20,6 @@
         "supports_index_management",
         "supports_permission_inspection",
         "supports_import_export",
-        "supports_backup_restore",
         "supports_structure_visualization"
       ],
       "defaultLanguage": "sql",
@@ -1158,22 +1157,19 @@
         "id": "postgresql.data.backup-restore",
         "engine": "postgresql",
         "family": "sql",
-        "label": "Backup Or Restore",
+        "label": "Backup / Restore",
         "scope": "database",
         "risk": "destructive",
-        "requiredCapabilities": [
-          "supports_backup_restore"
-        ],
+        "requiredCapabilities": [],
         "supportedRenderers": [
-          "raw",
-          "metrics",
-          "costEstimate"
+          "diff",
+          "raw"
         ],
-        "description": "Create a guarded bounded PostgreSQL logical backup package; restore remains preview-first.",
+        "description": "PostgreSQL full backup requires excluded vendor tooling.",
         "requiresConfirmation": true,
-        "executionSupport": "live",
-        "disabledReason": null,
-        "previewOnly": false
+        "executionSupport": "unsupported",
+        "disabledReason": "Full PostgreSQL backup and restore require pg_dump and pg_restore, which DataPad++ does not bundle or execute.",
+        "previewOnly": true
       }
     ]
   },
@@ -3515,8 +3511,7 @@
         "supports_result_snapshots",
         "supports_metrics_collection",
         "supports_structure_visualization",
-        "supports_import_export",
-        "supports_backup_restore"
+        "supports_import_export"
       ],
       "defaultLanguage": "sql",
       "tree": {
@@ -5681,22 +5676,19 @@
         "id": "sqlserver.data.backup-restore",
         "engine": "sqlserver",
         "family": "sql",
-        "label": "Backup Or Restore",
+        "label": "Backup / Restore",
         "scope": "database",
         "risk": "destructive",
-        "requiredCapabilities": [
-          "supports_backup_restore"
-        ],
+        "requiredCapabilities": [],
         "supportedRenderers": [
-          "raw",
-          "metrics",
-          "costEstimate"
+          "diff",
+          "raw"
         ],
-        "description": "Create guarded bounded SQL Server logical backup packages and validate restore packages; native .bak restore remains preview-first.",
+        "description": "Plan a native SQL Server .bak backup or restore against a server-visible destination.",
         "requiresConfirmation": true,
-        "executionSupport": "live",
-        "disabledReason": null,
-        "previewOnly": false
+        "executionSupport": "plan-only",
+        "disabledReason": "Native SQL Server .bak execution is not implemented yet; custom logical packages are not offered as backups.",
+        "previewOnly": true
       }
     ]
   },
@@ -5722,7 +5714,6 @@
         "supports_permission_inspection",
         "supports_metrics_collection",
         "supports_import_export",
-        "supports_backup_restore",
         "supports_structure_visualization"
       ],
       "defaultLanguage": "sql",
@@ -6754,27 +6745,6 @@
         "previewOnly": false
       },
       {
-        "id": "mysql.data.backup-restore",
-        "engine": "mysql",
-        "family": "sql",
-        "label": "Backup Or Restore",
-        "scope": "database",
-        "risk": "destructive",
-        "requiredCapabilities": [
-          "supports_backup_restore"
-        ],
-        "supportedRenderers": [
-          "raw",
-          "metrics",
-          "costEstimate"
-        ],
-        "description": "Create guarded bounded MySQL logical backup packages and validate restore packages; full mysqldump/mysql restore remains preview-first.",
-        "requiresConfirmation": true,
-        "executionSupport": "live",
-        "disabledReason": null,
-        "previewOnly": false
-      },
-      {
         "id": "mysql.table.analyze",
         "engine": "mysql",
         "family": "sql",
@@ -6966,6 +6936,24 @@
         "executionSupport": "plan-only",
         "disabledReason": "Account state changes remain preview-first until account-management privileges and active-session impact are live-validated.",
         "previewOnly": true
+      },
+      {
+        "id": "mysql.data.backup-restore",
+        "engine": "mysql",
+        "family": "sql",
+        "label": "Backup / Restore",
+        "scope": "database",
+        "risk": "destructive",
+        "requiredCapabilities": [],
+        "supportedRenderers": [
+          "diff",
+          "raw"
+        ],
+        "description": "MySQL full backup requires excluded vendor tooling.",
+        "requiresConfirmation": true,
+        "executionSupport": "unsupported",
+        "disabledReason": "Full MySQL backup and restore require mysqldump, which DataPad++ does not bundle or execute.",
+        "previewOnly": true
       }
     ]
   },
@@ -6991,7 +6979,6 @@
         "supports_permission_inspection",
         "supports_metrics_collection",
         "supports_import_export",
-        "supports_backup_restore",
         "supports_structure_visualization"
       ],
       "defaultLanguage": "sql",
@@ -8077,27 +8064,6 @@
         "previewOnly": false
       },
       {
-        "id": "mariadb.data.backup-restore",
-        "engine": "mariadb",
-        "family": "sql",
-        "label": "Backup Or Restore",
-        "scope": "database",
-        "risk": "destructive",
-        "requiredCapabilities": [
-          "supports_backup_restore"
-        ],
-        "supportedRenderers": [
-          "raw",
-          "metrics",
-          "costEstimate"
-        ],
-        "description": "Create guarded bounded MariaDB logical backup packages and validate restore packages; full mariadb-dump/mysql restore remains preview-first.",
-        "requiresConfirmation": true,
-        "executionSupport": "live",
-        "disabledReason": null,
-        "previewOnly": false
-      },
-      {
         "id": "mariadb.table.analyze",
         "engine": "mariadb",
         "family": "sql",
@@ -8288,6 +8254,24 @@
         "requiresConfirmation": true,
         "executionSupport": "plan-only",
         "disabledReason": "Account state changes remain preview-first until account-management privileges and active-session impact are live-validated.",
+        "previewOnly": true
+      },
+      {
+        "id": "mariadb.data.backup-restore",
+        "engine": "mariadb",
+        "family": "sql",
+        "label": "Backup / Restore",
+        "scope": "database",
+        "risk": "destructive",
+        "requiredCapabilities": [],
+        "supportedRenderers": [
+          "diff",
+          "raw"
+        ],
+        "description": "MariaDB full backup requires excluded vendor tooling.",
+        "requiresConfirmation": true,
+        "executionSupport": "unsupported",
+        "disabledReason": "Full MariaDB backup and restore require mariadb-dump, which DataPad++ does not bundle or execute.",
         "previewOnly": true
       }
     ]

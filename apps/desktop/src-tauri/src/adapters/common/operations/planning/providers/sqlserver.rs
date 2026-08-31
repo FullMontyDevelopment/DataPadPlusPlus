@@ -172,57 +172,27 @@ fn sqlserver_backup_restore_request(
     let database = string_parameter(parameters, "database")
         .or_else(|| sqlserver_workflow_database_name(object_name))
         .unwrap_or_else(|| "database".into());
-    let row_limit = numeric_parameter(parameters, "rowLimit").unwrap_or(1_000);
-    let table_limit = numeric_parameter(parameters, "tableLimit").unwrap_or(25);
-
-    if matches!(mode.as_str(), "restore" | "recover" | "import") {
-        return serde_json::to_string_pretty(&serde_json::json!({
-            "workflow": "sqlserver.database.restore",
-            "database": database,
-            "source": {
-                "path": string_parameter(parameters, "sourcePath")
-                    .or_else(|| string_parameter(parameters, "inputPath"))
-                    .unwrap_or_else(|| "<selected-file>.json".into())
-            },
-            "mode": mode,
-            "executionGate": {
-                "defaultSupport": "plan-only",
-                "guards": [
-                    "restore execution remains preview-first",
-                    "validate package before manual restore",
-                    "review schema DDL, identity columns, triggers, constraints, and target database state"
-                ],
-                "residualRisk": "native .bak restore and generated insert replay remain manual reviewed workflows"
-            }
-        }))
-        .unwrap_or_else(|_| "{}".into());
-    }
+    let restoring = matches!(mode.as_str(), "restore" | "recover" | "import");
 
     serde_json::to_string_pretty(&serde_json::json!({
-        "workflow": "sqlserver.database.backup",
+        "workflow": if restoring { "sqlserver.database.restore-plan" } else { "sqlserver.database.backup-plan" },
         "database": database,
-        "target": {
-            "path": string_parameter(parameters, "targetPath")
-                .or_else(|| string_parameter(parameters, "outputPath"))
-                .unwrap_or_else(|| "<selected-file>.json".into()),
-            "overwrite": bool_parameter(parameters, "overwrite").unwrap_or(false)
+        "destination": {
+            "role": if restoring { "source" } else { "target" },
+            "serverVisiblePath": "<sql-server-visible-path>.bak",
+            "overwrite": false
         },
-        "schema": string_parameter(parameters, "schema"),
-        "format": string_parameter(parameters, "format").unwrap_or_else(|| "json".into()),
-        "includeData": bool_parameter(parameters, "includeData").unwrap_or(true),
-        "rowLimit": row_limit,
-        "tableLimit": table_limit,
+        "mode": mode,
+        "format": "bak",
         "executionGate": {
-            "defaultSupport": "live",
+            "defaultSupport": "plan-only",
             "guards": [
-                "desktop adapter execution only",
-                "absolute target path",
-                "parent folder exists",
-                "overwrite opt-in",
-                "bounded table list",
-                "bounded rows per table"
+                "SQL Server-visible disk or URL destination",
+                "BACKUP DATABASE or RESTORE DATABASE permission preflight",
+                "restore into a new database by default",
+                "explicit destructive confirmation"
             ],
-            "residualRisk": "bounded logical DataPad++ backup package; native .bak backup/restore execution remains preview-first"
+            "residualRisk": "native .bak execution remains unavailable until server-visible destination and isolated restore validation are implemented"
         }
     }))
     .unwrap_or_else(|_| "{}".into())

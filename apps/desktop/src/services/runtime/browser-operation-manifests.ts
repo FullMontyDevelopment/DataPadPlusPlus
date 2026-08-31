@@ -229,11 +229,10 @@ function promoteScopedLiveWorkflows(
     if (connection.engine === 'postgresql' && operation.id === 'postgresql.data.backup-restore') {
       return {
         ...operation,
-        description:
-          'Create guarded bounded PostgreSQL logical backup packages; restore remains preview-first.',
-        executionSupport: 'live' as const,
-        disabledReason: undefined,
-        previewOnly: false,
+        description: 'PostgreSQL full backup requires excluded vendor tooling.',
+        executionSupport: 'unsupported' as const,
+        disabledReason: 'DataPad++ does not label a bounded logical export as a native PostgreSQL backup.',
+        previewOnly: true,
       }
     }
     if (connection.engine === 'sqlserver' && operation.id === 'sqlserver.data.import-export') {
@@ -249,11 +248,10 @@ function promoteScopedLiveWorkflows(
     if (connection.engine === 'sqlserver' && operation.id === 'sqlserver.data.backup-restore') {
       return {
         ...operation,
-        description:
-          'Create guarded bounded SQL Server logical backup packages and validate restore packages; native .bak restore remains preview-first.',
-        executionSupport: 'live' as const,
-        disabledReason: undefined,
-        previewOnly: false,
+        description: 'SQL Server native .bak backup requires a server-visible destination.',
+        executionSupport: 'plan-only' as const,
+        disabledReason: 'Native SQL Server .bak execution is not implemented yet; custom logical packages are not offered as backups.',
+        previewOnly: true,
       }
     }
     if (connection.engine === 'mysql' && operation.id === 'mysql.data.import-export') {
@@ -269,11 +267,10 @@ function promoteScopedLiveWorkflows(
     if (connection.engine === 'mysql' && operation.id === 'mysql.data.backup-restore') {
       return {
         ...operation,
-        description:
-          'Create guarded bounded MySQL logical backup packages and validate restore packages; full mysqldump/mysql restore remains preview-first.',
-        executionSupport: 'live' as const,
-        disabledReason: undefined,
-        previewOnly: false,
+        description: 'MySQL full backup requires excluded vendor tooling.',
+        executionSupport: 'unsupported' as const,
+        disabledReason: 'DataPad++ does not label a bounded logical export as a native MySQL backup.',
+        previewOnly: true,
       }
     }
     if (connection.engine === 'mariadb' && operation.id === 'mariadb.data.import-export') {
@@ -289,11 +286,10 @@ function promoteScopedLiveWorkflows(
     if (connection.engine === 'mariadb' && operation.id === 'mariadb.data.backup-restore') {
       return {
         ...operation,
-        description:
-          'Create guarded bounded MariaDB logical backup packages and validate restore packages; full mariadb-dump/mysql restore remains preview-first.',
-        executionSupport: 'live' as const,
-        disabledReason: undefined,
-        previewOnly: false,
+        description: 'MariaDB full backup requires excluded vendor tooling.',
+        executionSupport: 'unsupported' as const,
+        disabledReason: 'DataPad++ does not label a bounded logical export as a native MariaDB backup.',
+        previewOnly: true,
       }
     }
     if (connection.engine === 'duckdb' && operation.id === 'duckdb.data.import-export') {

@@ -307,12 +307,13 @@ fn sql_family_operation_plans_are_dialect_aware() {
         serde_json::from_str::<serde_json::Value>(&sqlserver_backup).unwrap();
     assert_eq!(
         sqlserver_backup_value["workflow"],
-        "sqlserver.database.backup"
+        "sqlserver.database.backup-plan"
     );
     assert_eq!(
-        sqlserver_backup_value["executionGate"]["residualRisk"],
-        "bounded logical DataPad++ backup package; native .bak backup/restore execution remains preview-first"
+        sqlserver_backup_value["executionGate"]["defaultSupport"],
+        "plan-only"
     );
+    assert_eq!(sqlserver_backup_value["format"], "bak");
 
     let postgres_export = generated_operation_request(
         &connection,
@@ -371,11 +372,11 @@ fn sql_family_operation_plans_are_dialect_aware() {
         serde_json::from_str::<serde_json::Value>(&postgres_backup).unwrap();
     assert_eq!(
         postgres_backup_value["workflow"],
-        "postgresql.database.backup"
+        "postgresql.database.backup-unavailable"
     );
     assert_eq!(
-        postgres_backup_value["executionGate"]["residualRisk"],
-        "bounded logical DataPad++ backup package; full pg_dump/pg_restore restore execution remains preview-first"
+        postgres_backup_value["executionGate"]["defaultSupport"],
+        "unsupported"
     );
 
     let mysql_parameters = BTreeMap::from([
@@ -407,10 +408,13 @@ fn sql_family_operation_plans_are_dialect_aware() {
         None,
     );
     let mysql_backup_value = serde_json::from_str::<serde_json::Value>(&mysql_backup).unwrap();
-    assert_eq!(mysql_backup_value["workflow"], "mysql.database.backup");
+    assert_eq!(
+        mysql_backup_value["workflow"],
+        "mysql.database.backup-unavailable"
+    );
     assert_eq!(
         mysql_backup_value["executionGate"]["defaultSupport"],
-        "live"
+        "unsupported"
     );
 
     let mariadb_import = generated_operation_request(
@@ -440,15 +444,18 @@ fn sql_family_operation_plans_are_dialect_aware() {
         None,
     );
     let mariadb_backup_value = serde_json::from_str::<serde_json::Value>(&mariadb_backup).unwrap();
-    assert_eq!(mariadb_backup_value["workflow"], "mariadb.database.backup");
+    assert_eq!(
+        mariadb_backup_value["workflow"],
+        "mariadb.database.backup-unavailable"
+    );
     assert_eq!(
         mariadb_backup_value["executionGate"]["defaultSupport"],
-        "live"
+        "unsupported"
     );
-    assert!(mariadb_backup_value["executionGate"]["residualRisk"]
+    assert!(mariadb_backup_value["executionGate"]["reason"]
         .as_str()
         .unwrap_or_default()
-        .contains("mariadb-dump/mysql restore"));
+        .contains("mariadb-dump"));
 
     let postgres_analyze = generated_operation_request(
         &connection,

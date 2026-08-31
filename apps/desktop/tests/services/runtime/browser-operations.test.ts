@@ -1095,8 +1095,8 @@ describe('browser operation runtime', () => {
           id: 'postgresql.data.backup-restore',
           label: 'Backup / Restore',
           risk: 'destructive',
-          executionSupport: 'live',
-          previewOnly: false,
+          executionSupport: 'unsupported',
+          previewOnly: true,
         }),
       ]),
     )
@@ -1136,8 +1136,8 @@ describe('browser operation runtime', () => {
         expect.objectContaining({
           id: 'sqlserver.data.backup-restore',
           label: 'Backup / Restore',
-          executionSupport: 'live',
-          previewOnly: false,
+          executionSupport: 'plan-only',
+          previewOnly: true,
         }),
       ]),
     )
@@ -1233,10 +1233,10 @@ describe('browser operation runtime', () => {
     })
     const backupRequest = JSON.parse(backupPlan.plan.generatedRequest)
     expect(backupRequest).toMatchObject({
-      workflow: 'sqlserver.database.backup',
+      workflow: 'sqlserver.database.backup-plan',
       database: 'datapadplusplus',
       executionGate: {
-        defaultSupport: 'live',
+        defaultSupport: 'plan-only',
       },
     })
   })
@@ -1593,8 +1593,9 @@ describe('browser operation runtime', () => {
       objectName: '"postgres"',
       parameters: { mode: 'backup', format: 'json', tableLimit: 5 },
     })
-    expect(backupPlan.plan.generatedRequest).toContain('"workflow": "postgresql.database.backup"')
-    expect(backupPlan.plan.generatedRequest).toContain('full pg_dump/pg_restore restore execution remains preview-first')
+    expect(backupPlan.plan.generatedRequest).toContain('"workflow": "postgresql.database.backup-unavailable"')
+    expect(backupPlan.plan.generatedRequest).toContain('"defaultSupport": "unsupported"')
+    expect(backupPlan.plan.generatedRequest).toContain('pg_dump and pg_restore')
     expect(backupPlan.plan.destructive).toBe(true)
   })
 
@@ -1644,8 +1645,8 @@ describe('browser operation runtime', () => {
         expect.objectContaining({
           id: 'mysql.data.backup-restore',
           label: 'Backup / Restore',
-          executionSupport: 'live',
-          previewOnly: false,
+          executionSupport: 'unsupported',
+          previewOnly: true,
         }),
       ]),
     )
@@ -1814,13 +1815,13 @@ describe('browser operation runtime', () => {
     })
     const backupRequest = JSON.parse(backupPlan.plan.generatedRequest)
     expect(backupRequest).toMatchObject({
-      workflow: 'mysql.database.backup',
+      workflow: 'mysql.database.backup-unavailable',
       database: 'shop',
       executionGate: {
-        defaultSupport: 'live',
+        defaultSupport: 'unsupported',
       },
     })
-    expect(backupRequest.executionGate.residualRisk).toContain('full mysqldump/mysql restore execution remains preview-first')
+    expect(backupRequest.executionGate.reason).toContain('mysqldump')
   })
 
   it('generates MariaDB table maintenance and role-aware security previews', () => {
@@ -1848,8 +1849,8 @@ describe('browser operation runtime', () => {
         expect.objectContaining({
           id: 'mariadb.data.backup-restore',
           label: 'Backup / Restore',
-          executionSupport: 'live',
-          previewOnly: false,
+          executionSupport: 'unsupported',
+          previewOnly: true,
         }),
       ]),
     )
@@ -1905,13 +1906,13 @@ describe('browser operation runtime', () => {
     })
     const backupRequest = JSON.parse(backupPlan.plan.generatedRequest)
     expect(backupRequest).toMatchObject({
-      workflow: 'mariadb.database.backup',
+      workflow: 'mariadb.database.backup-unavailable',
       database: 'commerce',
       executionGate: {
-        defaultSupport: 'live',
+        defaultSupport: 'unsupported',
       },
     })
-    expect(backupRequest.executionGate.residualRisk).toContain('mariadb-dump/mysql restore execution remains preview-first')
+    expect(backupRequest.executionGate.reason).toContain('mariadb-dump')
   })
 
   it('generates SQLite local-file maintenance operation previews', () => {

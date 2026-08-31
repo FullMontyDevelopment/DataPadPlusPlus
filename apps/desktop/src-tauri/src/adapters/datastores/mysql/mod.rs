@@ -41,10 +41,16 @@ impl DatastoreAdapter for MysqlLikeAdapter {
     ) -> Result<OperationExecutionResponse, CommandError> {
         if matches!(
             request.operation_id.as_str(),
-            "mysql.data.import-export"
-                | "mysql.data.backup-restore"
-                | "mariadb.data.import-export"
-                | "mariadb.data.backup-restore"
+            "mysql.data.backup-restore" | "mariadb.data.backup-restore"
+        ) {
+            return Err(CommandError::new(
+                "mysql-backup-unavailable",
+                "Full MySQL and MariaDB backup and restore require excluded vendor tooling; DataPad++ does not generate a custom pseudo-backup.",
+            ));
+        }
+        if matches!(
+            request.operation_id.as_str(),
+            "mysql.data.import-export" | "mariadb.data.import-export"
         ) {
             return execute_mysql_file_operation(
                 connection, request, operation, plan, messages, warnings,
@@ -72,10 +78,7 @@ impl DatastoreAdapter for MysqlLikeAdapter {
             for operation in &mut operations {
                 if matches!(
                     operation.id.as_str(),
-                    "mysql.data.import-export"
-                        | "mysql.data.backup-restore"
-                        | "mariadb.data.import-export"
-                        | "mariadb.data.backup-restore"
+                    "mysql.data.import-export" | "mariadb.data.import-export"
                 ) {
                     operation.execution_support = "live".into();
                     operation.disabled_reason = None;
@@ -88,17 +91,38 @@ impl DatastoreAdapter for MysqlLikeAdapter {
                                 "Run guarded MySQL table import/export file workflows with concrete paths, row limits, and target-column validation."
                             }
                         }
-                        _ => {
-                            if self.engine == "mariadb" {
-                                "Create guarded bounded MariaDB logical backup packages and validate restore packages; full mariadb-dump/mysql restore remains preview-first."
-                            } else {
-                                "Create guarded bounded MySQL logical backup packages and validate restore packages; full mysqldump/mysql restore remains preview-first."
-                            }
-                        }
+                        _ => unreachable!("only import/export is promoted"),
                     }
                     .into();
                 }
             }
+            let label = if self.engine == "mariadb" {
+                "MariaDB"
+            } else {
+                "MySQL"
+            };
+            let tool = if self.engine == "mariadb" {
+                "mariadb-dump"
+            } else {
+                "mysqldump"
+            };
+            let mut backup = operation_manifest(
+                &manifest,
+                "data.backup-restore",
+                "Backup / Restore",
+                "database",
+                "destructive",
+                &[],
+                &["diff", "raw"],
+                &format!("{label} full backup requires excluded vendor tooling."),
+                true,
+            );
+            backup.execution_support = "unsupported".into();
+            backup.preview_only = Some(true);
+            backup.disabled_reason = Some(format!(
+                "Full {label} backup and restore require {tool}, which DataPad++ does not bundle or execute."
+            ));
+            operations.push(backup);
         }
         operations
     }

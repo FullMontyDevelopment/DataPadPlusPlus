@@ -26,7 +26,6 @@ pub(super) fn mysql_manifest(engine: &str) -> AdapterManifest {
             "supports_permission_inspection",
             "supports_metrics_collection",
             "supports_import_export",
-            "supports_backup_restore",
             "supports_structure_visualization",
         ],
     )

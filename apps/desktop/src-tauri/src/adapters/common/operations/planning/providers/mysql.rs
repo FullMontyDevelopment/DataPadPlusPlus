@@ -420,68 +420,20 @@ fn mysql_backup_restore_request(
         .or_else(|| string_parameter(parameters, "schema"))
         .or_else(|| mysql_plan_database_name(object_name))
         .unwrap_or_else(|| "database".into());
-    let format = string_parameter(parameters, "format").unwrap_or_else(|| "json".into());
-    let default_support = if matches!(manifest.engine.as_str(), "mysql" | "mariadb") {
-        "live"
-    } else {
-        "plan-only"
-    };
     let workflow_prefix = manifest.engine.as_str();
-    let restore_tools = if manifest.engine == "mariadb" {
-        "mariadb-dump/mysql"
+    let dump_tool = if manifest.engine == "mariadb" {
+        "mariadb-dump"
     } else {
-        "mysqldump/mysql"
+        "mysqldump"
     };
-
-    if matches!(mode.as_str(), "restore" | "recover" | "import") {
-        return serde_json::to_string_pretty(&serde_json::json!({
-            "workflow": format!("{workflow_prefix}.database.restore"),
-            "database": database,
-            "source": {
-                "path": string_parameter(parameters, "sourcePath")
-                    .or_else(|| string_parameter(parameters, "inputPath"))
-                    .unwrap_or_else(|| "<selected-file>.json".into())
-            },
-            "mode": mode,
-            "executionGate": {
-                "defaultSupport": "plan-only",
-                "guards": [
-                    "restore execution remains preview-first",
-                    "validate package before manual restore",
-                    "review schema DDL, triggers, routines, events, privileges, generated columns, and target database state"
-                ],
-                "residualRisk": format!("full {restore_tools} restore and generated insert replay remain manual reviewed workflows")
-            }
-        }))
-        .unwrap_or_else(|_| "{}".into());
-    }
 
     serde_json::to_string_pretty(&serde_json::json!({
-        "workflow": format!("{workflow_prefix}.database.backup"),
+        "workflow": format!("{workflow_prefix}.database.{mode}-unavailable"),
         "database": database,
-        "target": {
-            "path": string_parameter(parameters, "targetPath")
-                .or_else(|| string_parameter(parameters, "outputPath"))
-                .unwrap_or_else(|| format!("<selected-file>.{format}")),
-            "overwrite": bool_parameter(parameters, "overwrite").unwrap_or(false)
-        },
-        "schema": string_parameter(parameters, "schema"),
-        "format": format,
-        "includeData": bool_parameter(parameters, "includeData").unwrap_or(true),
-        "rowLimit": numeric_parameter(parameters, "rowLimit").unwrap_or(1_000),
-        "tableLimit": numeric_parameter(parameters, "tableLimit").unwrap_or(25),
+        "mode": mode,
         "executionGate": {
-            "defaultSupport": default_support,
-            "guards": [
-                "desktop adapter execution only",
-                "absolute target path",
-                "parent folder exists",
-                "overwrite opt-in",
-                "bounded table list",
-                "bounded rows per table",
-                "logical package restore validation"
-            ],
-            "residualRisk": format!("bounded logical DataPad++ backup package; full {restore_tools} restore execution remains preview-first")
+            "defaultSupport": "unsupported",
+            "reason": format!("Full {} backup and restore require {dump_tool}, which DataPad++ does not bundle or execute.", if manifest.engine == "mariadb" { "MariaDB" } else { "MySQL" })
         }
     }))
     .unwrap_or_else(|_| "{}".into())

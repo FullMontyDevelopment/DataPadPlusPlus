@@ -32,9 +32,15 @@ impl DatastoreAdapter for SqlServerAdapter {
         messages: Vec<String>,
         warnings: Vec<String>,
     ) -> Result<OperationExecutionResponse, CommandError> {
+        if request.operation_id == "sqlserver.data.backup-restore" {
+            return Err(CommandError::new(
+                "sqlserver-backup-plan-only",
+                "Native SQL Server .bak backup and restore remain plan-only until server-visible destination execution and isolated restore validation are implemented.",
+            ));
+        }
         if matches!(
             request.operation_id.as_str(),
-            "sqlserver.data.import-export" | "sqlserver.data.backup-restore"
+            "sqlserver.data.import-export"
         ) {
             return execute_sqlserver_file_operation(
                 connection, request, operation, plan, messages, warnings,
@@ -69,7 +75,6 @@ impl DatastoreAdapter for SqlServerAdapter {
                 "supports_metrics_collection",
                 "supports_structure_visualization",
                 "supports_import_export",
-                "supports_backup_restore",
             ],
         )
     }
@@ -82,10 +87,7 @@ impl DatastoreAdapter for SqlServerAdapter {
         let manifest = self.manifest();
         let mut operations = operation_manifests_for_manifest(&manifest);
         for operation in &mut operations {
-            if matches!(
-                operation.id.as_str(),
-                "sqlserver.data.import-export" | "sqlserver.data.backup-restore"
-            ) {
+            if matches!(operation.id.as_str(), "sqlserver.data.import-export") {
                 operation.execution_support = "live".into();
                 operation.disabled_reason = None;
                 operation.preview_only = Some(false);
@@ -93,13 +95,29 @@ impl DatastoreAdapter for SqlServerAdapter {
                     "sqlserver.data.import-export" => {
                         "Run guarded SQL Server table import/export file workflows with concrete paths, row limits, and target-column validation."
                     }
-                    _ => {
-                        "Create guarded bounded SQL Server logical backup packages and validate restore packages; native .bak restore remains preview-first."
-                    }
+                    _ => unreachable!("only import/export is promoted"),
                 }
                 .into();
             }
         }
+        let mut backup = operation_manifest(
+            &manifest,
+            "data.backup-restore",
+            "Backup / Restore",
+            "database",
+            "destructive",
+            &[],
+            &["diff", "raw"],
+            "Plan a native SQL Server .bak backup or restore against a server-visible destination.",
+            true,
+        );
+        backup.execution_support = "plan-only".into();
+        backup.preview_only = Some(true);
+        backup.disabled_reason = Some(
+            "Native SQL Server .bak execution is not implemented yet; custom logical packages are not offered as backups."
+                .into(),
+        );
+        operations.push(backup);
         operations
     }
 

@@ -248,20 +248,29 @@ async fn every_registered_adapter_has_consistent_operation_contracts() -> Result
 }
 
 #[tokio::test]
-async fn mariadb_file_workflow_manifests_are_guarded_live() -> Result<(), CommandError> {
+async fn mariadb_data_transfer_is_live_while_native_backup_is_unavailable(
+) -> Result<(), CommandError> {
     let connection = resolved_connection("mariadb", "sql");
     let operations = adapters::operation_manifests(&connection)?;
 
-    for operation_id in ["mariadb.data.import-export", "mariadb.data.backup-restore"] {
-        let operation = operations
-            .iter()
-            .find(|operation| operation.id == operation_id)
-            .unwrap_or_else(|| panic!("{operation_id} manifest"));
-        assert_eq!(operation.execution_support, "live");
-        assert_eq!(operation.preview_only, Some(false));
-        assert!(operation.disabled_reason.is_none());
-        assert!(operation.description.contains("MariaDB"));
-    }
+    let data_transfer = operations
+        .iter()
+        .find(|operation| operation.id == "mariadb.data.import-export")
+        .expect("MariaDB import/export manifest");
+    assert_eq!(data_transfer.execution_support, "live");
+    assert_eq!(data_transfer.preview_only, Some(false));
+    assert!(data_transfer.disabled_reason.is_none());
+    let backup = operations
+        .iter()
+        .find(|operation| operation.id == "mariadb.data.backup-restore")
+        .expect("MariaDB backup limitation");
+    assert_eq!(backup.execution_support, "unsupported");
+    assert_eq!(backup.preview_only, Some(true));
+    assert!(backup
+        .disabled_reason
+        .as_deref()
+        .unwrap_or_default()
+        .contains("mariadb-dump"));
 
     let export_plan = adapters::plan_operation(
         &connection,

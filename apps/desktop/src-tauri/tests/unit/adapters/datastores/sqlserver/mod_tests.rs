@@ -4,17 +4,22 @@ use super::*;
 fn sqlserver_live_file_workflow_manifests_are_guarded() {
     let operations = SqlServerAdapter.operation_manifests();
 
-    for id in [
-        "sqlserver.data.import-export",
-        "sqlserver.data.backup-restore",
-    ] {
-        let operation = operations
-            .iter()
-            .find(|operation| operation.id == id)
-            .expect("operation manifest");
-        assert_eq!(operation.execution_support, "live");
-        assert_eq!(operation.preview_only, Some(false));
-        assert!(operation.disabled_reason.is_none());
-        assert!(operation.requires_confirmation);
-    }
+    let import_export = operations
+        .iter()
+        .find(|operation| operation.id == "sqlserver.data.import-export")
+        .expect("import/export manifest");
+    assert_eq!(import_export.execution_support, "live");
+    assert_eq!(import_export.preview_only, Some(false));
+    assert!(import_export.disabled_reason.is_none());
+    let backup = operations
+        .iter()
+        .find(|operation| operation.id == "sqlserver.data.backup-restore")
+        .expect("backup plan manifest");
+    assert_eq!(backup.execution_support, "plan-only");
+    assert_eq!(backup.preview_only, Some(true));
+    assert!(backup
+        .disabled_reason
+        .as_deref()
+        .unwrap_or_default()
+        .contains(".bak"));
 }

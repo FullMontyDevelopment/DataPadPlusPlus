@@ -37,27 +37,17 @@ export function postgresBackupRestoreRequest(
   parameters: Record<string, unknown> = {},
 ) {
   const mode = String(parameters.mode ?? 'backup').toLowerCase()
-  const format = String(parameters.format ?? 'json').toLowerCase()
   const { schema } = postgresObjectParts(objectName, parameters)
 
   return JSON.stringify({
-    workflow: mode === 'restore' ? 'postgresql.database.restore-preview' : 'postgresql.database.backup',
+    workflow: `postgresql.database.${mode}-unavailable`,
     mode,
-    format,
     schema,
-    target: {
-      path: `<selected-file>.${format}`,
-      overwrite: false,
-    },
-    rowLimit: numericParameter(parameters, 'rowLimit') ?? 1_000,
-    tableLimit: numericParameter(parameters, 'tableLimit') ?? 25,
-    includeData: booleanParameter(parameters, 'includeData') ?? true,
     executionGate: {
       owner: 'postgresql-adapter',
-      defaultSupport: mode === 'restore' ? 'plan-only' : 'live',
+      defaultSupport: 'unsupported',
       requiresConfirmation: true,
-      residualRisk:
-        'bounded logical DataPad++ backup package; full pg_dump/pg_restore restore execution remains preview-first',
+      reason: 'Full PostgreSQL backup and restore require pg_dump and pg_restore, which DataPad++ does not bundle or execute.',
     },
   }, null, 2)
 }
@@ -84,11 +74,6 @@ function postgresObjectParts(
 function stringParameter(parameters: Record<string, unknown>, key: string) {
   const value = parameters[key]
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
-}
-
-function booleanParameter(parameters: Record<string, unknown>, key: string) {
-  const value = parameters[key]
-  return typeof value === 'boolean' ? value : undefined
 }
 
 function numericParameter(parameters: Record<string, unknown>, key: string) {

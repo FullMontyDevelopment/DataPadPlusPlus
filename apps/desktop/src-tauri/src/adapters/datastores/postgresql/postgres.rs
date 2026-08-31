@@ -22,9 +22,15 @@ impl DatastoreAdapter for PostgresAdapter {
         messages: Vec<String>,
         warnings: Vec<String>,
     ) -> Result<OperationExecutionResponse, CommandError> {
+        if request.operation_id == "postgresql.data.backup-restore" {
+            return Err(CommandError::new(
+                "postgresql-backup-unavailable",
+                "Full PostgreSQL backup and restore require pg_dump and pg_restore, which DataPad++ does not bundle or execute.",
+            ));
+        }
         if matches!(
             request.operation_id.as_str(),
-            "postgresql.data.import-export" | "postgresql.data.backup-restore"
+            "postgresql.data.import-export"
         ) {
             return execute_postgres_file_operation(
                 connection, request, operation, plan, messages, warnings,
@@ -58,7 +64,6 @@ impl DatastoreAdapter for PostgresAdapter {
                 "supports_index_management",
                 "supports_permission_inspection",
                 "supports_import_export",
-                "supports_backup_restore",
                 "supports_structure_visualization",
             ],
         )
@@ -74,9 +79,7 @@ impl DatastoreAdapter for PostgresAdapter {
         for operation in &mut operations {
             if matches!(
                 operation.id.as_str(),
-                "postgresql.query.profile"
-                    | "postgresql.data.import-export"
-                    | "postgresql.data.backup-restore"
+                "postgresql.query.profile" | "postgresql.data.import-export"
             ) {
                 operation.execution_support = "live".into();
                 operation.disabled_reason = None;
@@ -88,13 +91,29 @@ impl DatastoreAdapter for PostgresAdapter {
                     "postgresql.data.import-export" => {
                         "Run guarded PostgreSQL table import/export file workflows with concrete paths, row limits, and type-aware inserts."
                     }
-                    _ => {
-                        "Create a guarded bounded PostgreSQL logical backup package; restore remains preview-first."
-                    }
+                    _ => unreachable!("only profile and import/export are promoted"),
                 }
                 .into();
             }
         }
+        let mut backup = operation_manifest(
+            &manifest,
+            "data.backup-restore",
+            "Backup / Restore",
+            "database",
+            "destructive",
+            &[],
+            &["diff", "raw"],
+            "PostgreSQL full backup requires excluded vendor tooling.",
+            true,
+        );
+        backup.execution_support = "unsupported".into();
+        backup.preview_only = Some(true);
+        backup.disabled_reason = Some(
+            "Full PostgreSQL backup and restore require pg_dump and pg_restore, which DataPad++ does not bundle or execute."
+                .into(),
+        );
+        operations.push(backup);
         operations
     }
 

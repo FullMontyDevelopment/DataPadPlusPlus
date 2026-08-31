@@ -643,7 +643,7 @@ describe('datastore roadmap catalog', () => {
     expect(mysql?.summary).toContain('native storage/index/security/session/status')
     expect(mysql?.summary).toContain('live performance_schema/status/optimizer diagnostics')
     expect(mysql?.summary).toContain('structured guarded maintenance/routine/event/security/user previews')
-    expect(mysql?.summary).toContain('bounded JSON/SQL logical backup packages')
+    expect(mysql?.summary).toContain('Full native backup is explicitly unavailable')
   })
 
   it('identifies PostgreSQL as a scoped native-complete SQL target', () => {
@@ -730,7 +730,7 @@ describe('datastore roadmap catalog', () => {
     expect(postgres?.summary).toContain('guarded parameterized routine execution plans')
     expect(postgres?.summary).toContain('pg_cancel_backend/pg_terminate_backend previews')
     expect(postgres?.summary).toContain('optional PostgreSQL fixture validation')
-    expect(postgres?.summary).toContain('Full pg_dump/pg_restore execution')
+    expect(postgres?.summary).toContain('Full native backup is explicitly unavailable')
     expect(postgres?.summary).toContain(
       'guarded desktop CSV/JSON/NDJSON table export/import',
     )
@@ -743,7 +743,7 @@ describe('datastore roadmap catalog', () => {
     expect(
       postgres?.criteria.find((item) => item.criterion === 'import-export')
         ?.note,
-    ).toContain('bounded JSON/SQL logical backup packages')
+    ).toContain('Full native backup and restore are explicitly unavailable')
     expect(incompleteCriteria).not.toContain('object-tree')
     expect(incompleteCriteria).not.toContain('connection-flow')
     expect(incompleteCriteria).not.toContain('object-views')
@@ -793,7 +793,7 @@ describe('datastore roadmap catalog', () => {
     expect(
       sqlserver?.criteria.find((item) => item.criterion === 'import-export')
         ?.note,
-    ).toContain('bounded JSON/SQL logical backup package')
+    ).toContain('custom logical packages are not advertised as backups')
     expect(sqlserver?.summary).toContain(
       'Native-complete for the scoped SQL Server/Azure SQL workflow',
     )

@@ -571,31 +571,18 @@ fn postgres_backup_restore_request(
     let mode = string_parameter(parameters, "mode")
         .unwrap_or_else(|| "backup".into())
         .to_ascii_lowercase();
-    let format = string_parameter(parameters, "format").unwrap_or_else(|| "json".into());
     let schema = string_parameter(parameters, "schema")
         .unwrap_or_else(|| postgres_plan_table_parts(object_name, parameters).0);
 
     serde_json::to_string_pretty(&serde_json::json!({
-        "workflow": if mode == "restore" {
-            "postgresql.database.restore-preview"
-        } else {
-            "postgresql.database.backup"
-        },
+        "workflow": format!("postgresql.database.{mode}-unavailable"),
         "mode": mode,
-        "format": format,
         "schema": schema,
-        "target": {
-            "path": format!("<selected-file>.{format}"),
-            "overwrite": false
-        },
-        "rowLimit": numeric_parameter(parameters, "rowLimit").unwrap_or(1_000),
-        "tableLimit": numeric_parameter(parameters, "tableLimit").unwrap_or(25),
-        "includeData": bool_parameter(parameters, "includeData").unwrap_or(true),
         "executionGate": {
             "owner": "postgresql-adapter",
-            "defaultSupport": if mode == "restore" { "plan-only" } else { "live" },
+            "defaultSupport": "unsupported",
             "requiresConfirmation": true,
-            "residualRisk": "bounded logical DataPad++ backup package; full pg_dump/pg_restore restore execution remains preview-first"
+            "reason": "Full PostgreSQL backup and restore require pg_dump and pg_restore, which DataPad++ does not bundle or execute."
         }
     }))
     .unwrap_or_else(|_| "{}".into())

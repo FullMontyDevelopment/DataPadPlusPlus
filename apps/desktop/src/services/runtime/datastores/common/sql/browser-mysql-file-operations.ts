@@ -74,58 +74,19 @@ export function mysqlBackupRestoreRequest(
   parameters: Record<string, unknown>,
 ) {
   const mode = (stringParameter(parameters, 'mode') ?? 'backup').toLowerCase()
-  const format = stringParameter(parameters, 'format') ?? 'json'
   const database = stringParameter(parameters, 'database')
     ?? stringParameter(parameters, 'schema')
     ?? mysqlWorkflowDatabaseName(objectName)
     ?? 'database'
-  const defaultSupport = 'live'
   const dumpTool = connection.engine === 'mariadb' ? 'mariadb-dump' : 'mysqldump'
 
-  if (['restore', 'recover', 'import'].includes(mode)) {
-    return JSON.stringify({
-      workflow: `${connection.engine}.database.restore`,
-      database,
-      source: {
-        path: stringParameter(parameters, 'sourcePath') ?? stringParameter(parameters, 'inputPath') ?? '<selected-file>.json',
-      },
-      mode,
-      executionGate: {
-        defaultSupport: 'plan-only',
-        guards: [
-          'restore execution remains preview-first',
-          'validate package before manual restore',
-          'review schema DDL, triggers, routines, events, privileges, generated columns, and target database state',
-        ],
-        residualRisk: `full ${dumpTool}/mysql restore and generated insert replay remain manual reviewed workflows`,
-      },
-    }, null, 2)
-  }
-
   return JSON.stringify({
-    workflow: `${connection.engine}.database.backup`,
+    workflow: `${connection.engine}.database.${mode}-unavailable`,
     database,
-    target: {
-      path: stringParameter(parameters, 'targetPath') ?? stringParameter(parameters, 'outputPath') ?? `<selected-file>.${format}`,
-      overwrite: Boolean(parameters.overwrite),
-    },
-    schema: stringParameter(parameters, 'schema'),
-    format,
-    includeData: parameters.includeData !== false,
-    rowLimit: numericParameter(parameters, 'rowLimit') ?? 1000,
-    tableLimit: numericParameter(parameters, 'tableLimit') ?? 25,
+    mode,
     executionGate: {
-      defaultSupport,
-      guards: [
-        'desktop adapter execution only',
-        'absolute target path',
-        'parent folder exists',
-        'overwrite opt-in',
-        'bounded table list',
-        'bounded rows per table',
-        'logical package restore validation',
-      ],
-      residualRisk: `bounded logical DataPad++ backup package; full ${dumpTool}/mysql restore execution remains preview-first`,
+      defaultSupport: 'unsupported',
+      reason: `Full ${connection.engine === 'mariadb' ? 'MariaDB' : 'MySQL'} backup and restore require ${dumpTool}, which DataPad++ does not bundle or execute.`,
     },
   }, null, 2)
 }

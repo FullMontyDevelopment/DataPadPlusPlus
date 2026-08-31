@@ -143,50 +143,26 @@ function sqlServerImportExportRequest(objectName: string, parameters: Record<str
 function sqlServerBackupRestoreRequest(objectName: string, parameters: Record<string, unknown>) {
   const mode = (stringParameter(parameters, 'mode') ?? 'backup').toLowerCase()
   const database = stringParameter(parameters, 'database') ?? sqlServerWorkflowDatabaseName(objectName) ?? 'database'
-
-  if (['restore', 'recover', 'import'].includes(mode)) {
-    return JSON.stringify({
-      workflow: 'sqlserver.database.restore',
-      database,
-      source: {
-        path: stringParameter(parameters, 'sourcePath') ?? stringParameter(parameters, 'inputPath') ?? '<selected-file>.json',
-      },
-      mode,
-      executionGate: {
-        defaultSupport: 'plan-only',
-        guards: [
-          'restore execution remains preview-first',
-          'validate package before manual restore',
-          'review schema DDL, identity columns, triggers, constraints, and target database state',
-        ],
-        residualRisk: 'native .bak restore and generated insert replay remain manual reviewed workflows',
-      },
-    }, null, 2)
-  }
+  const restoring = ['restore', 'recover', 'import'].includes(mode)
 
   return JSON.stringify({
-    workflow: 'sqlserver.database.backup',
+    workflow: restoring ? 'sqlserver.database.restore-plan' : 'sqlserver.database.backup-plan',
     database,
-    target: {
-      path: stringParameter(parameters, 'targetPath') ?? stringParameter(parameters, 'outputPath') ?? '<selected-file>.json',
-      overwrite: Boolean(parameters.overwrite),
+    [restoring ? 'source' : 'target']: {
+      serverVisiblePath: '<sql-server-visible-path>.bak',
+      overwrite: false,
     },
-    schema: stringParameter(parameters, 'schema'),
-    format: stringParameter(parameters, 'format') ?? 'json',
-    includeData: parameters.includeData !== false,
-    rowLimit: numericParameter(parameters, 'rowLimit') ?? 1000,
-    tableLimit: numericParameter(parameters, 'tableLimit') ?? 25,
+    mode,
+    format: 'bak',
     executionGate: {
-      defaultSupport: 'live',
+      defaultSupport: 'plan-only',
       guards: [
-        'desktop adapter execution only',
-        'absolute target path',
-        'parent folder exists',
-        'overwrite opt-in',
-        'bounded table list',
-        'bounded rows per table',
+        'SQL Server-visible disk or URL destination',
+        'BACKUP DATABASE or RESTORE DATABASE permission preflight',
+        'restore into a new database by default',
+        'explicit destructive confirmation',
       ],
-      residualRisk: 'bounded logical DataPad++ backup package; native .bak backup/restore execution remains preview-first',
+      residualRisk: 'native .bak execution remains unavailable until server-visible destination and isolated restore validation are implemented',
     },
   }, null, 2)
 }
