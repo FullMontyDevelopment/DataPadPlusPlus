@@ -39,7 +39,10 @@ impl DatastoreAdapter for SqliteAdapter {
     ) -> Result<OperationExecutionResponse, CommandError> {
         if matches!(
             request.operation_id.as_str(),
-            "sqlite.database.backup" | "sqlite.table.export" | "sqlite.table.import"
+            "sqlite.database.backup"
+                | "sqlite.database.restore"
+                | "sqlite.table.export"
+                | "sqlite.table.import"
         ) {
             return execute_sqlite_file_operation(
                 connection, request, operation, plan, messages, warnings,

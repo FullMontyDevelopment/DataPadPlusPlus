@@ -9373,7 +9373,28 @@
           "metrics",
           "raw"
         ],
-        "description": "Create a guarded SQLite file backup with VACUUM INTO.",
+        "description": "Create a guarded SQLite file snapshot through the online backup API.",
+        "requiresConfirmation": true,
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
+      },
+      {
+        "id": "sqlite.database.restore",
+        "engine": "sqlite",
+        "family": "sql",
+        "label": "Restore Database",
+        "scope": "database",
+        "risk": "destructive",
+        "requiredCapabilities": [
+          "supports_backup_restore"
+        ],
+        "supportedRenderers": [
+          "diff",
+          "metrics",
+          "raw"
+        ],
+        "description": "Restore a complete SQLite backup into a new isolated database file.",
         "requiresConfirmation": true,
         "executionSupport": "live",
         "disabledReason": null,

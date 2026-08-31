@@ -1936,6 +1936,11 @@ describe('browser operation runtime', () => {
           risk: 'costly',
         }),
         expect.objectContaining({
+          id: 'sqlite.database.restore',
+          label: 'Restore Database',
+          risk: 'destructive',
+        }),
+        expect.objectContaining({
           id: 'sqlite.table.export',
           label: 'Export Table',
           risk: 'costly',
@@ -1981,8 +1986,23 @@ describe('browser operation runtime', () => {
       parameters: { targetPath: 'C:\\fixtures\\backup.sqlite' },
     })
     expect(backupPlan.plan.generatedRequest).toContain('"workflow": "sqlite.database.backup"')
+    expect(backupPlan.plan.generatedRequest).toContain('SQLite online backup API')
     expect(backupPlan.plan.generatedRequest).toContain('backup.sqlite')
     expect(backupPlan.plan.confirmationText).toBeTruthy()
+
+    const restorePlan = planOperationLocally(snapshot, {
+      connectionId: sqliteConnection.id,
+      environmentId: 'env-local',
+      operationId: 'sqlite.database.restore',
+      objectName: '[main]',
+      parameters: {
+        sourcePath: 'C:\\fixtures\\backup.sqlite',
+        targetDatabase: 'C:\\fixtures\\restored.sqlite',
+      },
+    })
+    expect(restorePlan.plan.generatedRequest).toContain('"workflow": "sqlite.database.restore"')
+    expect(restorePlan.plan.generatedRequest).toContain('restored.sqlite')
+    expect(restorePlan.plan.confirmationText).toBeTruthy()
 
     const exportPlan = planOperationLocally(snapshot, {
       connectionId: sqliteConnection.id,

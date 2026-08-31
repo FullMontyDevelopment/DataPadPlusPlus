@@ -389,7 +389,7 @@ describe('datastore roadmap catalog', () => {
       sqlite?.criteria.find((item) => item.criterion === 'guarded-operations')
         ?.note,
     ).toContain('live desktop file workflows')
-    expect(sqlite?.summary).toContain('VACUUM INTO backup')
+    expect(sqlite?.summary).toContain('online-API backup and isolated restore')
   })
 
   it('tracks TimescaleDB and Oracle native-complete graduations', () => {

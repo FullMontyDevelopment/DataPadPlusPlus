@@ -640,8 +640,24 @@ fn sql_family_operation_plans_are_dialect_aware() {
             json!("C:\\fixtures\\backup.sqlite"),
         )])),
     );
-    assert!(sqlite_backup.contains("vacuum \"main\" into"));
+    assert!(sqlite_backup.contains("SQLite online backup API"));
     assert!(sqlite_backup.contains("backup.sqlite"));
+
+    let sqlite_restore = generated_operation_request(
+        &connection,
+        &sqlite_manifest,
+        "sqlite.database.restore",
+        "[main]",
+        Some(&BTreeMap::from([
+            ("sourcePath".into(), json!("C:\\fixtures\\backup.sqlite")),
+            (
+                "targetDatabase".into(),
+                json!("C:\\fixtures\\restored.sqlite"),
+            ),
+        ])),
+    );
+    assert!(sqlite_restore.contains("sqlite.database.restore"));
+    assert!(sqlite_restore.contains("existing target conflict rejection"));
 
     let sqlite_integrity = generated_operation_request(
         &connection,

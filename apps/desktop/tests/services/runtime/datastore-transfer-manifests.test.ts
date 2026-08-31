@@ -40,6 +40,10 @@ describe('datastore transfer manifests', () => {
       expect(capabilities.find((item) => item.action === 'export')?.executionSupport).toBe('live')
     }
     expect(datastoreTransferManifest('sqlite').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
+    const sqliteRestore = datastoreTransferManifest('sqlite').capabilities.find((item) => item.action === 'restore')
+    expect(sqliteRestore?.executionSupport).toBe('live')
+    expect(sqliteRestore?.operationId).toBe('sqlite.database.restore')
+    expect(sqliteRestore?.options?.map((item) => item.id)).toEqual(['targetDatabase'])
     expect(datastoreTransferManifest('duckdb').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
     const duckdbRestore = datastoreTransferManifest('duckdb').capabilities.find((item) => item.action === 'restore')
     expect(duckdbRestore?.executionSupport).toBe('live')

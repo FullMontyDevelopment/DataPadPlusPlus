@@ -117,6 +117,32 @@ fn sqlite_encryption_options_are_explicitly_gated() {
     });
 }
 
+#[test]
+fn sqlite_file_workflow_resolves_ado_style_source_path() {
+    let path = std::env::temp_dir().join(format!(
+        "datapadplusplus-backup-source-{}.sqlite",
+        std::process::id()
+    ));
+    std::fs::write(&path, b"sqlite-source-placeholder").expect("create source placeholder");
+    let mut connection = test_connection("unused.sqlite");
+    connection.connection_string = Some(format!("Data Source={};Mode=ReadOnly;", path.display()));
+
+    assert_eq!(
+        sqlite_database_file_path(&connection).expect("resolve SQLite source path"),
+        std::fs::canonicalize(&path).expect("canonical source path")
+    );
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn sqlite_file_workflow_rejects_memory_databases() {
+    let connection = test_connection(":memory:");
+    assert_eq!(
+        sqlite_database_file_path(&connection).unwrap_err().code,
+        "sqlite-file-workflow-memory"
+    );
+}
+
 fn test_connection(path: &str) -> ResolvedConnectionProfile {
     ResolvedConnectionProfile {
         id: "conn-sqlite".into(),

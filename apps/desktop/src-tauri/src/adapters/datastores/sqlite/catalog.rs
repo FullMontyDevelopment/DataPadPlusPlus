@@ -89,7 +89,18 @@ pub(super) fn sqlite_operation_manifests(
             "costly",
             &["supports_backup_restore"],
             &["diff", "metrics", "raw"],
-            "Create a guarded SQLite file backup with VACUUM INTO.",
+            "Create a guarded SQLite file snapshot through the online backup API.",
+            true,
+        ),
+        operation_manifest(
+            manifest,
+            "database.restore",
+            "Restore Database",
+            "database",
+            "destructive",
+            &["supports_backup_restore"],
+            &["diff", "metrics", "raw"],
+            "Restore a complete SQLite backup into a new isolated database file.",
             true,
         ),
         operation_manifest(
@@ -140,7 +151,10 @@ pub(super) fn sqlite_operation_manifests(
     for operation in &mut operations {
         if matches!(
             operation.id.as_str(),
-            "sqlite.database.backup" | "sqlite.table.export" | "sqlite.table.import"
+            "sqlite.database.backup"
+                | "sqlite.database.restore"
+                | "sqlite.table.export"
+                | "sqlite.table.import"
         ) {
             operation.execution_support = "live".into();
             operation.disabled_reason = None;

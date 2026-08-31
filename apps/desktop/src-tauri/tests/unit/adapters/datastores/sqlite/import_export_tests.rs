@@ -24,6 +24,7 @@ fn sqlite_file_workflows_export_import_and_backup() {
         let export_path = folder.join("accounts.csv");
         let import_path = folder.join("accounts-import.csv");
         let backup_path = folder.join("backup.sqlite");
+        let restored_path = folder.join("restored.sqlite");
 
         let setup_pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -119,6 +120,109 @@ fn sqlite_file_workflows_export_import_and_backup() {
         .expect("backup sqlite database");
         assert!(backup_response.executed);
         assert!(backup_path.is_file());
+        assert_eq!(
+            backup_response
+                .metadata
+                .as_ref()
+                .and_then(|value| value.get("integrityCheck"))
+                .and_then(Value::as_str),
+            Some("ok")
+        );
+        let overwrite_backup_request = operation_request(
+            "sqlite.database.backup",
+            Some("main"),
+            [
+                ("targetPath", json!(backup_path.display().to_string())),
+                ("overwrite", json!(true)),
+            ],
+        );
+        let overwrite_backup = execute_sqlite_file_operation(
+            &connection,
+            &overwrite_backup_request,
+            live_operation("sqlite.database.backup"),
+            plan("sqlite.database.backup"),
+            Vec::new(),
+            Vec::new(),
+        )
+        .await
+        .expect("replace SQLite backup after explicit overwrite");
+        assert!(overwrite_backup.executed);
+
+        let restore_operation = live_operation("sqlite.database.restore");
+        let restore_request = operation_request(
+            "sqlite.database.restore",
+            Some("main"),
+            [
+                ("sourcePath", json!(backup_path.display().to_string())),
+                ("targetDatabase", json!(restored_path.display().to_string())),
+            ],
+        );
+        let restore_response = execute_sqlite_file_operation(
+            &connection,
+            &restore_request,
+            restore_operation.clone(),
+            plan("sqlite.database.restore"),
+            Vec::new(),
+            Vec::new(),
+        )
+        .await
+        .expect("restore sqlite database");
+        assert!(restore_response.executed);
+        assert!(restored_path.is_file());
+        let restored_pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(SqliteConnectOptions::new().filename(&restored_path))
+            .await
+            .expect("open restored sqlite database");
+        let restored_count: i64 = sqlx::query_scalar("select count(*) from accounts")
+            .fetch_one(&restored_pool)
+            .await
+            .expect("count restored rows");
+        assert_eq!(restored_count, 2);
+        restored_pool.close().await;
+
+        let restore_conflict = execute_sqlite_file_operation(
+            &connection,
+            &restore_request,
+            restore_operation,
+            plan("sqlite.database.restore"),
+            Vec::new(),
+            Vec::new(),
+        )
+        .await
+        .expect("reject sqlite restore conflict");
+        assert!(!restore_conflict.executed);
+        assert!(restore_conflict
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("already exists")));
+
+        let corrupt_source = folder.join("corrupt.sqlite");
+        let failed_target = folder.join("failed-restore.sqlite");
+        fs::write(&corrupt_source, b"not a sqlite database").expect("write corrupt source");
+        let corrupt_request = operation_request(
+            "sqlite.database.restore",
+            Some("main"),
+            [
+                ("sourcePath", json!(corrupt_source.display().to_string())),
+                ("targetDatabase", json!(failed_target.display().to_string())),
+            ],
+        );
+        let error = match execute_sqlite_file_operation(
+            &connection,
+            &corrupt_request,
+            live_operation("sqlite.database.restore"),
+            plan("sqlite.database.restore"),
+            Vec::new(),
+            Vec::new(),
+        )
+        .await
+        {
+            Ok(_) => panic!("corrupt SQLite restore source should be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, "sqlite-native-backup");
+        assert!(!failed_target.exists());
 
         let _ = fs::remove_dir_all(&folder);
     });

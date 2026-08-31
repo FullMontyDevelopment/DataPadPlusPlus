@@ -15,6 +15,7 @@ fn sqlite_manifest_exposes_local_maintenance_operations() {
         .any(|capability| capability == "supports_admin_operations"));
     assert!(ids.contains(&"sqlite.database.integrity-check"));
     assert!(ids.contains(&"sqlite.database.backup"));
+    assert!(ids.contains(&"sqlite.database.restore"));
     assert!(ids.contains(&"sqlite.table.export"));
     assert!(ids.contains(&"sqlite.table.import"));
     assert!(ids.contains(&"sqlite.database.vacuum"));
@@ -23,6 +24,13 @@ fn sqlite_manifest_exposes_local_maintenance_operations() {
         operations
             .iter()
             .find(|operation| operation.id == "sqlite.table.export")
+            .map(|operation| operation.execution_support.as_str()),
+        Some("live")
+    );
+    assert_eq!(
+        operations
+            .iter()
+            .find(|operation| operation.id == "sqlite.database.restore")
             .map(|operation| operation.execution_support.as_str()),
         Some("live")
     );

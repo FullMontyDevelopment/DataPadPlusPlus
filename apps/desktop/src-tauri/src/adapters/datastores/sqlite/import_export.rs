@@ -3,13 +3,16 @@ use std::{
     fs::{self, File},
     io::{Read, Write},
     path::{Path, PathBuf},
+    time::Duration,
 };
 
+use rand::RngExt;
+use rusqlite::{backup::Backup, Connection as NativeSqliteConnection, OpenFlags};
 use serde_json::{json, Map, Value};
 use sqlx::{Column, Row};
 
 use super::super::super::*;
-use super::connection::{sqlite_pool, stringify_sqlite_cell};
+use super::connection::{sqlite_database_file_path, sqlite_pool, stringify_sqlite_cell};
 
 const SQLITE_FILE_WORKFLOW_MAX_ROWS: u64 = 100_000;
 
@@ -24,6 +27,17 @@ pub(crate) async fn execute_sqlite_file_operation(
     match request.operation_id.as_str() {
         "sqlite.database.backup" => {
             execute_sqlite_database_backup(
+                connection,
+                request,
+                &operation,
+                plan,
+                &mut messages,
+                &mut warnings,
+            )
+            .await
+        }
+        "sqlite.database.restore" => {
+            execute_sqlite_database_restore(
                 connection,
                 request,
                 &operation,
@@ -104,28 +118,35 @@ async fn execute_sqlite_database_backup(
         ));
     }
 
-    if target_path.exists() && bool_parameter(request, "overwrite").unwrap_or(false) {
-        fs::remove_file(&target_path)?;
-    }
-
     let schema = workflow_schema(request);
-    let pool = sqlite_pool(connection).await?;
-    let statement = format!(
-        "vacuum {} into {};",
-        quote_sqlite_identifier(&schema),
-        sqlite_string_literal(&target_path.display().to_string()),
-    );
-    sqlx::query(sqlx::AssertSqlSafe(statement.as_str()))
-        .execute(&pool)
-        .await?;
-    pool.close().await;
-
-    let bytes_written = fs::metadata(&target_path)
-        .map(|item| item.len())
-        .unwrap_or(0);
+    if schema != "main" {
+        warnings
+            .push("SQLite online backup currently supports the main database schema only.".into());
+        return Ok(operation_response(
+            request,
+            operation,
+            plan,
+            false,
+            None,
+            messages.clone(),
+            warnings.clone(),
+        ));
+    }
+    let source_path = sqlite_database_file_path(connection)?;
+    let overwrite = bool_parameter(request, "overwrite").unwrap_or(false);
+    let snapshot = tokio::task::spawn_blocking(move || {
+        create_sqlite_snapshot(&source_path, &target_path, overwrite)
+    })
+    .await
+    .map_err(|error| {
+        CommandError::new(
+            "sqlite-backup-task",
+            format!("SQLite online backup task could not complete: {error}"),
+        )
+    })??;
     messages.push(format!(
-        "SQLite backed up {schema} into {}.",
-        target_path.display()
+        "SQLite created and verified a complete online backup with {} page(s).",
+        snapshot.page_count
     ));
 
     Ok(operation_response(
@@ -136,12 +157,293 @@ async fn execute_sqlite_database_backup(
         Some(json!({
             "workflow": "sqlite.database.backup",
             "schema": schema,
-            "targetPath": target_path.display().to_string(),
-            "bytesWritten": bytes_written,
+            "bytesWritten": snapshot.bytes,
+            "pageCount": snapshot.page_count,
+            "tableCount": snapshot.table_count,
+            "integrityCheck": "ok",
+            "overwrite": overwrite,
         })),
         messages.clone(),
         warnings.clone(),
     ))
+}
+
+async fn execute_sqlite_database_restore(
+    connection: &ResolvedConnectionProfile,
+    request: &OperationExecutionRequest,
+    operation: &DatastoreOperationManifest,
+    plan: OperationPlan,
+    messages: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) -> Result<OperationExecutionResponse, CommandError> {
+    if connection.read_only {
+        warnings.push("SQLite restore is blocked because this connection is read-only.".into());
+        return Ok(operation_response(
+            request,
+            operation,
+            plan,
+            false,
+            None,
+            messages.clone(),
+            warnings.clone(),
+        ));
+    }
+    let Some(source_path) = concrete_file_path(
+        file_path_parameter(request, &["sourcePath", "inputPath"], "source"),
+        "restore source",
+    ) else {
+        warnings.push("Choose an absolute SQLite backup file to restore.".into());
+        return Ok(operation_response(
+            request,
+            operation,
+            plan,
+            false,
+            None,
+            messages.clone(),
+            warnings.clone(),
+        ));
+    };
+    if !source_path.is_file() {
+        warnings.push("The selected SQLite restore source is not an existing file.".into());
+        return Ok(operation_response(
+            request,
+            operation,
+            plan,
+            false,
+            None,
+            messages.clone(),
+            warnings.clone(),
+        ));
+    }
+    let Some(target_path) = concrete_file_path(
+        string_parameter(request, "targetDatabase")
+            .or_else(|| string_parameter(request, "targetDatabasePath"))
+            .or_else(|| string_parameter(request, "destinationDatabasePath")),
+        "restore target",
+    ) else {
+        warnings.push("Choose an absolute path for the new SQLite database file.".into());
+        return Ok(operation_response(
+            request,
+            operation,
+            plan,
+            false,
+            None,
+            messages.clone(),
+            warnings.clone(),
+        ));
+    };
+    if let Some(warning) = writable_target_warning(&target_path, false, "SQLite restore target") {
+        warnings.push(warning);
+        return Ok(operation_response(
+            request,
+            operation,
+            plan,
+            false,
+            None,
+            messages.clone(),
+            warnings.clone(),
+        ));
+    }
+
+    let target_file_name = target_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("restored.sqlite")
+        .to_string();
+    let snapshot = tokio::task::spawn_blocking(move || {
+        create_sqlite_snapshot(&source_path, &target_path, false)
+    })
+    .await
+    .map_err(|error| {
+        CommandError::new(
+            "sqlite-restore-task",
+            format!("SQLite restore task could not complete: {error}"),
+        )
+    })??;
+    messages.push(format!(
+        "SQLite restored and verified {} table(s) into {target_file_name}.",
+        snapshot.table_count
+    ));
+
+    Ok(operation_response(
+        request,
+        operation,
+        plan,
+        true,
+        Some(json!({
+            "workflow": "sqlite.database.restore",
+            "format": "sqlite",
+            "targetFileName": target_file_name,
+            "bytesWritten": snapshot.bytes,
+            "pageCount": snapshot.page_count,
+            "tableCount": snapshot.table_count,
+            "integrityCheck": "ok",
+            "createdNewDatabase": true,
+            "conflictPolicy": "fail",
+        })),
+        messages.clone(),
+        warnings.clone(),
+    ))
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SqliteSnapshotResult {
+    bytes: u64,
+    page_count: u64,
+    table_count: u64,
+}
+
+fn create_sqlite_snapshot(
+    source_path: &Path,
+    target_path: &Path,
+    overwrite: bool,
+) -> Result<SqliteSnapshotResult, CommandError> {
+    if source_path == target_path
+        || (target_path.exists()
+            && fs::canonicalize(target_path).ok().as_deref() == Some(source_path))
+    {
+        return Err(CommandError::new(
+            "sqlite-snapshot-same-file",
+            "SQLite backup and restore targets must be different from the source database.",
+        ));
+    }
+    let temporary_path = partial_sqlite_snapshot_path(target_path);
+    let result = (|| {
+        let source = NativeSqliteConnection::open_with_flags(
+            source_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+        )
+        .map_err(sqlite_native_error)?;
+        let mut destination =
+            NativeSqliteConnection::open(&temporary_path).map_err(sqlite_native_error)?;
+        let backup = Backup::new(&source, &mut destination).map_err(sqlite_native_error)?;
+        backup
+            .run_to_completion(100, Duration::from_millis(10), None)
+            .map_err(sqlite_native_error)?;
+        let progress = backup.progress();
+        drop(backup);
+        let (table_count, page_count) = validate_sqlite_snapshot(&destination)?;
+        drop(destination);
+        publish_sqlite_snapshot(&temporary_path, target_path, overwrite)?;
+        Ok(SqliteSnapshotResult {
+            bytes: fs::metadata(target_path)?.len(),
+            page_count: page_count.max(u64::try_from(progress.pagecount).unwrap_or_default()),
+            table_count,
+        })
+    })();
+    cleanup_sqlite_snapshot_artifacts(&temporary_path);
+    result
+}
+
+fn validate_sqlite_snapshot(
+    connection: &NativeSqliteConnection,
+) -> Result<(u64, u64), CommandError> {
+    let integrity: String = connection
+        .query_row("pragma integrity_check", [], |row| row.get(0))
+        .map_err(sqlite_native_error)?;
+    if integrity != "ok" {
+        return Err(CommandError::new(
+            "sqlite-snapshot-integrity",
+            "SQLite snapshot integrity validation did not return ok.",
+        ));
+    }
+    let table_count: i64 = connection
+        .query_row(
+            "select count(*) from sqlite_schema where type = 'table' and name not like 'sqlite_%'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(sqlite_native_error)?;
+    let page_count: i64 = connection
+        .query_row("pragma page_count", [], |row| row.get(0))
+        .map_err(sqlite_native_error)?;
+    Ok((
+        u64::try_from(table_count).unwrap_or_default(),
+        u64::try_from(page_count).unwrap_or_default(),
+    ))
+}
+
+fn partial_sqlite_snapshot_path(target_path: &Path) -> PathBuf {
+    let file_name = target_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("snapshot.sqlite");
+    target_path.with_file_name(format!(
+        ".{file_name}.datapad-snapshot-{:032x}.partial",
+        rand::rng().random::<u128>()
+    ))
+}
+
+fn publish_sqlite_snapshot(
+    source: &Path,
+    target: &Path,
+    overwrite: bool,
+) -> Result<(), CommandError> {
+    if target.exists() {
+        if !overwrite {
+            return Err(CommandError::new(
+                "sqlite-snapshot-target-exists",
+                "SQLite snapshot target already exists and was not overwritten.",
+            ));
+        }
+        if !target.is_file() {
+            return Err(CommandError::new(
+                "sqlite-snapshot-target-type",
+                "SQLite snapshot target exists but is not a regular file.",
+            ));
+        }
+        let rollback = target.with_file_name(format!(
+            ".{}.datapad-rollback-{:032x}",
+            target
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("snapshot.sqlite"),
+            rand::rng().random::<u128>()
+        ));
+        fs::rename(target, &rollback)?;
+        if let Err(error) = fs::rename(source, target) {
+            let _ = fs::rename(&rollback, target);
+            return Err(CommandError::new(
+                "sqlite-snapshot-publish",
+                format!("SQLite could not publish the completed snapshot: {error}"),
+            ));
+        }
+        let _ = fs::remove_file(rollback);
+        return Ok(());
+    }
+    match fs::hard_link(source, target) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Err(CommandError::new(
+            "sqlite-snapshot-target-exists",
+            "SQLite snapshot target was created by another process and was not overwritten.",
+        )),
+        Err(_) => {
+            let mut input = File::open(source)?;
+            let mut output = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(target)?;
+            if let Err(error) = std::io::copy(&mut input, &mut output)
+                .and_then(|_| output.flush())
+                .and_then(|_| output.sync_all())
+            {
+                drop(output);
+                let _ = fs::remove_file(target);
+                return Err(error.into());
+            }
+            Ok(())
+        }
+    }
+}
+
+fn cleanup_sqlite_snapshot_artifacts(path: &Path) {
+    let _ = fs::remove_file(path);
+    let _ = fs::remove_file(PathBuf::from(format!("{}-wal", path.display())));
+    let _ = fs::remove_file(PathBuf::from(format!("{}-shm", path.display())));
+}
+
+fn sqlite_native_error(error: rusqlite::Error) -> CommandError {
+    CommandError::new("sqlite-native-backup", error.to_string())
 }
 
 async fn execute_sqlite_table_export(
@@ -978,6 +1280,10 @@ fn writable_target_warning(path: &Path, overwrite: bool, label: &str) -> Option<
                 parent.display()
             ));
         }
+    }
+
+    if path.exists() && !path.is_file() {
+        return Some(format!("{label} `{}` is not a file.", path.display()));
     }
 
     if path.exists() && !overwrite {

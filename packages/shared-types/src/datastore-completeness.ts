@@ -708,9 +708,9 @@ const SQLITE_PROFILE = profile({
     ],
   ),
   'guarded-operations': strong(
-    'SQLite guarded operations cover integrity checks, analyze, optimize, vacuum, reindex previews, and live desktop file workflows for database backup, table/view export, and table import with concrete path and confirmation checks.',
+    'SQLite guarded operations cover integrity checks, analyze, optimize, vacuum, reindex previews, and live desktop file workflows for online database backup, isolated restore, table/view export, and table import with concrete path and confirmation checks.',
     [
-      'Optional extension: promote selected trigger/index authoring and restore workflows only after preview, rollback, and file-lock handling are proven.',
+      'Optional extension: promote selected trigger and index authoring workflows after preview, rollback, and file-lock handling are proven.',
     ],
   ),
   'diagnostics-performance': strong(
@@ -720,15 +720,15 @@ const SQLITE_PROFILE = profile({
     ],
   ),
   'import-export': strong(
-    'SQLite has guarded desktop live file workflows for VACUUM INTO database backups, bounded table/view export to CSV/JSON/NDJSON, and CSV/JSON/NDJSON table import into explicit existing targets with read-only, absolute-path, overwrite, row-limit, validation-only, and confirmation guardrails; browser preview remains plan-only.',
+    'SQLite has guarded desktop live file workflows for online-API database backups, restore into new integrity-checked database files, bounded table/view export to CSV/JSON/NDJSON, and CSV/JSON/NDJSON table import into explicit existing targets with read-only, absolute-path, overwrite, row-limit, validation-only, and confirmation guardrails; browser preview remains plan-only.',
     [
-      'Optional extension: add restore execution, typed CSV mapping controls, and larger streaming fixtures if those workflows enter the scoped claim.',
+      'Optional extension: add typed CSV mapping controls and larger streaming fixtures if those workflows enter the scoped claim.',
     ],
   ),
   tests: strong(
     'SQLite has connection option, tree, object-view, operation-plan, query/explain, row-edit, structure, browser-preview, adapter fixture, and live file-workflow unit tests.',
     [
-      'Optional extension: add dedicated restore and extension-module fixture tests when those claims are in scope.',
+      'Optional extension: add extension-module fixtures when those claims are in scope.',
     ],
   ),
 })
@@ -1542,7 +1542,7 @@ const ENGINE_OVERRIDES: Partial<
     nativeScore: 5,
     targetPhase: 2,
     summary:
-      'Native-complete for the scoped local-file SQLite workflow: SQLite has local file open/create and read-only connection flows, native main/attached database trees, table/view/index/trigger/virtual/generated-column surfaces, raw SQL and scoped SELECT builders, metadata-aware SQL IntelliSense, purpose-built object views, rendered EXPLAIN QUERY PLAN and bytecode profile payloads, PRAGMA diagnostics, live primary-key row edits, guarded maintenance plans, live desktop VACUUM INTO backup, table/view CSV/JSON/NDJSON export, CSV/JSON/NDJSON table import with concrete path/read-only/overwrite/row-limit/validation/confirmation guardrails, browser plan-only previews, and focused live file-workflow tests; restore execution, encrypted-provider builds, and deeper trigger/index authoring remain optional extensions outside this claim.',
+      'Native-complete for the scoped local-file SQLite workflow: SQLite has local file open/create and read-only connection flows, native main/attached database trees, table/view/index/trigger/virtual/generated-column surfaces, raw SQL and scoped SELECT builders, metadata-aware SQL IntelliSense, purpose-built object views, rendered EXPLAIN QUERY PLAN and bytecode profile payloads, PRAGMA diagnostics, live primary-key row edits, guarded maintenance plans, live desktop online-API backup and isolated restore, table/view CSV/JSON/NDJSON export, CSV/JSON/NDJSON table import with concrete path/read-only/overwrite/row-limit/validation/confirmation guardrails, browser plan-only previews, and focused live file-workflow tests; encrypted-provider builds and deeper trigger/index authoring remain optional extensions outside this claim.',
     profile: SQLITE_PROFILE,
   },
   oracle: {

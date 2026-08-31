@@ -1,5 +1,6 @@
-use std::{path::PathBuf, str::FromStr, time::Duration};
+use std::{fs, path::PathBuf, str::FromStr, time::Duration};
 
+use percent_encoding::percent_decode_str;
 use sqlx::{
     sqlite::{
         SqliteAutoVacuum, SqliteConnectOptions, SqliteJournalMode, SqliteLockingMode,
@@ -51,6 +52,85 @@ pub(super) async fn sqlite_pool(
         .max_connections(1)
         .connect_with(options)
         .await?)
+}
+
+pub(super) fn sqlite_database_file_path(
+    connection: &ResolvedConnectionProfile,
+) -> Result<PathBuf, CommandError> {
+    let sqlite_options = connection.sqlite_options.as_ref();
+    if sqlite_options
+        .and_then(|options| options.encryption_provider.as_deref())
+        .is_some_and(|provider| !provider.eq_ignore_ascii_case("none"))
+    {
+        return Err(CommandError::new(
+            "sqlite-encryption-unavailable",
+            "Native SQLite backup is unavailable for provider-encrypted files in this build.",
+        ));
+    }
+    let raw = connection
+        .connection_string
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .or(connection.database.as_deref())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(connection.host.as_str())
+        .trim();
+    let normalized = normalize_sqlite_input(raw, sqlite_options)?;
+    if normalized.in_memory || normalized.path == ":memory:" {
+        return Err(CommandError::new(
+            "sqlite-file-workflow-memory",
+            "SQLite native file backup and restore require a file-backed database.",
+        ));
+    }
+    let location = normalized
+        .dsn
+        .as_deref()
+        .map(sqlite_path_from_dsn)
+        .transpose()?
+        .unwrap_or_else(|| PathBuf::from(normalized.path));
+    let absolute = if location.is_absolute() {
+        location
+    } else {
+        std::env::current_dir()?.join(location)
+    };
+    let canonical = fs::canonicalize(&absolute).map_err(|error| {
+        CommandError::new(
+            "sqlite-file-workflow-source",
+            format!("SQLite database file could not be resolved: {error}"),
+        )
+    })?;
+    if !canonical.is_file() {
+        return Err(CommandError::new(
+            "sqlite-file-workflow-source",
+            "SQLite native file backup requires an existing database file.",
+        ));
+    }
+    Ok(canonical)
+}
+
+fn sqlite_path_from_dsn(dsn: &str) -> Result<PathBuf, CommandError> {
+    let value = dsn.strip_prefix("sqlite:").unwrap_or(dsn);
+    let value = value.strip_prefix("//").unwrap_or(value);
+    let value = value.strip_prefix("file:").unwrap_or(value);
+    let value = value.split(['?', '#']).next().unwrap_or(value);
+    let decoded = percent_decode_str(value).decode_utf8().map_err(|_| {
+        CommandError::new(
+            "sqlite-file-workflow-path-encoding",
+            "SQLite database URI contains invalid UTF-8 path encoding.",
+        )
+    })?;
+    let mut decoded = decoded.into_owned();
+    if cfg!(windows) && decoded.starts_with('/') && decoded.as_bytes().get(2).copied() == Some(b':')
+    {
+        decoded.remove(0);
+    }
+    if decoded.trim().is_empty() {
+        return Err(CommandError::new(
+            "sqlite-file-workflow-source",
+            "SQLite database URI does not contain a file path.",
+        ));
+    }
+    Ok(PathBuf::from(decoded))
 }
 
 fn sqlite_connect_options(

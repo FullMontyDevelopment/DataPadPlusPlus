@@ -62,15 +62,53 @@ pub(super) fn sqlite_operation_request(
         );
     }
 
+    if operation_id.ends_with("database.restore") {
+        let source_path = string_parameter(parameters, "sourcePath")
+            .or_else(|| string_parameter(parameters, "inputPath"))
+            .unwrap_or_else(|| "<selected-file>.sqlite".into());
+        let target_path = string_parameter(parameters, "targetDatabase")
+            .or_else(|| string_parameter(parameters, "targetDatabasePath"))
+            .or_else(|| string_parameter(parameters, "destinationDatabasePath"))
+            .unwrap_or_else(|| "<new-database-file>.sqlite".into());
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "workflow": "sqlite.database.restore",
+            "format": "sqlite",
+            "sourcePath": source_path,
+            "targetDatabase": target_path,
+            "conflictPolicy": "fail",
+            "guardrails": [
+                "absolute existing backup source",
+                "SQLite integrity validation",
+                "absolute new target path",
+                "existing target conflict rejection",
+                "read-only connection block",
+                "online backup API copy",
+                "completed snapshot publication"
+            ]
+        }))
+        .unwrap_or_else(|_| "{}".into());
+    }
+
     if operation_id.ends_with("database.backup") {
         let target_path = string_parameter(parameters, "targetPath")
             .or_else(|| string_parameter(parameters, "outputPath"))
             .unwrap_or_else(|| "<selected-file>.sqlite".into());
-        return format!(
-            "vacuum {} into '{}';\n-- Guardrails: absolute target path, parent folder must exist, overwrite requires explicit opt-in.",
-            sqlite_quoted_identifier(&schema),
-            target_path.replace('\'', "''")
-        );
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "workflow": "sqlite.database.backup",
+            "schema": schema,
+            "targetPath": target_path,
+            "overwrite": bool_parameter(parameters, "overwrite").unwrap_or(false),
+            "nativeProcedure": "SQLite online backup API",
+            "guardrails": [
+                "file-backed main database",
+                "absolute target path",
+                "parent folder exists",
+                "overwrite requires explicit opt-in",
+                "partial-file staging",
+                "SQLite integrity validation"
+            ]
+        }))
+        .unwrap_or_else(|_| "{}".into());
     }
 
     if operation_id.ends_with("table.export") {
@@ -188,11 +226,4 @@ fn sqlite_unquoted_identifier(value: &str) -> String {
         .trim_matches('[')
         .trim_matches(']')
         .into()
-}
-
-fn sqlite_quoted_identifier(value: &str) -> String {
-    format!(
-        "\"{}\"",
-        sqlite_unquoted_identifier(value).replace('"', "\"\"")
-    )
 }

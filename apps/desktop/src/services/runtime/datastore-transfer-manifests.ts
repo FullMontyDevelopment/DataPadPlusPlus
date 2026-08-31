@@ -264,7 +264,7 @@ const NATIVE_BACKUP_ENGINES = new Set<DatastoreEngine>([
 const LIVE_BACKUP_ENGINES = new Set<DatastoreEngine>(['sqlite', 'duckdb', 'cockroachdb', 'sqlserver'])
 
 function isLiveBackupAction(engine: DatastoreEngine, action: 'backup' | 'restore') {
-  return engine === 'cockroachdb' || engine === 'sqlserver' || engine === 'duckdb'
+  return engine === 'cockroachdb' || engine === 'sqlserver' || engine === 'duckdb' || engine === 'sqlite'
     || (LIVE_BACKUP_ENGINES.has(engine) && action === 'backup')
 }
 
@@ -302,7 +302,7 @@ export function datastoreTransferManifest(engine: DatastoreEngine): DatastoreTra
 
 export function isDatastoreTransferOperation(operationId: string) {
   return /\.data\.(?:import-export|backup-restore)$/.test(operationId)
-    || /^(?:sqlite\.table\.(?:import|export)|sqlite\.database\.backup|mongodb\.collection\.(?:import|export)|(?:redis|valkey)\.key\.(?:import|export)|cockroach\.(?:import|export|backup|restore))$/.test(operationId)
+    || /^(?:sqlite\.table\.(?:import|export)|sqlite\.database\.(?:backup|restore)|mongodb\.collection\.(?:import|export)|(?:redis|valkey)\.key\.(?:import|export)|cockroach\.(?:import|export|backup|restore))$/.test(operationId)
 }
 
 function liveData(
@@ -379,7 +379,7 @@ function dataScope(engine: DatastoreEngine): DatastoreTransferCapability['scope'
 }
 
 function backupOperationIds(engine: DatastoreEngine): CapabilitySpec['operationIds'] {
-  if (engine === 'sqlite') return { backup: 'sqlite.database.backup' }
+  if (engine === 'sqlite') return { backup: 'sqlite.database.backup', restore: 'sqlite.database.restore' }
   return undefined
 }
 
@@ -387,7 +387,19 @@ function backupOptions(
   engine: DatastoreEngine,
   action: 'backup' | 'restore',
 ): CapabilitySpec['options'] {
-  if (!['cockroachdb', 'sqlserver', 'duckdb'].includes(engine) || action !== 'restore') return undefined
+  if (!['cockroachdb', 'sqlserver', 'duckdb', 'sqlite'].includes(engine) || action !== 'restore') return undefined
+  if (engine === 'sqlite') {
+    return {
+      restore: [{
+        id: 'targetDatabase',
+        label: 'New database file',
+        input: 'text',
+        required: true,
+        placeholder: 'C:\\data\\restored.sqlite',
+        description: 'Enter an absolute path that does not exist. SQLite restores into this new isolated database file.',
+      }],
+    }
+  }
   if (engine === 'duckdb') {
     return {
       restore: [{

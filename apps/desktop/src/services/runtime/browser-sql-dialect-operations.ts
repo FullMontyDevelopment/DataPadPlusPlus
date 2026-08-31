@@ -157,7 +157,19 @@ export function sqliteOperationRequest(
       schema,
       targetPath: stringParameter(parameters, 'targetPath') ?? stringParameter(parameters, 'outputPath') ?? '<selected-file>.sqlite',
       overwrite: Boolean(parameters.overwrite),
-      guardrails: ['absolute target path', 'parent folder exists', 'overwrite opt-in', 'desktop adapter execution only'],
+      nativeProcedure: 'SQLite online backup API',
+      guardrails: ['absolute target path', 'parent folder exists', 'overwrite opt-in', 'partial-file staging', 'integrity validation', 'desktop adapter execution only'],
+    }, null, 2)
+  }
+
+  if (operationId.endsWith('database.restore')) {
+    return JSON.stringify({
+      workflow: 'sqlite.database.restore',
+      format: 'sqlite',
+      sourcePath: stringParameter(parameters, 'sourcePath') ?? stringParameter(parameters, 'inputPath') ?? '<selected-file>.sqlite',
+      targetDatabase: stringParameter(parameters, 'targetDatabase') ?? '<new-database-file>.sqlite',
+      conflictPolicy: 'fail',
+      guardrails: ['existing valid SQLite source', 'absolute new target path', 'existing target rejection', 'read-only connection block', 'desktop adapter execution only'],
     }, null, 2)
   }
 

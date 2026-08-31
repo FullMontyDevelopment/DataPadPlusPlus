@@ -313,7 +313,7 @@ export function sqliteOperationActions(
       dialectAction(connection, 'database.analyze', 'Analyze', 'Refresh SQLite planner statistics', 'job', objectName, baseParameters),
       dialectAction(connection, 'database.optimize', 'Optimize', 'Run SQLite PRAGMA optimize', 'job', objectName, baseParameters),
       dialectAction(connection, 'database.vacuum', 'Vacuum', 'Prepare a guarded SQLite compaction workflow', 'security', objectName, baseParameters),
-      dialectAction(connection, 'database.backup', 'Backup', 'Plan a guarded SQLite VACUUM INTO backup workflow', 'table', objectName, baseParameters),
+      dialectAction(connection, 'database.backup', 'Backup', 'Create a guarded SQLite online backup API snapshot', 'table', objectName, baseParameters),
     )
   }
 
