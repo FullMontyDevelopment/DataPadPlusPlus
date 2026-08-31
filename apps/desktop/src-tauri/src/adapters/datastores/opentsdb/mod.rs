@@ -4,6 +4,7 @@ mod catalog;
 mod connection;
 mod diagnostics;
 mod explorer;
+mod import_export;
 mod query;
 mod query_request;
 mod query_results;
@@ -23,6 +24,46 @@ impl DatastoreAdapter for OpenTsdbAdapter {
 
     fn manifest(&self) -> AdapterManifest {
         opentsdb_manifest()
+    }
+
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        opentsdb_operation_manifests(&self.manifest())
+    }
+
+    async fn plan_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        operation_id: &str,
+        object_name: Option<&str>,
+        parameters: Option<&BTreeMap<String, Value>>,
+    ) -> Result<OperationPlan, CommandError> {
+        Ok(import_export::opentsdb_transfer_plan(
+            connection,
+            operation_id,
+            object_name,
+            parameters,
+        ))
+    }
+
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if request.operation_id == "opentsdb.data.import-export" {
+            return import_export::execute_opentsdb_transfer(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
     }
 
     fn execution_capabilities(&self) -> ExecutionCapabilities {
