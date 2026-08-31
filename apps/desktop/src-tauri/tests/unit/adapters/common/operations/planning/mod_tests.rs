@@ -919,7 +919,7 @@ fn sql_family_operation_plans_are_dialect_aware() {
     );
     assert_eq!(
         duckdb_backup_json["executionGate"]["residualRisk"],
-        "IMPORT DATABASE restore execution remains preview-first"
+        "restore requires a separate new database file and never replaces an existing target"
     );
 
     let duckdb_restore = generated_operation_request(
@@ -930,33 +930,19 @@ fn sql_family_operation_plans_are_dialect_aware() {
         Some(&BTreeMap::from([
             ("mode".into(), json!("restore")),
             ("sourcePath".into(), json!("C:\\exports\\duckdb-backup")),
+            ("targetDatabase".into(), json!("C:\\data\\restored.duckdb")),
         ])),
     );
     let duckdb_restore_json: Value =
         serde_json::from_str(&duckdb_restore).expect("duckdb restore request");
-    assert_eq!(
-        duckdb_restore_json["workflow"],
-        "duckdb.database.restore-preview"
-    );
+    assert_eq!(duckdb_restore_json["workflow"], "duckdb.database.restore");
     assert_eq!(
         duckdb_restore_json["restorePreflight"]["sourcePackageValidated"],
         "desktop-preflight-required"
     );
     assert_eq!(
         duckdb_restore_json["restorePreflight"]["operationValidated"],
-        false
-    );
-    assert_eq!(
-        duckdb_restore_json["databaseLockBoundary"]["workflow"],
-        "duckdb.database.restore-preview"
-    );
-    assert_eq!(
-        duckdb_restore_json["databaseLockBoundary"]["requiresWriteAccess"],
-        true
-    );
-    assert_eq!(
-        duckdb_restore_json["databaseLockBoundary"]["crossProcessContentionValidated"],
-        "desktop-fixture-required"
+        "desktop-runtime-required"
     );
     assert!(duckdb_restore_json["restorePreflight"]["checks"]
         .as_array()
@@ -965,29 +951,14 @@ fn sql_family_operation_plans_are_dialect_aware() {
         .as_array()
         .is_some_and(|guards| guards
             .iter()
-            .any(|guard| guard == "target database write/open preflight")));
+            .any(|guard| guard == "existing target conflict rejection")));
     assert_eq!(
-        duckdb_restore_json["restoreExecutionBoundary"]["executionPolicy"],
-        "scoped-out"
+        duckdb_restore_json["target"]["databasePath"],
+        "C:\\data\\restored.duckdb"
     );
     assert_eq!(
-        duckdb_restore_json["restoreExecutionBoundary"]["nativeClaim"],
-        "restore-preflight-only"
-    );
-    assert!(
-        duckdb_restore_json["restoreExecutionBoundary"]["promotionRequires"]
-            .as_array()
-            .is_some_and(
-                |requirements| requirements.iter().any(|requirement| requirement
-                    == "target snapshot or rollback artifact before IMPORT DATABASE")
-            )
-    );
-    assert!(
-        duckdb_restore_json["restoreExecutionBoundary"]["blockedReasons"]
-            .as_array()
-            .is_some_and(|reasons| reasons
-                .iter()
-                .any(|reason| reason == "restore-execution-scoped-out"))
+        duckdb_restore_json["executionGate"]["defaultSupport"],
+        "live"
     );
 
     let mysql_check = generated_operation_request(

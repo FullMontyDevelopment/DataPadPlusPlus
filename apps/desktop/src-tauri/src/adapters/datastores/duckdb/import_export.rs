@@ -1,9 +1,11 @@
 use std::{
     collections::BTreeSet,
     env, fs,
+    io::Write,
     path::{Path, PathBuf},
 };
 
+use rand::RngExt;
 use serde_json::{json, Value};
 
 use super::super::super::*;
@@ -527,11 +529,6 @@ async fn execute_duckdb_backup_restore(
 ) -> Result<OperationExecutionResponse, CommandError> {
     let mode = workflow_mode(request, "backup");
     if matches!(mode.as_str(), "restore" | "recover" | "import") {
-        let database_preflight =
-            match open_duckdb_file_workflow_connection(connection, true, warnings)? {
-                DuckDbPreflightedConnection::Ready { preflight, .. } => preflight,
-                DuckDbPreflightedConnection::Blocked(preflight) => preflight,
-            };
         let restore_preflight = duckdb_restore_source_preflight(file_path_parameter(
             request,
             &["sourcePath", "inputPath", "sourceFolder", "inputFolder"],
@@ -539,46 +536,100 @@ async fn execute_duckdb_backup_restore(
         ))?;
         if let Some(warning) = restore_preflight.blocking_warning.clone() {
             warnings.push(warning);
-        }
-        if connection.read_only {
-            warnings.push(
-                "DuckDB restore target write preflight is blocked because this connection is read-only."
-                    .into(),
-            );
-        }
-        warnings.push(
-            "DuckDB restore execution remains preview-first; review the generated IMPORT DATABASE workflow manually."
-                .into(),
-        );
-        if restore_preflight.source_package_validated()
-            && database_preflight.blocking_warning.is_none()
-            && !connection.read_only
-        {
-            messages.push(format!(
-                "DuckDB restore source package validated from {} ({} file(s), {} byte(s)).",
-                restore_preflight.source_path,
-                restore_preflight.file_count,
-                restore_preflight.bytes
+            return Ok(operation_response(
+                request,
+                operation,
+                plan,
+                false,
+                Some(json!({
+                    "workflow": "duckdb.database.restore",
+                    "restorePreflight": restore_preflight.to_json(false),
+                })),
+                messages.clone(),
+                warnings.clone(),
             ));
         }
+        if connection.read_only {
+            warnings.push("DuckDB restore is blocked because this connection is read-only.".into());
+            return Ok(operation_response(
+                request,
+                operation,
+                plan,
+                false,
+                Some(json!({
+                    "workflow": "duckdb.database.restore",
+                    "restorePreflight": restore_preflight.to_json(false),
+                })),
+                messages.clone(),
+                warnings.clone(),
+            ));
+        }
+
+        let Some(target_path) = concrete_file_path(
+            string_parameter(request, "targetDatabase")
+                .or_else(|| string_parameter(request, "targetDatabasePath"))
+                .or_else(|| string_parameter(request, "destinationDatabasePath")),
+            "restore target",
+        ) else {
+            warnings.push(
+                "Choose an absolute path for the new DuckDB restore target database file.".into(),
+            );
+            return Ok(operation_response(
+                request,
+                operation,
+                plan,
+                false,
+                Some(json!({
+                    "workflow": "duckdb.database.restore",
+                    "restorePreflight": restore_preflight.to_json(false),
+                })),
+                messages.clone(),
+                warnings.clone(),
+            ));
+        };
+        if let Some(warning) = new_duckdb_restore_target_warning(&target_path, connection) {
+            warnings.push(warning);
+            return Ok(operation_response(
+                request,
+                operation,
+                plan,
+                false,
+                Some(json!({
+                    "workflow": "duckdb.database.restore",
+                    "restorePreflight": restore_preflight.to_json(false),
+                })),
+                messages.clone(),
+                warnings.clone(),
+            ));
+        }
+
+        let restored_table_count = match restore_duckdb_database(&restore_preflight, &target_path) {
+            Ok(count) => count,
+            Err(error) => return Err(error),
+        };
+        messages.push(format!(
+            "DuckDB restored {} table(s) into the new database file {}.",
+            restored_table_count,
+            target_path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("restored DuckDB database")
+        ));
         return Ok(operation_response(
             request,
             operation,
             plan,
-            false,
+            true,
             Some(json!({
-                "workflow": "duckdb.database.restore-preview",
-                "mode": mode,
-                "sourcePath": restore_preflight.source_path,
-                "statement": restore_preflight.import_statement(),
-                "databasePreflight": database_preflight.to_json(),
-                "restorePreflight": restore_preflight.to_json(),
-                "restoreExecutionBoundary": duckdb_restore_execution_boundary(
-                    &mode,
-                    &restore_preflight,
-                    &database_preflight,
-                    connection.read_only,
-                ),
+                "workflow": "duckdb.database.restore",
+                "format": restore_preflight.primary_format(),
+                "sourceFileCount": restore_preflight.file_count,
+                "sourceBytes": restore_preflight.bytes,
+                "restoredTableCount": restored_table_count,
+                "targetFileName": target_path.file_name().and_then(|value| value.to_str()),
+                "createdNewDatabase": true,
+                "conflictPolicy": "fail",
+                "restorePreflight": restore_preflight.to_json(true),
             })),
             messages.clone(),
             warnings.clone(),
@@ -1025,18 +1076,15 @@ impl DuckDbRestorePreflight {
         self.blocking_warning.is_none()
     }
 
-    fn import_statement(&self) -> Option<String> {
-        self.source_package_validated().then(|| {
-            format!(
-                "import database {};",
-                duckdb_string_literal(&self.source_path)
-            )
-        })
+    fn primary_format(&self) -> Option<&str> {
+        self.detected_formats
+            .iter()
+            .find(|format| matches!(format.as_str(), "parquet" | "csv"))
+            .map(String::as_str)
     }
 
-    fn to_json(&self) -> Value {
+    fn to_json(&self, operation_validated: bool) -> Value {
         json!({
-            "sourcePath": self.source_path,
             "exists": self.exists,
             "isFolder": self.is_folder,
             "readProbe": self.read_probe,
@@ -1047,54 +1095,128 @@ impl DuckDbRestorePreflight {
             "detectedFormats": &self.detected_formats,
             "blockedReason": self.blocking_warning,
             "sourcePackageValidated": self.source_package_validated(),
-            "operationValidated": false,
+            "operationValidated": operation_validated,
         })
     }
 }
 
-fn duckdb_restore_execution_boundary(
-    mode: &str,
+fn new_duckdb_restore_target_warning(
+    target_path: &Path,
+    connection: &ResolvedConnectionProfile,
+) -> Option<String> {
+    if target_path.exists() {
+        return Some(format!(
+            "DuckDB restore target `{}` already exists. Restore requires a new database file and never overwrites an existing file.",
+            target_path.display()
+        ));
+    }
+    if let Some(parent) = target_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        if !parent.is_dir() {
+            return Some(format!(
+                "DuckDB restore target parent `{}` does not exist.",
+                parent.display()
+            ));
+        }
+    }
+    let current = concrete_directory_candidate(&duckdb_database_path(connection));
+    if current.as_deref() == Some(target_path) {
+        return Some(
+            "DuckDB restore must create a new database file; the active database cannot be replaced."
+                .into(),
+        );
+    }
+    None
+}
+
+fn restore_duckdb_database(
     restore_preflight: &DuckDbRestorePreflight,
-    database_preflight: &DuckDbDatabasePreflight,
-    connection_read_only: bool,
-) -> Value {
-    let target_write_open_validated = database_preflight.blocking_warning.is_none()
-        && database_preflight.duckdb_open_probe
-        && database_preflight.write_probe != Some(false)
-        && !connection_read_only;
-    let preview_validated =
-        restore_preflight.source_package_validated() && target_write_open_validated;
-    let mut blocked_reasons = vec!["restore-execution-scoped-out".to_string()];
-    if !restore_preflight.source_package_validated() {
-        blocked_reasons.push("restore-source-package-not-validated".into());
-    }
-    if database_preflight.blocking_warning.is_some() {
-        blocked_reasons.push("target-database-preflight-blocked".into());
-    }
-    if connection_read_only {
-        blocked_reasons.push("connection-read-only".into());
+    target_path: &Path,
+) -> Result<u64, CommandError> {
+    let temporary_path = partial_duckdb_restore_path(target_path);
+    let result = (|| {
+        let db = duckdb::Connection::open(&temporary_path).map_err(duckdb_error)?;
+        let statement = format!(
+            "import database {};",
+            duckdb_string_literal(&restore_preflight.source_path)
+        );
+        db.execute_batch(&statement).map_err(duckdb_error)?;
+        let table_count: i64 = db
+            .query_row(
+                "select count(*) from information_schema.tables where table_schema not in ('information_schema', 'pg_catalog')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(duckdb_error)?;
+        db.execute_batch("checkpoint;").map_err(duckdb_error)?;
+        drop(db);
+        let table_count = u64::try_from(table_count).map_err(|_| {
+            CommandError::new(
+                "duckdb-restore-validation",
+                "DuckDB restored the database but returned an invalid catalog table count.",
+            )
+        })?;
+        persist_new_duckdb_restore(&temporary_path, target_path)?;
+        Ok(table_count)
+    })();
+    cleanup_duckdb_restore_artifacts(&temporary_path);
+    result
+}
+
+fn partial_duckdb_restore_path(target_path: &Path) -> PathBuf {
+    let file_name = target_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("restored.duckdb");
+    target_path.with_file_name(format!(
+        ".{file_name}.datapad-restore-{:016x}.partial",
+        rand::rng().random::<u64>()
+    ))
+}
+
+fn persist_new_duckdb_restore(source: &Path, target: &Path) -> Result<(), CommandError> {
+    match fs::hard_link(source, target) {
+        Ok(()) => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Err(CommandError::new(
+                "duckdb-restore-target-exists",
+                "DuckDB restore stopped because the target database file was created by another process.",
+            ));
+        }
+        Err(_) => {}
     }
 
-    json!({
-        "executionPolicy": "scoped-out",
-        "mode": mode,
-        "nativeClaim": "restore-preflight-only",
-        "destructive": true,
-        "targetMayReplaceCatalog": true,
-        "manualExecutionOutsideScopedClaim": true,
-        "excludedFromLiveFixtureClaim": true,
-        "sourcePackageValidated": restore_preflight.source_package_validated(),
-        "targetWriteOpenValidated": target_write_open_validated,
-        "previewValidated": preview_validated,
-        "promotionRequires": [
-            "exclusive DuckDB writer lock evidence",
-            "target snapshot or rollback artifact before IMPORT DATABASE",
-            "post-restore catalog diff and validation",
-            "explicit destructive restore confirmation",
-            "read-only connection promotion block"
-        ],
-        "blockedReasons": blocked_reasons,
-    })
+    let mut source_file = fs::File::open(source)?;
+    let mut target_file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(target)
+        .map_err(|error| {
+            CommandError::new(
+                "duckdb-restore-target-create",
+                format!("DuckDB could not reserve the new restore target file: {error}"),
+            )
+        })?;
+    let copy_result = std::io::copy(&mut source_file, &mut target_file)
+        .and_then(|_| target_file.flush())
+        .and_then(|_| target_file.sync_all());
+    if let Err(error) = copy_result {
+        drop(target_file);
+        let _ = fs::remove_file(target);
+        return Err(CommandError::new(
+            "duckdb-restore-target-write",
+            format!("DuckDB could not finalize the new restore target file: {error}"),
+        ));
+    }
+    Ok(())
+}
+
+fn cleanup_duckdb_restore_artifacts(target_path: &Path) {
+    let _ = fs::remove_file(target_path);
+    let wal_path = PathBuf::from(format!("{}.wal", target_path.display()));
+    let _ = fs::remove_file(wal_path);
 }
 
 fn prepare_duckdb_format_environment(

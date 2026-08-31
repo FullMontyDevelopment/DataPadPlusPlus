@@ -264,7 +264,7 @@ const NATIVE_BACKUP_ENGINES = new Set<DatastoreEngine>([
 const LIVE_BACKUP_ENGINES = new Set<DatastoreEngine>(['sqlite', 'duckdb', 'cockroachdb', 'sqlserver'])
 
 function isLiveBackupAction(engine: DatastoreEngine, action: 'backup' | 'restore') {
-  return engine === 'cockroachdb' || engine === 'sqlserver'
+  return engine === 'cockroachdb' || engine === 'sqlserver' || engine === 'duckdb'
     || (LIVE_BACKUP_ENGINES.has(engine) && action === 'backup')
 }
 
@@ -387,7 +387,19 @@ function backupOptions(
   engine: DatastoreEngine,
   action: 'backup' | 'restore',
 ): CapabilitySpec['options'] {
-  if (!['cockroachdb', 'sqlserver'].includes(engine) || action !== 'restore') return undefined
+  if (!['cockroachdb', 'sqlserver', 'duckdb'].includes(engine) || action !== 'restore') return undefined
+  if (engine === 'duckdb') {
+    return {
+      restore: [{
+        id: 'targetDatabase',
+        label: 'New database file',
+        input: 'text',
+        required: true,
+        placeholder: 'C:\\data\\restored.duckdb',
+        description: 'Enter an absolute path that does not exist. DuckDB restores into this new isolated database file.',
+      }],
+    }
+  }
   return {
     restore: [{
       id: 'targetDatabase',

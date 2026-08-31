@@ -41,6 +41,9 @@ describe('datastore transfer manifests', () => {
     }
     expect(datastoreTransferManifest('sqlite').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
     expect(datastoreTransferManifest('duckdb').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
+    const duckdbRestore = datastoreTransferManifest('duckdb').capabilities.find((item) => item.action === 'restore')
+    expect(duckdbRestore?.executionSupport).toBe('live')
+    expect(duckdbRestore?.options?.map((item) => item.id)).toEqual(['targetDatabase'])
     expect(datastoreTransferManifest('cockroachdb').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
     expect(datastoreTransferManifest('cockroachdb').capabilities.find((item) => item.action === 'restore')?.executionSupport).toBe('live')
     expect(datastoreTransferManifest('sqlserver').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')

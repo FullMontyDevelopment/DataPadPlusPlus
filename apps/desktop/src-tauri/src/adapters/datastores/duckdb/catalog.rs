@@ -78,7 +78,7 @@ pub(super) fn duckdb_operation_manifests(
             }
             "duckdb.data.backup-restore" => {
                 operation.description =
-                    "Create guarded DuckDB EXPORT DATABASE backup folders; restore remains preview-first."
+                    "Create guarded DuckDB EXPORT DATABASE backup folders and restore them into new isolated database files."
                         .into();
                 operation.risk = "costly".into();
                 operation.execution_support = "live".into();

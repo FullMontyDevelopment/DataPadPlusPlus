@@ -2330,10 +2330,10 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Run guarded CockroachDB CSV IMPORT INTO or EXPORT jobs through credential-free external storage references and monitor native job evidence.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "This operation needs an adapter-specific live executor before it can run safely.",
+        "executionSupport": "live",
+        "disabledReason": null,
         "previewOnly": false
       },
       {
@@ -2351,10 +2351,10 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan backup and restore workflows with environment and permission guardrails.",
+        "description": "Run guarded CockroachDB BACKUP or new-database RESTORE jobs through credential-free external storage references and monitor native job evidence.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "This operation needs an adapter-specific live executor before it can run safely.",
+        "executionSupport": "live",
+        "disabledReason": null,
         "previewOnly": false
       },
       {
@@ -2610,7 +2610,6 @@
         "supports_query_profile",
         "supports_metrics_collection",
         "supports_import_export",
-        "supports_backup_restore",
         "supports_structure_visualization"
       ],
       "defaultLanguage": "sql",
@@ -3320,7 +3319,7 @@
         "engine": "timescaledb",
         "family": "timeseries",
         "label": "Import Or Export",
-        "scope": "database",
+        "scope": "table",
         "risk": "costly",
         "requiredCapabilities": [
           "supports_import_export"
@@ -3330,32 +3329,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Stream native PostgreSQL COPY data after validating TimescaleDB hypertable, time-dimension, compression, and time-window constraints.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
-      },
-      {
-        "id": "timescaledb.data.backup-restore",
-        "engine": "timescaledb",
-        "family": "timeseries",
-        "label": "Backup Or Restore",
-        "scope": "database",
-        "risk": "destructive",
-        "requiredCapabilities": [
-          "supports_backup_restore"
-        ],
-        "supportedRenderers": [
-          "raw",
-          "metrics",
-          "costEstimate"
-        ],
-        "description": "Plan backup and restore workflows with environment and permission guardrails.",
-        "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       },
       {
         "id": "timescaledb.timescale.hypertables",
@@ -5684,11 +5662,11 @@
           "diff",
           "raw"
         ],
-        "description": "Plan a native SQL Server .bak backup or restore against a server-visible destination.",
+        "description": "Create checksum-verified native SQL Server .bak backups on server-visible disk or credential-backed HTTPS storage, and restore into a new isolated database with physical-file remapping.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Native SQL Server .bak execution is not implemented yet; custom logical packages are not offered as backups.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       }
     ]
   },
@@ -11531,11 +11509,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Stream Oracle table data as CSV through the bundled managed driver and use array binding for guarded imports into existing empty tables.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       },
       {
         "id": "oracle.data.backup-restore",
@@ -12849,7 +12827,7 @@
         "engine": "clickhouse",
         "family": "warehouse",
         "label": "Import Or Export",
-        "scope": "database",
+        "scope": "table",
         "risk": "costly",
         "requiredCapabilities": [
           "supports_import_export"
@@ -12859,11 +12837,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Stream ClickHouse CSVWithNames, TabSeparatedWithNames, JSONEachRow, or Parquet through the native HTTP interface with server-side schema and type validation.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       }
     ]
   },
@@ -13715,7 +13693,7 @@
         "engine": "cosmosdb",
         "family": "document",
         "label": "Import Or Export",
-        "scope": "database",
+        "scope": "collection",
         "risk": "costly",
         "requiredCapabilities": [
           "supports_import_export"
@@ -13725,11 +13703,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Stream Cosmos DB NoSQL documents with explicit partition-routing metadata and import them through conflict-safe create operations.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       }
     ]
   },
@@ -14661,7 +14639,7 @@
         "engine": "cassandra",
         "family": "widecolumn",
         "label": "Import Or Export",
-        "scope": "database",
+        "scope": "table",
         "risk": "costly",
         "requiredCapabilities": [
           "supports_import_export"
@@ -14671,11 +14649,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Stream native Cassandra JSON encodings through paged SELECT JSON and prepared, conflict-safe INSERT JSON statements.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       },
       {
         "id": "cassandra.data.backup-restore",
@@ -15465,7 +15443,7 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Create guarded DuckDB EXPORT DATABASE backup folders; restore remains preview-first.",
+        "description": "Create guarded DuckDB EXPORT DATABASE backup folders and restore them into new isolated database files.",
         "requiresConfirmation": true,
         "executionSupport": "live",
         "disabledReason": null,
@@ -16227,7 +16205,7 @@
         "engine": "dynamodb",
         "family": "widecolumn",
         "label": "Import Or Export",
-        "scope": "database",
+        "scope": "table",
         "risk": "costly",
         "requiredCapabilities": [
           "supports_import_export"
@@ -16237,11 +16215,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Stream exact DynamoDB JSON items through paged Scan and conflict-safe conditional PutItem requests. Cloud S3 transfer jobs remain separately gated.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       },
       {
         "id": "dynamodb.data.backup-restore",
@@ -18302,7 +18280,7 @@
         "engine": "elasticsearch",
         "family": "search",
         "label": "Import Or Export",
-        "scope": "database",
+        "scope": "index",
         "risk": "costly",
         "requiredCapabilities": [
           "supports_import_export"
@@ -18312,11 +18290,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Transfer a complete search index as mappings, settings, and native Bulk NDJSON through a paged server API.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       },
       {
         "id": "elasticsearch.data.backup-restore",
@@ -19703,7 +19681,7 @@
         "engine": "opensearch",
         "family": "search",
         "label": "Import Or Export",
-        "scope": "database",
+        "scope": "index",
         "risk": "costly",
         "requiredCapabilities": [
           "supports_import_export"
@@ -19713,11 +19691,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Transfer a complete search index as mappings, settings, and native Bulk NDJSON through a paged server API.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       },
       {
         "id": "opensearch.data.backup-restore",
@@ -20349,7 +20327,7 @@
         "engine": "arango",
         "family": "graph",
         "label": "Import Or Export",
-        "scope": "database",
+        "scope": "collection",
         "risk": "costly",
         "requiredCapabilities": [
           "supports_import_export"
@@ -20359,11 +20337,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Export complete collections through a paged streaming AQL cursor and import JSON or JSON Lines through ArangoDB's complete, duplicate-safe Import API.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       },
       {
         "id": "arango.data.backup-restore",
@@ -20773,7 +20751,7 @@
         "engine": "prometheus",
         "family": "timeseries",
         "label": "Import Or Export",
-        "scope": "database",
+        "scope": "query",
         "risk": "costly",
         "requiredCapabilities": [
           "supports_import_export"
@@ -20783,11 +20761,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Export a bounded Prometheus instant or range query as native API JSON, OpenMetrics text, or portable CSV. Import remains unavailable because remote write cannot fail safely on existing samples.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       }
     ]
   },
@@ -21154,7 +21132,7 @@
         "engine": "opentsdb",
         "family": "timeseries",
         "label": "Import Or Export",
-        "scope": "database",
+        "scope": "metric",
         "risk": "costly",
         "requiredCapabilities": [
           "supports_import_export"
@@ -21164,11 +21142,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Export raw OpenTSDB metric series through /api/query using the non-aggregating native query path. Import remains unavailable because /api/put cannot atomically reject an existing series/timestamp.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       }
     ]
   },
@@ -21565,7 +21543,7 @@
         "engine": "influxdb",
         "family": "timeseries",
         "label": "Import Or Export",
-        "scope": "database",
+        "scope": "query",
         "risk": "costly",
         "requiredCapabilities": [
           "supports_import_export"
@@ -21575,11 +21553,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Export an InfluxDB 1.x measurement as lossless line protocol or import line protocol into a new rollback-safe database.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       }
     ]
   },
@@ -22184,11 +22162,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Stream a complete Neo4j graph through Bolt using lossless typed JSON Lines and restore it transactionally into an empty database.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       },
       {
         "id": "neo4j.data.backup-restore",
@@ -22814,11 +22792,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Stream a complete JanusGraph graph as GraphSON 3 with an explicit schema manifest and restore it through one session-scoped transaction.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       },
       {
         "id": "janusgraph.data.backup-restore",
@@ -27527,8 +27505,8 @@
         "id": "memcached.data.import-export",
         "engine": "memcached",
         "family": "keyvalue",
-        "label": "Import Or Export",
-        "scope": "database",
+        "label": "Import Or Export Known Key",
+        "scope": "key",
         "risk": "costly",
         "requiredCapabilities": [
           "supports_import_export"
@@ -27538,11 +27516,11 @@
           "metrics",
           "costEstimate"
         ],
-        "description": "Plan bulk import/export requests with scan, cost, and permission warnings.",
+        "description": "Transfer the exact raw bytes for one explicitly selected Memcached key. Import uses add so an existing key is never overwritten; flags and expiry are explicit inputs.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "Beta adapters expose generated operation plans before live execution.",
-        "previewOnly": true
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
       }
     ]
   }

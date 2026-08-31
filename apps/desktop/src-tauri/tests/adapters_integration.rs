@@ -1270,7 +1270,8 @@ async fn duckdb_local_file_fixture_validates_read_profile_catalog_and_guard_boun
         Some(true)
     );
 
-    let restore_preview = adapters::execute_operation(
+    let restored_db_path = temporary_duckdb_path("orders-restored");
+    let restore_response = adapters::execute_operation(
         &live_connection,
         &OperationExecutionRequest {
             connection_id: live_connection.id.clone(),
@@ -1280,6 +1281,10 @@ async fn duckdb_local_file_fixture_validates_read_profile_catalog_and_guard_boun
             parameters: Some(HashMap::from([
                 ("mode".into(), json!("restore")),
                 ("sourcePath".into(), json!(backup_dir.display().to_string())),
+                (
+                    "targetDatabase".into(),
+                    json!(restored_db_path.display().to_string()),
+                ),
             ])),
             confirmation_text: Some("CONFIRM DUCKDB".into()),
             row_limit: None,
@@ -1287,116 +1292,60 @@ async fn duckdb_local_file_fixture_validates_read_profile_catalog_and_guard_boun
         },
     )
     .await?;
-    assert!(!restore_preview.executed);
-    assert!(restore_preview
+    assert!(restore_response.executed);
+    assert!(restored_db_path.is_file());
+    assert_eq!(
+        restore_response
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata["createdNewDatabase"].as_bool()),
+        Some(true)
+    );
+    assert!(restore_response
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata["restoredTableCount"].as_u64())
+        .is_some_and(|count| count > 0));
+    let source_db = duckdb::Connection::open(&db_path)
+        .map_err(|error| CommandError::new("duckdb-test", error.to_string()))?;
+    let expected_order_count: i64 = source_db
+        .query_row("select count(*) from main.orders", [], |row| row.get(0))
+        .map_err(|error| CommandError::new("duckdb-test", error.to_string()))?;
+    drop(source_db);
+    let restored_db = duckdb::Connection::open(&restored_db_path)
+        .map_err(|error| CommandError::new("duckdb-test", error.to_string()))?;
+    let restored_order_count: i64 = restored_db
+        .query_row("select count(*) from main.orders", [], |row| row.get(0))
+        .map_err(|error| CommandError::new("duckdb-test", error.to_string()))?;
+    assert_eq!(restored_order_count, expected_order_count);
+    drop(restored_db);
+
+    let restore_conflict = adapters::execute_operation(
+        &live_connection,
+        &OperationExecutionRequest {
+            connection_id: live_connection.id.clone(),
+            environment_id: "env-dev".into(),
+            operation_id: "duckdb.data.backup-restore".into(),
+            object_name: Some("main".into()),
+            parameters: Some(HashMap::from([
+                ("mode".into(), json!("restore")),
+                ("sourcePath".into(), json!(backup_dir.display().to_string())),
+                (
+                    "targetDatabase".into(),
+                    json!(restored_db_path.display().to_string()),
+                ),
+            ])),
+            confirmation_text: Some("CONFIRM DUCKDB".into()),
+            row_limit: None,
+            tab_id: None,
+        },
+    )
+    .await?;
+    assert!(!restore_conflict.executed);
+    assert!(restore_conflict
         .warnings
         .iter()
-        .any(|warning| warning.contains("restore execution remains preview-first")));
-    assert_eq!(
-        restore_preview
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata["databasePreflight"]["kind"].as_str()),
-        Some("file")
-    );
-    assert_eq!(
-        restore_preview
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata["databasePreflight"]["writeProbe"].as_bool()),
-        Some(true)
-    );
-    assert_eq!(
-        restore_preview
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata["databasePreflight"]["duckdbOpenProbe"].as_bool()),
-        Some(true)
-    );
-    assert_eq!(
-        restore_preview
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata["databasePreflight"]["lockBoundary"]
-                ["exclusiveWriterLockValidated"]
-                .as_bool()),
-        Some(false)
-    );
-    assert!(restore_preview
-        .metadata
-        .as_ref()
-        .and_then(
-            |metadata| metadata["databasePreflight"]["lockBoundary"]["promotionRequires"]
-                .as_array()
-        )
-        .is_some_and(
-            |requirements| requirements.iter().any(|requirement| requirement
-                .as_str()
-                .is_some_and(|value| value.contains("exclusive DuckDB writer lock acquisition")))
-        ));
-    assert_eq!(
-        restore_preview
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata["restorePreflight"]["hasSchemaSql"].as_bool()),
-        Some(true)
-    );
-    assert_eq!(
-        restore_preview
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata["restorePreflight"]["hasLoadSql"].as_bool()),
-        Some(true)
-    );
-    assert_eq!(
-        restore_preview
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata["restorePreflight"]["sourcePackageValidated"].as_bool()),
-        Some(true)
-    );
-    assert!(restore_preview
-        .metadata
-        .as_ref()
-        .and_then(|metadata| metadata["restorePreflight"]["detectedFormats"].as_array())
-        .is_some_and(|formats| formats.iter().any(|format| format.as_str() == Some("csv"))));
-    assert!(restore_preview
-        .metadata
-        .as_ref()
-        .and_then(|metadata| metadata["statement"].as_str())
-        .is_some_and(|statement| statement.contains("import database")));
-    assert_eq!(
-        restore_preview
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata["restoreExecutionBoundary"]["executionPolicy"].as_str()),
-        Some("scoped-out")
-    );
-    assert_eq!(
-        restore_preview
-            .metadata
-            .as_ref()
-            .and_then(
-                |metadata| metadata["restoreExecutionBoundary"]["previewValidated"].as_bool()
-            ),
-        Some(true)
-    );
-    assert!(restore_preview
-        .metadata
-        .as_ref()
-        .and_then(|metadata| metadata["restoreExecutionBoundary"]["promotionRequires"].as_array())
-        .is_some_and(
-            |requirements| requirements.iter().any(|requirement| requirement
-                .as_str()
-                .is_some_and(|value| value.contains("snapshot or rollback artifact")))
-        ));
-    assert!(restore_preview
-        .metadata
-        .as_ref()
-        .and_then(|metadata| metadata["restoreExecutionBoundary"]["blockedReasons"].as_array())
-        .is_some_and(|reasons| reasons
-            .iter()
-            .any(|reason| reason.as_str() == Some("restore-execution-scoped-out"))));
+        .any(|warning| warning.contains("already exists")));
 
     let mut permissions = fs::metadata(&db_path)?.permissions();
     let original_read_only = permissions.readonly();
@@ -1461,6 +1410,7 @@ async fn duckdb_local_file_fixture_validates_read_profile_catalog_and_guard_boun
     let _ = fs::remove_file(&json_source_path);
     let _ = fs::remove_file(&parquet_path);
     let _ = fs::remove_dir_all(&backup_dir);
+    let _ = fs::remove_file(&restored_db_path);
     let _ = fs::remove_dir_all(db_path.with_extension("duckdb-extensions"));
     let _ = fs::remove_file(&db_path);
     Ok(())

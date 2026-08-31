@@ -253,7 +253,7 @@ fn duckdb_backup_restore_request(parameters: Option<&BTreeMap<String, Value>>) -
 
     if matches!(mode.as_str(), "restore" | "recover" | "import") {
         return serde_json::to_string_pretty(&serde_json::json!({
-            "workflow": "duckdb.database.restore-preview",
+            "workflow": "duckdb.database.restore",
             "mode": mode,
             "format": format,
             "source": {
@@ -263,27 +263,29 @@ fn duckdb_backup_restore_request(parameters: Option<&BTreeMap<String, Value>>) -
                     .or_else(|| string_parameter(parameters, "inputFolder"))
                     .unwrap_or_else(|| "<selected-folder>".into())
             },
+            "target": {
+                "databasePath": string_parameter(parameters, "targetDatabase")
+                    .or_else(|| string_parameter(parameters, "targetDatabasePath"))
+                    .or_else(|| string_parameter(parameters, "destinationDatabasePath"))
+                    .unwrap_or_else(|| "<new-database-file>".into())
+            },
             "restorePreflight": duckdb_restore_preflight_contract(&format),
-            "databaseLockBoundary": duckdb_database_lock_boundary_contract(
-                "duckdb.database.restore-preview",
-                true
-            ),
-            "restoreExecutionBoundary": duckdb_restore_execution_boundary_contract(&mode),
             "executionGate": {
                 "owner": "duckdb-adapter",
-                "defaultSupport": "plan-only",
+                "defaultSupport": "live",
                 "requiresConfirmation": true,
                 "guards": [
                     "absolute restore source folder",
                     "source folder readability preflight",
                     "schema.sql/load.sql package marker check",
-                    "target database write/open preflight",
-                    "target snapshot or rollback artifact required before live promotion",
-                    "exclusive DuckDB writer lock evidence required before live promotion",
-                    "restore execution explicitly scoped out of native claim",
-                    "manual IMPORT DATABASE run outside the scoped claim"
+                    "absolute new target database path",
+                    "existing target conflict rejection",
+                    "read-only connection block",
+                    "new isolated database creation",
+                    "failed restore artifact cleanup",
+                    "post-restore catalog validation"
                 ],
-                "residualRisk": "IMPORT DATABASE can replace local schemas; execution is explicitly scoped out until rollback/snapshot, exclusive writer-lock, post-restore validation, and confirmation semantics are native"
+                "residualRisk": "IMPORT DATABASE executes only in a newly created isolated DuckDB file and never replaces the active database"
             }
         }))
         .unwrap_or_else(|_| "{}".into());
@@ -315,7 +317,7 @@ fn duckdb_backup_restore_request(parameters: Option<&BTreeMap<String, Value>>) -
                 "database file read/open preflight",
                 "format capability preflight"
             ],
-            "residualRisk": "IMPORT DATABASE restore execution remains preview-first"
+            "residualRisk": "restore requires a separate new database file and never replaces an existing target"
         }
     }))
     .unwrap_or_else(|_| "{}".into())
@@ -504,39 +506,16 @@ fn duckdb_restore_preflight_contract(format: &str) -> Value {
     serde_json::json!({
         "format": format,
         "sourcePackageValidated": "desktop-preflight-required",
-        "operationValidated": false,
+        "operationValidated": "desktop-runtime-required",
         "checks": [
             "absolute source folder",
             "folder readable",
             "schema.sql marker",
             "load.sql marker",
             "backup file count and byte summary",
-            "target database write/open preflight"
+            "new target database conflict and parent-folder preflight"
         ],
         "expectedFormats": ["csv", "parquet"]
-    })
-}
-
-fn duckdb_restore_execution_boundary_contract(mode: &str) -> Value {
-    serde_json::json!({
-        "executionPolicy": "scoped-out",
-        "mode": mode,
-        "nativeClaim": "restore-preflight-only",
-        "destructive": true,
-        "targetMayReplaceCatalog": true,
-        "manualExecutionOutsideScopedClaim": true,
-        "excludedFromLiveFixtureClaim": true,
-        "sourcePackageValidated": "desktop-preflight-required",
-        "targetWriteOpenValidated": "desktop-preflight-required",
-        "previewValidated": "desktop-preflight-required",
-        "promotionRequires": [
-            "exclusive DuckDB writer lock evidence",
-            "target snapshot or rollback artifact before IMPORT DATABASE",
-            "post-restore catalog diff and validation",
-            "explicit destructive restore confirmation",
-            "read-only connection promotion block"
-        ],
-        "blockedReasons": ["restore-execution-scoped-out"]
     })
 }
 
