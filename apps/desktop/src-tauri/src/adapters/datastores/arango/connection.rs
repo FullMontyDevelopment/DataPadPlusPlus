@@ -1,4 +1,4 @@
-use reqwest::{header, Method};
+use reqwest::{header, Method, RequestBuilder};
 
 use super::super::super::*;
 
@@ -141,17 +141,13 @@ async fn arango_request(
     path_and_query: &str,
     body: Option<&str>,
 ) -> Result<ArangoResponse, CommandError> {
-    let endpoint = ArangoEndpoint::from_connection(connection)?;
-    let url = endpoint.url(path_and_query);
     let method = Method::from_bytes(method.as_bytes()).map_err(|_| {
         CommandError::new(
             "arango-http-method-invalid",
             "ArangoDB request used an unsupported HTTP method.",
         )
     })?;
-    let client = graph_http_client(connection)?;
-    let mut request = graph_http_request(&client, method, &url, connection)
-        .header(header::ACCEPT, "application/json");
+    let mut request = arango_http_request(connection, method, path_and_query)?;
     if let Some(body) = body {
         request = request
             .header(header::CONTENT_TYPE, "application/json")
@@ -172,6 +168,18 @@ async fn arango_request(
     Ok(ArangoResponse {
         body: response.body,
     })
+}
+
+pub(super) fn arango_http_request(
+    connection: &ResolvedConnectionProfile,
+    method: Method,
+    path_and_query: &str,
+) -> Result<RequestBuilder, CommandError> {
+    let endpoint = ArangoEndpoint::from_connection(connection)?;
+    let url = endpoint.url(path_and_query);
+    let client = graph_http_client(connection)?;
+    Ok(graph_http_request(&client, method, &url, connection)
+        .header(header::ACCEPT, "application/json"))
 }
 
 impl ArangoEndpoint {

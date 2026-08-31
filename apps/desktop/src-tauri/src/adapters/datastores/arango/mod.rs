@@ -5,6 +5,7 @@ mod connection;
 mod diagnostics;
 mod editing;
 mod explorer;
+mod import_export;
 mod query;
 mod query_request;
 mod query_results;
@@ -25,12 +26,103 @@ impl DatastoreAdapter for ArangoDbAdapter {
         true
     }
 
+    async fn execute_live_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &OperationExecutionRequest,
+        operation: DatastoreOperationManifest,
+        plan: OperationPlan,
+        messages: Vec<String>,
+        warnings: Vec<String>,
+    ) -> Result<OperationExecutionResponse, CommandError> {
+        if request.operation_id == "arango.data.import-export" {
+            return import_export::execute_arango_transfer(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
+        execute_standard_live_operation(
+            self, connection, request, operation, plan, messages, warnings,
+        )
+        .await
+    }
+
     fn manifest(&self) -> AdapterManifest {
         arango_manifest()
     }
 
     fn execution_capabilities(&self) -> ExecutionCapabilities {
         arango_execution_capabilities()
+    }
+
+    fn operation_manifests(&self) -> Vec<DatastoreOperationManifest> {
+        arango_operation_manifests(&self.manifest())
+    }
+
+    async fn plan_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        operation_id: &str,
+        object_name: Option<&str>,
+        parameters: Option<&BTreeMap<String, Value>>,
+    ) -> Result<OperationPlan, CommandError> {
+        let mut plan = default_operation_plan(
+            connection,
+            &self.manifest(),
+            operation_id,
+            object_name,
+            parameters,
+        );
+        if operation_id == "arango.data.import-export" {
+            let mode = parameters
+                .and_then(|values| values.get("mode"))
+                .and_then(Value::as_str)
+                .unwrap_or("export");
+            let format = parameters
+                .and_then(|values| values.get("format"))
+                .and_then(Value::as_str)
+                .unwrap_or("ndjson");
+            let collection = parameters
+                .and_then(|values| values.get("collection"))
+                .and_then(Value::as_str)
+                .or(object_name)
+                .unwrap_or("<collection>");
+            plan.request_language = "arango-http".into();
+            plan.generated_request = if mode == "import" {
+                format!(
+                    "POST /_api/import?collection=<encoded:{collection}>&type={}&onDuplicate=error&complete=true&details=true\n<body: selected local file>",
+                    if format == "json" { "array" } else { "documents" }
+                )
+            } else {
+                format!(
+                    "POST /_api/cursor\n{{\"query\":\"FOR document IN @@collection RETURN document\",\"bindVars\":{{\"@collection\":\"{collection}\"}},\"batchSize\":500,\"options\":{{\"stream\":true}}}}"
+                )
+            };
+            plan.summary =
+                format!("Prepared native ArangoDB collection {mode} for {collection} as {format}.");
+            plan.required_permissions = vec![if mode == "import" {
+                "write access to the existing target collection".into()
+            } else {
+                "read access to the source collection and AQL cursor API".into()
+            }];
+            plan.confirmation_text = Some("CONFIRM ARANGO".into());
+            plan.estimated_scan_impact = Some(if mode == "import" {
+                "The complete selected file is streamed to the Import API; any invalid or duplicate document fails the request.".into()
+            } else {
+                "The complete collection is scanned through 500-document streaming cursor batches."
+                    .into()
+            });
+            plan.warnings.retain(|warning| {
+                !warning.contains("beta adapter returns a guarded operation plan")
+            });
+            if mode == "import" {
+                plan.warnings.push(
+                    "The target collection must already exist. _key, _from, and _to are preserved; server-owned revisions are regenerated."
+                        .into(),
+                );
+            }
+        }
+        Ok(plan)
     }
 
     async fn test_connection(

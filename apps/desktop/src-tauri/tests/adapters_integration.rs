@@ -4209,6 +4209,295 @@ fn clickhouse_checksum_query(database: &str, table: &str) -> String {
 }
 
 #[tokio::test]
+async fn arango_native_collection_transfer_roundtrips_and_rejects_partial_conflicts(
+) -> Result<(), CommandError> {
+    if !fixtures_enabled() || !fixture_profile_enabled("graph") {
+        return Ok(());
+    }
+
+    let connection = ResolvedConnectionProfile {
+        id: "conn-arango-transfer".into(),
+        name: "Fixture ArangoDB Transfer".into(),
+        engine: "arango".into(),
+        family: "graph".into(),
+        host: env_or("DATAPADPLUSPLUS_ARANGODB_HOST", "127.0.0.1"),
+        port: Some(
+            env_or("DATAPADPLUSPLUS_ARANGODB_PORT", "8529")
+                .parse()
+                .unwrap_or(8529),
+        ),
+        database: Some("_system".into()),
+        username: Some(env_or("DATAPADPLUSPLUS_ARANGODB_USER", "root")),
+        password: Some(env_or(
+            "DATAPADPLUSPLUS_ARANGODB_PASSWORD",
+            "datapadplusplus",
+        )),
+        connection_string: None,
+        redis_options: None,
+        memcached_options: None,
+        sqlite_options: None,
+        postgres_options: None,
+        mysql_options: None,
+        sqlserver_options: None,
+        oracle_options: None,
+        dynamo_db_options: None,
+        cassandra_options: None,
+        cosmos_db_options: None,
+        search_options: None,
+        time_series_options: None,
+        graph_options: None,
+        mongodb_options: None,
+        warehouse_options: None,
+        read_only: false,
+    };
+    for collection in [
+        "datapad_transfer_edges_json",
+        "datapad_transfer_edges_ndjson",
+        "datapad_transfer_edges_conflict",
+        "datapad_transfer_edges_source",
+        "datapad_transfer_vertices",
+    ] {
+        let _ = arango_fixture_request(
+            &connection,
+            reqwest::Method::DELETE,
+            &format!("/_api/collection/{collection}"),
+            None,
+        )
+        .await;
+    }
+    arango_create_collection(&connection, "datapad_transfer_vertices", 2).await?;
+    arango_create_collection(&connection, "datapad_transfer_edges_source", 3).await?;
+    for collection in [
+        "datapad_transfer_edges_json",
+        "datapad_transfer_edges_ndjson",
+        "datapad_transfer_edges_conflict",
+    ] {
+        arango_create_collection(&connection, collection, 3).await?;
+    }
+    arango_fixture_request(
+        &connection,
+        reqwest::Method::POST,
+        "/_api/document/datapad_transfer_vertices",
+        Some(
+            r#"[{"_key":"cape-town","name":"Cape Town"},{"_key":"tokyo","name":"東京"},{"_key":"munich","name":"München"}]"#,
+        ),
+    )
+    .await?;
+    arango_fixture_request(
+        &connection,
+        reqwest::Method::POST,
+        "/_api/document/datapad_transfer_edges_source",
+        Some(
+            r#"[{"_key":"route-one","_from":"datapad_transfer_vertices/cape-town","_to":"datapad_transfer_vertices/tokyo","distance":14730.125,"active":true,"metadata":{"airlines":["SA","日本"],"note":null}},{"_key":"route-two","_from":"datapad_transfer_vertices/munich","_to":"datapad_transfer_vertices/cape-town","distance":9175.500,"active":false,"metadata":{"airlines":[],"note":"seasonal"}}]"#,
+        ),
+    )
+    .await?;
+
+    let temp_root = env::temp_dir().join(format!(
+        "datapad-arango-transfer-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&temp_root)?;
+    for (format, extension, target) in [
+        ("json", "json", "datapad_transfer_edges_json"),
+        ("ndjson", "jsonl", "datapad_transfer_edges_ndjson"),
+    ] {
+        let path = temp_root.join(format!("edges.{extension}"));
+        let export = adapters::execute_operation(
+            &connection,
+            &arango_transfer_request(
+                "export",
+                format,
+                "datapad_transfer_edges_source",
+                "targetPath",
+                &path,
+            ),
+        )
+        .await?;
+        assert!(
+            export.executed,
+            "ArangoDB {format} export warnings: {:?}",
+            export.warnings
+        );
+        assert!(path.metadata()?.len() > 0);
+        let import = adapters::execute_operation(
+            &connection,
+            &arango_transfer_request("import", format, target, "sourcePath", &path),
+        )
+        .await?;
+        assert!(
+            import.executed,
+            "ArangoDB {format} import warnings: {:?}",
+            import.warnings
+        );
+        assert_eq!(
+            import
+                .metadata
+                .as_ref()
+                .and_then(|value| value.get("insertedCount"))
+                .and_then(serde_json::Value::as_u64),
+            Some(2),
+        );
+        assert_eq!(
+            arango_collection_semantics(&connection, "datapad_transfer_edges_source").await?,
+            arango_collection_semantics(&connection, target).await?,
+        );
+    }
+
+    arango_fixture_request(
+        &connection,
+        reqwest::Method::POST,
+        "/_api/document/datapad_transfer_edges_conflict",
+        Some(
+            r#"{"_key":"route-one","_from":"datapad_transfer_vertices/cape-town","_to":"datapad_transfer_vertices/tokyo","distance":1}"#,
+        ),
+    )
+    .await?;
+    let conflict_file = temp_root.join("edges.jsonl");
+    let conflict = match adapters::execute_operation(
+        &connection,
+        &arango_transfer_request(
+            "import",
+            "ndjson",
+            "datapad_transfer_edges_conflict",
+            "sourcePath",
+            &conflict_file,
+        ),
+    )
+    .await
+    {
+        Ok(_) => panic!("ArangoDB complete import must reject a duplicate key"),
+        Err(error) => error,
+    };
+    assert_eq!(conflict.code, "arango-transfer-conflict");
+    let conflict_documents =
+        arango_collection_semantics(&connection, "datapad_transfer_edges_conflict").await?;
+    assert_eq!(conflict_documents.len(), 1);
+    assert_eq!(conflict_documents[0]["distance"], 1);
+
+    for collection in [
+        "datapad_transfer_edges_json",
+        "datapad_transfer_edges_ndjson",
+        "datapad_transfer_edges_conflict",
+        "datapad_transfer_edges_source",
+        "datapad_transfer_vertices",
+    ] {
+        arango_fixture_request(
+            &connection,
+            reqwest::Method::DELETE,
+            &format!("/_api/collection/{collection}"),
+            None,
+        )
+        .await?;
+    }
+    fs::remove_dir_all(temp_root)?;
+    Ok(())
+}
+
+fn arango_transfer_request(
+    mode: &str,
+    format: &str,
+    collection: &str,
+    path_key: &str,
+    path: &Path,
+) -> OperationExecutionRequest {
+    OperationExecutionRequest {
+        connection_id: "conn-arango-transfer".into(),
+        environment_id: "env-dev".into(),
+        operation_id: "arango.data.import-export".into(),
+        object_name: Some(collection.into()),
+        parameters: Some(HashMap::from([
+            ("mode".into(), json!(mode)),
+            ("format".into(), json!(format)),
+            ("collection".into(), json!(collection)),
+            (path_key.into(), json!(path.display().to_string())),
+            ("overwrite".into(), json!(false)),
+            ("conflictPolicy".into(), json!("fail")),
+        ])),
+        confirmation_text: Some("CONFIRM ARANGO".into()),
+        row_limit: None,
+        tab_id: None,
+    }
+}
+
+async fn arango_create_collection(
+    connection: &ResolvedConnectionProfile,
+    name: &str,
+    collection_type: u8,
+) -> Result<(), CommandError> {
+    arango_fixture_request(
+        connection,
+        reqwest::Method::POST,
+        "/_api/collection",
+        Some(&json!({ "name": name, "type": collection_type }).to_string()),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn arango_collection_semantics(
+    connection: &ResolvedConnectionProfile,
+    collection: &str,
+) -> Result<Vec<serde_json::Value>, CommandError> {
+    let body = json!({
+        "query": "FOR document IN @@collection SORT document._key RETURN UNSET(document, '_id', '_rev')",
+        "bindVars": { "@collection": collection },
+        "batchSize": 100,
+    })
+    .to_string();
+    let response = arango_fixture_request(
+        connection,
+        reqwest::Method::POST,
+        "/_api/cursor",
+        Some(&body),
+    )
+    .await?;
+    let value: serde_json::Value = serde_json::from_str(&response)?;
+    Ok(value["result"].as_array().cloned().unwrap_or_default())
+}
+
+async fn arango_fixture_request(
+    connection: &ResolvedConnectionProfile,
+    method: reqwest::Method,
+    path: &str,
+    body: Option<&str>,
+) -> Result<String, CommandError> {
+    let url = format!(
+        "http://{}:{}/_db/{}{}",
+        connection.host,
+        connection.port.unwrap_or(8529),
+        connection.database.as_deref().unwrap_or("_system"),
+        path
+    );
+    let mut request = reqwest::Client::new().request(method, url);
+    if let Some(username) = connection.username.as_deref() {
+        request = request.basic_auth(username, connection.password.as_deref());
+    }
+    if let Some(body) = body {
+        request = request
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body.to_string());
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|error| CommandError::new("arango-fixture-http", error.to_string()))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|error| CommandError::new("arango-fixture-http", error.to_string()))?;
+    if !status.is_success() {
+        return Err(CommandError::new("arango-fixture-request", body));
+    }
+    Ok(body)
+}
+
+#[tokio::test]
 async fn search_profile_fixture_roundtrips() -> Result<(), CommandError> {
     if !fixtures_enabled() || !fixture_profile_enabled("search") {
         return Ok(());

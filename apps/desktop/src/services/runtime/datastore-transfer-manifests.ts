@@ -101,7 +101,7 @@ const DATA_SPECS: Record<DatastoreEngine, CapabilitySpec> = {
   prometheus: plannedData('Prometheus exports query results; import requires a detected remote-write receiver.', [['openmetrics', 'OpenMetrics', 'native', ['prom'], 'OpenMetrics text exposition.'], portableJson, portableCsv]),
   opentsdb: plannedData('OpenTSDB transfers data through its query and put JSON APIs.', [portableJson]),
   neo4j: plannedData('Neo4j transfers graph values through Bolt and transactional UNWIND batches.', [portableJson, portableCsv]),
-  arango: plannedData('ArangoDB uses its collection import API and AQL cursor export.', [portableJson, portableNdjson, portableCsv]),
+  arango: liveData('ArangoDB streams collection exports through paged AQL cursors and imports through the complete, duplicate-safe Import API. _key and edge endpoints are preserved; server-owned revisions are regenerated.', [portableJson, portableNdjson]),
   janusgraph: plannedData('JanusGraph transfers vertices and edges as GraphSON 3 through Gremlin.', [['graphson3', 'GraphSON 3', 'native', ['json'], 'GraphSON 3 graph data.']]),
   dynamodb: plannedData('DynamoDB supports local typed JSON and managed S3 import/export jobs.', [['dynamodb-json', 'DynamoDB JSON', 'native', ['json'], 'DynamoDB typed JSON.'], ['ion', 'Amazon Ion', 'native', ['ion'], 'Amazon Ion data.'], portableCsv], ['local-file', 'cloud-uri']),
   cosmosdb: plannedData('Cosmos DB uses lossless JSON with complete identity and partition routing metadata.', [portableJson, portableNdjson]),
@@ -213,10 +213,10 @@ function format([id, label, fidelity, extensions, description, warning]: FormatS
 }
 
 function dataScope(engine: DatastoreEngine): DatastoreTransferCapability['scope'] {
-  if (['mongodb', 'cosmosdb', 'litedb'].includes(engine)) return 'collection'
+  if (['mongodb', 'cosmosdb', 'litedb', 'arango'].includes(engine)) return 'collection'
   if (['redis', 'valkey', 'memcached'].includes(engine)) return 'key'
   if (['elasticsearch', 'opensearch'].includes(engine)) return 'index'
-  if (['neo4j', 'neptune', 'arango', 'janusgraph'].includes(engine)) return 'database'
+  if (['neo4j', 'neptune', 'janusgraph'].includes(engine)) return 'database'
   if (['influxdb', 'prometheus', 'opentsdb'].includes(engine)) return 'query'
   return 'table'
 }

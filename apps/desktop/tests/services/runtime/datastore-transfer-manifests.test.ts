@@ -27,7 +27,7 @@ describe('datastore transfer manifests', () => {
   it('promotes only the currently executable Wave 1 paths', () => {
     for (const engine of [
       'postgresql', 'mysql', 'mariadb', 'sqlserver', 'sqlite', 'mongodb',
-      'redis', 'valkey', 'litedb', 'duckdb', 'memcached', 'timescaledb', 'clickhouse',
+      'redis', 'valkey', 'litedb', 'duckdb', 'memcached', 'timescaledb', 'clickhouse', 'arango',
     ] as const) {
       const capabilities = datastoreTransferManifest(engine).capabilities
       expect(capabilities.find((item) => item.action === 'import')?.executionSupport).toBe('live')
@@ -91,6 +91,15 @@ describe('datastore transfer manifests', () => {
       ['json-each-row', 'native'],
       ['parquet', 'native'],
     ])
+    expect(capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('plan-only')
+  })
+
+  it('advertises complete ArangoDB JSON collection transfer without a lossy CSV claim', () => {
+    const capabilities = datastoreTransferManifest('arango').capabilities
+    const imported = capabilities.find((item) => item.action === 'import')
+    expect(imported?.executionSupport).toBe('live')
+    expect(imported?.scope).toBe('collection')
+    expect(imported?.formats.map((item) => item.id)).toEqual(['json', 'ndjson'])
     expect(capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('plan-only')
   })
 
