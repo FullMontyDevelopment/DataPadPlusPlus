@@ -53,8 +53,10 @@ use crate::{
             DatastoreSecurityChecksRefreshRequest, DatastoreSecurityChecksSettingsRequest,
             DatastoreSecurityChecksStatus, DatastoreTestRunPlanRequest,
             DatastoreTestRunPlanResponse, DatastoreTestsSettingsRequest,
-            DocumentNodeChildrenRequest, DocumentNodeChildrenResponse, EnvironmentProfile,
-            ExecuteTestSuiteRequest, ExecuteTestSuiteResponse, ExecutionRequest, ExecutionResponse,
+            DatastoreTransferFileSelectionRequest, DatastoreTransferSelection,
+            DatastoreTransferSelectionCancelRequest, DocumentNodeChildrenRequest,
+            DocumentNodeChildrenResponse, EnvironmentProfile, ExecuteTestSuiteRequest,
+            ExecuteTestSuiteResponse, ExecutionRequest, ExecutionResponse,
             ExplorerFolderOrderRequest, ExplorerInspectRequest, ExplorerInspectResponse,
             ExplorerRequest, ExplorerResponse, ExportBundle, ExportResultFileRequest,
             ExportResultFileResponse, GuardrailDecision, KeyValueValueReadEvent,
@@ -389,6 +391,7 @@ fn merge_execution_response(
 
 mod api_server;
 mod connections;
+mod datastore_transfer;
 mod execution;
 mod import_export;
 mod library;
@@ -401,6 +404,7 @@ mod workspace_windows;
 
 pub use api_server::*;
 pub use connections::*;
+pub use datastore_transfer::*;
 pub use execution::*;
 pub use import_export::*;
 pub use library::*;

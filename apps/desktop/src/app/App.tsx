@@ -5,6 +5,7 @@ import type {
   DatastoreApiServerInstanceStatus,
   DatastoreApiServerResourceConfig,
   DatastoreApiServerStatus,
+  DatastoreTransferJob,
   DatastoreMcpServerInstanceStatus,
   DatastoreMcpServerStatus,
   DatastoreQueryEditorState,
@@ -14,6 +15,7 @@ import type {
   LibraryItemKind,
   LibraryNode,
   OperationPlanRequest,
+  OperationExecutionRequest,
   QueryBuilderState,
   QueryTabState,
   QueryViewMode,
@@ -45,6 +47,8 @@ import { FirstInstallGuide } from './components/workbench/FirstInstallGuide'
 import { comparableEnvironment } from './components/workbench/EnvironmentWorkspace.helpers'
 import { useReviewConfirmation } from './components/workbench/use-review-confirmation'
 import { StatusBar } from './components/workbench/StatusBar'
+import { DatastoreTransferDialog } from './components/workbench/DatastoreTransferDialog'
+import { DatastoreTransfersCenter } from './components/workbench/DatastoreTransfersCenter'
 import { SettingsWorkspace } from './components/workbench/SettingsWorkspace'
 import {
   WorkspaceExportDialog,
@@ -100,6 +104,10 @@ import {
 import { connectionLibraryNodeId } from '../services/runtime/library-connection-helpers'
 import { projectDeferredResultPayload } from '../services/runtime/result-materialization'
 import { runtimeSliceForEngine } from '../services/runtime/datastores/registry'
+import {
+  datastoreTransferManifest,
+  isDatastoreTransferOperation,
+} from '../services/runtime/datastore-transfer-manifests'
 import { workbenchSliceForEngine } from './components/workbench/datastores/registry'
 import { createConnectionProfile, createEnvironmentProfile } from './state/app-state-factories'
 import {
@@ -291,6 +299,10 @@ function DesktopWorkspace() {
   useTaskbarQueryActivity(executionsByTab, workspaceWindowContext?.role === 'main')
   const [workspaceTransferDialog, setWorkspaceTransferDialog] = useState<'export' | 'import'>()
   const [workspaceTransferNotice, setWorkspaceTransferNotice] = useState('')
+  const [datastoreTransferRequest, setDatastoreTransferRequest] = useState<OperationPlanRequest>()
+  const [datastoreTransferJobs, setDatastoreTransferJobs] = useState<DatastoreTransferJob[]>([])
+  const [datastoreTransfersOpen, setDatastoreTransfersOpen] = useState(false)
+  const datastoreTransferRequestsRef = useRef<Record<string, OperationExecutionRequest>>({})
   const [rendererPreference, setRendererPreference] = useState<{
     renderer?: ResultRenderer
     tabId?: string
@@ -2031,6 +2043,10 @@ function DesktopWorkspace() {
 
   const planDatastoreOperationWithConfirmation = useCallback(
     async (request: OperationPlanRequest) => {
+      if (isDatastoreTransferOperation(request.operationId)) {
+        setDatastoreTransferRequest(request)
+        return undefined
+      }
       const response = await actions.planDatastoreOperation(request)
       const confirmationText = response?.plan.confirmationText
 
@@ -2072,6 +2088,81 @@ function DesktopWorkspace() {
     },
     [actions, confirmReview, snapshot?.connections],
   )
+
+  const planDatastoreTransfer = useCallback(async (request: OperationPlanRequest) => {
+    const response = await actions.planDatastoreOperation(request)
+    return response?.plan
+  }, [actions])
+
+  const startDatastoreTransfer = useCallback((request: OperationExecutionRequest) => {
+    const connection = snapshot?.connections.find((item) => item.id === request.connectionId)
+    if (!connection) return
+    const action = datastoreTransferActionFromRequest(request)
+    const jobId = createDatastoreTransferJobId()
+    const parameters = request.parameters ?? {}
+    const fileName = typeof parameters.transferFileName === 'string'
+      ? parameters.transferFileName
+      : undefined
+    const formatId = typeof parameters.format === 'string' ? parameters.format : 'native'
+    const objectNames = request.objectName ? [request.objectName] : []
+    const startedAt = new Date().toISOString()
+    const job: DatastoreTransferJob = {
+      id: jobId,
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      engine: connection.engine,
+      action,
+      objectNames,
+      formatId,
+      fileName,
+      status: 'running',
+      phase: 'transferring',
+      startedAt,
+      messages: [],
+      warnings: [],
+    }
+    datastoreTransferRequestsRef.current[jobId] = request
+    setDatastoreTransferJobs((current) => [job, ...current].slice(0, 50))
+    setDatastoreTransfersOpen(true)
+
+    void actions.executeDatastoreOperation(request).then((response) => {
+      const completed = Boolean(response?.executed)
+      setDatastoreTransferJobs((current) => current.map((item) => item.id === jobId
+        ? {
+            ...item,
+            status: completed ? 'completed' : 'failed',
+            phase: 'finished',
+            completedAt: new Date().toISOString(),
+            messages: response?.messages ?? [],
+            warnings: response?.warnings ?? [],
+            error: completed
+              ? undefined
+              : response?.warnings[0] ?? response?.messages[0] ?? 'The transfer did not complete.',
+            result: response,
+          }
+        : item))
+      if (!completed || !response) return
+      const refreshScopes = runtimeSliceForEngine(connection.engine)?.operation?.refreshScopesAfterExecution?.(request) ?? []
+      for (const scope of refreshScopes) {
+        void actions.loadExplorer({
+          connectionId: request.connectionId,
+          environmentId: request.environmentId,
+          limit: 100,
+          scope,
+        })
+      }
+    }).catch((error) => {
+      const message = describeUnknownError(error).message
+      setDatastoreTransferJobs((current) => current.map((item) => item.id === jobId
+        ? { ...item, status: 'failed', phase: 'finished', completedAt: new Date().toISOString(), error: message }
+        : item))
+    })
+  }, [actions, snapshot?.connections])
+
+  const retryDatastoreTransfer = useCallback((jobId: string) => {
+    const request = datastoreTransferRequestsRef.current[jobId]
+    if (request) startDatastoreTransfer(request)
+  }, [startDatastoreTransfer])
 
   const persistBuilderState = (tabId: string, builderState: QueryBuilderState) => {
     if (!snapshot) {
@@ -3626,6 +3717,20 @@ function DesktopWorkspace() {
     })
   }
 
+  const datastoreTransferConnection = datastoreTransferRequest
+    ? snapshot.connections.find((connection) => connection.id === datastoreTransferRequest.connectionId)
+    : undefined
+  const datastoreTransferEnvironment = datastoreTransferRequest
+    ? snapshot.environments.find((environment) => environment.id === datastoreTransferRequest.environmentId)
+      ?? NO_ENVIRONMENT_PROFILE
+    : undefined
+  const activeDatastoreTransferCount = datastoreTransferJobs.filter(
+    (job) => job.status === 'queued' || job.status === 'running',
+  ).length
+  const failedDatastoreTransferCount = datastoreTransferJobs.filter(
+    (job) => job.status === 'failed',
+  ).length
+
   return (
     <div className="ads-shell">
       <GlobalShortcutHandler
@@ -3758,6 +3863,19 @@ function DesktopWorkspace() {
           }
           onClose={() => setWorkspaceTransferDialog(undefined)}
           onCompleted={() => setWorkspaceTransferNotice('Workspace export saved.')}
+        />
+      ) : null}
+
+      {datastoreTransferRequest && datastoreTransferConnection && datastoreTransferEnvironment ? (
+        <DatastoreTransferDialog
+          connection={datastoreTransferConnection}
+          environment={datastoreTransferEnvironment}
+          manifest={datastoreTransferManifest(datastoreTransferConnection.engine)}
+          request={datastoreTransferRequest}
+          runtime={payload.health.runtime === 'tauri' ? 'tauri' : 'browser'}
+          onClose={() => setDatastoreTransferRequest(undefined)}
+          onPlan={planDatastoreTransfer}
+          onStart={startDatastoreTransfer}
         />
       ) : null}
 
@@ -4798,6 +4916,18 @@ function DesktopWorkspace() {
         onRestoreUiState={(patch) => void actions.updateUiState(patch)}
       /> : null}
 
+      {datastoreTransfersOpen ? (
+        <DatastoreTransfersCenter
+          jobs={datastoreTransferJobs}
+          onClose={() => setDatastoreTransfersOpen(false)}
+          onDismiss={(jobId) => {
+            delete datastoreTransferRequestsRef.current[jobId]
+            setDatastoreTransferJobs((current) => current.filter((job) => job.id !== jobId))
+          }}
+          onRetry={retryDatastoreTransfer}
+        />
+      ) : null}
+
       <StatusBar
         apiServerIndicator={{
           visible: showApiServerStatusIndicator,
@@ -4825,6 +4955,12 @@ function DesktopWorkspace() {
               }
             : undefined
         }
+        transferIndicator={{
+          visible: datastoreTransferJobs.length > 0,
+          activeCount: activeDatastoreTransferCount,
+          failedCount: failedDatastoreTransferCount,
+          onOpen: () => setDatastoreTransfersOpen(true),
+        }}
         updateInstallStatus={appUpdateInstallStatus}
         updateStatus={appUpdateStatus}
         onInstallUpdate={() => void actions.installAppUpdate()}
@@ -4844,6 +4980,23 @@ function DesktopWorkspace() {
       ) : null}
     </div>
   )
+}
+
+function datastoreTransferActionFromRequest(
+  request: OperationExecutionRequest,
+): DatastoreTransferJob['action'] {
+  const mode = request.parameters?.mode
+  if (mode === 'import' || mode === 'export' || mode === 'backup' || mode === 'restore') {
+    return mode
+  }
+  if (request.operationId.endsWith('.import')) return 'import'
+  if (request.operationId.endsWith('.backup')) return 'backup'
+  if (request.operationId.endsWith('.restore')) return 'restore'
+  return 'export'
+}
+
+function createDatastoreTransferJobId() {
+  return `datastore-transfer-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 function apiServerInstancesFromPreferences(

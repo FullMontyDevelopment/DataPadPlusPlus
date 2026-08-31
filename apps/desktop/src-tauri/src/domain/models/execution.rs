@@ -757,6 +757,36 @@ pub struct OperationExecutionResponse {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DatastoreTransferFileSelectionRequest {
+    pub operation_id: String,
+    pub connection_id: String,
+    pub environment_id: String,
+    pub action: String,
+    pub destination_kind: String,
+    pub format_id: String,
+    #[serde(default)]
+    pub extensions: Vec<String>,
+    pub suggested_file_name: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreTransferSelection {
+    pub selection_id: String,
+    pub file_name: String,
+    pub size_bytes: Option<u64>,
+    pub destination_kind: String,
+    pub expires_at: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatastoreTransferSelectionCancelRequest {
+    pub selection_id: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PermissionInspectionRequest {
     pub connection_id: String,
     pub environment_id: String,

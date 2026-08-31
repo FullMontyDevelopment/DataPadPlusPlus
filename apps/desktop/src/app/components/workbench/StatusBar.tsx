@@ -27,6 +27,13 @@ interface SecurityChecksIndicator {
   onOpen(): void
 }
 
+interface TransferIndicator {
+  visible: boolean
+  activeCount: number
+  failedCount: number
+  onOpen(): void
+}
+
 interface StatusBarProps {
   apiServerIndicator?: ApiServerIndicator
   availableUpdateVersion?: string
@@ -35,6 +42,7 @@ interface StatusBarProps {
   messageCount: number
   prereleaseVersion?: string
   securityChecksIndicator?: SecurityChecksIndicator
+  transferIndicator?: TransferIndicator
   updateInstallStatus: 'idle' | 'installing' | 'installed' | 'error'
   updateStatus: 'idle' | 'loading' | 'ready'
   onInstallUpdate(): void
@@ -52,6 +60,7 @@ export function StatusBar({
   messageCount,
   prereleaseVersion,
   securityChecksIndicator,
+  transferIndicator,
   updateInstallStatus,
   updateStatus,
   onInstallUpdate,
@@ -145,6 +154,27 @@ export function StatusBar({
           >
             <ObjectSecurityIcon className="status-icon" />
             <span>Security: {securityAttentionCount}</span>
+          </button>
+        ) : null}
+        {transferIndicator?.visible ? (
+          <button
+            type="button"
+            className={`status-button status-button--transfers${transferIndicator.failedCount ? ' has-error' : transferIndicator.activeCount ? ' is-running' : ''}`}
+            aria-label={
+              transferIndicator.activeCount
+                ? `Open Transfers Center, ${transferIndicator.activeCount} active`
+                : transferIndicator.failedCount
+                  ? `Open Transfers Center, ${transferIndicator.failedCount} failed`
+                  : 'Open Transfers Center'
+            }
+            title="Open datastore imports, exports, backups, and restores."
+            onClick={transferIndicator.onOpen}
+          >
+            <DownloadIcon className="status-icon" />
+            <span>Transfers</span>
+            {transferIndicator.activeCount || transferIndicator.failedCount ? (
+              <span className="status-server-badge">{transferIndicator.activeCount || transferIndicator.failedCount}</span>
+            ) : null}
           </button>
         ) : null}
         {showUpdateButton ? (

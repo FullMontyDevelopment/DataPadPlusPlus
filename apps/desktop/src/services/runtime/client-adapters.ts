@@ -1,4 +1,4 @@
-import type { AdapterDiagnosticsRequest, AdapterDiagnosticsResponse, DataEditExecutionRequest, DataEditExecutionResponse, DataEditPlanRequest, DataEditPlanResponse, DatastoreExperienceResponse, ExecutionResponse, ExecutionResultEnvelope, ExplorerInspectRequest, ExplorerInspectResponse, ExplorerRequest, ExplorerResponse, KeyValueValueReadEvent, KeyValueValueReadRequest, KeyValueValueReadResult, OperationExecutionRequest, OperationExecutionResponse, OperationManifestRequest, OperationManifestResponse, OperationPlanRequest, OperationPlanResponse, PermissionInspectionRequest, PermissionInspectionResponse, ResultRenderer, RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse, StructureRequest, StructureResponse } from '@datapadplusplus/shared-types'
+import type { AdapterDiagnosticsRequest, AdapterDiagnosticsResponse, DataEditExecutionRequest, DataEditExecutionResponse, DataEditPlanRequest, DataEditPlanResponse, DatastoreExperienceResponse, DatastoreTransferFileSelectionRequest, DatastoreTransferSelection, DatastoreTransferSelectionCancelRequest, ExecutionResponse, ExecutionResultEnvelope, ExplorerInspectRequest, ExplorerInspectResponse, ExplorerRequest, ExplorerResponse, KeyValueValueReadEvent, KeyValueValueReadRequest, KeyValueValueReadResult, OperationExecutionRequest, OperationExecutionResponse, OperationManifestRequest, OperationManifestResponse, OperationPlanRequest, OperationPlanResponse, PermissionInspectionRequest, PermissionInspectionResponse, ResultRenderer, RedisKeyInspectRequest, RedisKeyScanRequest, RedisKeyScanResponse, StructureRequest, StructureResponse } from '@datapadplusplus/shared-types'
 import { buildDatastoreExperiences, executeDataEditLocally, planDataEditLocally } from './browser-datastore-platform'
 import { buildOperationManifestsForConnection, collectDiagnosticsLocally, executeOperationLocally, inspectPermissionsLocally, planOperationLocally } from './browser-operations'
 import {
@@ -321,6 +321,39 @@ export const clientAdapters = {
     }
 
     return executeOperationLocally(loadBrowserSnapshot(), request)
+  },
+
+  async selectDatastoreTransferFile(
+    request: DatastoreTransferFileSelectionRequest,
+  ): Promise<DatastoreTransferSelection | undefined> {
+    if (!['import', 'export', 'backup', 'restore'].includes(request.action)) {
+      throw new Error('Choose a supported datastore transfer action.')
+    }
+    if (!['local-file', 'local-folder'].includes(request.destinationKind)) {
+      throw new Error('The desktop picker supports only local files and folders.')
+    }
+    if (!request.formatId.trim()) {
+      throw new Error('Choose a datastore transfer format.')
+    }
+    if (!isTauriRuntime()) {
+      return undefined
+    }
+    return (await invokeDesktop<DatastoreTransferSelection | null>(
+      'select_datastore_transfer_file',
+      { request },
+    )) ?? undefined
+  },
+
+  async cancelDatastoreTransferSelection(
+    request: DatastoreTransferSelectionCancelRequest,
+  ): Promise<boolean> {
+    if (!request.selectionId.trim()) {
+      return false
+    }
+    if (!isTauriRuntime()) {
+      return false
+    }
+    return invokeDesktop<boolean>('cancel_datastore_transfer_selection', { request })
   },
 
   async planDataEdit(request: DataEditPlanRequest): Promise<DataEditPlanResponse> {

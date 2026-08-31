@@ -21,6 +21,24 @@ function renderStatusBar(overrides: Partial<Parameters<typeof StatusBar>[0]> = {
 }
 
 describe('StatusBar', () => {
+  it('opens the Transfers Center and prioritizes active work in its badge', () => {
+    const onOpen = vi.fn()
+    renderStatusBar({
+      transferIndicator: {
+        visible: true,
+        activeCount: 2,
+        failedCount: 1,
+        onOpen,
+      },
+    })
+
+    const button = screen.getByRole('button', { name: 'Open Transfers Center, 2 active' })
+    expect(button).toHaveTextContent('Transfers')
+    expect(button.querySelector('.status-server-badge')).toHaveTextContent('2')
+    fireEvent.click(button)
+    expect(onOpen).toHaveBeenCalledOnce()
+  })
+
   it('shows a pre-release build at the far left and opens update settings', () => {
     const props = renderStatusBar({
       prereleaseVersion: 'v0.2.0-beta.3',

@@ -1305,6 +1305,168 @@ export interface DatastoreTestStepRunPlan {
   warnings: string[]
 }
 
+export const DATASTORE_TRANSFER_ACTIONS = ['import', 'export', 'backup', 'restore'] as const
+export type DatastoreTransferAction = (typeof DATASTORE_TRANSFER_ACTIONS)[number]
+
+export const DATASTORE_TRANSFER_DESTINATION_KINDS = [
+  'local-file',
+  'local-folder',
+  'server-path',
+  'cloud-uri',
+  'named-stage',
+  'repository',
+  'managed-restore',
+] as const
+export type DatastoreTransferDestinationKind =
+  (typeof DATASTORE_TRANSFER_DESTINATION_KINDS)[number]
+
+export type DatastoreTransferFidelity = 'native' | 'portable' | 'portable-lossy'
+export type DatastoreTransferConflictPolicy = 'fail'
+
+export interface DatastoreTransferFormat {
+  id: string
+  label: string
+  fidelity: DatastoreTransferFidelity
+  extensions: string[]
+  description: string
+  warning?: string
+}
+
+export interface DatastoreTransferCapability {
+  action: DatastoreTransferAction
+  kind: 'data' | 'backup'
+  operationId: string
+  scope: DatastoreOperationScope
+  executionSupport: DatastoreOperationExecutionSupport
+  formats: DatastoreTransferFormat[]
+  destinationKinds: DatastoreTransferDestinationKind[]
+  supportsMultipleObjects: boolean
+  requiresExistingTarget: boolean
+  description: string
+  disabledReason?: string
+}
+
+export interface DatastoreTransferManifest {
+  engine: DatastoreEngine
+  capabilities: DatastoreTransferCapability[]
+}
+
+export interface DatastoreTransferFileSelectionRequest {
+  operationId: string
+  connectionId: string
+  environmentId: string
+  action: DatastoreTransferAction
+  destinationKind: 'local-file' | 'local-folder'
+  formatId: string
+  extensions: string[]
+  suggestedFileName?: string
+}
+
+export interface DatastoreTransferSelection {
+  selectionId: string
+  fileName: string
+  sizeBytes?: number
+  destinationKind: 'local-file' | 'local-folder'
+  expiresAt: string
+}
+
+export interface DatastoreTransferSelectionCancelRequest {
+  selectionId: string
+}
+
+export type DatastoreTransferJobStatus =
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'canceled'
+
+export interface DatastoreTransferJob {
+  id: string
+  connectionId: string
+  environmentId: string
+  engine: DatastoreEngine
+  action: DatastoreTransferAction
+  objectNames: string[]
+  formatId: string
+  fileName?: string
+  status: DatastoreTransferJobStatus
+  phase: 'queued' | 'validating' | 'transferring' | 'finalizing' | 'finished'
+  startedAt: string
+  completedAt?: string
+  messages: string[]
+  warnings: string[]
+  error?: string
+  result?: OperationExecutionResponse
+}
+
+// Concise aliases used by the staged transfer workflow. The datastore-prefixed
+// names remain available for call sites that need to distinguish these contracts
+// from workspace import/export.
+export type TransferAction = DatastoreTransferAction
+export type TransferFormat = DatastoreTransferFormat
+export type TransferConflictPolicy = DatastoreTransferConflictPolicy
+export type TransferSelection = DatastoreTransferSelection
+export type TransferJob = DatastoreTransferJob
+
+export interface TransferScope {
+  kind: DatastoreOperationScope
+  objectNames: string[]
+}
+
+export interface TransferDestination {
+  kind: DatastoreTransferDestinationKind
+  selectionId?: string
+  descriptor?: string
+}
+
+export interface TransferPreview {
+  connectionId: string
+  environmentId: string
+  action: TransferAction
+  scope: TransferScope
+  format: TransferFormat
+  destination: TransferDestination
+  conflictPolicy: TransferConflictPolicy
+  estimatedSizeBytes?: number
+  warnings: string[]
+  blockers: string[]
+  plan: OperationPlan
+}
+
+export interface TransferStartRequest {
+  connectionId: string
+  environmentId: string
+  action: TransferAction
+  operationId: string
+  scope: TransferScope
+  formatId: string
+  destination: TransferDestination
+  conflictPolicy: TransferConflictPolicy
+  confirmationText?: string
+}
+
+export interface TransferProgress {
+  jobId: string
+  status: DatastoreTransferJobStatus
+  phase: DatastoreTransferJob['phase']
+  completedUnits?: number
+  totalUnits?: number
+  bytesTransferred?: number
+  nativeJobId?: string
+  message?: string
+}
+
+export interface TransferResult {
+  jobId: string
+  status: Extract<DatastoreTransferJobStatus, 'completed' | 'failed' | 'canceled'>
+  nativeJobId?: string
+  messages: string[]
+  warnings: string[]
+  error?: string
+  operation?: OperationExecutionResponse
+}
+
 export interface DatastoreTestRunPlanRequest {
   tabId: string
   caseId?: string

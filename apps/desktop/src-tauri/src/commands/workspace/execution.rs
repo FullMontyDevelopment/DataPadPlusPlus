@@ -21,10 +21,26 @@ pub async fn plan_datastore_operation(
 #[tauri::command]
 pub async fn execute_datastore_operation(
     state: State<'_, SharedAppState>,
-    request: OperationExecutionRequest,
+    mut request: OperationExecutionRequest,
 ) -> Result<OperationExecutionResponse, CommandError> {
+    let selection = resolve_datastore_transfer_selection(&mut request)?;
     let runtime = clone_runtime(&state)?;
-    runtime.execute_operation(request).await
+    let execution = runtime.execute_operation(request).await;
+    let mut response = match execution {
+        Ok(response) => response,
+        Err(mut error) => {
+            if let Some(selection) = selection.as_ref() {
+                let _ = complete_datastore_transfer_selection(selection, false);
+                redact_datastore_transfer_error(&mut error, selection);
+            }
+            return Err(error);
+        }
+    };
+    if let Some(selection) = selection.as_ref() {
+        complete_datastore_transfer_selection(selection, true)?;
+        redact_datastore_transfer_path(&mut response, selection);
+    }
+    Ok(response)
 }
 
 #[tauri::command]
