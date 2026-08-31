@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { MutableRefObject } from 'react'
 import type {
   AppShortcutId,
@@ -56,6 +56,11 @@ export function GlobalShortcutHandler({
   runCurrentTabQuery,
   snapshot,
 }: GlobalShortcutHandlerProps) {
+  const snapshotRef = useRef(snapshot)
+  useLayoutEffect(() => {
+    snapshotRef.current = snapshot
+  }, [snapshot])
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (shortcutMatchesEvent(event, keyboardShortcuts.refresh)) {
@@ -94,7 +99,7 @@ export function GlobalShortcutHandler({
 
       if (shortcutMatchesEvent(event, keyboardShortcuts.toggleSidebar)) {
         event.preventDefault()
-        void actions.updateUiState({ sidebarCollapsed: !snapshot.ui.sidebarCollapsed })
+        void actions.updateUiState({ sidebarCollapsed: !snapshotRef.current.ui.sidebarCollapsed })
         return
       }
 
@@ -114,7 +119,7 @@ export function GlobalShortcutHandler({
 
       if (shortcutMatchesEvent(event, keyboardShortcuts.reopenClosedTab)) {
         event.preventDefault()
-        const closedTab = snapshot.closedTabs.at(-1)
+        const closedTab = snapshotRef.current.closedTabs.at(-1)
         if (closedTab) void actions.reopenClosedTab(closedTab.id)
         return
       }
@@ -129,7 +134,7 @@ export function GlobalShortcutHandler({
 
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [actions, activeConnectionId, activeTab, activeTabIsApiServer, activeTabIsMcpServer, activeTabIsSecurityChecks, activeTabIsEnvironment, activeTabIsExplorer, activeTabIsMetrics, activeTabIsObjectView, activeTabIsSettings, activeTabIsTestSuite, activeTabIsWorkspaceSearch, bottomPanelVisibleRef, executionLocked, keyboardShortcuts, openQueryTab, requestCloseTab, requestSaveQuery, runCurrentTabQuery, snapshot])
+  }, [actions, activeConnectionId, activeTab, activeTabIsApiServer, activeTabIsMcpServer, activeTabIsSecurityChecks, activeTabIsEnvironment, activeTabIsExplorer, activeTabIsMetrics, activeTabIsObjectView, activeTabIsSettings, activeTabIsTestSuite, activeTabIsWorkspaceSearch, bottomPanelVisibleRef, executionLocked, keyboardShortcuts, openQueryTab, requestCloseTab, requestSaveQuery, runCurrentTabQuery])
 
   return null
 }
