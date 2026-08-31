@@ -261,10 +261,10 @@ const NATIVE_BACKUP_ENGINES = new Set<DatastoreEngine>([
   'clickhouse', 'arango', 'dynamodb', 'cosmosdb', 'snowflake', 'bigquery', 'neptune',
 ])
 
-const LIVE_BACKUP_ENGINES = new Set<DatastoreEngine>(['sqlite', 'duckdb', 'cockroachdb'])
+const LIVE_BACKUP_ENGINES = new Set<DatastoreEngine>(['sqlite', 'duckdb', 'cockroachdb', 'sqlserver'])
 
 function isLiveBackupAction(engine: DatastoreEngine, action: 'backup' | 'restore') {
-  return engine === 'cockroachdb'
+  return engine === 'cockroachdb' || engine === 'sqlserver'
     || (LIVE_BACKUP_ENGINES.has(engine) && action === 'backup')
 }
 
@@ -387,7 +387,7 @@ function backupOptions(
   engine: DatastoreEngine,
   action: 'backup' | 'restore',
 ): CapabilitySpec['options'] {
-  if (engine !== 'cockroachdb' || action !== 'restore') return undefined
+  if (!['cockroachdb', 'sqlserver'].includes(engine) || action !== 'restore') return undefined
   return {
     restore: [{
       id: 'targetDatabase',
@@ -395,7 +395,7 @@ function backupOptions(
       input: 'text',
       required: true,
       placeholder: 'restored_database',
-      description: 'Must not already exist. CockroachDB restores the backup under this new database name.',
+      description: `Must not already exist. ${engineLabel(engine)} restores the backup under this new database name.`,
     }],
   }
 }
@@ -411,7 +411,8 @@ function backupFormats(engine: DatastoreEngine): FormatSpec[] {
 function backupDestinations(engine: DatastoreEngine): DatastoreTransferDestinationKind[] {
   if (engine === 'sqlite') return ['local-file']
   if (engine === 'duckdb') return ['local-folder']
-  if (engine === 'oracle' || engine === 'sqlserver') return ['server-path']
+  if (engine === 'oracle') return ['server-path']
+  if (engine === 'sqlserver') return ['server-path', 'cloud-uri']
   if (engine === 'elasticsearch' || engine === 'opensearch' || engine === 'arango') return ['repository']
   if (['dynamodb', 'cosmosdb', 'snowflake', 'bigquery', 'neptune'].includes(engine)) return ['managed-restore', 'cloud-uri']
   return ['cloud-uri', 'server-path']

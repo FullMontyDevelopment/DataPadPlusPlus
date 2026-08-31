@@ -13,8 +13,6 @@ use super::connection::sqlserver_client;
 use super::editing::bind_sqlserver_value;
 
 const SQLSERVER_FILE_WORKFLOW_MAX_ROWS: u64 = 100_000;
-const SQLSERVER_BACKUP_DEFAULT_ROWS: u64 = 1_000;
-const SQLSERVER_BACKUP_MAX_TABLES: u64 = 100;
 
 pub(crate) async fn execute_sqlserver_file_operation(
     connection: &ResolvedConnectionProfile,
@@ -54,25 +52,16 @@ pub(crate) async fn execute_sqlserver_file_operation(
         }
         "sqlserver.data.backup-restore" => {
             let mode = workflow_mode(request, "backup");
-            if matches!(
-                mode.as_str(),
-                "validate" | "validate-only" | "validate-restore"
-            ) {
-                execute_sqlserver_restore_validation(
+            if matches!(mode.as_str(), "restore" | "recover" | "import") {
+                execute_sqlserver_database_restore(
+                    connection,
                     request,
                     &operation,
                     plan,
                     &mut messages,
-                    &mut warnings,
+                    &warnings,
                 )
-            } else if matches!(mode.as_str(), "restore" | "recover" | "import") {
-                warnings.push(
-                    "SQL Server restore execution remains preview-first; validate the package here, then run the generated restore plan manually after review."
-                        .into(),
-                );
-                Ok(operation_response(
-                    request, &operation, plan, false, None, messages, warnings,
-                ))
+                .await
             } else {
                 execute_sqlserver_database_backup(
                     connection,
@@ -80,7 +69,7 @@ pub(crate) async fn execute_sqlserver_file_operation(
                     &operation,
                     plan,
                     &mut messages,
-                    &mut warnings,
+                    &warnings,
                 )
                 .await
             }
@@ -218,7 +207,7 @@ async fn execute_sqlserver_table_export(
             "bytesWritten": bytes_written,
         })),
         messages.clone(),
-        warnings.clone(),
+        warnings.to_vec(),
     ))
 }
 
@@ -500,7 +489,7 @@ async fn execute_sqlserver_table_import(
             "emptyStringAsNull": empty_string_as_null,
         })),
         messages.clone(),
-        warnings.clone(),
+        warnings.to_vec(),
     ))
 }
 
@@ -510,216 +499,50 @@ async fn execute_sqlserver_database_backup(
     operation: &DatastoreOperationManifest,
     plan: OperationPlan,
     messages: &mut Vec<String>,
-    warnings: &mut Vec<String>,
+    warnings: &[String],
 ) -> Result<OperationExecutionResponse, CommandError> {
-    let Some(target_path) = concrete_file_path(
-        file_path_parameter(request, &["targetPath", "outputPath"], "target"),
-        "backup target",
-    ) else {
-        warnings.push(
-            "Choose an absolute SQL Server backup target path before running the live workflow."
-                .into(),
-        );
-        return Ok(operation_response(
-            request,
-            operation,
-            plan,
-            false,
-            None,
-            messages.clone(),
-            warnings.clone(),
-        ));
-    };
-
-    if let Some(warning) = writable_target_warning(
-        &target_path,
-        bool_parameter(request, "overwrite").unwrap_or(false),
-        "SQL Server backup target",
-    ) {
-        warnings.push(warning);
-        return Ok(operation_response(
-            request,
-            operation,
-            plan,
-            false,
-            None,
-            messages.clone(),
-            warnings.clone(),
-        ));
-    }
-    if target_path.exists() && bool_parameter(request, "overwrite").unwrap_or(false) {
-        fs::remove_file(&target_path)?;
-    }
-
-    let format = workflow_format(request, &target_path, "json");
-    if !matches!(format.as_str(), "json" | "sql") {
-        warnings.push(format!(
-            "SQL Server backup format `{format}` is not supported. Use json or sql."
-        ));
-        return Ok(operation_response(
-            request,
-            operation,
-            plan,
-            false,
-            None,
-            messages.clone(),
-            warnings.clone(),
-        ));
-    }
-
-    let schema_filter = string_parameter(request, "schema")
-        .or_else(|| workflow_table(request).map(|(schema, _)| schema));
-    let include_data = bool_parameter(request, "includeData").unwrap_or(true);
-    let table_limit = numeric_parameter(request, "tableLimit")
-        .unwrap_or(25)
-        .clamp(1, SQLSERVER_BACKUP_MAX_TABLES);
-    let row_limit = backup_row_limit(request);
     let database = workflow_database(connection, request);
-    let mut client = sqlserver_client(connection).await?;
-    let mut tables =
-        sqlserver_backup_tables(&mut client, schema_filter.as_deref(), table_limit + 1).await?;
-    let table_list_truncated = tables.len() as u64 > table_limit;
-    tables.truncate(table_limit as usize);
-
-    let mut backup_tables = Vec::new();
-    for (schema, table) in tables {
-        let columns = sqlserver_table_columns(&mut client, &schema, &table, false).await?;
-        let rows = if include_data {
-            fetch_sqlserver_table_rows(&mut client, &schema, &table, row_limit).await?
-        } else {
-            SqlServerFetchedRows {
-                objects: Vec::new(),
-                truncated: false,
-            }
-        };
-        if rows.truncated {
-            warnings.push(format!(
-                "SQL Server backup table {}.{} stopped at the configured row limit of {row_limit} row(s).",
-                schema, table
-            ));
-        }
-        backup_tables.push(SqlServerBackupTable {
-            schema,
-            table,
-            columns,
-            rows: rows.objects,
-            truncated: rows.truncated,
-        });
-    }
-
-    if table_list_truncated {
-        warnings.push(format!(
-            "SQL Server backup included the first {table_limit} table(s); increase tableLimit to include more."
-        ));
-    }
-
-    let bytes_written = write_sqlserver_backup(
-        &target_path,
-        &format,
-        &database,
-        include_data,
-        row_limit,
-        &backup_tables,
-    )?;
+    let destination = server_transfer_location(request, &["targetPath", "outputPath"], "target")?;
+    let metadata = native_sqlserver_backup(connection, &database, &destination).await?;
     messages.push(format!(
-        "SQL Server wrote a bounded logical backup package with {} table(s) to {}.",
-        backup_tables.len(),
-        target_path.display()
+        "SQL Server created and verified a native backup for database {database}."
     ));
-    warnings.push(
-        "SQL Server backup execution creates a bounded logical DataPad++ package; native .bak backup and restore execution remain reviewed manual workflows."
-            .into(),
-    );
 
     Ok(operation_response(
         request,
         operation,
         plan,
         true,
-        Some(json!({
-            "workflow": "sqlserver.database.backup",
-            "format": format,
-            "targetPath": target_path.display().to_string(),
-            "database": database,
-            "schema": schema_filter,
-            "tableCount": backup_tables.len(),
-            "tableLimit": table_limit,
-            "rowLimit": row_limit,
-            "includeData": include_data,
-            "truncatedTables": table_list_truncated,
-            "bytesWritten": bytes_written,
-            "residualRisk": "bounded logical backup package; native .bak backup/restore execution remains preview-first",
-        })),
+        Some(metadata),
         messages.clone(),
-        warnings.clone(),
+        warnings.to_vec(),
     ))
 }
 
-fn execute_sqlserver_restore_validation(
+async fn execute_sqlserver_database_restore(
+    connection: &ResolvedConnectionProfile,
     request: &OperationExecutionRequest,
     operation: &DatastoreOperationManifest,
     plan: OperationPlan,
     messages: &mut Vec<String>,
-    warnings: &mut Vec<String>,
+    warnings: &[String],
 ) -> Result<OperationExecutionResponse, CommandError> {
-    let Some(source_path) = concrete_file_path(
-        file_path_parameter(request, &["sourcePath", "inputPath"], "source"),
-        "restore source",
-    ) else {
-        warnings.push("Choose an absolute SQL Server backup package path to validate.".into());
-        return Ok(operation_response(
-            request,
-            operation,
-            plan,
-            false,
-            None,
-            messages.clone(),
-            warnings.clone(),
-        ));
-    };
-    if !source_path.is_file() {
-        warnings.push(format!(
-            "SQL Server restore source `{}` does not exist or is not a file.",
-            source_path.display()
-        ));
-        return Ok(operation_response(
-            request,
-            operation,
-            plan,
-            false,
-            None,
-            messages.clone(),
-            warnings.clone(),
+    if connection.read_only {
+        return Err(CommandError::new(
+            "sqlserver-restore-read-only",
+            "SQL Server restore is unavailable because this connection is read-only.",
         ));
     }
-
-    let value = read_json_file(&source_path)?;
-    let valid = value.get("engine").and_then(Value::as_str) == Some("sqlserver")
-        && value.get("workflow").and_then(Value::as_str) == Some("sqlserver.database.backup")
-        && value.get("tables").is_some_and(Value::is_array);
-    if !valid {
-        warnings.push(
-            "SQL Server restore validation expects a DataPad++ SQL Server logical backup JSON package."
-                .into(),
-        );
-        return Ok(operation_response(
-            request,
-            operation,
-            plan,
-            false,
-            None,
-            messages.clone(),
-            warnings.clone(),
-        ));
-    }
-
-    let table_count = value
-        .get("tables")
-        .and_then(Value::as_array)
-        .map(Vec::len)
-        .unwrap_or_default();
+    let source = server_transfer_location(request, &["sourcePath", "inputPath"], "source")?;
+    let target_database = string_parameter(request, "targetDatabase").ok_or_else(|| {
+        CommandError::new(
+            "sqlserver-restore-target-missing",
+            "SQL Server restore requires a new target database name.",
+        )
+    })?;
+    let metadata = native_sqlserver_restore(connection, &source, &target_database).await?;
     messages.push(format!(
-        "SQL Server validated a logical backup package with {table_count} table(s)."
+        "SQL Server restored and verified the native backup into new database {target_database}."
     ));
 
     Ok(operation_response(
@@ -727,16 +550,341 @@ fn execute_sqlserver_restore_validation(
         operation,
         plan,
         true,
-        Some(json!({
-            "workflow": "sqlserver.database.restore.validate",
-            "sourcePath": source_path.display().to_string(),
-            "tableCount": table_count,
-            "database": value.get("database").cloned(),
-            "residualRisk": "restore execution remains preview-first",
-        })),
+        Some(metadata),
         messages.clone(),
-        warnings.clone(),
+        warnings.to_vec(),
     ))
+}
+
+async fn native_sqlserver_backup(
+    connection: &ResolvedConnectionProfile,
+    database: &str,
+    destination: &str,
+) -> Result<Value, CommandError> {
+    validate_database_name(database, "backup source")?;
+    let (destination_kind, destination_clause) = server_location_clause(destination)?;
+    let mut client = sqlserver_client(connection).await?;
+    if destination_kind == "server-path" && sqlserver_file_exists(&mut client, destination).await? {
+        return Err(CommandError::new(
+            "sqlserver-backup-target-exists",
+            "The SQL Server-visible backup target already exists. Choose a new .bak path; existing backup media is never overwritten or appended.",
+        ));
+    }
+    let statement = format!(
+        "BACKUP DATABASE {} TO {destination_clause} WITH COPY_ONLY, NOINIT, CHECKSUM, STATS = 10",
+        quote_sqlserver_identifier(database)
+    );
+    client.simple_query(statement).await?.into_results().await?;
+    client
+        .simple_query(format!(
+            "RESTORE VERIFYONLY FROM {destination_clause} WITH CHECKSUM"
+        ))
+        .await?
+        .into_results()
+        .await?;
+    Ok(json!({
+        "workflow":"sqlserver.database.backup",
+        "format":"bak",
+        "database":database,
+        "destinationKind":destination_kind,
+        "checksumVerified":true,
+        "overwrite":false
+    }))
+}
+
+async fn native_sqlserver_restore(
+    connection: &ResolvedConnectionProfile,
+    source: &str,
+    target_database: &str,
+) -> Result<Value, CommandError> {
+    validate_database_name(target_database, "restore target")?;
+    let (source_kind, source_clause) = server_location_clause(source)?;
+    let mut client = sqlserver_client(connection).await?;
+    if sqlserver_database_exists(&mut client, target_database).await? {
+        return Err(CommandError::new(
+            "sqlserver-restore-target-exists",
+            "SQL Server restore requires a new database name; the selected target already exists.",
+        ));
+    }
+    client
+        .simple_query(format!(
+            "RESTORE VERIFYONLY FROM {source_clause} WITH CHECKSUM"
+        ))
+        .await?
+        .into_results()
+        .await?;
+    let files = sqlserver_backup_files(&mut client, &source_clause).await?;
+    let (data_path, log_path) = sqlserver_default_paths(&mut client).await?;
+    let moves = files
+        .iter()
+        .enumerate()
+        .map(|(index, (logical_name, file_type))| {
+            let is_log = file_type == "L";
+            let base = if is_log { &log_path } else { &data_path };
+            let extension = if is_log {
+                "ldf"
+            } else if index == 0 {
+                "mdf"
+            } else {
+                "ndf"
+            };
+            let physical = server_child_path(
+                base,
+                &format!("{target_database}_datapad_restore_{index}.{extension}"),
+            );
+            format!(
+                "MOVE N'{}' TO N'{}'",
+                escape_sqlserver_literal(logical_name),
+                escape_sqlserver_literal(&physical)
+            )
+        })
+        .collect::<Vec<_>>();
+    let statement = format!(
+        "RESTORE DATABASE {} FROM {source_clause} WITH {}, RECOVERY, CHECKSUM",
+        quote_sqlserver_identifier(target_database),
+        moves.join(", ")
+    );
+    let restored = match client.simple_query(statement).await {
+        Ok(stream) => stream.into_results().await.map(|_| ()),
+        Err(error) => Err(error),
+    };
+    if let Err(error) = restored {
+        let _ = cleanup_failed_restore(&mut client, target_database).await;
+        return Err(error.into());
+    }
+    let state = sqlserver_database_state(&mut client, target_database).await?;
+    if state != "ONLINE" {
+        let _ = cleanup_failed_restore(&mut client, target_database).await;
+        return Err(CommandError::new(
+            "sqlserver-restore-state-invalid",
+            "SQL Server finished the restore command but the new database is not online.",
+        ));
+    }
+    Ok(json!({
+        "workflow":"sqlserver.database.restore",
+        "format":"bak",
+        "targetDatabase":target_database,
+        "sourceKind":source_kind,
+        "fileCount":files.len(),
+        "checksumVerified":true,
+        "databaseState":state
+    }))
+}
+
+async fn sqlserver_file_exists(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    path: &str,
+) -> Result<bool, CommandError> {
+    let mut query = Query::new(
+        "DECLARE @file_exists int; EXEC master.dbo.xp_fileexist @P1, @file_exists OUTPUT; SELECT @file_exists AS file_exists",
+    );
+    query.bind(path.to_string());
+    let rows = query.query(client).await?.into_first_result().await?;
+    Ok(rows
+        .first()
+        .and_then(|row| row.get::<i32, _>("file_exists"))
+        .unwrap_or_default()
+        != 0)
+}
+
+async fn sqlserver_database_exists(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    database: &str,
+) -> Result<bool, CommandError> {
+    let mut query =
+        Query::new("SELECT COUNT_BIG(*) AS count_value FROM sys.databases WHERE name = @P1");
+    query.bind(database.to_string());
+    let rows = query.query(client).await?.into_first_result().await?;
+    Ok(rows
+        .first()
+        .and_then(|row| row.get::<i64, _>("count_value"))
+        .unwrap_or_default()
+        != 0)
+}
+
+async fn sqlserver_backup_files(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    source_clause: &str,
+) -> Result<Vec<(String, String)>, CommandError> {
+    let rows = client
+        .simple_query(format!("RESTORE FILELISTONLY FROM {source_clause}"))
+        .await?
+        .into_first_result()
+        .await?;
+    let files = rows
+        .into_iter()
+        .filter_map(|row| {
+            Some((
+                row.get::<&str, _>("LogicalName")?.to_string(),
+                row.get::<&str, _>("Type")?.to_string(),
+            ))
+        })
+        .collect::<Vec<_>>();
+    if files.is_empty() {
+        Err(CommandError::new(
+            "sqlserver-restore-filelist-empty",
+            "SQL Server backup verification returned no logical database files.",
+        ))
+    } else {
+        Ok(files)
+    }
+}
+
+async fn sqlserver_default_paths(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+) -> Result<(String, String), CommandError> {
+    let rows = client
+        .simple_query("SELECT CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(4000)) AS data_path, CAST(SERVERPROPERTY('InstanceDefaultLogPath') AS nvarchar(4000)) AS log_path")
+        .await?
+        .into_first_result()
+        .await?;
+    let row = rows.first().ok_or_else(|| {
+        CommandError::new(
+            "sqlserver-restore-default-path-missing",
+            "SQL Server did not return its default data and log folders.",
+        )
+    })?;
+    let data = row
+        .get::<&str, _>("data_path")
+        .map(str::to_string)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            CommandError::new(
+                "sqlserver-restore-default-path-missing",
+                "SQL Server did not return its default data folder.",
+            )
+        })?;
+    let log = row
+        .get::<&str, _>("log_path")
+        .map(str::to_string)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| data.clone());
+    Ok((data, log))
+}
+
+async fn sqlserver_database_state(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    database: &str,
+) -> Result<String, CommandError> {
+    let mut query = Query::new("SELECT state_desc FROM sys.databases WHERE name = @P1");
+    query.bind(database.to_string());
+    let rows = query.query(client).await?.into_first_result().await?;
+    rows.first()
+        .and_then(|row| row.get::<&str, _>("state_desc"))
+        .map(str::to_string)
+        .ok_or_else(|| {
+            CommandError::new(
+                "sqlserver-restore-target-missing",
+                "SQL Server did not retain the new database after restore.",
+            )
+        })
+}
+
+async fn cleanup_failed_restore(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    database: &str,
+) -> Result<(), CommandError> {
+    let identifier = quote_sqlserver_identifier(database);
+    let literal = escape_sqlserver_literal(database);
+    client
+        .simple_query(format!("IF DB_ID(N'{literal}') IS NOT NULL BEGIN ALTER DATABASE {identifier} SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE {identifier}; END"))
+        .await?
+        .into_results()
+        .await?;
+    Ok(())
+}
+
+fn server_transfer_location(
+    request: &OperationExecutionRequest,
+    keys: &[&str],
+    object_key: &str,
+) -> Result<String, CommandError> {
+    let value = keys
+        .iter()
+        .find_map(|key| string_parameter(request, key))
+        .or_else(|| {
+            request
+                .parameters
+                .as_ref()?
+                .get(object_key)?
+                .as_object()?
+                .get("path")?
+                .as_str()
+                .map(str::to_string)
+        })
+        .ok_or_else(|| {
+            CommandError::new(
+                "sqlserver-transfer-location-missing",
+                "SQL Server native backup or restore requires a server-visible disk path or HTTPS URL.",
+            )
+        })?;
+    if value.chars().any(char::is_control) || value.len() > 2_048 {
+        return Err(CommandError::new(
+            "sqlserver-transfer-location-invalid",
+            "SQL Server received an invalid server-visible backup location.",
+        ));
+    }
+    Ok(value)
+}
+
+fn server_location_clause(value: &str) -> Result<(&'static str, String), CommandError> {
+    if value.starts_with("https://") {
+        let parsed = url::Url::parse(value).map_err(|_| {
+            CommandError::new(
+                "sqlserver-transfer-location-invalid",
+                "SQL Server backup URL is invalid.",
+            )
+        })?;
+        if !parsed.username().is_empty() || parsed.password().is_some() || parsed.query().is_some()
+        {
+            return Err(CommandError::new(
+                "sqlserver-transfer-url-secret-rejected",
+                "Do not place credentials or signed query parameters in a SQL Server backup URL. Configure the SQL Server credential on the server.",
+            ));
+        }
+        return Ok((
+            "cloud-uri",
+            format!("URL = N'{}'", escape_sqlserver_literal(value)),
+        ));
+    }
+    let windows_absolute =
+        value.as_bytes().get(1).is_some_and(|value| *value == b':') || value.starts_with("\\\\");
+    if !value.starts_with('/') && !Path::new(value).is_absolute() && !windows_absolute {
+        return Err(CommandError::new(
+            "sqlserver-transfer-location-invalid",
+            "SQL Server disk backup requires an absolute server-visible path.",
+        ));
+    }
+    Ok((
+        "server-path",
+        format!("DISK = N'{}'", escape_sqlserver_literal(value)),
+    ))
+}
+
+fn validate_database_name(value: &str, label: &str) -> Result<(), CommandError> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .chars()
+            .all(|value| value.is_ascii_alphanumeric() || matches!(value, '_' | '-'))
+    {
+        Err(CommandError::new(
+            "sqlserver-database-name-invalid",
+            format!("SQL Server {label} database name contains unsupported characters."),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn server_child_path(base: &str, file_name: &str) -> String {
+    if base.ends_with('/') || base.ends_with('\\') {
+        format!("{base}{file_name}")
+    } else if base.contains('\\') {
+        format!("{base}\\{file_name}")
+    } else {
+        format!("{base}/{file_name}")
+    }
 }
 
 fn operation_response(
@@ -767,15 +915,6 @@ fn operation_response(
 #[derive(Clone, Debug)]
 struct SqlServerFetchedRows {
     objects: Vec<Value>,
-    truncated: bool,
-}
-
-#[derive(Clone, Debug)]
-struct SqlServerBackupTable {
-    schema: String,
-    table: String,
-    columns: Vec<String>,
-    rows: Vec<Value>,
     truncated: bool,
 }
 
@@ -847,32 +986,6 @@ async fn sqlserver_table_columns(
         .collect())
 }
 
-async fn sqlserver_backup_tables(
-    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
-    schema: Option<&str>,
-    limit: u64,
-) -> Result<Vec<(String, String)>, CommandError> {
-    let mut query = Query::new(format!(
-        "select top ({limit}) s.name as schema_name, t.name as table_name
-         from sys.tables t
-         join sys.schemas s on t.schema_id = s.schema_id
-         where (@P1 is null or s.name = @P1)
-         order by s.name, t.name"
-    ));
-    query.bind(schema.map(str::to_string));
-    let rows = query.query(client).await?.into_first_result().await?;
-
-    Ok(rows
-        .into_iter()
-        .filter_map(|row| {
-            Some((
-                row.get::<&str, _>("schema_name")?.to_string(),
-                row.get::<&str, _>("table_name")?.to_string(),
-            ))
-        })
-        .collect())
-}
-
 fn write_sqlserver_rows(
     path: &Path,
     format: &str,
@@ -894,105 +1007,6 @@ fn write_sqlserver_rows(
     }
 
     Ok(file.metadata()?.len())
-}
-
-fn write_sqlserver_backup(
-    path: &Path,
-    format: &str,
-    database: &str,
-    include_data: bool,
-    row_limit: u64,
-    tables: &[SqlServerBackupTable],
-) -> Result<u64, CommandError> {
-    let mut file = File::create(path)?;
-
-    match format {
-        "sql" => write_sqlserver_backup_sql(&mut file, include_data, row_limit, tables)?,
-        _ => serde_json::to_writer_pretty(
-            &mut file,
-            &json!({
-                "engine": "sqlserver",
-                "workflow": "sqlserver.database.backup",
-                "database": database,
-                "includeData": include_data,
-                "rowLimit": row_limit,
-                "format": "datapad-sqlserver-logical-backup-v1",
-                "tables": tables.iter().map(|table| json!({
-                    "schema": table.schema,
-                    "table": table.table,
-                    "columns": table.columns,
-                    "rows": table.rows,
-                    "rowCount": table.rows.len(),
-                    "truncated": table.truncated,
-                })).collect::<Vec<_>>(),
-                "residualRisk": "bounded logical package; use reviewed native BACKUP/RESTORE workflows for full fidelity restore",
-            }),
-        )?,
-    }
-
-    Ok(file.metadata()?.len())
-}
-
-fn write_sqlserver_backup_sql(
-    file: &mut File,
-    include_data: bool,
-    row_limit: u64,
-    tables: &[SqlServerBackupTable],
-) -> Result<(), CommandError> {
-    writeln!(
-        file,
-        "-- DataPad++ bounded SQL Server logical backup package"
-    )?;
-    writeln!(
-        file,
-        "-- Contains INSERT batches only; review schema DDL, identity columns, triggers, and constraints before loading."
-    )?;
-    writeln!(file, "-- rowLimit per table: {row_limit}")?;
-    writeln!(file, "set xact_abort on;")?;
-    for table in tables {
-        writeln!(file)?;
-        writeln!(
-            file,
-            "-- {}.{} rows: {}{}",
-            table.schema,
-            table.table,
-            table.rows.len(),
-            if table.truncated { " (truncated)" } else { "" }
-        )?;
-        writeln!(
-            file,
-            "if schema_id(N'{}') is null exec(N'create schema {}');",
-            escape_sqlserver_literal(&table.schema),
-            qualified_sqlserver_identifier_literal(&table.schema)
-        )?;
-        if include_data && !table.columns.is_empty() {
-            for row in &table.rows {
-                let Some(object) = row.as_object() else {
-                    continue;
-                };
-                let values = table
-                    .columns
-                    .iter()
-                    .map(|column| sqlserver_literal(object.get(column).unwrap_or(&Value::Null)))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                writeln!(
-                    file,
-                    "insert into {} ({}) values ({});",
-                    qualified_sqlserver_name(&table.schema, &table.table),
-                    table
-                        .columns
-                        .iter()
-                        .map(|column| quote_sqlserver_identifier(column))
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    values
-                )?;
-            }
-        }
-    }
-
-    Ok(())
 }
 
 fn write_csv_rows(file: &mut File, columns: &[String], rows: &[Value]) -> Result<(), CommandError> {
@@ -1039,17 +1053,6 @@ fn read_import_records(
         "ndjson" => ndjson_records(&source),
         _ => Ok(Vec::new()),
     }
-}
-
-fn read_json_file(path: &Path) -> Result<Value, CommandError> {
-    let mut source = String::new();
-    File::open(path)?.read_to_string(&mut source)?;
-    serde_json::from_str::<Value>(&source).map_err(|error| {
-        CommandError::new(
-            "sqlserver-backup-json",
-            format!("SQL Server backup package could not be parsed: {error}"),
-        )
-    })
 }
 
 fn csv_records(source: &str) -> Result<Vec<BTreeMap<String, Value>>, CommandError> {
@@ -1280,14 +1283,6 @@ fn workflow_row_limit(request: &OperationExecutionRequest) -> u64 {
         .clamp(1, SQLSERVER_FILE_WORKFLOW_MAX_ROWS)
 }
 
-fn backup_row_limit(request: &OperationExecutionRequest) -> u64 {
-    numeric_parameter(request, "rowLimit")
-        .or_else(|| numeric_parameter(request, "limit"))
-        .or_else(|| request.row_limit.map(u64::from))
-        .unwrap_or(SQLSERVER_BACKUP_DEFAULT_ROWS)
-        .clamp(1, SQLSERVER_FILE_WORKFLOW_MAX_ROWS)
-}
-
 fn parse_qualified_sqlserver_name(value: &str) -> Option<(String, String)> {
     let value = value.trim();
     if value.is_empty() || value.contains('<') || value.contains('>') {
@@ -1388,10 +1383,6 @@ fn quote_sqlserver_identifier(identifier: &str) -> String {
     format!("[{}]", clean_identifier(identifier).replace(']', "]]"))
 }
 
-fn qualified_sqlserver_identifier_literal(identifier: &str) -> String {
-    quote_sqlserver_identifier(identifier).replace('\'', "''")
-}
-
 fn value_to_text(value: Option<&Value>) -> String {
     match value.unwrap_or(&Value::Null) {
         Value::Null => String::new(),
@@ -1399,24 +1390,6 @@ fn value_to_text(value: Option<&Value>) -> String {
         Value::Number(value) => value.to_string(),
         Value::String(value) => value.clone(),
         Value::Array(_) | Value::Object(_) => value.unwrap_or(&Value::Null).to_string(),
-    }
-}
-
-fn sqlserver_literal(value: &Value) -> String {
-    match value {
-        Value::Null => "null".into(),
-        Value::Bool(value) => {
-            if *value {
-                "1".into()
-            } else {
-                "0".into()
-            }
-        }
-        Value::Number(value) => value.to_string(),
-        Value::String(value) => format!("N'{}'", escape_sqlserver_literal(value)),
-        Value::Array(_) | Value::Object(_) => {
-            format!("N'{}'", escape_sqlserver_literal(&value.to_string()))
-        }
     }
 }
 

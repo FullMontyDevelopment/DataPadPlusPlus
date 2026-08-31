@@ -14,12 +14,8 @@ fn sqlserver_live_file_workflow_manifests_are_guarded() {
     let backup = operations
         .iter()
         .find(|operation| operation.id == "sqlserver.data.backup-restore")
-        .expect("backup plan manifest");
-    assert_eq!(backup.execution_support, "plan-only");
-    assert_eq!(backup.preview_only, Some(true));
-    assert!(backup
-        .disabled_reason
-        .as_deref()
-        .unwrap_or_default()
-        .contains(".bak"));
+        .expect("backup manifest");
+    assert_eq!(backup.execution_support, "live");
+    assert_eq!(backup.preview_only, Some(false));
+    assert!(backup.disabled_reason.is_none());
 }

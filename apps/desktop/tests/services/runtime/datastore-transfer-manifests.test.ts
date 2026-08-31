@@ -43,6 +43,8 @@ describe('datastore transfer manifests', () => {
     expect(datastoreTransferManifest('duckdb').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
     expect(datastoreTransferManifest('cockroachdb').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
     expect(datastoreTransferManifest('cockroachdb').capabilities.find((item) => item.action === 'restore')?.executionSupport).toBe('live')
+    expect(datastoreTransferManifest('sqlserver').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('live')
+    expect(datastoreTransferManifest('sqlserver').capabilities.find((item) => item.action === 'restore')?.executionSupport).toBe('live')
   })
 
   it('requires explicit Memcached import metadata without claiming key enumeration', () => {
@@ -63,7 +65,7 @@ describe('datastore transfer manifests', () => {
       expect(backup?.executionSupport).toBe('unsupported')
       expect(backup?.disabledReason).toContain('vendor tooling')
     }
-    expect(datastoreTransferManifest('sqlserver').capabilities.find((item) => item.action === 'backup')?.executionSupport).toBe('plan-only')
+    expect(datastoreTransferManifest('sqlserver').capabilities.find((item) => item.action === 'backup')?.formats.map((item) => item.id)).toEqual(['bak'])
   })
 
   it('advertises driver-native PostgreSQL COPY formats separately from portable conversions', () => {

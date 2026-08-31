@@ -32,15 +32,9 @@ impl DatastoreAdapter for SqlServerAdapter {
         messages: Vec<String>,
         warnings: Vec<String>,
     ) -> Result<OperationExecutionResponse, CommandError> {
-        if request.operation_id == "sqlserver.data.backup-restore" {
-            return Err(CommandError::new(
-                "sqlserver-backup-plan-only",
-                "Native SQL Server .bak backup and restore remain plan-only until server-visible destination execution and isolated restore validation are implemented.",
-            ));
-        }
         if matches!(
             request.operation_id.as_str(),
-            "sqlserver.data.import-export"
+            "sqlserver.data.import-export" | "sqlserver.data.backup-restore"
         ) {
             return execute_sqlserver_file_operation(
                 connection, request, operation, plan, messages, warnings,
@@ -111,12 +105,10 @@ impl DatastoreAdapter for SqlServerAdapter {
             "Plan a native SQL Server .bak backup or restore against a server-visible destination.",
             true,
         );
-        backup.execution_support = "plan-only".into();
-        backup.preview_only = Some(true);
-        backup.disabled_reason = Some(
-            "Native SQL Server .bak execution is not implemented yet; custom logical packages are not offered as backups."
-                .into(),
-        );
+        backup.execution_support = "live".into();
+        backup.preview_only = Some(false);
+        backup.disabled_reason = None;
+        backup.description = "Create checksum-verified native SQL Server .bak backups on server-visible disk or credential-backed HTTPS storage, and restore into a new isolated database with physical-file remapping.".into();
         operations.push(backup);
         operations
     }

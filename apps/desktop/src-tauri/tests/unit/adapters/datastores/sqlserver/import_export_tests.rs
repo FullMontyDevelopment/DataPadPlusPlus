@@ -1,4 +1,5 @@
 use super::*;
+use rand::RngExt;
 
 #[test]
 fn parses_quoted_sqlserver_names() {
@@ -46,92 +47,121 @@ fn import_columns_are_deterministic() {
 }
 
 #[test]
-fn validates_sqlserver_restore_package() {
-    let folder = std::env::temp_dir().join(format!(
-        "datapadplusplus-sqlserver-restore-validation-{}",
-        std::process::id()
-    ));
-    let _ = fs::remove_dir_all(&folder);
-    fs::create_dir_all(&folder).expect("create workflow temp folder");
-    let backup_path = folder.join("backup.json");
-    fs::write(
-        &backup_path,
-        serde_json::to_string(&json!({
-            "engine": "sqlserver",
-            "workflow": "sqlserver.database.backup",
-            "database": "datapadplusplus",
-            "tables": [],
-        }))
-        .expect("backup json"),
-    )
-    .expect("write backup");
-
-    let operation = DatastoreOperationManifest {
-        id: "sqlserver.data.backup-restore".into(),
-        engine: "sqlserver".into(),
-        family: "sql".into(),
-        label: "Backup Or Restore".into(),
-        scope: "database".into(),
-        risk: "destructive".into(),
-        required_capabilities: vec!["supports_backup_restore".into()],
-        supported_renderers: vec!["raw".into()],
-        description: "test".into(),
-        requires_confirmation: true,
-        execution_support: "live".into(),
-        disabled_reason: None,
-        preview_only: Some(false),
-    };
-    let request = OperationExecutionRequest {
-        connection_id: "conn-sqlserver".into(),
-        environment_id: "env-local".into(),
-        operation_id: "sqlserver.data.backup-restore".into(),
-        object_name: Some("datapadplusplus".into()),
-        parameters: Some(
-            [
-                ("mode".into(), json!("validate-restore")),
-                (
-                    "sourcePath".into(),
-                    json!(backup_path.display().to_string()),
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        confirmation_text: Some("CONFIRM".into()),
-        row_limit: None,
-        tab_id: None,
-    };
-    let response = execute_sqlserver_restore_validation(
-        &request,
-        &operation,
-        OperationPlan {
-            operation_id: "sqlserver.data.backup-restore".into(),
-            engine: "sqlserver".into(),
-            summary: "test".into(),
-            generated_request: "{}".into(),
-            request_language: "json".into(),
-            destructive: true,
-            estimated_cost: None,
-            estimated_scan_impact: None,
-            required_permissions: Vec::new(),
-            confirmation_text: Some("CONFIRM".into()),
-            warnings: Vec::new(),
-        },
-        &mut Vec::new(),
-        &mut Vec::new(),
-    )
-    .expect("validate restore");
-
-    assert!(response.executed);
+fn validates_server_locations_and_database_names() {
     assert_eq!(
-        response
-            .metadata
-            .as_ref()
-            .and_then(|value| value.get("tableCount"))
-            .and_then(Value::as_u64),
-        Some(0)
+        server_location_clause("/var/opt/mssql/data/backup.bak")
+            .unwrap()
+            .0,
+        "server-path"
     );
-    let _ = fs::remove_dir_all(&folder);
+    assert_eq!(
+        server_location_clause("D:\\backups\\backup.bak").unwrap().0,
+        "server-path"
+    );
+    assert_eq!(
+        server_location_clause("https://storage.example/backups/backup.bak")
+            .unwrap()
+            .0,
+        "cloud-uri"
+    );
+    assert_eq!(
+        server_location_clause("https://storage.example/backup.bak?sig=secret")
+            .unwrap_err()
+            .code,
+        "sqlserver-transfer-url-secret-rejected"
+    );
+    assert!(validate_database_name("restored_database-1", "target").is_ok());
+    assert!(validate_database_name("bad/name", "target").is_err());
+}
+
+#[tokio::test]
+async fn live_fixture_creates_verifies_and_restores_native_backup() {
+    if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").ok().as_deref() != Some("1") {
+        return;
+    }
+    use crate::domain::models::SqlServerConnectionOptions;
+    let suffix = rand::rng().random::<u32>();
+    let backup_path = format!("/var/opt/mssql/data/datapad_transfer_{suffix}.bak");
+    let restored_database = format!("datapad_transfer_{suffix}");
+    let connection = fixture_connection();
+    let backup = native_sqlserver_backup(&connection, "datapadplusplus", &backup_path)
+        .await
+        .unwrap();
+    assert_eq!(backup["format"], "bak");
+    assert_eq!(backup["checksumVerified"], true);
+    assert_eq!(
+        native_sqlserver_backup(&connection, "datapadplusplus", &backup_path)
+            .await
+            .unwrap_err()
+            .code,
+        "sqlserver-backup-target-exists"
+    );
+    let restored = native_sqlserver_restore(&connection, &backup_path, &restored_database)
+        .await
+        .unwrap();
+    assert_eq!(restored["databaseState"], "ONLINE");
+    assert_eq!(
+        native_sqlserver_restore(&connection, &backup_path, &restored_database)
+            .await
+            .unwrap_err()
+            .code,
+        "sqlserver-restore-target-exists"
+    );
+    let mut restored_connection = connection.clone();
+    restored_connection.database = Some(restored_database.clone());
+    let mut restored_client = sqlserver_client(&restored_connection).await.unwrap();
+    let rows = restored_client
+        .simple_query("SELECT COUNT_BIG(*) AS row_count FROM dbo.accounts")
+        .await
+        .unwrap()
+        .into_first_result()
+        .await
+        .unwrap();
+    assert!(rows[0].get::<i64, _>("row_count").unwrap_or_default() > 0);
+    drop(restored_client);
+    let mut client = sqlserver_client(&connection).await.unwrap();
+    cleanup_failed_restore(&mut client, &restored_database)
+        .await
+        .unwrap();
+
+    fn fixture_connection() -> ResolvedConnectionProfile {
+        let port = std::env::var("DATAPADPLUSPLUS_SQLSERVER_PORT")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(14333);
+        ResolvedConnectionProfile {
+            id: "fixture-sqlserver-transfer".into(),
+            name: "Fixture SQL Server transfer".into(),
+            engine: "sqlserver".into(),
+            family: "sql".into(),
+            host: "127.0.0.1".into(),
+            port: Some(port),
+            database: Some("datapadplusplus".into()),
+            username: Some("sa".into()),
+            password: Some("DataPadPlusPlus_pwd_123".into()),
+            connection_string: None,
+            redis_options: None,
+            memcached_options: None,
+            sqlite_options: None,
+            postgres_options: None,
+            mysql_options: None,
+            sqlserver_options: Some(SqlServerConnectionOptions {
+                authentication_mode: Some("sql-server".into()),
+                trust_server_certificate: Some(true),
+                ..SqlServerConnectionOptions::default()
+            }),
+            oracle_options: None,
+            dynamo_db_options: None,
+            cassandra_options: None,
+            cosmos_db_options: None,
+            search_options: None,
+            time_series_options: None,
+            graph_options: None,
+            mongodb_options: None,
+            warehouse_options: None,
+            read_only: false,
+        }
+    }
 }
 
 #[test]
