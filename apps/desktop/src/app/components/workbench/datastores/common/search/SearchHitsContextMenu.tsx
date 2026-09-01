@@ -1,4 +1,5 @@
 import { copyText } from '../../../results/payload-export'
+import { ContextMenuSurface } from '../../../ContextMenuSurface'
 
 interface SearchHitsContextMenuProps {
   canEdit: boolean
@@ -6,6 +7,7 @@ interface SearchHitsContextMenuProps {
   sourceText: string
   x: number
   y: number
+  originElement?: HTMLElement | null
   onClose(): void
   onDelete(): void
   onUpdate(): void
@@ -17,16 +19,18 @@ export function SearchHitsContextMenu({
   sourceText,
   x,
   y,
+  originElement,
   onClose,
   onDelete,
   onUpdate,
 }: SearchHitsContextMenuProps) {
   return (
-    <div
+    <ContextMenuSurface
+      anchorPoint={{ x, y }}
+      ariaLabel={`Search result options for ${documentId}`}
       className="document-context-menu"
-      role="menu"
-      style={{ left: x, top: y }}
-      onPointerDown={(event) => event.stopPropagation()}
+      onClose={onClose}
+      originElement={originElement}
     >
       <button type="button" role="menuitem" onClick={() => { void copyText(documentId); onClose() }}>
         Copy Document ID
@@ -49,6 +53,6 @@ export function SearchHitsContextMenu({
           Delete Document
         </button>
       ) : null}
-    </div>
+    </ContextMenuSurface>
   )
 }

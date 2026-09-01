@@ -1,3 +1,5 @@
+import { ContextMenuSurface } from '../ContextMenuSurface'
+
 interface DataGridContextMenuProps {
   canDelete: boolean
   deleteLabel: string
@@ -6,6 +8,7 @@ interface DataGridContextMenuProps {
   onDeleteRow(): void
   x: number
   y: number
+  originElement?: HTMLElement | null
 }
 
 export function DataGridContextMenu({
@@ -16,13 +19,15 @@ export function DataGridContextMenu({
   onDeleteRow,
   x,
   y,
+  originElement,
 }: DataGridContextMenuProps) {
   return (
-    <div
+    <ContextMenuSurface
+      anchorPoint={{ x, y }}
+      ariaLabel="Row options"
       className="document-context-menu"
-      role="menu"
-      style={{ left: x, top: y }}
-      onPointerDown={(event) => event.stopPropagation()}
+      onClose={onClose}
+      originElement={originElement}
     >
       {canDelete ? (
         <button
@@ -38,6 +43,6 @@ export function DataGridContextMenu({
           {deleteLabel} unavailable
         </button>
       ) : null}
-    </div>
+    </ContextMenuSurface>
   )
 }

@@ -11,7 +11,12 @@ interface KeyValueEntryRowsProps {
   onBeginValueEdit(keyName: string, rawValue: string): void
   onCancelEdit(): void
   onCommitValueEdit(): void
-  onOpenContextMenu(keyName: string, x: number, y: number): void
+  onOpenContextMenu(
+    keyName: string,
+    x: number,
+    y: number,
+    originElement: HTMLElement,
+  ): void
   onViewValue(keyName: string): void
   onUpdateEditingValue(value: string): void
 }
@@ -37,9 +42,15 @@ export function KeyValueEntryRows({
           <div
             key={keyName}
             className="keyvalue-result-entry"
+            tabIndex={-1}
             onContextMenu={(event) => {
               event.preventDefault()
-              onOpenContextMenu(keyName, event.clientX, event.clientY)
+              onOpenContextMenu(
+                keyName,
+                event.clientX,
+                event.clientY,
+                event.currentTarget,
+              )
             }}
           >
             <div className="keyvalue-result-row" role="row">

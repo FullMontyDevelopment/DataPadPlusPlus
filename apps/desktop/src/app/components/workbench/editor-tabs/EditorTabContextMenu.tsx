@@ -1,5 +1,6 @@
 import type { QueryTabState, WorkspaceWindowTarget } from '@datapadplusplus/shared-types'
 import { tabCanDetach } from '../../../state/workspace-migration'
+import { ContextMenuSurface } from '../ContextMenuSurface'
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -21,6 +22,7 @@ interface EditorTabContextMenuProps {
   tabsLength: number
   x: number
   y: number
+  originElement?: HTMLElement | null
   onBeginRename(tab: QueryTabState): void
   onCloseMenu(): void
   onCloseTab(tabId: string): void
@@ -42,6 +44,7 @@ export function EditorTabContextMenu({
   tabsLength,
   x,
   y,
+  originElement,
   onBeginRename,
   onCloseMenu,
   onCloseTab,
@@ -76,13 +79,12 @@ export function EditorTabContextMenu({
   const closeAllTabIds = orderedTabIds
 
   return (
-    <div
+    <ContextMenuSurface
+      anchorPoint={{ x, y }}
+      ariaLabel={`Tab options for ${contextTab.title}`}
       className="editor-tab-context-menu"
-      role="menu"
-      aria-label={`Tab options for ${contextTab.title}`}
-      style={{ left: x, top: y }}
-      onClick={(event) => event.stopPropagation()}
-      onPointerDown={(event) => event.stopPropagation()}
+      onClose={onCloseMenu}
+      originElement={originElement}
     >
       <button
         type="button"
@@ -251,6 +253,6 @@ export function EditorTabContextMenu({
             ))}
         </>
       ) : null}
-    </div>
+    </ContextMenuSurface>
   )
 }

@@ -1,6 +1,7 @@
 import { documentResultBehaviorForConnection } from './datastore-result-behaviors'
 import { editablePermissions } from './document-edit-permissions'
 import type { DocumentGridRow } from './document-grid-model'
+import { ContextMenuSurface } from '../ContextMenuSurface'
 
 type DocumentResultBehavior = ReturnType<typeof documentResultBehaviorForConnection>
 
@@ -23,6 +24,7 @@ interface DocumentContextMenuProps {
   protectedPaths?: string[][]
   x: number
   y: number
+  originElement?: HTMLElement | null
 }
 
 export function DocumentContextMenu({
@@ -44,16 +46,22 @@ export function DocumentContextMenu({
   protectedPaths,
   x,
   y,
+  originElement,
 }: DocumentContextMenuProps) {
   const permissions = editablePermissions(row, behavior, protectedPaths)
   const rootDocument = row.path.length === 0
 
   return (
-    <div
+    <ContextMenuSurface
+      anchorPoint={{ x, y }}
+      ariaLabel={
+        rootDocument
+          ? 'Document options'
+          : `Field options for ${row.fieldPath || row.label}`
+      }
       className="document-context-menu"
-      role="menu"
-      style={{ left: x, top: y }}
-      onPointerDown={(event) => event.stopPropagation()}
+      onClose={onClose}
+      originElement={originElement}
     >
       {behavior.contextActions.copyPath ? (
         <button type="button" role="menuitem" onClick={() => { onCopyPath(); onClose() }}>
@@ -143,6 +151,6 @@ export function DocumentContextMenu({
           Remove Field
         </button>
       ) : null}
-    </div>
+    </ContextMenuSurface>
   )
 }

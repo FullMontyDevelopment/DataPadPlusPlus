@@ -8,9 +8,11 @@ import {
   RenameIcon,
   TrashIcon,
 } from './icons'
+import { ContextMenuSurface } from './ContextMenuSurface'
 
 export interface ConnectionContextMenuState {
   connectionId: string
+  originElement?: HTMLElement | null
   x: number
   y: number
 }
@@ -29,7 +31,7 @@ export function ConnectionContextMenu({
 }: {
   connection: ConnectionProfile
   adapterManifest?: AdapterManifest
-  position: Pick<ConnectionContextMenuState, 'x' | 'y'>
+  position: Pick<ConnectionContextMenuState, 'originElement' | 'x' | 'y'>
   onClose(): void
   onCreateTab(connectionId?: string): void
   onDeleteConnection(connectionId: string): void
@@ -49,16 +51,12 @@ export function ConnectionContextMenu({
   const supportsMetrics = capabilities.has('supports_metrics_collection')
 
   return (
-    <div
+    <ContextMenuSurface
+      anchorPoint={{ x: position.x, y: position.y }}
+      ariaLabel={`Connection options for ${connection.name}`}
       className="connection-context-menu"
-      role="menu"
-      aria-label={`Connection options for ${connection.name}`}
-      style={{
-        left: position.x,
-        top: position.y,
-      }}
-      onClick={(event) => event.stopPropagation()}
-      onPointerDown={(event) => event.stopPropagation()}
+      onClose={onClose}
+      originElement={position.originElement}
     >
       <button
         type="button"
@@ -125,6 +123,6 @@ export function ConnectionContextMenu({
         <TrashIcon className="connection-context-menu-icon" />
         <span>Delete</span>
       </button>
-    </div>
+    </ContextMenuSurface>
   )
 }

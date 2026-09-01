@@ -47,6 +47,7 @@ interface SearchHitsResultsViewProps {
 }
 
 interface ContextMenuState extends SearchHitTarget {
+  originElement: HTMLElement
   x: number
   y: number
 }
@@ -90,22 +91,6 @@ export function SearchHitsResultsView({
     searchHitIndex(hits[0], editContext) ??
     searchIndexFromQueryText(editContext?.queryText)
   const contextMenuHit = hitByTarget(hits, contextMenu)
-
-  useEffect(() => {
-    if (!contextMenu) {
-      return
-    }
-
-    const close = () => setContextMenu(undefined)
-    window.addEventListener('pointerdown', close)
-    window.addEventListener('resize', close)
-    window.addEventListener('keydown', close)
-    return () => {
-      window.removeEventListener('pointerdown', close)
-      window.removeEventListener('resize', close)
-      window.removeEventListener('keydown', close)
-    }
-  }, [contextMenu])
 
   useEffect(() => {
     if (!executionLocked) {
@@ -329,8 +314,14 @@ export function SearchHitsResultsView({
               sourceText: stringifySearchHitSource(source, 2),
             })
           }
-          onOpenContextMenu={(hitIndex, x, y) =>
-            setContextMenu({ hitId: hitIdAt(hits, hitIndex), hitIndex, x, y })
+          onOpenContextMenu={(hitIndex, x, y, originElement) =>
+            setContextMenu({
+              hitId: hitIdAt(hits, hitIndex),
+              hitIndex,
+              originElement,
+              x,
+              y,
+            })
           }
           onToggleExpanded={(hitIndex) =>
             setExpandedHits((current) => {
@@ -393,6 +384,7 @@ export function SearchHitsResultsView({
           sourceText={stringifySearchHitSource(searchHitSource(contextMenuHit))}
           x={contextMenu.x}
           y={contextMenu.y}
+          originElement={contextMenu.originElement}
           onClose={() => setContextMenu(undefined)}
           onUpdate={() =>
             setPendingUpdate({

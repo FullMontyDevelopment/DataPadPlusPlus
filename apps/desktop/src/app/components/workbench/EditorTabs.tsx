@@ -21,6 +21,7 @@ import {
 } from './icons'
 
 interface TabContextMenuState {
+  originElement?: HTMLElement | null
   tabId: string
   x: number
   y: number
@@ -78,28 +79,6 @@ export function EditorTabs({
   )
 
   useEffect(() => {
-    if (!contextMenu) {
-      return
-    }
-
-    const closeContextMenu = () => setContextMenu(undefined)
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        closeContextMenu()
-      }
-    }
-
-    window.addEventListener('pointerdown', closeContextMenu)
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('resize', closeContextMenu)
-    return () => {
-      window.removeEventListener('pointerdown', closeContextMenu)
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('resize', closeContextMenu)
-    }
-  }, [contextMenu])
-
-  useEffect(() => {
     const activeTab = tabRefs.current.get(activeTabId)
 
     activeTab?.scrollIntoView?.({
@@ -131,6 +110,7 @@ export function EditorTabs({
     event.stopPropagation()
     onSelectTab(tab.id)
     setContextMenu({
+      originElement: event.currentTarget,
       tabId: tab.id,
       x: event.clientX,
       y: event.clientY,
@@ -235,6 +215,7 @@ export function EditorTabs({
       event.preventDefault()
       const bounds = tabRefs.current.get(tab.id)?.getBoundingClientRect()
       setContextMenu({
+        originElement: event.currentTarget,
         tabId: tab.id,
         x: bounds?.left ?? 0,
         y: bounds?.bottom ?? 0,
@@ -395,6 +376,7 @@ export function EditorTabs({
           tabsLength={tabs.length}
           x={contextMenu.x}
           y={contextMenu.y}
+          originElement={contextMenu.originElement}
           onBeginRename={beginRename}
           onCloseMenu={() => setContextMenu(undefined)}
           onCloseTab={onCloseTab}

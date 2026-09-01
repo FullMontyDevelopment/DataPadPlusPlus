@@ -1,6 +1,11 @@
 import { spawnSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import net from 'node:net'
+import {
+  fixtureStateNeedsRecreate,
+  fixtureStateReason,
+  shouldValidateFixtureCredentials,
+} from './compose-recovery.mjs'
 
 const composeFile = 'tests/fixtures/docker-compose.yml'
 const generatedEnvFile = 'tests/fixtures/.generated.env'
@@ -21,6 +26,14 @@ const profiles = [
 const isolatedServices = new Map([
   ['oracle', 'oracle'],
 ])
+
+const coreFixtureContainers = [
+  { service: 'postgres', container: 'datapadplusplus-postgres' },
+  { service: 'mysql', container: 'datapadplusplus-mysql' },
+  { service: 'sqlserver', container: 'datapadplusplus-sqlserver' },
+  { service: 'mongodb', container: 'datapadplusplus-mongodb' },
+  { service: 'redis', container: 'datapadplusplus-redis' },
+]
 
 const fixturePorts = [
   { env: 'DATAPADPLUSPLUS_POSTGRES_PORT', container: 'datapadplusplus-postgres', containerPort: 5432, defaultPort: 54329, fallbackStart: 55432, profiles: ['core'] },
@@ -106,20 +119,25 @@ function runDockerComposeWithRecovery(args, env) {
         throw error
       }
 
-      const staleServices = staleCoreFixtureServices()
-      const servicesToRecreate =
-        staleServices.length > 0
-          ? staleServices
-          : mongoFixtureNeedsRecreate()
-            ? ['mongodb']
-            : []
+      const failedStates = failedCoreFixtureStates()
+      const staleServices = failedStates.length === 0 ? staleCoreFixtureServices() : []
+      let servicesToRecreate = []
+
+      if (failedStates.length > 0) {
+        servicesToRecreate = failedStates.map(({ service }) => service)
+      } else if (staleServices.length > 0) {
+        servicesToRecreate = staleServices
+      }
 
       if (servicesToRecreate.length === 0) {
         throw error
       }
 
+      const reason = failedStates.length > 0
+        ? failedStates.map(({ service, state }) => fixtureStateReason(service, state)).join(', ')
+        : `${staleServices.join(', ')} failed credential validation`
       console.warn(
-        `Fixture startup failed because ${servicesToRecreate.join(', ')} has stale local state; recreating and retrying.`,
+        `Fixture startup failed because ${reason}; recreating ${servicesToRecreate.join(', ')} and retrying.`,
       )
       recreateComposeServices(servicesToRecreate, env)
     }
@@ -157,17 +175,6 @@ function recreateComposeServices(services, env) {
   }
 }
 
-function mongoFixtureNeedsRecreate() {
-  const health = dockerOutput([
-    'inspect',
-    '--format',
-    '{{json .State.Health}}',
-    'datapadplusplus-mongodb',
-  ])
-
-  return /Authentication failed|UserNotFound|Could not find user/i.test(health)
-}
-
 function mongoContainerPort() {
   return dockerOutput([
     'exec',
@@ -179,9 +186,12 @@ function mongoContainerPort() {
 
 function staleCoreFixtureServices() {
   const stale = []
+  const postgresState = dockerContainerState('datapadplusplus-postgres')
+  const mysqlState = dockerContainerState('datapadplusplus-mysql')
+  const mongodbState = dockerContainerState('datapadplusplus-mongodb')
 
   if (
-    dockerOutput(['inspect', '-f', '{{.State.Running}}', 'datapadplusplus-postgres']) === 'true' &&
+    shouldValidateFixtureCredentials(postgresState) &&
     !dockerSucceeds([
       'exec',
       '-e',
@@ -200,7 +210,7 @@ function staleCoreFixtureServices() {
   }
 
   if (
-    dockerOutput(['inspect', '-f', '{{.State.Running}}', 'datapadplusplus-mysql']) === 'true' &&
+    shouldValidateFixtureCredentials(mysqlState) &&
     !dockerSucceeds([
       'exec',
       'datapadplusplus-mysql',
@@ -216,7 +226,7 @@ function staleCoreFixtureServices() {
   }
 
   if (
-    dockerOutput(['inspect', '-f', '{{.State.Running}}', 'datapadplusplus-mongodb']) === 'true' &&
+    shouldValidateFixtureCredentials(mongodbState) &&
     !dockerSucceeds([
       'exec',
       'datapadplusplus-mongodb',
@@ -231,6 +241,27 @@ function staleCoreFixtureServices() {
   }
 
   return stale
+}
+
+function failedCoreFixtureStates() {
+  return coreFixtureContainers.flatMap(({ service, container }) => {
+    const state = dockerContainerState(container)
+    return fixtureStateNeedsRecreate(state) ? [{ service, state }] : []
+  })
+}
+
+function dockerContainerState(container) {
+  const output = dockerOutput(['inspect', '--format', '{{json .State}}', container])
+
+  if (!output) {
+    return undefined
+  }
+
+  try {
+    return JSON.parse(output)
+  } catch {
+    return undefined
+  }
 }
 
 function mappedContainerPort(container, containerPort) {

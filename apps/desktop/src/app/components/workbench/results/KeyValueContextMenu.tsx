@@ -1,4 +1,5 @@
 import { copyText } from './payload-export'
+import { ContextMenuSurface } from '../ContextMenuSurface'
 
 interface KeyValueContextMenuProps {
   canEdit: boolean
@@ -11,6 +12,7 @@ interface KeyValueContextMenuProps {
   keyName: string
   x: number
   y: number
+  originElement?: HTMLElement | null
   onClose(): void
   onCopyValue(): void
   onDelete(): void
@@ -40,13 +42,15 @@ export function KeyValueContextMenu({
   onViewValue,
   x,
   y,
+  originElement,
 }: KeyValueContextMenuProps) {
   return (
-    <div
+    <ContextMenuSurface
+      anchorPoint={{ x, y }}
+      ariaLabel={`Key options for ${keyName}`}
       className="document-context-menu"
-      role="menu"
-      style={{ left: x, top: y }}
-      onPointerDown={(event) => event.stopPropagation()}
+      onClose={onClose}
+      originElement={originElement}
     >
       <button type="button" role="menuitem" onClick={() => { void copyText(keyName); onClose() }}>
         {copyKeyLabel}
@@ -87,6 +91,6 @@ export function KeyValueContextMenu({
           {deleteLabel}
         </button>
       ) : null}
-    </div>
+    </ContextMenuSurface>
   )
 }

@@ -1271,6 +1271,64 @@ describe('ConnectionObjectTree', () => {
     )
   })
 
+  it('keeps the long Mongo collection menu inside the bottom of the viewport', () => {
+    const originalInnerWidth = window.innerWidth
+    const originalInnerHeight = window.innerHeight
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 900 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 720 })
+    const boundsSpy = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function getBoundingClientRect() {
+        const menu = this.getAttribute('role') === 'menu'
+        return {
+          bottom: menu ? 520 : 0,
+          height: menu ? 520 : 0,
+          left: 0,
+          right: menu ? 240 : 0,
+          toJSON: () => ({}),
+          top: 0,
+          width: menu ? 240 : 0,
+          x: 0,
+          y: 0,
+        }
+      })
+
+    try {
+      render(
+        <ConnectionObjectTree
+          connection={mongoConnection()}
+          explorerNodes={mongoExplorerNodes()}
+          explorerStatus="ready"
+          onInspectNode={vi.fn()}
+          onOpenObjectView={vi.fn()}
+          onOpenScopedQuery={vi.fn()}
+        />,
+      )
+
+      expandMongoDatabase()
+      expandTreeItem('Collections')
+      fireEvent.contextMenu(treeItemForLabel('products'), {
+        clientX: 870,
+        clientY: 700,
+      })
+
+      const menu = screen.getByRole('menu', { name: 'Object options for products' })
+      expect(menu).toHaveStyle({ left: '652px', top: '192px' })
+      expect(menu.style.getPropertyValue('--context-menu-max-height')).toBe('704px')
+      expect(within(menu).getByRole('menuitem', { name: 'Copy Name' })).toBeVisible()
+    } finally {
+      boundsSpy.mockRestore()
+      Object.defineProperty(window, 'innerWidth', {
+        configurable: true,
+        value: originalInnerWidth,
+      })
+      Object.defineProperty(window, 'innerHeight', {
+        configurable: true,
+        value: originalInnerHeight,
+      })
+    }
+  })
+
   it('opens Redis prefixes through the visible Query button', () => {
     const onOpenScopedQuery = vi.fn()
 

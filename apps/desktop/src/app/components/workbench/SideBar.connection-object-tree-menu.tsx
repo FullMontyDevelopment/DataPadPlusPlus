@@ -1,4 +1,5 @@
 import type { ConnectionProfile } from '@datapadplusplus/shared-types'
+import { ContextMenuSurface } from './ContextMenuSurface'
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -27,6 +28,7 @@ import {
 export interface ConnectionObjectContextMenuState {
   node: ConnectionTreeNode
   nodeKey: string
+  originElement?: HTMLElement | null
   x: number
   y: number
 }
@@ -79,12 +81,12 @@ export function ConnectionObjectContextMenu({
     .filter((action) => !isDuplicatePrimaryMongoAction(connection, node, queryable, action))
 
   return (
-    <div
+    <ContextMenuSurface
+      anchorPoint={{ x: menu.x, y: menu.y }}
+      ariaLabel={`Object options for ${node.label}`}
       className="connection-context-menu"
-      role="menu"
-      aria-label={`Object options for ${node.label}`}
-      style={{ left: menu.x, top: menu.y }}
-      onPointerDown={(event) => event.stopPropagation()}
+      onClose={onClose}
+      originElement={menu.originElement}
     >
       {queryable ? (
         <button
@@ -240,7 +242,7 @@ export function ConnectionObjectContextMenu({
         <CopyIcon className="connection-context-menu-icon" />
         <span>Copy Name</span>
       </button>
-    </div>
+    </ContextMenuSurface>
   )
 }
 

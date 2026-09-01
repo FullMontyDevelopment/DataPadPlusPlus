@@ -253,6 +253,7 @@ export function ConnectionObjectTree({
     setContextMenu({
       node,
       nodeKey,
+      originElement: event.currentTarget,
       x: event.clientX,
       y: event.clientY,
     })
@@ -305,28 +306,6 @@ export function ConnectionObjectTree({
   useEffect(() => {
     autoLoadedScopesRef.current.clear()
   }, [connection.id, environmentId])
-
-  useEffect(() => {
-    if (!contextMenu) {
-      return
-    }
-
-    const closeContextMenu = () => setContextMenu(undefined)
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        closeContextMenu()
-      }
-    }
-
-    window.addEventListener('pointerdown', closeContextMenu)
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('resize', closeContextMenu)
-    return () => {
-      window.removeEventListener('pointerdown', closeContextMenu)
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('resize', closeContextMenu)
-    }
-  }, [contextMenu])
 
   return (
     <>

@@ -182,22 +182,6 @@ export function KeyValueResultsView({
   })
 
   useEffect(() => {
-    if (!contextMenu) {
-      return
-    }
-
-    const close = () => setContextMenu(undefined)
-    window.addEventListener('pointerdown', close)
-    window.addEventListener('resize', close)
-    window.addEventListener('keydown', close)
-    return () => {
-      window.removeEventListener('pointerdown', close)
-      window.removeEventListener('resize', close)
-      window.removeEventListener('keydown', close)
-    }
-  }, [contextMenu])
-
-  useEffect(() => {
     if (!executionLocked) {
       return
     }
@@ -633,7 +617,8 @@ export function KeyValueResultsView({
           onBeginValueEdit={(keyName) => void beginFullValueEdit(keyName)}
           onCancelEdit={() => setEditingKey(undefined)}
           onCommitValueEdit={() => void commitValueEdit()}
-          onOpenContextMenu={(keyName, x, y) => setContextMenu({ keyName, x, y })}
+          onOpenContextMenu={(keyName, x, y, originElement) =>
+            setContextMenu({ keyName, originElement, x, y })}
           onViewValue={(keyName) => void loadFullValue(keyName, true)}
           onUpdateEditingValue={setEditingValue}
         />
@@ -681,6 +666,7 @@ export function KeyValueResultsView({
           keyName={contextMenu.keyName}
           x={contextMenu.x}
           y={contextMenu.y}
+          originElement={contextMenu.originElement}
           onClose={() => setContextMenu(undefined)}
           onCopyValue={() => void copyFullValue(contextMenu.keyName)}
           onEdit={() => void beginFullValueEdit(contextMenu.keyName)}

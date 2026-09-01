@@ -44,7 +44,7 @@ vi.mock('@monaco-editor/react', () => ({
 
 async function openConnectionDraft() {
   await screen.findByLabelText('library sidebar')
-  fireEvent.click(screen.getByLabelText('New datastore connection'))
+  fireEvent.click(screen.getByLabelText('Create connection'))
 
   const drawer = await screen.findByLabelText(
     'connection drawer',
@@ -731,7 +731,7 @@ describe('App', () => {
     expect(screen.queryByLabelText('Tests view')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Explorer view')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Add Connection' })).toBeInTheDocument()
-    expect(screen.getByLabelText('New datastore connection')).toBeInTheDocument()
+    expect(screen.getByLabelText('Create connection')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Create query tab' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Run query' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Cancel query' })).not.toBeInTheDocument()
@@ -1405,7 +1405,7 @@ describe('App', () => {
 
     fireEvent.click(
       within(sidebar).getByRole('button', {
-        name: 'Collapse all explorer items',
+        name: 'Collapse all Library items',
       }),
     )
 
@@ -1826,7 +1826,7 @@ describe('App', () => {
     expect(workbench).not.toHaveClass('is-sidebar-collapsed')
     expect(screen.queryByLabelText('Activity bar')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse Library' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Library sidebar' }))
 
     await waitFor(() => {
       expect(workbench).toHaveClass('is-sidebar-collapsed')

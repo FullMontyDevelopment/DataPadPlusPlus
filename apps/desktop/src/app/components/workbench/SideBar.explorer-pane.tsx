@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { CSSProperties, MouseEvent } from 'react'
 import type {
   ConnectionProfile,
@@ -8,6 +8,7 @@ import type {
   ScopedQueryTarget,
 } from '@datapadplusplus/shared-types'
 import { workbenchSliceForEngine } from './datastores/registry'
+import { ContextMenuSurface } from './ContextMenuSurface'
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -67,33 +68,12 @@ export function ExplorerPane({
     onOpenScopedQuery(explorerNodeTarget(item, activeConnection))
   }
 
-  useEffect(() => {
-    if (!contextMenu) {
-      return
-    }
-
-    const closeContextMenu = () => setContextMenu(undefined)
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        closeContextMenu()
-      }
-    }
-
-    window.addEventListener('pointerdown', closeContextMenu)
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('resize', closeContextMenu)
-    return () => {
-      window.removeEventListener('pointerdown', closeContextMenu)
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('resize', closeContextMenu)
-    }
-  }, [contextMenu])
-
   const openContextMenu = (event: MouseEvent<HTMLElement>, node: ExplorerNode) => {
     event.preventDefault()
     event.stopPropagation()
     setContextMenu({
       node,
+      originElement: event.currentTarget,
       x: event.clientX,
       y: event.clientY,
     })
@@ -211,6 +191,7 @@ export function ExplorerPane({
 
 interface ExplorerContextMenuState {
   node: ExplorerNode
+  originElement?: HTMLElement | null
   x: number
   y: number
 }
@@ -235,13 +216,12 @@ function ExplorerContextMenu({
   }
 
   return (
-    <div
+    <ContextMenuSurface
+      anchorPoint={{ x: menu.x, y: menu.y }}
+      ariaLabel={`Explorer options for ${menu.node.label}`}
       className="connection-context-menu"
-      role="menu"
-      aria-label={`Explorer options for ${menu.node.label}`}
-      style={{ left: menu.x, top: menu.y }}
-      onClick={(event) => event.stopPropagation()}
-      onPointerDown={(event) => event.stopPropagation()}
+      onClose={onClose}
+      originElement={menu.originElement}
     >
       <button
         type="button"
@@ -265,6 +245,6 @@ function ExplorerContextMenu({
           <span>Open Query</span>
         </button>
       ) : null}
-    </div>
+    </ContextMenuSurface>
   )
 }

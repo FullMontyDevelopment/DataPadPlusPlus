@@ -67,6 +67,7 @@ services:
       - -lc
       - >-
         umask 077 &&
+        rm -f /tmp/datapadplusplus-mongodb-keyfile &&
         printf '%s' 'ZGF0YXBhZHBsdXNwbHVzLW1vbmdvZGItZml4dHVyZS1rZXk=' > /tmp/datapadplusplus-mongodb-keyfile &&
         chown mongodb:mongodb /tmp/datapadplusplus-mongodb-keyfile &&
         exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all

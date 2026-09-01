@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { useState } from 'react'
 import type {
   ConnectionProfile,
@@ -298,7 +298,7 @@ describe('LibraryPane', () => {
 
     expect(screen.getByText('Products query')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse all explorer items' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all Library items' }))
 
     expect(onCollapseExplorerItems).toHaveBeenCalledTimes(1)
     expect(onCollapseExplorerItems).toHaveBeenCalledWith([
@@ -336,7 +336,7 @@ describe('LibraryPane', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand Databases' }))
     expect(screen.getByText('catalog')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse all explorer items' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all Library items' }))
     expect(screen.queryByText('Databases')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand connection MongoDB' }))
@@ -383,7 +383,7 @@ describe('LibraryPane', () => {
 
     render(<ActiveRevealHarness />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse all explorer items' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all Library items' }))
     expect(screen.queryByText('Products query')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Switch active query' }))
@@ -398,7 +398,7 @@ describe('LibraryPane', () => {
     })
 
     expect(
-      screen.getByRole('button', { name: 'Collapse all explorer items' }),
+      screen.getByRole('button', { name: 'Collapse all Library items' }),
     ).toBeDisabled()
   })
 
@@ -408,7 +408,7 @@ describe('LibraryPane', () => {
 
     renderLibraryPane(vi.fn(), { onCreateFolder })
 
-    fireEvent.click(screen.getByLabelText('New library folder'))
+    fireEvent.click(screen.getByLabelText('Create folder'))
     fireEvent.change(screen.getByLabelText('Folder name'), {
       target: { value: 'Projects' },
     })
@@ -741,6 +741,8 @@ describe('LibraryPane', () => {
     renderLibraryPane(vi.fn())
 
     expect(screen.queryByRole('button', { name: 'Open Workspace Search' })).not.toBeInTheDocument()
+    const toolbar = screen.getByRole('toolbar', { name: 'Library actions' })
+    expect(within(toolbar).getAllByRole('button').at(-1)).toHaveAccessibleName('Create connection')
   })
 
   it('shows an active Workspace Search toolbar action and opens it', () => {
@@ -881,17 +883,42 @@ describe('LibraryPane', () => {
 
     renderLibraryPane(vi.fn(), {
       onCreateConnection,
+      workspaceSearchEnabled: true,
     })
 
     expect(screen.queryByLabelText('Activity bar')).not.toBeInTheDocument()
-    expect(screen.getByRole('toolbar', { name: 'Library actions' })).toBeInTheDocument()
+    const toolbar = screen.getByRole('toolbar', { name: 'Library actions' })
     expect(screen.queryByRole('heading', { level: 1, name: 'Library' })).not.toBeInTheDocument()
-    expect(screen.getByLabelText('New library folder')).toBeInTheDocument()
+    const collapseSidebar = within(toolbar).getByRole('button', { name: 'Collapse Library sidebar' })
+    const collapseAll = within(toolbar).getByRole('button', { name: 'Collapse all Library items' })
+    const createFolder = within(toolbar).getByRole('button', { name: 'Create folder' })
+    const workspaceSearch = within(toolbar).getByRole('button', { name: 'Open Workspace Search' })
+    const createConnection = within(toolbar).getByRole('button', { name: 'Create connection' })
+
+    expect(within(toolbar).getAllByRole('button')).toEqual([
+      collapseSidebar,
+      collapseAll,
+      createFolder,
+      workspaceSearch,
+      createConnection,
+    ])
+    expect(collapseSidebar.querySelector('.lucide-panel-left-close')).not.toBeNull()
+    expect(collapseAll.querySelector('.lucide-chevrons-down-up')).not.toBeNull()
+    expect(createFolder.querySelector('.lucide-folder-plus')).not.toBeNull()
+    expect(workspaceSearch.querySelector('.lucide-search')).not.toBeNull()
+    expect(createConnection.querySelector('.lucide-database')).not.toBeNull()
+    expect(createConnection.querySelector('.lucide-plus')).not.toBeNull()
+    expect(createConnection).toHaveClass('sidebar-icon-button--library-primary')
+    expect(collapseSidebar).toHaveAttribute('title', 'Collapse Library sidebar')
+    expect(collapseAll).toHaveAttribute('title', 'Collapse all Library items')
+    expect(createFolder).toHaveAttribute('title', 'Create folder')
+    expect(workspaceSearch).toHaveAttribute('title', 'Open Workspace Search')
+    expect(createConnection).toHaveAttribute('title', 'Create connection')
     expect(screen.queryByLabelText('Save current query to library')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Open settings')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Toggle theme')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByLabelText('New datastore connection'))
+    fireEvent.click(createConnection)
 
     expect(onCreateConnection).toHaveBeenCalledTimes(1)
   })

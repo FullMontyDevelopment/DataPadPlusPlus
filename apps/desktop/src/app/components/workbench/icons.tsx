@@ -22,6 +22,7 @@ import {
   ChartLine,
   ChevronDown,
   ChevronRight,
+  ChevronsDownUp,
   CircleCheck,
   CircleStop,
   Clock,
@@ -37,6 +38,7 @@ import {
   FilePlus2,
   FlaskConical,
   Folder,
+  FolderPlus,
   FolderTree,
   Focus,
   Gauge,
@@ -48,7 +50,6 @@ import {
   KeyRound,
   Layers3,
   List,
-  ListCollapse,
   LockKeyhole,
   LockKeyholeOpen,
   MemoryStick,
@@ -57,10 +58,12 @@ import {
   Network,
   Palette,
   PanelBottom,
+  PanelLeftClose,
   PanelRight,
   PencilLine,
   Pin,
   Play,
+  Plus,
   RefreshCw,
   Route,
   Save,
@@ -127,8 +130,11 @@ export const PinIcon = adapt(Pin)
 export const PlayIcon = adapt(Play)
 export const StopIcon = adapt(CircleStop)
 export const RefreshIcon = adapt(RefreshCw)
-export const CollapseAllIcon = adapt(ListCollapse)
+export const CollapseAllIcon = adapt(ChevronsDownUp)
+export const CollapseSidebarIcon = adapt(PanelLeftClose)
 export const CloseIcon = adapt(X)
+export const CreateFolderIcon = adapt(FolderPlus)
+export const AddIcon = adapt(Plus)
 export const PlusIcon = adapt(FilePlus2)
 export const QueryIcon = adapt(FileCode2)
 export const DatabaseIcon = adapt(Database)

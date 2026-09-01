@@ -19,13 +19,15 @@ import type {
 import { datastoreBacklogByEngine } from '@datapadplusplus/shared-types'
 import type { ConnectionHealth } from '../../state/connection-health'
 import {
+  AddIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   CollapseAllIcon,
+  CollapseSidebarIcon,
+  CreateFolderIcon,
   DatabaseIcon,
   EnvironmentsIcon,
   ExplorerIcon,
-  ArrowLeftIcon,
   MoreIcon,
   ObjectServerIcon,
   PlayIcon,
@@ -54,6 +56,7 @@ import {
 } from './SideBar.library-tree-helpers'
 import { sidebarSectionId } from './SideBar.helpers'
 import { EngineIcon } from './SideBar.node-icons'
+import { ContextMenuSurface } from './ContextMenuSurface'
 
 interface LibraryPaneProps {
   activeConnectionId?: string
@@ -157,18 +160,21 @@ interface TreeNode {
 
 interface LibraryContextMenuState {
   node: LibraryNode
+  originElement?: HTMLElement | null
   x: number
   y: number
 }
 
 interface EnvironmentContextMenuState {
   environment: EnvironmentProfile
+  originElement?: HTMLElement | null
   x: number
   y: number
 }
 
 interface ApiServerContextMenuState {
   server: DatastoreApiServerInstanceStatus
+  originElement?: HTMLElement | null
   x: number
   y: number
 }
@@ -388,26 +394,6 @@ export function LibraryPane({
     activeRow?.scrollIntoView?.({ block: 'nearest' })
   }, [activeLibraryNodeId, filteredNodes])
 
-  useEffect(() => {
-    if (!contextMenu && !environmentMenu && !apiServerMenu) {
-      return undefined
-    }
-
-    const close = () => {
-      setContextMenu(undefined)
-      setEnvironmentMenu(undefined)
-      setApiServerMenu(undefined)
-    }
-    window.addEventListener('pointerdown', close)
-    window.addEventListener('keydown', close)
-    window.addEventListener('resize', close)
-    return () => {
-      window.removeEventListener('pointerdown', close)
-      window.removeEventListener('keydown', close)
-      window.removeEventListener('resize', close)
-    }
-  }, [apiServerMenu, contextMenu, environmentMenu])
-
   const requestCreateFolder = useCallback((parentId?: string) => {
     setContextMenu(undefined)
     setCreateFolderDialog({ parentId })
@@ -453,7 +439,12 @@ export function LibraryPane({
     event.preventDefault()
     event.stopPropagation()
     setContextMenu(undefined)
-    setEnvironmentMenu({ environment, x: event.clientX, y: event.clientY })
+    setEnvironmentMenu({
+      environment,
+      originElement: event.currentTarget,
+      x: event.clientX,
+      y: event.clientY,
+    })
   }
 
   const deleteEnvironment = (environment: EnvironmentProfile) => {
@@ -606,24 +597,24 @@ export function LibraryPane({
     <>
       <div className="sidebar-header sidebar-header--toolbar-only">
         <div
-          className="sidebar-actions"
+          className="sidebar-actions sidebar-actions--library"
           role="toolbar"
           aria-label="Library actions"
         >
           <button
             type="button"
             className="sidebar-icon-button"
-            aria-label="Collapse Library"
-            title="Collapse Library"
+            aria-label="Collapse Library sidebar"
+            title="Collapse Library sidebar"
             onClick={onCollapseSidebar}
           >
-            <ArrowLeftIcon className="sidebar-icon" />
+            <CollapseSidebarIcon className="sidebar-icon" />
           </button>
           <button
             type="button"
             className="sidebar-icon-button"
-            aria-label="Collapse all explorer items"
-            title="Collapse all explorer items"
+            aria-label="Collapse all Library items"
+            title="Collapse all Library items"
             disabled={collapsibleSectionIds.length === 0}
             onClick={collapseAllExplorerItems}
           >
@@ -632,22 +623,12 @@ export function LibraryPane({
           <button
             type="button"
             className="sidebar-icon-button"
-            aria-label="New datastore connection"
-            title="New Connection"
-            data-tour-id="library-add-connection"
-            onClick={() => onCreateConnection()}
-          >
-            <DatabaseIcon className="sidebar-icon" />
-          </button>
-          <button
-            type="button"
-            className="sidebar-icon-button"
-            aria-label="New library folder"
-            title="Create a folder in the Library."
+            aria-label="Create folder"
+            title="Create folder"
             data-tour-id="library-add-folder"
             onClick={() => requestCreateFolder()}
           >
-            <ExplorerIcon className="sidebar-icon" />
+            <CreateFolderIcon className="sidebar-icon" />
           </button>
           {workspaceSearchEnabled ? (
             <button
@@ -660,6 +641,19 @@ export function LibraryPane({
               <SearchIcon className="sidebar-icon" />
             </button>
           ) : null}
+          <button
+            type="button"
+            className="sidebar-icon-button sidebar-icon-button--library-primary"
+            aria-label="Create connection"
+            title="Create connection"
+            data-tour-id="library-add-connection"
+            onClick={() => onCreateConnection()}
+          >
+            <span className="sidebar-create-connection-icon">
+              <DatabaseIcon className="sidebar-icon" />
+              <AddIcon className="sidebar-create-connection-icon-badge" />
+            </span>
+          </button>
         </div>
       </div>
 
@@ -942,6 +936,7 @@ export function LibraryPane({
                           setEnvironmentMenu(undefined)
                           setApiServerMenu({
                             server,
+                            originElement: event.currentTarget,
                             x: event.clientX,
                             y: event.clientY,
                           })
@@ -981,6 +976,7 @@ export function LibraryPane({
                             setEnvironmentMenu(undefined)
                             setApiServerMenu({
                               server,
+                              originElement: event.currentTarget,
                               x: event.clientX,
                               y: event.clientY,
                             })
@@ -1097,12 +1093,12 @@ export function LibraryPane({
       </div>
 
       {environmentMenu ? (
-        <div
+        <ContextMenuSurface
+          anchorPoint={{ x: environmentMenu.x, y: environmentMenu.y }}
+          ariaLabel={`Environment options for ${environmentMenu.environment.label}`}
           className="connection-context-menu"
-          role="menu"
-          aria-label={`Environment options for ${environmentMenu.environment.label}`}
-          style={{ left: environmentMenu.x, top: environmentMenu.y }}
-          onPointerDown={(event) => event.stopPropagation()}
+          onClose={() => setEnvironmentMenu(undefined)}
+          originElement={environmentMenu.originElement}
         >
           <button
             type="button"
@@ -1150,16 +1146,16 @@ export function LibraryPane({
             <TrashIcon className="connection-context-menu-icon" />
             <span>Delete</span>
           </button>
-        </div>
+        </ContextMenuSurface>
       ) : null}
 
       {apiServerMenu ? (
-        <div
+        <ContextMenuSurface
+          anchorPoint={{ x: apiServerMenu.x, y: apiServerMenu.y }}
+          ariaLabel={`API Server options for ${apiServerMenu.server.name}`}
           className="connection-context-menu"
-          role="menu"
-          aria-label={`API Server options for ${apiServerMenu.server.name}`}
-          style={{ left: apiServerMenu.x, top: apiServerMenu.y }}
-          onPointerDown={(event) => event.stopPropagation()}
+          onClose={() => setApiServerMenu(undefined)}
+          originElement={apiServerMenu.originElement}
         >
           <button
             type="button"
@@ -1223,20 +1219,20 @@ export function LibraryPane({
             <TrashIcon className="connection-context-menu-icon" />
             <span>Delete</span>
           </button>
-        </div>
+        </ContextMenuSurface>
       ) : null}
 
       {contextMenu ? (
-        <div
+        <ContextMenuSurface
+          anchorPoint={{ x: contextMenu.x, y: contextMenu.y }}
           className="connection-context-menu"
-          role="menu"
-          aria-label={
+          ariaLabel={
             contextMenuConnection
               ? `Connection options for ${contextMenuConnection.name}`
               : `Library options for ${contextMenu.node.name}`
           }
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          onPointerDown={(event) => event.stopPropagation()}
+          onClose={() => setContextMenu(undefined)}
+          originElement={contextMenu.originElement}
         >
           {contextMenuConnection ? (
             <>
@@ -1519,7 +1515,7 @@ export function LibraryPane({
               {contextMenuConnection ? 'Delete Connection' : 'Delete'}
             </span>
           </button>
-        </div>
+        </ContextMenuSurface>
       ) : null}
       {workspaceDialog ? (
         <LibraryTextInputDialog
@@ -1828,7 +1824,12 @@ function LibraryTreeItem({
       onContextMenu={(event) => {
         event.preventDefault()
         event.stopPropagation()
-        onContextMenu({ node, x: event.clientX, y: event.clientY })
+        onContextMenu({
+          node,
+          originElement: event.currentTarget,
+          x: event.clientX,
+          y: event.clientY,
+        })
       }}
     >
       <div
@@ -1986,7 +1987,12 @@ function LibraryTreeItem({
             onClick={(event) => {
               event.preventDefault()
               event.stopPropagation()
-              onContextMenu({ node, x: event.clientX, y: event.clientY })
+              onContextMenu({
+                node,
+                originElement: event.currentTarget,
+                x: event.clientX,
+                y: event.clientY,
+              })
             }}
           >
             <MoreIcon className="sidebar-icon" />

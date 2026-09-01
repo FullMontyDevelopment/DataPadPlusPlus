@@ -27,7 +27,13 @@ interface DataGridRowsProps {
   onBeginSelection(row: number, column: number): void
   onCancelEdit(): void
   onCommitEdit(): void
-  onOpenRowMenu(sourceIndex: number, visibleIndex: number, x: number, y: number): void
+  onOpenRowMenu(
+    sourceIndex: number,
+    visibleIndex: number,
+    x: number,
+    y: number,
+    originElement: HTMLElement,
+  ): void
   onSelectRow(row: number): void
   onUpdateEditingValue(value: string): void
   onUpdateSelection(row: number, column: number): void
@@ -65,6 +71,7 @@ export function DataGridRows({
           <div
             key={virtualRow.key}
             className="data-grid-row"
+            tabIndex={-1}
             style={{ transform: `translateY(${virtualRow.start + DATA_GRID_HEADER_HEIGHT}px)` }}
             onContextMenu={(event) => {
               if (!rowItem) {
@@ -72,7 +79,13 @@ export function DataGridRows({
               }
 
               event.preventDefault()
-              onOpenRowMenu(rowItem.sourceIndex, virtualRow.index, event.clientX, event.clientY)
+              onOpenRowMenu(
+                rowItem.sourceIndex,
+                virtualRow.index,
+                event.clientX,
+                event.clientY,
+                event.currentTarget,
+              )
             }}
           >
             <button

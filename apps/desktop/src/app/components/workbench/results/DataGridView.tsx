@@ -48,7 +48,13 @@ interface DataGridViewProps {
   onExecuteDataEdit?(request: DataEditExecutionRequest): Promise<DataEditExecutionResponse | undefined>
 }
 
-interface ContextMenuState { sourceIndex: number; version: string; x: number; y: number }
+interface ContextMenuState {
+  originElement: HTMLElement
+  sourceIndex: number
+  version: string
+  x: number
+  y: number
+}
 interface PendingDeleteState { rowNumber: number; sourceIndex: number; version: string }
 interface RowPatchState { patches: DataGridRowPatches; version: string }
 
@@ -193,22 +199,6 @@ export function DataGridView({
           index,
           start: index * 30,
         }))
-
-  useEffect(() => {
-    if (!activeContextMenu) {
-      return
-    }
-
-    const close = () => setContextMenu(undefined)
-    window.addEventListener('pointerdown', close)
-    window.addEventListener('resize', close)
-    window.addEventListener('keydown', close)
-    return () => {
-      window.removeEventListener('pointerdown', close)
-      window.removeEventListener('resize', close)
-      window.removeEventListener('keydown', close)
-    }
-  }, [activeContextMenu])
 
   const toggleSort = (column: number) => {
     setSort((current) => {
@@ -448,7 +438,7 @@ export function DataGridView({
             onBeginSelection={beginSelection}
             onCancelEdit={cancelEdit}
             onCommitEdit={() => void commitEdit()}
-            onOpenRowMenu={(sourceIndex, visibleIndex, x, y) => {
+            onOpenRowMenu={(sourceIndex, visibleIndex, x, y, originElement) => {
               setFocusedCell({ row: visibleIndex, column: 0 })
               setSelection({
                 startRow: visibleIndex,
@@ -456,7 +446,13 @@ export function DataGridView({
                 endRow: visibleIndex,
                 endColumn: columns.length - 1,
               })
-              setContextMenu({ sourceIndex, version: rowsVersion, x, y })
+              setContextMenu({
+                originElement,
+                sourceIndex,
+                version: rowsVersion,
+                x,
+                y,
+              })
             }}
             onSelectRow={selectRow}
             onUpdateEditingValue={updateEditingValue}
@@ -471,6 +467,7 @@ export function DataGridView({
           disabledReason={activeDeleteRequest ? undefined : dataGridDeleteUnavailableReason(connection)}
           x={activeContextMenu.x}
           y={activeContextMenu.y}
+          originElement={activeContextMenu.originElement}
           onClose={() => setContextMenu(undefined)}
           onDeleteRow={() => promptDeleteRow(activeContextMenu.sourceIndex)}
         />

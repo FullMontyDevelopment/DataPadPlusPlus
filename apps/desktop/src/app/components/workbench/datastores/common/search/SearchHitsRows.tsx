@@ -15,7 +15,12 @@ interface SearchHitsRowsProps {
   expandedHits: Set<number>
   hits: SearchHit[]
   onBeginUpdate(hitIndex: number, source: Record<string, unknown>): void
-  onOpenContextMenu(hitIndex: number, x: number, y: number): void
+  onOpenContextMenu(
+    hitIndex: number,
+    x: number,
+    y: number,
+    originElement: HTMLElement,
+  ): void
   onToggleExpanded(hitIndex: number): void
 }
 
@@ -42,9 +47,15 @@ export function SearchHitsRows({
           <div
             key={`${index}:${documentId}:${hitIndex}`}
             className="search-hit-entry"
+            tabIndex={-1}
             onContextMenu={(event) => {
               event.preventDefault()
-              onOpenContextMenu(hitIndex, event.clientX, event.clientY)
+              onOpenContextMenu(
+                hitIndex,
+                event.clientX,
+                event.clientY,
+                event.currentTarget,
+              )
             }}
           >
             <div className="search-hit-row" role="row">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { MouseEvent } from 'react'
 import type {
   AdapterManifest,
@@ -106,28 +106,6 @@ export function ConnectionsPane({
         .find((connection) => connection.id === contextMenu.connectionId)
     : undefined
 
-  useEffect(() => {
-    if (!contextMenu) {
-      return
-    }
-
-    const closeContextMenu = () => setContextMenu(undefined)
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        closeContextMenu()
-      }
-    }
-
-    window.addEventListener('pointerdown', closeContextMenu)
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('resize', closeContextMenu)
-    return () => {
-      window.removeEventListener('pointerdown', closeContextMenu)
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('resize', closeContextMenu)
-    }
-  }, [contextMenu])
-
   const openContextMenu = (
     event: MouseEvent<HTMLElement>,
     connection: ConnectionProfile,
@@ -136,6 +114,7 @@ export function ConnectionsPane({
     event.stopPropagation()
     setContextMenu({
       connectionId: connection.id,
+      originElement: event.currentTarget,
       x: event.clientX,
       y: event.clientY,
     })

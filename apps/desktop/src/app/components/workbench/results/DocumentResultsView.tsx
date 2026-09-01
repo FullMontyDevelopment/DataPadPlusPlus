@@ -86,6 +86,7 @@ interface DocumentResultsViewProps {
 }
 
 interface ContextMenuState {
+  originElement: HTMLElement
   source: Array<Record<string, unknown>>
   x: number
   y: number
@@ -406,22 +407,6 @@ export function DocumentResultsView({
     }, 0)
     return () => window.clearTimeout(releasePreparedIndex)
   }, [cancelDataEditConfirmation, documents])
-
-  useEffect(() => {
-    if (!activeContextMenu) {
-      return
-    }
-
-    const close = () => setContextMenu(undefined)
-    window.addEventListener('pointerdown', close)
-    window.addEventListener('resize', close)
-    window.addEventListener('keydown', close)
-    return () => {
-      window.removeEventListener('pointerdown', close)
-      window.removeEventListener('resize', close)
-      window.removeEventListener('keydown', close)
-    }
-  }, [activeContextMenu])
 
   const updateDraftDocuments = (
     updater: (current: Array<Record<string, unknown>>) => Array<Record<string, unknown>>,
@@ -939,8 +924,14 @@ export function DocumentResultsView({
       }
       onBeginEditing={beginEditing}
       onCancelScheduledCopy={cancelScheduledCopy}
-      onContextMenu={(selectedRow, x, y) =>
-        setContextMenu({ source: documents, x, y, row: selectedRow })}
+      onContextMenu={(selectedRow, x, y, originElement) =>
+        setContextMenu({
+          originElement,
+          source: documents,
+          x,
+          y,
+          row: selectedRow,
+        })}
       onRenameField={renameRowField}
       onScheduleCopyValue={scheduleCopyValue}
       onStopEditing={stopEditing}
@@ -1008,6 +999,7 @@ export function DocumentResultsView({
           row={activeContextMenu.row}
           x={activeContextMenu.x}
           y={activeContextMenu.y}
+          originElement={activeContextMenu.originElement}
           onClose={() => setContextMenu(undefined)}
           onAddField={() => {
             setPendingAddField({ source: documents, row: activeContextMenu.row })

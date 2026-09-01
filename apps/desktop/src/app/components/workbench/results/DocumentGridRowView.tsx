@@ -27,7 +27,12 @@ interface DocumentGridRowViewProps {
   row: DocumentGridRow
   onBeginEditing(row: DocumentGridRow, cell: 'field' | 'type' | 'value'): void
   onCancelScheduledCopy(): void
-  onContextMenu(row: DocumentGridRow, x: number, y: number): void
+  onContextMenu(
+    row: DocumentGridRow,
+    x: number,
+    y: number,
+    originElement: HTMLElement,
+  ): void
   onRenameField(row: DocumentGridRow, nextName: string): void
   onScheduleCopyValue(value: unknown): void
   onStopEditing(): void
@@ -81,6 +86,7 @@ export const DocumentGridRowView = memo(function DocumentGridRowView({
           ? ' is-field-draggable'
           : ''
       }`}
+      tabIndex={-1}
       onPointerDown={(event) => {
         if (!editingField && !editingType && !editingValue) {
           startDocumentFieldPointerDrag(event, fieldDragPayload)
@@ -88,7 +94,7 @@ export const DocumentGridRowView = memo(function DocumentGridRowView({
       }}
       onContextMenu={(event) => {
         event.preventDefault()
-        onContextMenu(row, event.clientX, event.clientY)
+        onContextMenu(row, event.clientX, event.clientY, event.currentTarget)
       }}
     >
       <div

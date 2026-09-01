@@ -1957,6 +1957,11 @@ button:disabled:hover {
   align-items: center;
 }
 
+.sidebar-actions--library {
+  width: 100%;
+  min-width: 0;
+}
+
 .sidebar-icon-button,
 .bottom-panel-icon-button,
 .drawer-close {
@@ -1981,6 +1986,45 @@ button:disabled:hover {
   color: var(--heading);
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+.sidebar-icon-button--library-primary {
+  margin-inline-start: auto;
+  position: relative;
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  background: var(--accent-soft);
+  color: var(--heading);
+}
+
+.sidebar-icon-button--library-primary:hover,
+.sidebar-icon-button--library-primary:focus-visible {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 28%, var(--sidebar-bg));
+  color: var(--heading);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+  outline: 0;
+}
+
+.sidebar-create-connection-icon {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+}
+
+.sidebar-create-connection-icon-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 9px;
+  height: 9px;
+  padding: 1px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--sidebar-bg);
+  box-shadow: 0 0 0 1px var(--sidebar-bg);
+  stroke-width: 2.4;
 }
 
 .bottom-panel-icon-button:disabled {
@@ -3884,16 +3928,72 @@ button:disabled:hover {
   height: 13px;
 }
 
+.context-menu-surface {
+  --context-menu-min-width: 156px;
+  --context-menu-scroll-shadow-above: transparent;
+  --context-menu-scroll-shadow-below: transparent;
+  position: fixed;
+  z-index: 90;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: min(
+    var(--context-menu-min-width),
+    var(--context-menu-max-width)
+  );
+  max-width: var(--context-menu-max-width);
+  max-height: var(--context-menu-max-height);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: color-mix(in srgb, var(--muted) 44%, transparent) transparent;
+  scrollbar-width: thin;
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.32),
+    inset 0 12px 10px -12px var(--context-menu-scroll-shadow-above),
+    inset 0 -12px 10px -12px var(--context-menu-scroll-shadow-below);
+}
+
+.context-menu-surface.has-scroll-above {
+  --context-menu-scroll-shadow-above: rgba(0, 0, 0, 0.72);
+}
+
+.context-menu-surface.has-scroll-below {
+  --context-menu-scroll-shadow-below: rgba(0, 0, 0, 0.72);
+}
+
+.context-menu-surface::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.context-menu-surface::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.context-menu-surface::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+}
+
+.context-menu-surface::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted) 62%, transparent);
+}
+
+.context-menu-surface [role^='menuitem'] {
+  max-width: 100%;
+}
+
+.context-menu-surface [role^='menuitem'] > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .editor-tab-context-menu,
 .connection-context-menu {
-  position: fixed;
-  z-index: 80;
   display: grid;
-  min-width: 156px;
   padding: 4px;
   border: 1px solid var(--border);
   background: var(--panel-bg);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
 }
 
 .editor-tab-context-menu-item,
@@ -14365,14 +14465,11 @@ body.is-field-pointer-dragging * {
 }
 
 .document-context-menu {
-  position: fixed;
-  z-index: 90;
-  min-width: 180px;
+  --context-menu-min-width: 180px;
   display: grid;
   padding: 5px;
   border: 1px solid var(--border-strong);
   background: var(--panel-bg-elevated);
-  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.28);
 }
 
 .document-context-menu button,

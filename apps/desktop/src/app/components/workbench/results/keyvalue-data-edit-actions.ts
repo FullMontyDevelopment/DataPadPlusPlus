@@ -9,6 +9,7 @@ import type { KeyValueEntryPatches } from './keyvalue-results-helpers'
 
 export interface ContextMenuState {
   keyName: string
+  originElement: HTMLElement
   x: number
   y: number
 }
