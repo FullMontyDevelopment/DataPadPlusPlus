@@ -375,14 +375,14 @@ function DocsIndex({ onOpenNavigation }: { onOpenNavigation: () => void }) {
     <>
       <button type="button" className="learn-docs-mobile-menu" onClick={onOpenNavigation}><Menu size={17} /> Browse documentation</button>
       <main className="learn-docs-index-page">
-        <div className="learn-docs-index-hero"><p className="learn-docs-eyebrow">DataPad++ documentation</p><h1>Work safely across every datastore</h1><p>Step-by-step guides for the workbench, common tasks, diagnostics, transfers, and all 29 declared datastore engines.</p><div><a href="/docs/first-query">Run your first query <ArrowRight size={16} /></a><a href="/docs/interface-tour">Tour the interface</a></div></div>
+        <div className="learn-docs-index-hero"><p className="learn-docs-eyebrow">DataPad++ documentation</p><h1>Work safely across every datastore</h1><p>Step-by-step guides for the workbench, all seven plugins, common tasks, diagnostics, transfers, and all 29 declared datastore engines.</p><div><a href="/docs/first-query">Run your first query <ArrowRight size={16} /></a><a href="/docs/plugins">Explore plugins</a></div></div>
         <aside className="learn-docs-callout tone-warning"><strong>Pre-release software</strong><p>Use disposable, local, emulated, or read-only systems first. Keep independent backups and review every target before writes, administration, restore, or transfer execution.</p></aside>
         <div className="learn-docs-index-groups">
           {docNavigationGroups.map((group) => <section key={group.label}><h2>{group.label}</h2>{group.slugs.map((slug) => { const article = getDocBySlug(slug); return article ? <a key={slug} href={`/docs/${slug}`}><span><strong>{article.title}</strong><small>{article.description}</small></span><ChevronRight size={17} /></a> : null })}</section>)}
           <section><h2>All 29 datastores</h2><a href="/docs/datastores"><span><strong>Datastore guide index</strong><small>Connection fields, native workflows, sample reads, capabilities, diagnostics, transfers, limitations, and troubleshooting.</small></span><ChevronRight size={17} /></a></section>
         </div>
       </main>
-      <aside className="learn-docs-toc-column learn-docs-index-aside"><strong>Popular tasks</strong><a href="/docs/connections">Create a connection</a><a href="/docs/query-history-explain">Explain a query</a><a href="/docs/transfers-center">Monitor a transfer</a><a href="/docs/appearance-shortcuts-logs">Collect logs</a></aside>
+      <aside className="learn-docs-toc-column learn-docs-index-aside"><strong>Popular tasks</strong><a href="/docs/connections">Create a connection</a><a href="/docs/plugins">Enable a plugin</a><a href="/docs/query-history-explain">Explain a query</a><a href="/docs/transfers-center">Monitor a transfer</a><a href="/docs/appearance-shortcuts-logs">Collect logs</a></aside>
     </>
   )
 }

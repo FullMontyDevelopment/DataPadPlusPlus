@@ -838,12 +838,37 @@ button {
   gap: 0.45rem;
 }
 
-.coverage-group span {
+.coverage-group span,
+.coverage-group a {
   padding: 0.35rem 0.55rem;
   border: 1px solid rgba(191, 214, 204, 0.16);
   border-radius: 999px;
   color: #dce6e0;
   font-size: 0.82rem;
+}
+
+.coverage-group a {
+  text-decoration: underline;
+  text-decoration-color: rgba(83, 240, 93, 0.45);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease,
+    text-decoration-color 140ms ease;
+}
+
+.coverage-group a:hover {
+  border-color: rgba(83, 240, 93, 0.55);
+  background: rgba(83, 240, 93, 0.08);
+  color: var(--green);
+  text-decoration-color: currentColor;
+}
+
+.coverage-group a:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 3px;
 }
 
 .text-link-panel {

@@ -417,9 +417,9 @@ const legacyDocArticles: LegacyDocArticle[] = [
     slug: 'api-server',
     title: 'Run A Local API Server',
     description: 'Expose selected datastore resources and saved queries as local REST, GraphQL, or gRPC endpoints.',
-    category: 'Integrations and automation',
+    category: 'Plugins',
     readingTime: '8 min',
-    screenshots: ['api-server', 'safety-preview'],
+    screenshots: ['plugins-experimental', 'api-server'],
     steps: [
       {
         title: 'Enable API Server in Plugins settings',
@@ -464,9 +464,9 @@ const legacyDocArticles: LegacyDocArticle[] = [
     slug: 'mcp-server',
     title: 'Connect Local MCP Clients',
     description: 'Use the desktop-only MCP Server with scoped tokens, setup snippets, metrics, and logs.',
-    category: 'Integrations and automation',
+    category: 'Plugins',
     readingTime: '8 min',
-    screenshots: ['mcp-server', 'settings-backups'],
+    screenshots: ['plugins-experimental', 'mcp-server'],
     steps: [
       {
         title: 'Enable MCP Server in Plugins settings',
@@ -506,9 +506,9 @@ const legacyDocArticles: LegacyDocArticle[] = [
     slug: 'datastore-security-checks',
     title: 'Review Datastore Security Checks',
     description: 'Scan datastore versions for vulnerabilities and review local/read-only posture checks.',
-    category: 'Connections, environments, and secrets',
+    category: 'Plugins',
     readingTime: '8 min',
-    screenshots: ['settings-backups', 'safety-preview'],
+    screenshots: ['plugins-experimental', 'security-checks'],
     steps: [
       {
         title: 'Enable Security Checks',
@@ -549,9 +549,9 @@ const legacyDocArticles: LegacyDocArticle[] = [
     slug: 'workspace-search',
     title: 'Search The Workspace',
     description: 'Find connections, Library work, open tabs, closed tabs, scripts, queries, and test suites quickly.',
-    category: 'Integrations and automation',
+    category: 'Plugins',
     readingTime: '5 min',
-    screenshots: ['workspace-search', 'library-environments'],
+    screenshots: ['plugins-ready', 'workspace-search'],
     steps: [
       {
         title: 'Enable Workspace Search',
@@ -579,9 +579,9 @@ const legacyDocArticles: LegacyDocArticle[] = [
     slug: 'test-suites',
     title: 'Build Datastore Test Suites',
     description: 'Capture repeatable setup, execute, assertion, and teardown checks beside the datastore they validate.',
-    category: 'Integrations and automation',
+    category: 'Plugins',
     readingTime: '7 min',
-    screenshots: ['test-suites', 'library-environments'],
+    screenshots: ['plugins-experimental', 'test-suites'],
     steps: [
       {
         title: 'Enable the experimental plugin',
@@ -1112,9 +1112,9 @@ const legacyDocArticles: LegacyDocArticle[] = [
     slug: 'multi-window-tabs',
     title: 'Move Tabs Between Windows',
     description: 'Enable the experimental desktop workspace and move eligible working tabs without creating another application session.',
-    category: 'Experimental features',
+    category: 'Plugins',
     readingTime: '8 min',
-    screenshots: ['multi-window-tabs', 'hero-workbench'],
+    screenshots: ['plugins-ready', 'multi-window-tabs'],
     status: 'Experimental',
     warning: 'Cross-window dragging is enabled only on platforms where WebView drag behavior passes the release checks. Move commands remain the reliable accessible path.',
     relatedGuides: ['library', 'settings-workspace-backups'],
@@ -1346,6 +1346,310 @@ function taskGuide(input: TaskGuideInput): DocArticle {
   }
 }
 
+export type DocumentedPlugin = {
+  id: string
+  title: string
+  slug: string
+  summary: string
+  status: DocumentationStatus
+  availability: string
+  enablement: string
+  dataBoundary: string
+  disableBehavior: string
+  features: Array<[string, string]>
+}
+
+export const documentedPlugins: DocumentedPlugin[] = [
+  {
+    id: 'workspaces',
+    title: 'Workspaces',
+    slug: 'plugin-workspaces',
+    summary: 'Create and switch between named local workspaces while preserving each workspace before a switch.',
+    status: 'Experimental',
+    availability: 'Desktop app; stored in the local application workspace registry.',
+    enablement: 'Application-local registry setting.',
+    dataBoundary: 'Stores workspace names, locations, counts, recent status, and the active workspace id. It does not copy connected datastore data.',
+    disableBehavior: 'The switcher is hidden and the current workspace remains active. Existing workspace profiles stay on disk.',
+    features: [
+      ['Named workspace profiles', 'Create a separate local profile for a project, team, or operating context.'],
+      ['Save before switching', 'DataPad++ persists the active workspace before loading the selected profile.'],
+      ['Workspace status', 'See which workspace is active together with connection, tab, and saved-work counts.'],
+      ['Create and rename', 'Add a workspace from the Library section and rename it without changing its contents.'],
+      ['Context restoration', 'Restore the selected workspace\'s connections, Explorer state, tabs, and supported window layout.'],
+    ],
+  },
+  {
+    id: 'workspace-search',
+    title: 'Workspace Search',
+    slug: 'workspace-search',
+    summary: 'Search workspace structure and saved work without indexing credentials or datastore result payloads.',
+    status: 'Live',
+    availability: 'Desktop app and browser preview for the currently loaded workspace.',
+    enablement: 'Current workspace preference.',
+    dataBoundary: 'Indexes names and searchable workspace metadata. Secret values and query result payloads are excluded.',
+    disableBehavior: 'Search entry points are hidden; connections, tabs, scripts, queries, tests, and saved work are unchanged.',
+    features: [
+      ['Workspace-wide index', 'Find connections, folders, Library work, scripts, queries, tests, and open or recently closed tabs.'],
+      ['Result-type filters', 'Show only the categories relevant to the task.'],
+      ['Matching controls', 'Use case-sensitive and whole-word matching to narrow a noisy result set.'],
+      ['Open in context', 'Select a result to reopen its connection, saved work, or tab in the current workspace.'],
+      ['Private index boundary', 'Search omits secrets and datastore result payloads.'],
+    ],
+  },
+  {
+    id: 'multi-window-tabs',
+    title: 'Multi-window Tabs',
+    slug: 'multi-window-tabs',
+    summary: 'Move eligible working tabs into native editor windows while sharing one workspace and backend.',
+    status: 'Experimental',
+    availability: 'Desktop app on Windows, macOS, and Linux; cross-window drag depends on the validated WebView platform.',
+    enablement: 'Current workspace preference.',
+    dataBoundary: 'Persists tab ownership and window geometry, not a second datastore session or copied credentials.',
+    disableBehavior: 'Eligible tabs return to the main window. Running or queued work must finish or be cancelled first.',
+    features: [
+      ['Move commands', 'Move an eligible tab to a new window, another window, or the main window from its tab menu.'],
+      ['Validated dragging', 'Drag between strips only when the current platform exposes reliable WebView drag behavior.'],
+      ['Shared backend', 'All windows use the same lock state, connections, environments, execution state, and workspace revision.'],
+      ['Execution locks', 'Queued or running tabs cannot move, preventing duplicated or misdirected work.'],
+      ['Layout recovery', 'Closing an editor window reattaches its tabs, and supported layout returns with the workspace.'],
+    ],
+  },
+  {
+    id: 'datastore-api-server',
+    title: 'API Server',
+    slug: 'api-server',
+    summary: 'Expose explicitly selected resources and saved read queries through a local development API.',
+    status: 'Experimental',
+    availability: 'Desktop app; local loopback listeners only.',
+    enablement: 'Current workspace preference.',
+    dataBoundary: 'Only resources and saved queries added to a server profile are exposed. Generated projects contain configuration examples, not resolved secrets.',
+    disableBehavior: 'Server entry points become unavailable while saved profiles remain in the workspace. Stop running profiles before disabling.',
+    features: [
+      ['Server profiles', 'Choose the connection, environment, protocol, port, and explicitly exposed resources.'],
+      ['REST, GraphQL, and gRPC', 'Use the protocol that matches the local integration and inspect its generated contract.'],
+      ['Resource discovery', 'Add supported tables, collections, indexes, items, or keys individually.'],
+      ['Saved-query endpoints', 'Turn supported saved read queries and their typed parameters into custom endpoints.'],
+      ['Metrics and logs', 'Review local requests, failures, latency, and redacted diagnostic events.'],
+      ['Project export', 'Generate supported Rust or .NET service projects that use normal environment-based configuration.'],
+    ],
+  },
+  {
+    id: 'datastore-mcp-server',
+    title: 'MCP Server',
+    slug: 'mcp-server',
+    summary: 'Give local MCP clients allowlisted, scoped, read-only access to selected DataPad++ tools.',
+    status: 'Experimental',
+    availability: 'Desktop app; Streamable HTTP on a loopback endpoint.',
+    enablement: 'Current workspace preference.',
+    dataBoundary: 'Profiles allowlist connections and environments. Tokens carry explicit scopes, are shown once, and are stored as verifiers rather than recoverable plaintext.',
+    disableBehavior: 'Client entry points become unavailable while profiles and token metadata remain available for later review. Stop the endpoint before disabling.',
+    features: [
+      ['Scoped server profiles', 'Allowlist only the connections, environments, origins, and tool scopes a client needs.'],
+      ['One-time tokens', 'Create a token, copy it once into the client\'s secret or environment store, and rotate it when necessary.'],
+      ['Client setup', 'Copy generated setup for Codex, VS Code, Cursor, Claude Code, or Gemini CLI.'],
+      ['Read-only tools', 'List metadata, run bounded reads, search the workspace, and inspect enabled plugin summaries where scopes allow.'],
+      ['Plugin discovery', 'Use plugin:read to list enabled DataPad++ plugins and the MCP tools they expose.'],
+      ['Metrics and audit logs', 'Review client connections, requests, denials, latency, and token-scope usage.'],
+    ],
+  },
+  {
+    id: 'datastore-security-checks',
+    title: 'Datastore Security Checks',
+    slug: 'datastore-security-checks',
+    summary: 'Review vulnerability and configuration-posture guidance for saved datastore connections.',
+    status: 'Experimental',
+    availability: 'Desktop app for network-backed refreshes; results are advisory.',
+    enablement: 'Current workspace preference with a configurable refresh interval.',
+    dataBoundary: 'Uses profile metadata and bounded read-only version or posture probes. Evidence is sanitized and cloud-provider administration APIs are not called.',
+    disableBehavior: 'Refresh and workspace entry points are unavailable. Treat any previously viewed result as stale until the next successful refresh.',
+    features: [
+      ['Version checks', 'Detect supported product versions and map them to candidate vulnerability identifiers.'],
+      ['NVD and CISA KEV enrichment', 'Review severity, references, known-exploited status, and available remediation hints.'],
+      ['Posture checks', 'Inspect TLS, authentication, read-only, environment, secret-storage, privilege, durability, and risky-setting guidance.'],
+      ['Coverage-aware results', 'Distinguish deep adapter checks from profile-only checks and unknown results.'],
+      ['Finding controls', 'Switch between Vulnerabilities and Posture, show passing checks, and mute a reviewed item.'],
+      ['Refresh controls', 'Run a manual refresh when allowed and see checked and expiry timestamps.'],
+    ],
+  },
+  {
+    id: 'datastore-tests',
+    title: 'Datastore Tests',
+    slug: 'test-suites',
+    summary: 'Build visual, target-bound test suites and run supported steps through the real datastore adapter.',
+    status: 'Experimental',
+    availability: 'Editor availability is workspace-scoped; live execution depends on the desktop adapter and target capability.',
+    enablement: 'Current workspace preference.',
+    dataBoundary: 'A suite is bound to one connection, environment, and target. Observations are bounded and sensitive evidence is redacted.',
+    disableBehavior: 'Saved suites, cases, results, and drafts remain available. An active test run must finish or be cancelled before disabling.',
+    features: [
+      ['Visual suites and cases', 'Create suite-owned cases without maintaining a separate script file.'],
+      ['Immutable target binding', 'Bind the suite to one connection, environment, and datastore object when it is created.'],
+      ['Phased steps', 'Compose Setup, Execute, and Teardown from supported queries, builders, edits, and adapter operations.'],
+      ['Assertions', 'Check row or document counts, key existence, JSON paths, errors, and duration limits.'],
+      ['Capability preflight', 'Review generated operations, blockers, warnings, and confirmation requirements before a run.'],
+      ['Run evidence', 'Run one case or a suite and inspect pass, failure, blocked, timing, and teardown outcomes.'],
+    ],
+  },
+]
+
+const pluginOverviewGuide: DocArticle = {
+  slug: 'plugins',
+  title: 'Choose And Manage Plugins',
+  description: 'Understand every DataPad++ plugin, enable only what you need, and open its working surface.',
+  category: 'Plugins',
+  readingTime: '8 min',
+  status: 'Live',
+  featured: false,
+  relatedGuides: documentedPlugins.map((plugin) => plugin.slug),
+  prerequisites: [
+    'Open DataPad++ and select the workspace where the capability should be available.',
+    'Use the desktop app for native windows, local servers, network-backed security scans, and adapter-backed test execution.',
+  ],
+  keywords: ['plugins', 'extensions', 'enable plugin', 'disable plugin', 'plugin permissions', ...documentedPlugins.flatMap((plugin) => [plugin.title, plugin.id])],
+  sections: [
+    {
+      id: 'quickstart',
+      title: 'Enable a plugin',
+      blocks: [
+        {
+          type: 'procedure',
+          steps: [
+            { title: 'Open Plugins settings', body: 'Open Settings from the status bar or a Settings tab, then choose Plugins.', figure: 'plugins-ready' },
+            { title: 'Review maturity and platform notes', body: 'Read the badge, feature list, and disabled reason. Experimental plugins are opt-in previews and some require the desktop app.', figure: 'plugins-experimental' },
+            { title: 'Enable only the capability you need', body: 'Turn on the plugin for the current workspace. Workspaces uses the local application registry because it controls switching between workspace files.' },
+            { title: 'Open its working surface', body: 'Use Open on the plugin card, its Library or status-bar entry point, or the relevant tab menu. The individual guides below show each path.' },
+            { title: 'Verify the boundary before use', body: 'Confirm the selected connection, environment, allowlist, scopes, read-only state, and preview limitations before running a test or starting a local server.' },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'available-plugins',
+      title: 'Available plugins',
+      blocks: [
+        {
+          type: 'table',
+          columns: ['Plugin', 'Maturity', 'What it adds', 'Where it runs'],
+          rows: documentedPlugins.map((plugin) => [plugin.title, plugin.status, plugin.summary, plugin.availability]),
+        },
+      ],
+    },
+    {
+      id: 'permissions-and-data',
+      title: 'Permissions, data, and disable behavior',
+      blocks: [
+        { type: 'paragraph', text: 'Plugins are first-party opt-in capabilities. Enabling one does not grant new datastore permissions; the active connection account, environment policy, safe mode, and adapter capability still apply.' },
+        {
+          type: 'callout',
+          tone: 'important',
+          title: 'Local does not mean unrestricted',
+          body: 'API and MCP listeners bind to loopback, but their resource allowlists and token scopes still matter. Do not expose a listener through a proxy or tunnel unless you have designed and reviewed that security boundary.',
+        },
+        {
+          type: 'table',
+          columns: ['Plugin', 'Enablement scope', 'When disabled'],
+          rows: documentedPlugins.map((plugin) => [plugin.title, plugin.enablement, plugin.disableBehavior]),
+        },
+      ],
+    },
+    {
+      id: 'troubleshooting',
+      title: 'Troubleshooting',
+      blocks: [
+        {
+          type: 'table',
+          columns: ['Problem', 'What to check'],
+          rows: [
+            ['The enable control is unavailable', 'Read the card\'s platform message, use the desktop app where required, and wait for active runs or movable tabs to become idle.'],
+            ['The plugin is enabled but its entry point is missing', 'Confirm the correct workspace is active, reopen Settings → Plugins, and inspect the status bar, Library sections, or tab menu documented in the plugin guide.'],
+            ['The plugin cannot access a datastore', 'Test the connection and verify its environment assignment, account permissions, read-only policy, resource allowlist, and adapter capability.'],
+            ['A server client is denied', 'Verify loopback URL, port, origin allowlist, bearer token, token expiry, and required scope without sharing the raw token.'],
+          ],
+        },
+      ],
+    },
+    {
+      id: 'safety-boundaries',
+      title: 'Safety boundaries',
+      blocks: [
+        {
+          type: 'callout',
+          tone: 'warning',
+          title: 'Plugins inherit every existing guardrail',
+          body: 'Enabling a plugin does not bypass read-only connections, environment confirmations, safe mode, adapter limits, resource allowlists, or token scopes. Keep independent datastore backups and start with development or staging.',
+        },
+      ],
+    },
+  ],
+}
+
+const pluginWorkspaceGuide = taskGuide({
+  slug: 'plugin-workspaces',
+  title: 'Use The Workspaces Plugin',
+  description: 'Create, switch, rename, and safely maintain named local DataPad++ workspaces.',
+  category: 'Plugins',
+  screenshots: ['plugins-experimental', 'workspace-switcher'],
+  steps: [
+    { title: 'Enable Workspaces', body: 'Open Settings → Plugins, find Workspaces under Experimental Plugins, and enable Workspaces switcher.' },
+    { title: 'Create a named workspace', body: 'Open Library, expand Workspaces, choose New workspace, enter a short recognizable name, and choose Create. DataPad++ saves the current workspace before switching.' },
+    { title: 'Switch workspaces', body: 'Select another workspace in the Workspaces section. Confirm that the active name, connection count, tab count, Library work, Explorer state, and supported window layout match the intended context.' },
+    { title: 'Rename without moving data', body: 'Use the rename action beside a workspace. Renaming changes the profile label only; it does not rewrite the workspace contents or connected datastore.' },
+    { title: 'Back up important workspace configuration', body: 'Use Workspace + Backups to export or automatically back up DataPad++ configuration. Back up each connected datastore separately with its supported native tools.' },
+  ],
+  referenceRows: [
+    ['Workspaces section', 'Lists local workspace profiles, highlights the active profile, and shows summary counts.'],
+    ['New workspace', 'Creates a new local profile after saving the current workspace.'],
+    ['Switch', 'Saves the current workspace, loads the selected workspace, and restores its navigation and tabs.'],
+    ['Rename', 'Changes the profile name without modifying connections or datastore data.'],
+    ['Disable', 'Hides the switcher while leaving the active and saved workspace profiles intact.'],
+  ],
+  keywords: ['workspace plugin', 'workspace switcher', 'new workspace', 'switch workspace', 'rename workspace', 'workspace registry'],
+  relatedGuides: ['plugins', 'settings-workspace-backups', 'workspace-import-export', 'multi-window-tabs'],
+  status: 'Experimental',
+})
+
+function enhancePluginArticle(article: DocArticle): DocArticle {
+  const plugin = documentedPlugins.find((candidate) => candidate.slug === article.slug)
+  if (!plugin) return article
+  const [quickstart, ...remainingSections] = article.sections
+  if (!quickstart) return article
+
+  return {
+    ...article,
+    category: 'Plugins',
+    status: plugin.status,
+    relatedGuides: Array.from(new Set(['plugins', ...(article.relatedGuides ?? [])])).filter((slug) => slug !== article.slug),
+    prerequisites: [
+      'Open the workspace where you want this plugin to be available and review its current maturity in Settings → Plugins.',
+      `Confirm the platform boundary: ${plugin.availability}`,
+      'Use only connections, environments, resources, and credentials you are authorized to access.',
+    ],
+    keywords: [...article.keywords, plugin.id, plugin.title, 'plugin', 'enable plugin', ...plugin.features.flatMap(([feature, use]) => [feature, use])],
+    sections: [
+      quickstart,
+      {
+        id: 'features',
+        title: 'Features',
+        blocks: [{ type: 'table', columns: ['Feature', 'How to use it'], rows: plugin.features }],
+      },
+      {
+        id: 'availability-and-data',
+        title: 'Availability and data boundary',
+        blocks: [
+          { type: 'table', columns: ['Area', 'Behavior'], rows: [
+            ['Maturity', plugin.status],
+            ['Availability', plugin.availability],
+            ['Enablement', plugin.enablement],
+            ['Data boundary', plugin.dataBoundary],
+            ['When disabled', plugin.disableBehavior],
+          ] },
+        ],
+      },
+      ...remainingSections,
+    ],
+  }
+}
+
 const newTaskGuides: DocArticle[] = [
   taskGuide({
     slug: 'interface-tour',
@@ -1499,7 +1803,22 @@ const newTaskGuides: DocArticle[] = [
   }),
 ]
 
-export const docArticles: DocArticle[] = [...legacyDocArticles.map(upgradeLegacyArticle), ...newTaskGuides]
+const allTaskArticles = [
+  ...legacyDocArticles.map(upgradeLegacyArticle),
+  ...newTaskGuides,
+  pluginWorkspaceGuide,
+].map(enhancePluginArticle)
+const pluginArticleSlugs = new Set(documentedPlugins.map((plugin) => plugin.slug))
+
+export const docArticles: DocArticle[] = [
+  ...allTaskArticles.filter((article) => !pluginArticleSlugs.has(article.slug)),
+  pluginOverviewGuide,
+  ...documentedPlugins.map((plugin) => {
+    const article = allTaskArticles.find((candidate) => candidate.slug === plugin.slug)
+    if (!article) throw new Error(`Missing documentation article for plugin ${plugin.id}`)
+    return article
+  }),
+]
 
 export const docCategories = [
   'Getting started',
@@ -1509,8 +1828,7 @@ export const docCategories = [
   'Querying and query builders',
   'Results and safe editing',
   'Import, export, and native backup',
-  'Experimental features',
-  'Integrations and automation',
+  'Plugins',
   'Datastore-specific guides',
 ] as const
 
@@ -1525,8 +1843,9 @@ export const docNavigationGroups: DocNavigationGroup[] = [
   { label: 'Navigate and inspect', slugs: ['explorer', 'datastore-explorer', 'relationship-explorer', 'oracle-explorer-intellisense', 'metrics-and-inspection', 'tabs-panels-and-drawers'] },
   { label: 'Query and edit', slugs: ['querying', 'query-history-explain', 'typed-query-builders', 'sql-database-schema-scope', 'results-and-editing', 'document-results-editing', 'key-value-full-value'] },
   { label: 'Move and protect data', slugs: ['import-export', 'result-export', 'native-datastore-transfers', 'transfers-center', 'settings-workspace-backups', 'workspace-import-export', 'workspace-size-analysis'] },
-  { label: 'Automate and diagnose', slugs: ['api-server', 'mcp-server', 'workspace-search', 'test-suites', 'appearance-shortcuts-logs', 'multi-window-tabs'] },
-  { label: 'Safety and troubleshooting', slugs: ['datastore-security-checks', 'safety-model', 'datastore-coverage-maturity'] },
+  { label: 'Plugins', slugs: ['plugins', ...documentedPlugins.map((plugin) => plugin.slug)] },
+  { label: 'Automate and diagnose', slugs: ['appearance-shortcuts-logs'] },
+  { label: 'Safety and troubleshooting', slugs: ['safety-model', 'datastore-coverage-maturity'] },
   { label: 'Datastore guides', slugs: ['sql-workflows', 'mongodb-workflows', 'redis-valkey-workflows', 'search-dynamodb-and-secondary'] },
 ]
 

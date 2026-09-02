@@ -24,7 +24,7 @@ import {
   TerminalSquare,
 } from 'lucide-react'
 import heroMark from '../../desktop/src/assets/hero.png'
-import { datastoreDocs } from './data/datastores'
+import { datastoreDocs, getDatastoreDocByName } from './data/datastores'
 import { docArticles } from './data/docs'
 import {
   coreFeatures,
@@ -420,9 +420,21 @@ function CoveragePage() {
           <div className="coverage-group" key={group.family}>
             <h2>{group.family}</h2>
             <div>
-              {group.engines.map((engine) => (
-                <span key={engine}>{engine}</span>
-              ))}
+              {group.engines.map((engine) => {
+                const datastoreDoc = getDatastoreDocByName(engine)
+
+                return datastoreDoc ? (
+                  <a
+                    href={`/docs/datastores/${datastoreDoc.slug}`}
+                    aria-label={`Open the ${engine} documentation`}
+                    key={engine}
+                  >
+                    {engine}
+                  </a>
+                ) : (
+                  <span key={engine}>{engine}</span>
+                )
+              })}
             </div>
           </div>
         ))}

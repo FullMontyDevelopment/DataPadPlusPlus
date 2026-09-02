@@ -1312,4 +1312,8 @@ export const datastoreGuideLinksByArticleSlug: Record<string, string[]> = {
 export function getDatastoreDocBySlug(slug: string) {
   return datastoreDocs.find((doc) => doc.slug === slug)
 }
+
+export function getDatastoreDocByName(name: string) {
+  return datastoreDocs.find((doc) => doc.title === name || doc.aliases?.includes(name))
+}
 import { transferDocumentation } from './transfer-docs'

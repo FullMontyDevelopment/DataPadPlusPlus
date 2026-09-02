@@ -5,6 +5,7 @@ import {
   datastoreDocsByFamily,
   datastoreGuideLinksByArticleSlug,
   declaredDatastoreEngines,
+  getDatastoreDocByName,
   getDatastoreDocBySlug,
   type DatastoreDoc,
 } from './datastores'
@@ -85,6 +86,23 @@ describe('datastore documentation', () => {
     for (const name of productNames) {
       expect(documentedNames.has(name), name).toBe(true)
     }
+  })
+
+  it('maps every product coverage entry to its datastore documentation route', () => {
+    const linkedRoutes = datastoreGroups.flatMap((group) =>
+      group.engines.map((name) => {
+        const doc = getDatastoreDocByName(name)
+
+        expect(doc, name).toBeTruthy()
+        return `/docs/datastores/${doc?.slug}`
+      }),
+    )
+
+    expect(linkedRoutes).toHaveLength(datastoreGroups.flatMap((group) => group.engines).length)
+    expect(new Set(linkedRoutes).size).toBe(datastoreDocs.length)
+    expect(linkedRoutes.every((route) => datastoreDocRoutes.includes(route))).toBe(true)
+    expect(getDatastoreDocByName('SQL Server')?.slug).toBe('sqlserver')
+    expect(getDatastoreDocByName('Azure SQL')?.slug).toBe('sqlserver')
   })
 
   it('groups datastore docs without losing entries', () => {

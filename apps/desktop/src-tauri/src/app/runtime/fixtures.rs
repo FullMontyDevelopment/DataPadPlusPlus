@@ -7,8 +7,10 @@ use crate::{
         models::{
             AppPreferences, ConnectionAuth, ConnectionProfile, DatastoreApiServerConfig,
             DatastoreApiServerPreferences, DatastoreMcpServerConfig, DatastoreMcpServerPreferences,
-            EnvironmentProfile, FirstInstallGuidePreferences, LockState, MySqlConnectionOptions,
-            QueryHistoryEntry, QueryTabState, SavedWorkItem, SecretRef, UiState, WorkspaceSnapshot,
+            DatastoreSecurityCheckSnapshot, DatastoreSecurityPostureCheckResult,
+            DatastoreSecurityTarget, EnvironmentProfile, FirstInstallGuidePreferences, LockState,
+            MySqlConnectionOptions, QueryHistoryEntry, QueryTabState, SavedWorkItem, SecretRef,
+            UiState, WorkspaceSnapshot,
         },
     },
     persistence, security,
@@ -41,7 +43,8 @@ use screenshot_profiles::{
 };
 use screenshot_workspace::{
     screenshot_api_server_preferences, screenshot_folder_for_connection,
-    screenshot_mcp_server_preferences, screenshot_saved_work, screenshot_tab_title,
+    screenshot_mcp_server_preferences, screenshot_saved_work, screenshot_security_checks_snapshot,
+    screenshot_tab_title,
 };
 
 pub(super) fn fixture_debug_enabled() -> bool {
@@ -185,6 +188,8 @@ fn fixture_workspace_seed_for_profile_options(
     } else {
         Default::default()
     };
+    let datastore_security_checks = screenshot_seed
+        .then(|| screenshot_security_checks_snapshot(&connections, active_environment_id));
 
     let mut snapshot = WorkspaceSnapshot {
         schema_version: persistence::SCHEMA_VERSION,
@@ -235,7 +240,7 @@ fn fixture_workspace_seed_for_profile_options(
             },
             explorer_folder_orders: HashMap::new(),
         },
-        datastore_security_checks: None,
+        datastore_security_checks,
         guardrails: Vec::new(),
         lock_state: LockState {
             is_locked: false,

@@ -4,6 +4,7 @@ import {
   docCategories,
   docNavigationGroups,
   documentedNavigationSurfaces,
+  documentedPlugins,
   getDocBySlug,
   navigationSurfaceArticle,
   type DocBlock,
@@ -22,13 +23,14 @@ function screenshotIds(block: DocBlock) {
 }
 
 describe('docs content', () => {
-  it('preserves 33 routes and adds the eight focused guides', () => {
+  it('preserves 33 routes and adds the focused task and plugin guides', () => {
     const slugs = docArticles.map((article) => article.slug)
     expect(new Set(slugs).size).toBe(slugs.length)
-    expect(slugs).toHaveLength(41)
+    expect(slugs).toHaveLength(43)
     expect(slugs).toEqual(expect.arrayContaining([
       'interface-tour', 'first-query', 'tabs-panels-and-drawers', 'connection-health',
       'query-history-explain', 'metrics-and-inspection', 'transfers-center', 'appearance-shortcuts-logs',
+      'plugins', 'plugin-workspaces',
     ]))
   })
 
@@ -52,7 +54,7 @@ describe('docs content', () => {
     expect([...navigationSlugs].sort()).toEqual(docArticles.map((article) => article.slug).sort())
     expect(docNavigationGroups.map((group) => group.label)).toEqual([
       'Start here', 'Connections and organization', 'Navigate and inspect', 'Query and edit',
-      'Move and protect data', 'Automate and diagnose', 'Safety and troubleshooting', 'Datastore guides',
+      'Move and protect data', 'Plugins', 'Automate and diagnose', 'Safety and troubleshooting', 'Datastore guides',
     ])
     expect(docCategories).toContain('Getting started')
   })
@@ -61,6 +63,19 @@ describe('docs content', () => {
     for (const surface of documentedNavigationSurfaces) {
       const articleSlug = navigationSurfaceArticle[surface]
       expect(getDocBySlug(articleSlug)?.slug, `${surface} -> ${articleSlug}`).toBe(articleSlug)
+    }
+  })
+
+  it('publishes a screenshot-backed feature guide for every user-facing plugin', () => {
+    expect(documentedPlugins).toHaveLength(7)
+    expect(new Set(documentedPlugins.map((plugin) => plugin.id)).size).toBe(documentedPlugins.length)
+    for (const plugin of documentedPlugins) {
+      const article = getDocBySlug(plugin.slug)
+      expect(article?.category, plugin.id).toBe('Plugins')
+      expect(article?.sections.some((section) => section.id === 'features'), plugin.id).toBe(true)
+      expect(article?.sections.some((section) => section.id === 'availability-and-data'), plugin.id).toBe(true)
+      const figures = article?.sections.flatMap((section) => section.blocks.flatMap(screenshotIds)) ?? []
+      expect(figures.length, plugin.id).toBeGreaterThanOrEqual(2)
     }
   })
 

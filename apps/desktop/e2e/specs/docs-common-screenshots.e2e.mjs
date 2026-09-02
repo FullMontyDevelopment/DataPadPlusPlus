@@ -456,4 +456,101 @@ describe('common documentation screenshots', () => {
     await settle()
     await capture('download-release.png')
   })
+
+  it('captures plugin settings and representative plugin workflows', async () => {
+    await ensureBottomPanel(false)
+    await setSidebarVisible(false)
+    await openSettingsSection('Plugins')
+    await browser.execute(() => {
+      document.querySelector('section[aria-labelledby="settings-experimental-plugins-title"]')?.classList.add('documentation-capture-hidden')
+      const content = document.querySelector('.settings-content')
+      if (content instanceof HTMLElement) content.scrollTop = 0
+    })
+    await capture('plugins-ready.png')
+    await browser.execute(() => {
+      document.querySelector('section[aria-labelledby="settings-experimental-plugins-title"]')?.classList.remove('documentation-capture-hidden')
+      document.querySelector('section[aria-labelledby="settings-plugins-title"]')?.classList.add('documentation-capture-hidden')
+      const content = document.querySelector('.settings-content')
+      if (content instanceof HTMLElement) content.scrollTop = 0
+    })
+    await capture('plugins-experimental.png')
+    await browser.execute(() => {
+      document.querySelector('section[aria-labelledby="settings-plugins-title"]')?.classList.remove('documentation-capture-hidden')
+    })
+
+    const workspacesEnabled = await browser.execute(() => {
+      const label = [...document.querySelectorAll('.settings-check-row')]
+        .find((candidate) => candidate.textContent?.includes('Workspaces switcher'))
+      const input = label?.querySelector('input[type="checkbox"]')
+      if (!(input instanceof HTMLInputElement)) return false
+      if (!input.checked) input.click()
+      return true
+    })
+    if (!workspacesEnabled) throw new Error('Unable to enable the Workspaces plugin.')
+    await browser.waitUntil(
+      async () => browser.execute(() => [...document.querySelectorAll('.settings-check-row')]
+        .some((candidate) => candidate.textContent?.includes('Workspaces switcher') && candidate.querySelector('input')?.checked)),
+      { timeout: 10000, timeoutMsg: 'Expected the Workspaces plugin setting to be enabled.' },
+    )
+
+    await activateOpenTab('Northwind Analytics PostgreSQL')
+    await ensureBottomPanel(false)
+    await setSidebarVisible(true)
+    await browser.waitUntil(
+      async () => browser.execute(() => Boolean(document.querySelector('.library-workspaces-panel'))),
+      { timeout: 10000, timeoutMsg: 'Expected the Workspaces section in Library.' },
+    )
+    await browser.execute(() => {
+      document.querySelectorAll('.workbench-sidebar .sidebar-search, .workbench-sidebar .library-root-drop-target, .workbench-sidebar .library-tree, .workbench-sidebar .library-api-server-panel, .workbench-sidebar .library-environments-panel')
+        .forEach((section) => section.classList.add('documentation-capture-hidden'))
+    })
+    const expandWorkspaces = await $('button[aria-label="Expand Workspaces section"]')
+    if (await expandWorkspaces.isExisting()) await expandWorkspaces.click()
+    const newWorkspace = await $('button[aria-label="New workspace"]')
+    await newWorkspace.waitForClickable({ timeout: 10000 })
+    await newWorkspace.click()
+    const workspaceName = await $('.library-text-input-dialog input')
+    await workspaceName.waitForDisplayed({ timeout: 10000 })
+    await workspaceName.setValue('Reporting workspace')
+    await capture('workspace-switcher.png')
+    const workspaceDialog = await $('.library-text-input-dialog')
+    const cancelWorkspace = await workspaceDialog.$('button=Cancel')
+    await cancelWorkspace.click()
+    await clearLibraryIsolation()
+
+    await setSidebarVisible(false)
+    await openSettingsSection('Plugins')
+    const securityChecks = await $('button=Open Security Checks')
+    await securityChecks.waitForClickable({ timeout: 10000 })
+    await securityChecks.click()
+    await browser.waitUntil(
+      async () => browser.execute(() => Boolean(document.querySelector('[aria-label="Security Checks"]'))),
+      { timeout: 10000, timeoutMsg: 'Expected the Security Checks workspace.' },
+    )
+    const posture = await $('button[aria-label^="Posture "]')
+    await posture.waitForClickable({ timeout: 10000 })
+    await posture.click()
+    const postureDetail = await $('button[aria-label^="View Review password authentication policy"]')
+    if (await postureDetail.isExisting()) {
+      await postureDetail.click()
+      await browser.waitUntil(
+        async () => browser.execute(() => Boolean(document.querySelector('.security-checks-detail'))),
+        { timeout: 10000, timeoutMsg: 'Expected the selected posture check details.' },
+      )
+      await capture('security-checks.png')
+    }
+
+    await openSettingsSection('Plugins')
+    await browser.execute(() => {
+      const label = [...document.querySelectorAll('.settings-check-row')]
+        .find((candidate) => candidate.textContent?.includes('Workspaces switcher'))
+      const input = label?.querySelector('input[type="checkbox"]')
+      if (input instanceof HTMLInputElement && input.checked) input.click()
+    })
+    await browser.waitUntil(
+      async () => browser.execute(() => [...document.querySelectorAll('.settings-check-row')]
+        .some((candidate) => candidate.textContent?.includes('Workspaces switcher') && !candidate.querySelector('input')?.checked)),
+      { timeout: 10000, timeoutMsg: 'Expected the Workspaces plugin setting to be restored.' },
+    )
+  })
 })

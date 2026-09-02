@@ -32,6 +32,22 @@ describe('Learn-style documentation renderer', () => {
     expect(markup).toContain('/screenshots/datastores/postgresql-workflow.png')
   })
 
+  it('renders the complete plugin catalog and screenshot-backed plugin guides', () => {
+    const catalog = renderToStaticMarkup(<DocsExperience slug="plugins" />)
+    const workspaces = renderToStaticMarkup(<DocsExperience slug="plugin-workspaces" />)
+
+    expect(catalog).toContain('Choose And Manage Plugins')
+    expect(catalog).toContain('Workspace Search')
+    expect(catalog).toContain('Multi-window Tabs')
+    expect(catalog).toContain('Datastore Tests')
+    expect(catalog).toContain('/screenshots/plugins-ready.png')
+    expect(catalog).toContain('/screenshots/plugins-experimental.png')
+    expect(workspaces).toContain('Use The Workspaces Plugin')
+    expect(workspaces).toContain('Features')
+    expect(workspaces).toContain('Availability and data boundary')
+    expect(workspaces).toContain('/screenshots/workspace-switcher.png')
+  })
+
   it('keeps responsive navigation and tablet contents rules scoped to docs', () => {
     const styles = readFileSync(resolve(sourceDirectory, '..', 'styles.css'), 'utf8')
 

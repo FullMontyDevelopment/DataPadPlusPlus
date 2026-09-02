@@ -1,5 +1,119 @@
 use super::*;
 
+pub(super) fn screenshot_security_checks_snapshot(
+    connections: &[ConnectionProfile],
+    environment_id: &str,
+) -> DatastoreSecurityCheckSnapshot {
+    let connection_name = |id: &str, fallback: &str| {
+        connections
+            .iter()
+            .find(|connection| connection.id == id)
+            .map(|connection| connection.name.clone())
+            .unwrap_or_else(|| fallback.into())
+    };
+    let checked_at = "2026-09-02T09:30:00Z".to_owned();
+
+    DatastoreSecurityCheckSnapshot {
+        status: "ready".into(),
+        checked_at: Some(checked_at.clone()),
+        expires_at: Some("2026-09-09T09:30:00Z".into()),
+        source_metadata: Vec::new(),
+        targets: vec![
+            DatastoreSecurityTarget {
+                id: "security-postgresql-development".into(),
+                connection_id: "fixture-postgresql".into(),
+                environment_id: environment_id.into(),
+                connection_name: connection_name(
+                    "fixture-postgresql",
+                    "Northwind Analytics PostgreSQL",
+                ),
+                environment_name: "Development".into(),
+                engine: "postgresql".into(),
+                family: "sql".into(),
+                status: "checked".into(),
+                detected_product: Some("PostgreSQL".into()),
+                detected_version: Some("16.4".into()),
+                known_latest_version: None,
+                recommended_version: None,
+                version_status: Some("unknown".into()),
+                version_source: None,
+                version_source_label: None,
+                version_source_url: None,
+                version_source_updated_at: None,
+                cpe_candidates: Vec::new(),
+                finding_count: 0,
+                highest_severity: None,
+                last_checked_at: Some(checked_at.clone()),
+                message: None,
+                warnings: Vec::new(),
+            },
+            DatastoreSecurityTarget {
+                id: "security-mongodb-development".into(),
+                connection_id: "fixture-mongodb".into(),
+                environment_id: environment_id.into(),
+                connection_name: connection_name(
+                    "fixture-mongodb",
+                    "Commerce Catalog MongoDB",
+                ),
+                environment_name: "Development".into(),
+                engine: "mongodb".into(),
+                family: "document".into(),
+                status: "checked".into(),
+                detected_product: Some("MongoDB".into()),
+                detected_version: Some("7.0".into()),
+                known_latest_version: None,
+                recommended_version: None,
+                version_status: Some("unknown".into()),
+                version_source: None,
+                version_source_label: None,
+                version_source_url: None,
+                version_source_updated_at: None,
+                cpe_candidates: Vec::new(),
+                finding_count: 0,
+                highest_severity: None,
+                last_checked_at: Some(checked_at),
+                message: None,
+                warnings: Vec::new(),
+            },
+        ],
+        findings: Vec::new(),
+        posture_checks: vec![
+            DatastoreSecurityPostureCheckResult {
+                id: "posture-postgresql-transport".into(),
+                target_ids: vec!["security-postgresql-development".into()],
+                rule_id: "profile.transport".into(),
+                category: "transport".into(),
+                status: "pass".into(),
+                severity: "NONE".into(),
+                title: "Transport encryption posture is acceptable".into(),
+                summary: "The connection requires TLS and certificate verification.".into(),
+                evidence: Some("SSL mode: verify-full.".into()),
+                remediation: "Keep TLS and certificate verification enabled.".into(),
+                source: "profile".into(),
+                references: Vec::new(),
+            },
+            DatastoreSecurityPostureCheckResult {
+                id: "posture-mongodb-authentication".into(),
+                target_ids: vec!["security-mongodb-development".into()],
+                rule_id: "profile.authentication".into(),
+                category: "auth".into(),
+                status: "warn".into(),
+                severity: "MEDIUM".into(),
+                title: "Review password authentication policy".into(),
+                summary: "Confirm that the saved account follows the organization's rotation and least-privilege policy.".into(),
+                evidence: Some(
+                    "Authentication: password. Secret storage: encrypted reference.".into(),
+                ),
+                remediation: "Use a dedicated least-privileged account and rotate its credential on schedule.".into(),
+                source: "profile".into(),
+                references: Vec::new(),
+            },
+        ],
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    }
+}
+
 pub(super) fn screenshot_tab_title(
     connection: &ConnectionProfile,
     seed: &FixtureConnectionSeed,

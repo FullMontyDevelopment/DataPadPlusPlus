@@ -1058,7 +1058,9 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     }
     let history_reduced = bound_persisted_history(&mut snapshot);
     snapshot.history_retention_notice_pending |= history_reduced;
-    snapshot.datastore_security_checks = None;
+    if !screenshot_seed_enabled() {
+        snapshot.datastore_security_checks = None;
+    }
 
     snapshot.ui = normalize_ui_state(&snapshot);
     migrate_v11_snapshot_to_v12(&mut snapshot);

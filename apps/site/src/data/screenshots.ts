@@ -26,6 +26,10 @@ export type CommonScreenshotId =
   | 'transfer-center'
   | 'workspace-import-review'
   | 'multi-window-tabs'
+  | 'plugins-ready'
+  | 'plugins-experimental'
+  | 'workspace-switcher'
+  | 'security-checks'
   | 'oracle-paging'
 
 export type DatastoreScreenshotId = `datastore-${DatastoreEngineId}-${'connection' | 'workflow'}`
@@ -197,6 +201,30 @@ const commonScreenshotDefinitions: Record<CommonScreenshotId, ScreenshotDefiniti
     title: 'Experimental multi-window controls',
     caption: 'The tab context menu exposes the preview-only move-to-window action and its current availability state.',
     image: '/screenshots/multi-window-tabs.png',
+  },
+  'plugins-ready': {
+    id: 'plugins-ready',
+    title: 'Plugin settings',
+    caption: 'The Plugins settings section shows each opt-in capability, its maturity, supported platforms, and enable control.',
+    image: '/screenshots/plugins-ready.png',
+  },
+  'plugins-experimental': {
+    id: 'plugins-experimental',
+    title: 'Experimental plugin settings',
+    caption: 'Experimental plugins identify their current feature boundary before you enable them for the workspace.',
+    image: '/screenshots/plugins-experimental.png',
+  },
+  'workspace-switcher': {
+    id: 'workspace-switcher',
+    title: 'Create a named workspace',
+    caption: 'The Workspaces section creates and switches named local workspace profiles after saving the current workspace.',
+    image: '/screenshots/workspace-switcher.png',
+  },
+  'security-checks': {
+    id: 'security-checks',
+    title: 'Datastore Security Checks',
+    caption: 'An illustrative Posture view groups advisory checks by connection and environment with severity, evidence, and remediation details.',
+    image: '/screenshots/security-checks.png',
   },
   'oracle-paging': {
     id: 'oracle-paging',
