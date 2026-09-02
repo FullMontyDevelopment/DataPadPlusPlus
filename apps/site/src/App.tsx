@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  AlertTriangle,
   ArrowRight,
   BookOpen,
   Boxes,
@@ -153,6 +154,24 @@ function Header() {
   )
 }
 
+function PreReleaseNotice({ compact = false }: { compact?: boolean }) {
+  return (
+    <aside className={compact ? 'pre-release-notice compact' : 'pre-release-notice'} aria-label="Pre-release safety notice">
+      <AlertTriangle size={compact ? 17 : 22} aria-hidden="true" />
+      <div>
+        <strong>Pre-release software — not for production workloads</strong>
+        {compact ? null : (
+          <p>
+            Features, workspace formats, and behavior may change. Unknown defects may cause incorrect operations,
+            service disruption, or data loss. Start with disposable, local, or read-only systems and keep independent backups.
+          </p>
+        )}
+      </div>
+      <a href="/safety">Read the safety boundary</a>
+    </aside>
+  )
+}
+
 function ScreenshotFrame({
   title,
   caption,
@@ -167,7 +186,7 @@ function ScreenshotFrame({
   return (
     <figure className={compact ? 'screenshot-frame compact' : 'screenshot-frame'}>
       {image ? (
-        <img src={image} alt={title} />
+        <img src={image} alt={`${title}. ${caption}`} />
       ) : (
         <div className="screenshot-placeholder">
           <div className="placeholder-topbar">
@@ -197,7 +216,7 @@ function ScreenshotFrame({
           </div>
         </div>
       )}
-      {!image ? <figcaption>{caption}</figcaption> : null}
+      <figcaption>{caption}</figcaption>
     </figure>
   )
 }
@@ -304,13 +323,14 @@ function HomePage({ releases, platform }: { releases: GitHubRelease[]; platform:
     <>
       <section className="hero-section">
         <div className="hero-copy">
+          <span className="hero-kicker">Pre-release desktop workbench</span>
           <h1>DataPad++</h1>
           <p className="tagline">
             <span>All Data.</span> One Pad.
           </p>
           <p className="hero-body">
-            A desktop datastore workbench for people who move between SQL, MongoDB, Redis, search, cloud,
-            analytics, local files, and production guardrails every day.
+            Replace a stack of disconnected database IDEs and shallow editor extensions with one workspace that
+            keeps your datastore, environment, database/schema, tabs, and safety context visible.
           </p>
           <div className="hero-actions">
             <a className="primary-action" href="/download">
@@ -331,10 +351,10 @@ function HomePage({ releases, platform }: { releases: GitHubRelease[]; platform:
       <ReleaseSummary release={latestRelease} platform={platform} />
       <section className="section split-section">
         <div>
-          <h2>Built for real data work</h2>
+          <h2>One application, without one generic experience</h2>
           <p>
-            DataPad++ is not trying to flatten every datastore into the same generic table. It gives each
-            family its own surface while keeping saved work, environments, safety, and results in one place.
+            Keep connections, environments, queries, results, saved work, diagnostics, and guarded operations
+            together while each datastore retains the tools and types that make it useful.
           </p>
         </div>
         <div className="feature-list">
@@ -343,6 +363,7 @@ function HomePage({ releases, platform }: { releases: GitHubRelease[]; platform:
               <CheckCircle2 size={18} />
               <span>
                 <strong>{feature.title}</strong>
+                <small>{feature.problem}</small>
                 {feature.description}
               </span>
             </a>
@@ -352,10 +373,10 @@ function HomePage({ releases, platform }: { releases: GitHubRelease[]; platform:
       <section className="section docs-preview">
         <div className="section-heading">
           <h2>Step-by-step documentation</h2>
-          <p>Start with installation, then move through connections, environments, querying, results, local servers, workspace search, safety, and datastore-specific guides.</p>
+          <p>Choose a task, follow the complete workflow, then open the engine-specific page for exact capabilities and limitations.</p>
         </div>
         <div className="doc-card-grid">
-          {docArticles.slice(0, 6).map((article) => (
+          {docArticles.filter((article) => article.featured).slice(0, 6).map((article) => (
             <a href={`/docs/${article.slug}`} className="doc-card" key={article.slug}>
               <span>{article.category}</span>
               <strong>{article.title}</strong>
@@ -388,7 +409,8 @@ function FeaturesPage() {
             <div>
               <h2>{feature.title}</h2>
               <p>{feature.description}</p>
-              <a href="/docs">
+              <span className="feature-problem">{feature.problem}</span>
+              <a href={feature.href}>
                 Learn the workflow <ArrowRight size={16} />
               </a>
             </div>
@@ -416,6 +438,7 @@ function SafetyPage() {
         title="Safety And Guardrails"
         body="DataPad++ is designed around a simple rule: make dangerous work visible and keep secrets out of plain text."
       />
+      <PreReleaseNotice />
       <section className="safety-layout">
         <div className="safety-principles">
           {[
@@ -438,10 +461,6 @@ function SafetyPage() {
 }
 
 function CoveragePage() {
-  const nativeComplete = datastoreDocs.filter((doc) => doc.maturity.toLowerCase().includes('native-complete')).length
-  const contractComplete = datastoreDocs.length
-  const contractOnly = contractComplete - nativeComplete
-
   return (
     <main className="page-shell">
       <PageTitle
@@ -451,19 +470,19 @@ function CoveragePage() {
       />
       <section className="coverage-summary" aria-label="Datastore maturity summary">
         <div>
-          <strong>{contractComplete}</strong>
+          <strong>{datastoreDocs.length}</strong>
           <span>documented engines</span>
-          <p>Every declared datastore has connection, explorer, query, result, operation, diagnostic, import/export, and safety docs.</p>
+          <p>Every declared datastore has connection, exploration, query, result, transfer, diagnostic, and safety boundaries.</p>
         </div>
         <div>
-          <strong>{nativeComplete}</strong>
-          <span>native-complete scoped claims</span>
-          <p>These engines have the strongest live, fixture, or adapter-backed evidence for their release scope.</p>
+          <strong>4</strong>
+          <span>explicit capability states</span>
+          <p>Live, Experimental, Plan only, and Unavailable describe each operation without implying production readiness.</p>
         </div>
         <div>
-          <strong>{contractOnly}</strong>
-          <span>contract-complete preview paths</span>
-          <p>These surfaces are documented and guarded, with live cloud, driver, or admin validation still treated as residual risk.</p>
+          <strong>Pre</strong>
+          <span>release maturity</span>
+          <p>All engines and capabilities remain pre-release. Begin with local, disposable, or read-only targets.</p>
         </div>
       </section>
       <section className="coverage-grid">
@@ -480,9 +499,9 @@ function CoveragePage() {
       </section>
       <section className="section split-section">
         <div>
-          <h2>Scoped claims, clear boundaries</h2>
+          <h2>Operation-specific, not one broad badge</h2>
           <p>
-            Some engines are live-complete for scoped workflows while others remain preview-first, fixture-backed, or contract-complete. The site should make that maturity visible instead of overstating production readiness.
+            Querying, editing, import, export, backup, restore, administration, and cloud control-plane support can differ on the same engine. Each guide states the exact action boundary.
           </p>
         </div>
         <a className="text-link-panel" href="/docs/datastores">
@@ -534,6 +553,7 @@ function DownloadsPage({
         title="Download DataPad++"
         body="The site reads published GitHub Releases and recommends the best desktop artifact for your platform while keeping every other platform visible."
       />
+      <PreReleaseNotice />
       <section className="download-hero">
         <div>
           <span>Detected platform</span>
@@ -775,8 +795,9 @@ function DocsPage({ slug }: { slug?: string }) {
         <PageTitle
           icon={BookOpen}
           title="Documentation And Wiki"
-          body="Full launch docs for installation, first use, core workflows, safety, settings, and datastore-family guides."
+          body="Canonical task guides for getting started, connections and secrets, workspaces, exploration, querying, results, transfers, experimental features, integrations, and every datastore."
         />
+        <PreReleaseNotice />
         <section className="docs-index">
           <div className="docs-category featured-docs-category">
             <h2>Datastore specifics</h2>
@@ -842,8 +863,15 @@ function DocsPage({ slug }: { slug?: string }) {
         <span className="doc-meta">
           {article.category} · {article.readingTime}
         </span>
+        {article.status ? <span className={`documentation-status status-${article.status.toLowerCase().replace(/\s+/g, '-')}`}>{article.status}</span> : null}
         <h1>{article.title}</h1>
         <p className="doc-description">{article.description}</p>
+        {article.warning ? (
+          <aside className="article-warning">
+            <AlertTriangle size={19} aria-hidden="true" />
+            <p>{article.warning}</p>
+          </aside>
+        ) : null}
         <div className="article-screenshots">
           {article.screenshots.map((screenshot) => (
             <ScreenshotPlaceholder id={screenshot} compact key={screenshot} />
@@ -866,6 +894,21 @@ function DocsPage({ slug }: { slug?: string }) {
             {article.notes.map((note) => (
               <p key={note}>{note}</p>
             ))}
+          </section>
+        ) : null}
+        {article.relatedGuides?.length ? (
+          <section className="related-datastores">
+            <h2>Related guides</h2>
+            <div>
+              {article.relatedGuides.map((relatedSlug) => {
+                const related = getDocBySlug(relatedSlug)
+                return related ? (
+                  <a href={`/docs/${related.slug}`} key={related.slug}>
+                    {related.title} <ArrowRight size={16} />
+                  </a>
+                ) : null
+              })}
+            </div>
           </section>
         ) : null}
         {relatedDatastores.length ? (
@@ -961,6 +1004,7 @@ export function App() {
   return (
     <div className="site-app">
       <Header />
+      <PreReleaseNotice compact />
       {page}
       <footer className="site-footer">
         <div>

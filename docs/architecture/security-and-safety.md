@@ -1,121 +1,81 @@
 # Security And Safety
 
-DataPad++ is expected to handle live credentials and production systems, so security and safety need to be part of the architecture rather than later polish.
+DataPad++ is pre-release software that can hold credentials and issue live datastore operations. Security and safety are architectural requirements, but they do not make the application suitable for production workloads.
 
-## Secret handling
+> [!CAUTION]
+> Do not use DataPad++ for production workloads or as the only access, backup, or recovery path for important data. Unknown defects may issue incorrect operations, interrupt services, or lose data. Begin with disposable, local, or read-only systems and keep independent backups.
 
-Preferred approach:
+## Secret Boundary
 
-- store secret values in the OS credential store or keychain
-- keep only references in regular app persistence
-- redact secret values in logs, previews, and exports by default
-- require explicit opt-in for any export that includes secrets
-- keep connection tests and diagnostics from echoing raw passwords, tokens, private keys, or connection strings
-- clear secret drafts after save, test, import, export, and close flows where possible
+- Store secret values in the operating-system credential vault and persist only DataPad++-owned references.
+- Treat a complete connection string as one opaque secret. Do not parse, normalize, deconstruct, reconstruct, or log it.
+- Resolve secrets only in the privileged backend for testing or execution, then interpolate environments in memory.
+- Leave secret drafts out of workspace JSON, browser storage, diagnostics, errors, process arguments, generated client configuration, and secret-free exports.
+- Browser preview keeps secrets in memory only.
+- Clear plaintext buffers and form drafts as soon as practical after save, test, transfer, import, export, or close.
 
-## Environment safeguards
+Editing a connection with a blank secret field preserves the existing value. Replacing, changing mode, or deleting a connection updates vault references transactionally. Migration errors identify the connection name and datastore without exposing the connection string.
 
-Environments are first-class and should carry visible risk context:
+## Connection Health
 
-- Local / Dev: standard workflow
-- QA / UAT / Stage: elevated awareness
-- Prod: persistent warning state, stricter confirmation, optional safe mode
+Connection health is session-only and evidence-based:
 
-The active environment should remain visible in the shell, explorer, editor, and result views.
+- startup performs no automatic connection sweep and displays no placeholder status;
+- manual tests show checking and then the authoritative result;
+- successful Explorer, query, metrics, object, or key-value operations mark the connection/environment as connected;
+- authentication, credentials, connectivity, TLS, DNS, and timeout failures can mark it as an issue;
+- validation, syntax, cancellation, permission-limited metadata, and rendering failures do not imply connection failure;
+- editing/deleting a connection or environment invalidates only related entries.
 
 ## Guardrails
 
-Guardrails should be policy-driven and connection-aware:
+- Read-only profiles fail closed for writes and unclassified statements.
+- Environments carry persistent risk color, read-only rules, variables, and confirmation requirements.
+- Global Safe Mode can add workspace-wide confirmation without replacing environment rules.
+- Stable identity is required for live edits: primary keys, document ids, complete partition/shard keys, concurrency tokens, or concrete cache keys.
+- Running/queued operations lock incompatible edits, transfers, tab movement, workspace switching, and shutdown paths.
+- Destructive, costly, administrative, import, backup, and restore actions show scope, permissions, impact, and confirmation text before execution.
+- Ambiguous writes are verified when possible and never reported as success without authoritative evidence.
 
-- read-only connection mode
-- confirmation for destructive operations
-- banners for production or restricted environments
-- warnings for large result sets or long-running operations
-- unresolved variable detection before connect or execute
-- preview-only plans for admin/destructive/schema/cloud-cost workflows
-- explicit warnings for profiling operations that execute the query, such as `EXPLAIN ANALYZE`
-- disabled-action reasons when permissions, adapter maturity, read-only mode, or missing identity prevent an action
+## Results, Redaction, And Logging
 
-## Safe edits
+Display redaction protects values that are confirmed credential material or originate from secret-backed fields. It must not replace ordinary result values merely because a field name resembles a secret.
 
-DataPad++ supports safe live data edits only when an adapter can identify the target unambiguously and build a native or parameterized request.
+Logs and diagnostics may record operation type, adapter, duration, status, sanitized error class, counts, and byte sizes. They must not record credentials, complete connection strings, query text, returned values, local paths, signed storage URIs, encrypted passphrases, or secret inventory contents.
 
-Examples:
+Full-value inspection uses a dedicated bounded request contract and keeps preview truncation distinct from authoritative copied data. Unsupported or partial values remain visibly marked instead of being presented as complete.
 
-- SQL row edits require table and primary-key context.
-- MongoDB document edits require a collection and document id.
-- Redis/Valkey key edits require a concrete key.
-- DynamoDB item edits require complete key conditions.
-- Cassandra row edits require complete primary-key conditions.
+## Workspace Bundles And Migration
 
-When those conditions are missing, the UI should show a disabled action or a guarded plan instead of attempting a best-effort write.
+- `schemaVersion`, cross-window `workspaceRevision`, and encrypted bundle `formatVersion` are independent.
+- Workspace migration creates recovery state, mutates a clone, validates, and durably persists before removing superseded vault entries.
+- Export is encrypted and excludes secrets by default.
+- Secret-inclusive export requires every selected secret to resolve; partial bundles are rejected.
+- Import validates envelope, KDF bounds, authenticated metadata, schema version, decompressed size, and decrypted payload before writing secrets or state.
+- Imported secrets receive fresh DataPad++-owned references and cannot overwrite arbitrary vault accounts supplied by a bundle.
+- Replace/restore operations preserve rollback data until workspace and vault work have committed.
 
-## Operation previews
+## Datastore Transfers
 
-Guarded operation plans should show:
+- Frontends receive opaque selection tokens rather than full local paths.
+- Temporary outputs are renamed only after successful completion.
+- Imports default to fail-on-conflict; no silent overwrite, upsert, or guessed schema creation is permitted.
+- Server/cloud destinations use the current connection identity, existing repository/directory/stage, or credential-free reference. Credentials and signed URLs are excluded from commands and journals.
+- Resumable journals store sanitized job identifiers and states, not data, queries, credentials, or sensitive URIs.
+- Native backup is advertised only when a supported API-level mechanism exists.
 
-- generated SQL, command text, or API request body
-- risk level
-- destructive/costly flags
-- required permissions
-- estimated cost or scan impact where available
-- environment/read-only guardrail status
-- exact confirmation text when execution is supported
+See [Native Datastore Transfers](../datastore-transfers.md).
 
-## Datastore security checks
+## Local API And MCP Plugins
 
-The Datastore Security Checks plugin separates vulnerability data from posture data:
+Optional local server plugins are disabled by default. MCP binds to loopback, validates expected host/origin behavior, requires scoped bearer authentication, stores only credential verifiers, and limits tools to explicitly enabled contexts. API Server profiles expose selected resources or saved queries, not the entire workspace by implication.
 
-- vulnerability findings come from detected product versions, curated CPE mapping, NVD CVE data, CISA KEV enrichment, and the bundled known-version catalog
-- posture findings come from saved connection profiles and bounded read-only probes only
-- posture probes must not write data, change settings, create objects, or call provider control planes
-- permission failures should become `unknown` posture results instead of failing the whole scan
-- evidence must be sanitized and should never persist passwords, tokens, raw connection strings, or full command payloads
+Generated project exports use environment-variable references rather than copying DataPad++ secret values. Automatic MCP client setup previews its target, creates a backup, and writes token environment references rather than raw tokens.
 
-Deep posture probes are limited to the native live set: PostgreSQL/CockroachDB/TimescaleDB, MySQL/MariaDB, SQL Server/Azure SQL, MongoDB, Redis/Valkey, Elasticsearch/OpenSearch, SQLite, and DuckDB. Other declared engines stay profile-only until a future phase adds explicit adapter or cloud-provider support.
+## Datastore Security Checks
 
-## Desktop protection
+Vulnerability evidence is kept separate from posture evidence. Posture probes are bounded and read-only, permission failures become unknown results, and evidence is sanitized. Scans must not change datastore settings, create objects, invoke provider control planes, or persist raw probe payloads.
 
-The native layer should support:
+## Dependency Exceptions
 
-- app-level locking after inactivity
-- optional master password or biometric unlock when feasible
-- encrypted exports for portable artifacts
-- SHA-256 integrity verification inside encrypted workspace bundles
-- opt-in encrypted auto-backups with passphrases stored only through the secret store
-- clear separation between UI code and privileged native commands
-
-## Experimental MCP Server Plugin
-
-The desktop MCP Server plugin is opt-in and locked down by default:
-
-- disabled by default, with no default auto-start
-- bound only to `127.0.0.1:<port>` and served only at `/mcp`
-- rejects non-loopback peers and unexpected `Host` headers
-- rejects browser-style `Origin` headers unless explicitly allowlisted
-- requires `Authorization: Bearer <auth token>` on every request
-- rejects auth tokens in query strings, workspace files, request bodies, and logs
-- stores only auth token verifiers through secure secret storage
-- exposes only allowlisted datastores and environments
-- allows only scoped read, explore, list, context-switch, and diagnostic tools in v1
-- enforces row limits, query timeouts, read-only query checks, and full request audit logs
-
-MCP session IDs are not authentication. They are random session identifiers only; auth-token checks run for every request.
-
-MCP client automatic setup follows the same auth token rules. The desktop app can update known user-level config files for supported local clients only after showing a preview. It merges a DataPad++ entry, creates a timestamped backup before overwriting existing config, and writes auth-token environment-variable references or client-side secure prompts instead of raw auth token values. Browser preview cannot apply MCP client config changes.
-
-## Workspace bundles and backups
-
-Workspace bundles are encrypted `.datapadpp-workspace` files. Normal exports include workspace structure, connection metadata, Library items, environments, and non-secret variable metadata. Secret values are excluded unless the user explicitly chooses to include passwords/secrets.
-
-When secrets are included, they must be resolved from `SecretRef`s and stored only inside the encrypted secret envelope. New bundles include encrypted integrity metadata so import can reject corrupted or tampered bundles before applying workspace state or restoring secrets.
-
-Auto-backups are opt-in, encrypted, and rotated. The auto-backup passphrase must be stored as a secret reference, not as workspace plaintext.
-
-## Compatibility fallbacks
-
-`DATAPADPLUSPLUS_*` is the current environment variable prefix. Legacy `DATANAUT_*` and `UNIVERSALITY_*` variables may still be read by the native host for local workspace, fixture, and secret-store compatibility. New docs, scripts, and examples should use the DataPad++ prefix.
-
-## Tracked dependency exceptions
-
-- `monaco-editor` currently pulls a moderate `dompurify` advisory through the editor dependency chain. Do not run `npm audit fix --force` or downgrade Monaco to clear this artificially; keep the advisory tracked and upgrade Monaco when an upstream patch is available.
+Dependency advisories must be evaluated against actual reachability and upstream fixes. Do not force unsupported dependency majors or downgrade security-sensitive editor/runtime components solely to produce an empty audit report. Document deliberate holds with their peer, runtime, or platform constraint.

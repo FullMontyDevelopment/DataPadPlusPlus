@@ -9,6 +9,8 @@ import {
   type DatastoreDoc,
 } from './datastores'
 import { datastoreGroups } from './product'
+import { datastoreTransferManifest } from '../../../desktop/src/services/runtime/datastore-transfer-manifests'
+import { transferSupportMatrix } from './transfer-docs'
 
 const requiredSections: Array<
   keyof Pick<
@@ -78,6 +80,24 @@ describe('datastore documentation', () => {
 
     for (const slug of linkedSlugs) {
       expect(getDatastoreDocBySlug(slug)?.slug).toBe(slug)
+    }
+  })
+
+  it('derives every transfer action from the authoritative runtime manifest', () => {
+    for (const doc of datastoreDocs) {
+      const manifest = datastoreTransferManifest(doc.engine)
+      const support = transferSupportMatrix(doc.engine)
+
+      expect(doc.importExport).toHaveLength(manifest.capabilities.length)
+
+      for (const capability of manifest.capabilities) {
+        expect(support[capability.action]).toBe(capability.executionSupport)
+        const actionLabel = `${capability.action.charAt(0).toUpperCase()}${capability.action.slice(1)}`
+        expect(doc.importExport.some((line) => line.startsWith(`${actionLabel} —`))).toBe(true)
+        for (const format of capability.formats) {
+          expect(doc.importExport.some((line) => line.includes(format.label))).toBe(true)
+        }
+      }
     }
   })
 })

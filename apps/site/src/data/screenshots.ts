@@ -17,6 +17,14 @@ export type ScreenshotId =
   | 'workspace-search'
   | 'test-suites'
   | 'relationship-explorer'
+  | 'typed-query-builder'
+  | 'document-editor'
+  | 'key-value-inspector'
+  | 'datastore-transfer'
+  | 'transfer-center'
+  | 'workspace-import-review'
+  | 'multi-window-tabs'
+  | 'oracle-paging'
 
 export type ScreenshotSlot = {
   id: ScreenshotId
@@ -76,8 +84,8 @@ export const screenshotSlots: Record<ScreenshotId, ScreenshotSlot> = {
   },
   'import-export': {
     id: 'import-export',
-    title: 'Import and export',
-    caption: 'Guarded file workflows for tables, collections, keys, and local files.',
+    title: 'Guarded document edit',
+    caption: 'A document field change paused for environment-aware review before execution.',
     image: '/screenshots/import-export.png',
   },
   'result-export': {
@@ -133,6 +141,51 @@ export const screenshotSlots: Record<ScreenshotId, ScreenshotSlot> = {
     title: 'SQL relationship explorer',
     caption: 'Focused schema diagrams with table cards, relationship ends, and object inspectors.',
     image: '/screenshots/relationship-explorer.png',
+  },
+  'typed-query-builder': {
+    id: 'typed-query-builder',
+    title: 'Typed query builder values',
+    caption: 'A Date/time filter using a timezone-aware ISO value and the compact native picker before query execution.',
+    image: '/screenshots/typed-query-builder.png',
+  },
+  'document-editor': {
+    id: 'document-editor',
+    title: 'Guarded document field editing',
+    caption: 'A field-level document change paused for target and environment review before execution.',
+    image: '/screenshots/import-export.png',
+  },
+  'key-value-inspector': {
+    id: 'key-value-inspector',
+    title: 'Complete key-value inspector',
+    caption: 'Authoritative full-value content with inline type and size badges, source formatting, copy, and guarded edit actions.',
+    image: '/screenshots/redis-browser.png',
+  },
+  'datastore-transfer': {
+    id: 'datastore-transfer',
+    title: 'Native datastore transfer',
+    caption: 'Selected objects, native or portable formats, destination options, validation, and conflict-safe review.',
+  },
+  'transfer-center': {
+    id: 'transfer-center',
+    title: 'Transfers Center',
+    caption: 'Background progress, warnings, cancellation, retry state, native job identifiers, and completed artifacts.',
+  },
+  'workspace-import-review': {
+    id: 'workspace-import-review',
+    title: 'File-first workspace import',
+    caption: 'A staged choose-file, unlock, and review workflow that keeps encrypted contents closed until the passphrase is entered.',
+    image: '/screenshots/workspace-import-review.png',
+  },
+  'multi-window-tabs': {
+    id: 'multi-window-tabs',
+    title: 'Experimental multi-window tabs',
+    caption: 'A detached editor window keeps its tab, target, and environment while sharing the main workspace and backend.',
+    image: '/screenshots/multi-window-tabs.png',
+  },
+  'oracle-paging': {
+    id: 'oracle-paging',
+    title: 'Oracle paging and completion',
+    caption: 'Load more for large Oracle schema branches with selected-schema progressive object and column completion.',
   },
 }
 

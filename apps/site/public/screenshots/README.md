@@ -34,3 +34,13 @@ Recommended names:
 - `workspace-search.png`
 - `test-suites.png`
 - `relationship-explorer.png`
+- `typed-query-builder.png`
+- `document-editor.png`
+- `key-value-inspector.png`
+- `datastore-transfer.png`
+- `transfer-center.png`
+- `workspace-import-review.png`
+- `multi-window-tabs.png`
+- `oracle-paging.png`
+
+Use the screenshot workspace only. Before committing, verify each image contains no credentials, complete connection strings, personal paths, private query text, signed URLs, or user workspace names. Crop to the workflow, keep connection/environment context visible when it explains the action, and confirm text remains readable at the website's compact figure size.

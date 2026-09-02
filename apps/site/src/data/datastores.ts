@@ -92,7 +92,7 @@ function screenshotSet(title: string): DatastoreScreenshot[] {
   ]
 }
 
-export const datastoreDocs: DatastoreDoc[] = [
+const datastoreDocsBase: DatastoreDoc[] = [
   {
     engine: 'postgresql',
     slug: 'postgresql',
@@ -120,14 +120,14 @@ export const datastoreDocs: DatastoreDoc[] = [
     ],
     adminFeatures: [
       'Preview VACUUM, ANALYZE, REINDEX, role grant/revoke, extension update/drop, parameterized routine execution, and backend cancel or terminate actions.',
-      'Keep pg_dump and pg_restore parity outside the scoped claim unless a future guarded executor promotes those workflows.',
+      'Full pg_dump and pg_restore backup compatibility is unavailable because DataPad++ does not invoke external vendor executables.',
     ],
     diagnostics: [
       'Review pg_stat_activity, pg_locks, pg_stat_user_tables, relation/vacuum/index posture, wait or blocking signals, and optional pg_stat_statements top-query data.',
     ],
     importExport: [
-      'Use guarded CSV, JSON, and NDJSON table import/export plus bounded JSON or SQL logical backup packages.',
-      'Review file paths, row limits, overwrite posture, read-only state, and environment risk before execution.',
+      'Use live driver-level PostgreSQL COPY streaming for text, CSV, and binary, with JSON and NDJSON offered as clearly labelled portable conversions.',
+      'Existing targets, exact schema/type validation, fail-on-conflict behavior, read-only state, and environment risk are checked before execution; full backup and restore are unavailable.',
     ],
     safety: [
       'Writes, DDL, maintenance, role, extension, and destructive actions stay disabled or preview-first until identity, permissions, and environment guardrails pass.',
@@ -202,10 +202,10 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Review cached query stats, active requests, waits, file I/O stalls, memory grants, transactions, missing indexes, Extended Events, Agent jobs, and storage/security panels.',
     ],
     importExport: [
-      'Use guarded CSV, JSON, and NDJSON table import/export, bounded JSON or SQL logical backup packages, and restore-package validation.',
+      'Use live TDS bulk streaming or guarded server-side BULK INSERT for data transfer. Native .bak backup and restore require a SQL Server-visible destination and restore to a new database by default.',
     ],
     safety: [
-      'Native .bak backup/restore, bcp/sqlcmd bulk workflows, identity insert, and broad live admin execution remain optional extensions outside the scoped claim.',
+      'Native .bak backup/restore is live only for SQL Server-visible destinations and restores to an isolated new database by default. Broader bcp/sqlcmd and live administration remain outside the scoped claim.',
     ],
     screenshots: screenshotSet('SQL Server'),
   },
@@ -238,10 +238,10 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Review processlist waits, statement digests, table/index I/O waits, metadata locks, InnoDB counters, optimizer trace availability, slow-query posture, and replication panels.',
     ],
     importExport: [
-      'Use guarded CSV, JSON, and NDJSON table import/export plus bounded logical backup packages.',
+      'Use capability-checked LOAD DATA for CSV import and streamed CSV or NDJSON export. Full native backup and restore remain unavailable without external vendor tooling.',
     ],
     safety: [
-      'LOAD DATA INFILE, mysqlpump or mysqldump parity, richer grant editing, full restore execution, and selected live admin execution remain optional extensions.',
+      'Guarded local/server file loading and streamed export are live where server capability and permissions allow. mysqlpump/mysqldump backup parity, richer grants, restore, and selected administration remain unavailable or separately gated.',
     ],
     screenshots: screenshotSet('MySQL'),
   },
@@ -273,10 +273,10 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Review status counters, processlist waits, metadata locks, statement digests, storage-engine details, role security, Aria metrics, and optimizer trace availability.',
     ],
     importExport: [
-      'Use guarded CSV, JSON, and NDJSON table import/export plus bounded logical backup packages.',
+      'Use capability-checked MariaDB LOAD DATA for CSV import and streamed CSV or NDJSON export. Full native backup and restore remain unavailable without external vendor tooling.',
     ],
     safety: [
-      'LOAD DATA INFILE, mariadb-dump or mysqldump parity, richer role/grant editing, full restore execution, and broader live admin execution remain optional extensions.',
+      'Guarded local/server file loading and streamed export are live where MariaDB capability and permissions allow. mariadb-dump backup parity, richer roles/grants, restore, and broader administration remain unavailable or separately gated.',
     ],
     screenshots: screenshotSet('MariaDB'),
   },
@@ -345,7 +345,7 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Review DBMS_XPLAN, SQL Monitor availability, PL/SQL compile diagnostics, storage posture, security posture, restricted dictionary warnings, and row identity checks.',
     ],
     importExport: [
-      'Use bounded export/import workflows where validated; Data Pump and RMAN remain guarded preview boundaries unless promoted later.',
+      'Use managed-driver CSV table transfer for existing empty targets. Data Pump backup/restore is live through server DIRECTORY objects and guarded DBMS_DATAPUMP jobs; physical RMAN backup remains unavailable.',
     ],
     safety: [
       'Writes, destructive SQL, PL/SQL, calls, SELECT FOR UPDATE, and administrative statements use the same environment and read-only guardrails across the UI, API, and MCP server.',
@@ -380,10 +380,10 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Review extension/catalog metadata, profile posture, hypertable volume, chunks, compression coverage, aggregate lag, failed jobs, Toolkit availability, and restricted-role warnings.',
     ],
     importExport: [
-      'Use Timescale-aware import/export and bounded backup previews with PostgreSQL-style file workflow guardrails.',
+      'Use live PostgreSQL COPY streaming with Timescale-aware hypertable, time-column, chunk-routing, and time-window validation. Full native backup and restore remain unavailable without PostgreSQL backup tools.',
     ],
     safety: [
-      'Policy, job-control, import/export, backup, restore, and destructive execution stays plan-only unless a future guarded executor promotes it.',
+      'Timescale-aware COPY import/export is live after hypertable and time-dimension validation. Native full backup/restore and policy/job-control mutation remain unavailable or separately gated.',
     ],
     screenshots: screenshotSet('TimescaleDB'),
   },
@@ -484,13 +484,13 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Inspect table-like CQL results, partition metadata, primary-key targets, tracing payloads, storage warnings, and raw CQL details.',
     ],
     adminFeatures: [
-      'Preview grants, index and materialized-view operations, cqlsh COPY import/export, nodetool snapshot/restore plans, and guarded row edit plans.',
+      'Preview grants, index and materialized-view operations, external-tool snapshot boundaries, and guarded row edit plans. Native CQL JSON Lines transfer uses the driver rather than cqlsh.',
     ],
     diagnostics: [
       'Review tracing, partition health, storage health, tombstones, index posture, cluster settings, grants, and driver or secure-bundle disabled reasons.',
     ],
     importExport: [
-      'Use COPY import/export and snapshot/restore previews with partition, file, permission, and environment guardrails.',
+      'Use live paged SELECT JSON export and prepared INSERT JSON IF NOT EXISTS import with key/type/TTL validation. SSTable and full snapshot backup remain unavailable without external tooling.',
     ],
     safety: [
       'Native reads share bounded result and read-only guardrails; mutations remain preview-first until complete primary-key conditions and write boundaries are validated.',
@@ -502,7 +502,7 @@ export const datastoreDocs: DatastoreDoc[] = [
     slug: 'cosmosdb',
     title: 'Cosmos DB',
     family: 'Document and NoSQL',
-    maturity: 'Native Gremlin query runtime; cloud admin gated',
+    maturity: 'Native Cosmos DB NoSQL query runtime; cloud admin gated',
     summary:
       'Cosmos DB supports parameterized SQL API reads with a visual NoSQL builder and bounded continuation-token paging, plus a native GraphSON v2 Gremlin WebSocket runtime with Cosmos authentication, bounded graph results, and request-charge metrics.',
     bestFor: ['Cosmos SQL API containers', 'Cosmos Gremlin graphs', 'RU throughput review'],
@@ -537,7 +537,7 @@ export const datastoreDocs: DatastoreDoc[] = [
     slug: 'litedb',
     title: 'LiteDB',
     family: 'Document and NoSQL',
-    maturity: 'Contract-complete preview-first',
+    maturity: 'Bundled LiteDB sidecar with live document and transfer workflows',
     summary:
       'LiteDB is documented as a local document-file workflow with collection metadata, index and file storage panels, sidecar boundaries, and guarded local management.',
     bestFor: ['Local document files', 'Embedded .NET data', 'Sidecar-backed validation'],
@@ -560,7 +560,7 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Review local file preflight, encryption and lock-boundary metadata, sidecar availability, storage health, index posture, and optional .NET engine validation evidence.',
     ],
     importExport: [
-      'Use backup/export previews, local file management previews, and sidecar-only document CRUD plans until live file operations are promoted.',
+      'Use the bundled sidecar for live Extended JSON collection transfer, guarded document edits, FileStorage operations, and coordinated full-file backup/restore under the writer lock.',
     ],
     safety: [
       'Live document editing requires an explicitly configured LiteDB sidecar and remains guarded by file identity, read-only posture, encryption, lock, and _id mismatch checks.',
@@ -644,7 +644,7 @@ export const datastoreDocs: DatastoreDoc[] = [
     slug: 'memcached',
     title: 'Memcached',
     family: 'Key-value and cache',
-    maturity: 'Contract-complete preview-first',
+    maturity: 'Native known-key runtime; broad enumeration unavailable',
     summary:
       'Memcached is documented around known-key operations and server diagnostics because it has no portable native key browser.',
     bestFor: ['Cache server diagnostics', 'Known-key reads', 'Slab and item-class review'],
@@ -703,10 +703,10 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Review cluster health, field capabilities, shard health, Lucene segments, lifecycle state, ingestion posture, security posture, slow-log settings, allocation, and normalized profile stages.',
     ],
     importExport: [
-      'Use bounded _search export and _bulk import primitives where validated; desktop file/cloud import-export and snapshot execution remain optional extensions.',
+      'Use live PIT/search-after export, conflict-safe Bulk import into a rollback-safe index, and repository-backed snapshot/restore where the connected cluster supports them.',
     ],
     safety: [
-      'Managed cloud auth, broader live admin execution, snapshots, and destructive index operations stay preview-first outside the scoped plain-HTTP claim.',
+      'Managed cloud auth and broader destructive administration remain separately gated; transfer and snapshot execution still require compatible versions, repositories, permissions, and guarded destinations.',
     ],
     screenshots: screenshotSet('Elasticsearch'),
   },
@@ -739,10 +739,10 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Review cluster health, shard/allocation diagnostics, slow-log settings, normalized profile stages, SQL plugin boundaries, ISM state, security posture, and Performance Analyzer boundaries.',
     ],
     importExport: [
-      'Use bounded _search export and _bulk import primitives where validated; cloud import/export and snapshot execution remain optional extensions.',
+      'Use version-compatible scroll/PIT export, conflict-safe Bulk import into a rollback-safe index, and repository-backed snapshot/restore after OpenSearch capability checks.',
     ],
     safety: [
-      'Managed SigV4/IAM execution, OpenSearch SQL plugin execution, Performance Analyzer dashboards, snapshots, and broader live admin execution stay optional outside scoped claims.',
+      'Managed SigV4/IAM execution, OpenSearch SQL plugins, Performance Analyzer, and broader administration remain optional; snapshot execution requires a compatible repository and permissions.',
     ],
     screenshots: screenshotSet('OpenSearch'),
   },
@@ -751,7 +751,7 @@ export const datastoreDocs: DatastoreDoc[] = [
     slug: 'clickhouse',
     title: 'ClickHouse',
     family: 'Warehouse and analytical',
-    maturity: 'Contract-complete preview-first',
+    maturity: 'Native HTTP SQL and transfer runtime',
     summary:
       'ClickHouse is documented as a warehouse-style SQL surface with MergeTree, query-log, cluster, TTL, optimize, freeze, metrics, and import/export previews.',
     bestFor: ['Analytical SQL', 'MergeTree posture', 'Query-log diagnostics'],
@@ -774,7 +774,7 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Review system query logs, MergeTree parts, replicas, cluster posture, storage, compute, access, metrics, TTL state, and query cost or scan posture.',
     ],
     importExport: [
-      'Use guarded import/export previews with path, format, overwrite, scan, cost, and environment guardrails.',
+      'Use live SELECT/INSERT FORMAT streaming for supported CSV, TSV, JSONEachRow, and Parquet data, plus server-configured native backup/restore archives.',
     ],
     safety: [
       'Broad mutations, OPTIMIZE/FREEZE execution, cluster changes, destructive table operations, and large exports remain preview-first unless adapter execution is validated.',
@@ -810,10 +810,10 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Review database-file preflight, read-only state, scoped lock boundaries, PRAGMA panels, extension posture, JSON/Parquet preloaded-extension gates, and restore boundaries.',
     ],
     importExport: [
-      'Use guarded CSV table export/import and CSV backup-folder execution; extension-loaded JSON/Parquet execution remains optional outside the scoped claim.',
+      'Use live native COPY for CSV, JSON, and Parquet plus database backup/restore into a new isolated file. Format availability still follows loaded extension capability.',
     ],
     safety: [
-      'Restore, broad admin, extension install/load, and non-CSV mutation workflows remain explicit execution-boundary exclusions unless promoted later.',
+      'Broad administration and extension install/load remain separate boundaries; restore is live only into a new isolated database file after validation.',
     ],
     screenshots: screenshotSet('DuckDB'),
   },
@@ -822,7 +822,7 @@ export const datastoreDocs: DatastoreDoc[] = [
     slug: 'snowflake',
     title: 'Snowflake',
     family: 'Warehouse and analytical',
-    maturity: 'Contract-complete preview-first',
+    maturity: 'Native InfluxDB 1.x query and line-protocol transfer runtime',
     summary:
       'Snowflake is documented as a SQL-first warehouse workflow with account/project posture, query history, credits, warehouses, stages, shares, and clone/copy previews.',
     bestFor: ['Cloud warehouse review', 'Credit and warehouse posture', 'Query history analysis'],
@@ -857,7 +857,7 @@ export const datastoreDocs: DatastoreDoc[] = [
     slug: 'bigquery',
     title: 'BigQuery',
     family: 'Warehouse and analytical',
-    maturity: 'Contract-complete preview-first',
+    maturity: 'Native Prometheus HTTP query and bounded export runtime',
     summary:
       'BigQuery uses GoogleSQL, project/dataset/table metadata, dry-run estimates, job timelines, slot and reservation posture, and guarded cloud-operation previews.',
     bestFor: ['GoogleSQL analytics', 'Dry-run cost estimates', 'Job and reservation review'],
@@ -892,7 +892,7 @@ export const datastoreDocs: DatastoreDoc[] = [
     slug: 'influxdb',
     title: 'InfluxDB',
     family: 'Time-series and metrics',
-    maturity: 'Contract-complete preview-first',
+    maturity: 'Native OpenTSDB HTTP query and bounded export runtime',
     summary:
       'InfluxDB keeps org, bucket, token, tag, field, retention, cardinality, Flux/InfluxQL, and chart-ready result context visible.',
     bestFor: ['Time-series buckets', 'Flux or InfluxQL reads', 'Retention and cardinality review'],
@@ -1023,7 +1023,7 @@ export const datastoreDocs: DatastoreDoc[] = [
       'Use graph import/export previews with label, relationship, path, file, scan, and environment guardrails.',
     ],
     safety: [
-      'Cypher writes use shared read-only and environment confirmations. Destructive schema changes and file import/export execution remain separately guarded.',
+      'Cypher writes use shared read-only and environment confirmations. Typed JSON Lines graph import/export is live against an empty target; destructive schema changes remain separately guarded.',
     ],
     screenshots: screenshotSet('Neo4j'),
   },
@@ -1135,6 +1135,11 @@ export const datastoreDocs: DatastoreDoc[] = [
   },
 ]
 
+export const datastoreDocs: DatastoreDoc[] = datastoreDocsBase.map((doc) => ({
+  ...doc,
+  importExport: transferDocumentation(doc.engine),
+}))
+
 export const datastoreDocsByFamily = datastoreFamilyOrder
   .map((family) => ({
     family,
@@ -1152,6 +1157,12 @@ export const datastoreGuideLinksByArticleSlug: Record<string, string[]> = {
   'sql-workflows': ['postgresql', 'cockroachdb', 'sqlserver', 'mysql', 'mariadb', 'sqlite', 'oracle', 'timescaledb', 'duckdb'],
   'mongodb-workflows': ['mongodb'],
   'redis-valkey-workflows': ['redis', 'valkey', 'memcached'],
+  'typed-query-builders': ['mongodb', 'cosmosdb', 'dynamodb', 'postgresql', 'cockroachdb', 'mysql', 'mariadb', 'sqlite', 'sqlserver'],
+  'sql-database-schema-scope': ['postgresql', 'cockroachdb', 'sqlserver', 'mysql', 'mariadb', 'oracle', 'timescaledb'],
+  'document-results-editing': ['mongodb', 'cosmosdb', 'litedb', 'arango'],
+  'key-value-full-value': ['redis', 'valkey', 'memcached'],
+  'native-datastore-transfers': declaredDatastoreEngines.map((engine) => getDatastoreDocBySlug(engine)?.slug ?? engine),
+  'oracle-explorer-intellisense': ['oracle'],
   'search-dynamodb-and-secondary': [
     'elasticsearch',
     'opensearch',
@@ -1175,3 +1186,4 @@ export const datastoreGuideLinksByArticleSlug: Record<string, string[]> = {
 export function getDatastoreDocBySlug(slug: string) {
   return datastoreDocs.find((doc) => doc.slug === slug)
 }
+import { transferDocumentation } from './transfer-docs'

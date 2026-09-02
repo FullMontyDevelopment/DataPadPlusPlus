@@ -1,173 +1,107 @@
-# Settings, Workspace Bundles, And Backups
+# Settings, Workspaces, And Backups
 
-DataPad++ settings open as a normal workbench tab. The tab is closeable, non-saveable, and organized with a left-side section menu so each page stays focused.
+The canonical user walkthrough is available in the [website documentation](https://datapad-plus-plus.org/docs/settings-workspace-backups). This reference describes persistence and recovery behavior.
 
-## Settings Sections
+> [!CAUTION]
+> DataPad++ is pre-release software. A workspace backup protects DataPad++ configuration and saved work; it is not a backup of the connected datastores and must not be the only copy of important information.
 
-- **Appearance**: theme selection and workbench display preferences.
-- **Workspace**: file-based workspace export and import.
-- **Backups**: opt-in encrypted automatic backups and restore tools.
-- **Updates**: update availability and stable or pre-release channel selection.
-- **Security**: Global safe mode and its execution impact.
-- **Plugins**: opt-in workspace capabilities, split between stable plugins and experimental plugins.
-- **Shortcuts**: keyboard shortcuts and command behavior.
-- **Health**: workspace counts, warnings, and app/runtime status.
+## Workspace Versioning
 
-Settings apply immediately. The Settings tab does not show dirty indicators or save prompts.
+Workspace schema version 12 is the current synchronized frontend/backend contract. Three versions serve different purposes:
 
-## Updates And Pre-Release Builds
+- `schemaVersion` identifies persisted workspace structure.
+- `workspaceRevision` orders cross-window state changes and rejects stale responses.
+- `formatVersion` identifies the encrypted export envelope.
 
-DataPad++ derives the installed build channel from the application’s SemVer version. A version
-with prerelease metadata, such as `0.2.0-beta.3`, is a pre-release build; build metadata alone,
-such as `0.2.0+windows.4`, does not make a version pre-release.
+Missing schemas and supported legacy schemas are normalized through the compatibility path and then migrated sequentially. Migrations run against a cloned snapshot, validate before committing, and create recovery state first. A workspace created by a newer unsupported DataPad++ version is rejected without changing the file.
 
-The first time a pre-release build is observed, DataPad++ automatically includes pre-release
-updates and performs a startup check if the previous check used the stable channel. Later checks
-return to the normal 24-hour interval. The bottom-left status bar identifies the build as
-`Pre-release · v<version>` and opens Updates settings when selected.
+Vault-writing migrations create new DataPad++-owned entries before durable persistence and remove superseded entries only after persistence succeeds. Failure removes newly created entries and preserves the original workspace.
 
-You can turn **Pre-release updates** off. That choice remains in effect across consecutive
-pre-release builds, although it can omit fixes that are published only in that channel. Observing
-a stable build resets the automatic transition, so a future manually installed pre-release can
-enable its matching update lane again. Update preferences and history remain device-local.
+## Persistent Versus Refreshable State
 
-## Global Safe Mode
+Persisted state includes:
 
-Global safe mode defaults to off for new workspaces and for older workspace data where the field
-is absent. DataPad++ preserves every explicitly stored on or off choice.
+- connections and environments without plaintext secrets;
+- folders, saved queries, scripts, snippets, notes, and test definitions;
+- open and recently closed tab identity, targets, drafts, pin state, renderer, and window placement;
+- environment color and query/database/schema scope;
+- preferences and plugin enablement.
 
-When Global safe mode is enabled:
+Refreshable runtime payloads are omitted from persistence and backups, including query results, object payloads, metrics diagnostics, cached security results, completed test observations, active execution, and transient errors. Restored views retain enough identity to show **Refresh to load current data**.
 
-- risky queries, operations, and datastore-test writes require confirmation
-- inline result editing is blocked
-- non-interactive API and MCP requests run only when existing guardrails return `allow`;
-  confirmation-required requests are rejected
-- read-only queries and navigation are unaffected
+Execution history retains the newest entries within the workspace-wide count and serialized-size budgets. Saved queries and current drafts are never truncated to satisfy history retention.
 
-Environment safe mode is independent and can enforce these protections even when Global safe mode
-is off. Turning the global setting off also does not disable read-only connections,
-unresolved-variable blocking, environment confirmation and risk policies, or datastore-specific
-destructive-operation safeguards.
+## Workspace Switching
 
-## Plugins
+The workspace registry is authoritative for workspace name, active marker, schema version, and summary counts. A successful switch replaces the active bootstrap payload and registry status together so Explorer and open tabs cannot remain attached to the previous workspace.
 
-Plugins are opt-in workspace capabilities. The current stable plugin is:
+Switching workspaces closes the previous workspace's detached editor windows and restores the selected workspace's window layout when the experimental Multi-window Tabs plugin is enabled.
 
-- **Workspace Search** indexes the current workspace snapshot so you can find connections, Library items, open tabs, recently closed tabs, scripts, queries, and test suites.
+## Opaque Connection-String Secrets
 
-Experimental plugins stay disabled by default because they expose broader workspace or datastore context than ordinary query tabs:
+A complete connection string is stored as one opaque operating-system vault value. DataPad++ does not parse, normalize, split, or reconstruct it.
 
-- **Datastore Tests** adds a visual suite/case editor and capability-driven adapter execution. Saved tests remain intact when disabled, active runs must finish or be cancelled before disabling, and browser preview never simulates a successful run.
-- **API Server** opens local REST, GraphQL, or gRPC servers for selected datastore resources and saved Library queries.
-- **MCP Server** opens a local Streamable HTTP MCP endpoint for scoped local coding clients.
-- **Workspaces** adds an app-wide switcher for named local workspaces.
-- **Datastore Security Checks** checks connected datastore product versions against NVD and CISA KEV data, then runs advisory posture checks for saved profiles and supported read-only metadata probes. Scan results also show bundled-catalog guidance such as known newer versions, recommended upgrade targets, and NVD affected-version ranges when the existing vulnerability response includes them. DataPad++ does not make extra release-feed calls or cloud-provider API calls during this step.
+- Workspace persistence contains only the DataPad++-owned vault reference.
+- Leaving the secret-style field blank while editing preserves the stored value.
+- Entering a new value atomically replaces it.
+- The backend resolves it only for connection testing or execution and applies environment interpolation in memory.
+- Deleting or changing connection mode removes superseded references after persistence succeeds.
+- Browser preview stores connection strings in memory only.
 
-Start experimental plugins only when you need the integration, keep local listeners bound to `127.0.0.1`, and review the selected connection, environment, resources, scopes, auth tokens, and logs before leaving them running.
+Legacy plaintext or component-bound connection strings migrate into a fresh full-string vault entry. Errors identify the affected connection name and datastore without displaying the value.
 
-## Datastore Tests
+## Export Dialog
 
-Datastore Tests separates the saved unit of organization from the executable unit:
+Workspace export uses an application-level dialog:
 
-- A **Test Suite** is the Library item and owns one or more Test Cases.
-- A **Test Case** is a selectable, non-draggable child of its suite; moving the suite moves every case.
+1. Choose whether to include passwords and secrets. The default is no.
+2. Enter and confirm the bundle passphrase.
+3. Review the security summary and validation.
+4. Choose a destination through the operating-system save picker.
 
-Every suite is created for exactly one datastore connection, one assigned environment, and one live datastore-native target. Creation is blocked until all three are valid. Database-level targets are available where the datastore has a meaningful namespace; object-level targets include tables, views, collections, Redis/Valkey prefixes, and DynamoDB tables. Explorer actions can prefill the target.
+The suggested filename uses the active workspace name and date. Canceling the picker leaves the dialog open and is reported as cancellation, not success or failure.
 
-The connection, environment, engine, family, and target cannot be edited after creation. Every case inherits that binding, and the editor always shows its breadcrumb and target kind. Query language is resolved by the datastore provider and shown read-only; a serialized legacy language value cannot override it.
+The bundle uses compact JSON, compression, authenticated metadata, and authenticated encryption. Secret-inclusive export fails rather than producing a partial bundle when any selected secret cannot be resolved. The automatic-backup passphrase is never included.
 
-The visual-only editor provides Setup, Execute, Assertions, and Teardown sections. Steps and assertions can be added or removed, cases can be duplicated and reordered, and the last case is protected from deletion. Structured steps are constrained to the suite target. Ambiguous raw requests are called out during preflight rather than being silently treated as target-local. Before execution, DataPad++ builds a five-minute, revision-bound preflight plan containing the binding. Read-only ready plans can run immediately; plans containing writes require the exact one-time confirmation phrase. Unsupported adapters or step kinds remain editable but are reported as blockers and are never treated as passing.
+## File-First Import
 
-## Datastore Security Checks
+Import is staged and memory-only:
 
-Datastore Security Checks has two lanes:
+1. **Choose File** validates the file size and envelope before requesting a passphrase.
+2. **Unlock** accepts retryable passphrases without requiring another file selection.
+3. **Review and Import** shows format/schema, encrypted and decrypted sizes, counts, warnings, and included-secret availability.
+4. **Create New Workspace** is the default and requires a valid editable name.
+5. **Replace Current Workspace** is explicitly destructive, retains the current identity/name, and creates recovery state.
+6. Included passwords and secrets are imported only after explicit opt-in and are remapped to fresh DataPad++-owned vault references.
 
-- **Vulnerabilities**: detects product versions, maps curated CPE candidates, checks NVD and CISA KEV, and shows bundled known-version guidance.
-- **Posture**: reviews TLS/certificate posture, auth mode, read-only and environment guardrails, secret-reference providers, local/emulator endpoints, privilege breadth, durability, and risky engine settings.
+Staged selections expire, are bound to the current revision, and are canceled when the dialog closes. Commit occurs only after validation, vault writes, and durable persistence succeed. The frontend applies the returned workspace payload and authoritative registry status atomically.
 
-Deep read-only posture probes currently target PostgreSQL, CockroachDB, TimescaleDB, MySQL, MariaDB, SQL Server/Azure SQL, MongoDB, Redis/Valkey, Elasticsearch/OpenSearch, SQLite, and DuckDB. Oracle, DynamoDB, Cassandra, Cosmos DB, LiteDB, Memcached, ClickHouse, Snowflake, BigQuery, Prometheus, InfluxDB, OpenTSDB, Neo4j, ArangoDB, JanusGraph, and Neptune receive profile-only posture checks until a later phase adds explicit provider or adapter support.
+## Automatic Backups
 
-Posture evidence is intentionally sanitized. The scanner stores summaries such as "TLS disabled" or "current role appears broad"; it does not persist passwords, tokens, raw connection strings, or full probe payloads. Permission-limited checks return **unknown** so teams can either grant read-only metadata visibility or review the setting manually.
+Automatic backups are opt-in, encrypted, and created only after the workspace changes. The default cadence is 30 minutes and retention remains 20 files. Every backup file, including a corrupt one, counts toward rotation.
 
-## API Server Setup
+The backup passphrase is stored through the operating-system vault. Restore uses the same preview, validation, rollback, and secret-remapping pipeline as manual import.
 
-The experimental API Server plugin can run local server profiles for selected datastore resources and saved-query endpoints.
+## Analyze Workspace Size
 
-Each server profile includes:
+**Settings → Workspace + Backups → Analyze Workspace Size** reports:
 
-- a local port, name, description, protocol, and optional base path
-- REST/OpenAPI, GraphQL, or gRPC posture
-- the datastore connection and environment used for requests
-- discovered resources such as tables, collections, indexes, items, or keys
-- custom endpoints sourced from saved Library queries
-- parameter definitions discovered from `{{api.name}}` tokens
-- metrics and logs for the running server
+- live workspace and recovery-file sizes;
+- backup count, total size, and average size;
+- projected plaintext, compressed, and encrypted bundle sizes;
+- grouped contributions from connections, environments, tabs, closed tabs, saved work, history, derived manifests, and cached payloads;
+- the largest tabs split into draft, history, object, metrics, and test state;
+- secret count and aggregate secret bytes only during explicitly secret-inclusive analysis.
 
-Servers cannot start until a connection, environment, and at least one enabled resource or custom endpoint are configured. Project export creates working Rust or .NET services for PostgreSQL, SQLite, MongoDB, and DynamoDB across REST/OpenAPI, GraphQL, and gRPC. The export dialog reports per-resource CRUD/read-only modes and blocking reasons before creating an archive. Generated projects use real datastore clients, validate their connection at startup, and write environment-variable references instead of DataPad++ secret values. See [API Server Project Exports](api-server-project-exports.md) for the support matrix and runtime configuration.
+The report contains sizes and counts, never queries, values, credentials, connection strings, payload contents, or full local paths. **Analyze Backup** provides the same report after unlocking an existing bundle without importing it.
 
-## MCP Client Setup
+## Settings Areas
 
-The experimental MCP Server plugin includes a Setup section for local LLM coding clients. It generates endpoint-aware snippets for OpenAI Codex, VS Code/GitHub Copilot, Cursor, Claude Code, and Gemini CLI.
+- **Appearance:** theme and workbench presentation.
+- **Workspace + Backups:** registry, switching, import/export, automatic backups, restore, and size analysis.
+- **Plugins:** optional and experimental features such as Multi-window Tabs, Workspace Search, API Server, MCP Server, security checks, and tests.
+- **Security:** lock and secret-store posture.
+- **Updates:** stable/prerelease update preferences.
+- **Health and Diagnostics:** sanitized runtime and adapter evidence.
 
-Automatic setup is desktop-only and user-level in v1. DataPad++ previews the target config path and DataPad++ entry, then creates a backup before applying the merge. It writes only endpoint and auth-token environment references; raw auth token values are never written to workspace JSON, workspace exports, or client config files by the automatic setup flow.
-
-MCP server profiles use `127.0.0.1`, default port `17641`, Streamable HTTP at `/mcp`, scoped auth tokens, optional origin allowlists, status, metrics, and logs. Tokens are shown only once at creation or reset time; store the raw value in a secure environment variable such as `DATAPAD_MCP_TOKEN` and rotate it if it is lost.
-
-The `plugin:read` token scope exposes the read-only `datapad_list_plugins` MCP tool. It lists Workspace Search, Datastore Tests, API Server, MCP Server, Workspaces, and Datastore Security Checks with enabled status, capability metadata, required scopes, and available MCP tools.
-
-Using plugin features through MCP requires the matching scope. Workspace Search uses `workspace:search`; Security Checks uses `security:read`; API Server summary access uses `api-server:read`; MCP Server summary access uses `mcp-server:read`; Workspaces profile listing uses `workspaces:read`. These tools are read-only in MCP v1: they do not start or stop local listeners, refresh security scans, mute findings, switch whole workspace profiles, write client config, or expose raw tokens, verifier values, datastore secrets, or query result payloads.
-
-## Workspace Search
-
-Workspace Search is a plugin-backed workbench tab rather than a global modal. When enabled, it indexes:
-
-- saved connections
-- folders and Library items
-- saved queries and scripts
-- test suites only while the Datastore Tests plugin is enabled
-- open tabs
-- recently closed tabs
-
-The search UI supports result-type filters, match-case, whole-word matching, recent searches, grouped rows, and virtualized results for large workspaces. Opening a result routes to the underlying connection, Library item, open tab, or closed-tab recovery path.
-
-## Themes
-
-DataPad++ supports System, Dark, Light, Midnight, Graphite, Solarized Dark, Solarized Light, and High Contrast themes. Monaco editors currently map to the closest light or dark editor base while the surrounding workbench uses the selected DataPad++ theme tokens.
-
-## Workspace Export
-
-Workspace export writes an encrypted `.datapadpp-workspace` file through the operating system save dialog.
-
-An exported bundle can include workspace layout, Library folders and saved items, connection profile metadata, environments, non-secret variable metadata, recents, and app state needed to restore the workspace.
-
-Secrets are excluded by default. If **include passwords/secrets** is enabled, DataPad++ resolves reachable secret references and stores those secret values only inside the encrypted bundle secret envelope.
-
-Every new bundle includes encrypted SHA-256 integrity metadata. On import, DataPad++ decrypts the bundle, recomputes the digest, and rejects the file before applying it if the contents have been corrupted or modified.
-
-## Workspace Import
-
-Workspace import uses the operating system file picker and expects a `.datapadpp-workspace` file plus the passphrase used to create it.
-
-Import behavior:
-
-- the bundle must decrypt successfully
-- integrity must verify for bundles that include integrity metadata
-- bundled secrets are restored into the desktop secret store before the workspace is applied
-- legacy bundles without integrity metadata remain supported
-- wrong-passphrase, corrupt-file, and missing-secret-store failures are shown without leaking secret values
-
-## Auto-Backups
-
-Auto-backup is opt-in. When enabled, DataPad++ creates encrypted workspace snapshots while the app is open, only after the workspace has changed. The default cadence is 30 minutes and the app keeps at most 20 automatic backups, rotating out the oldest after a successful new backup.
-
-Enabling auto-backup requires a passphrase. That passphrase is stored in the operating system secret store as a secret reference, not as plaintext workspace data.
-
-Backup tools include enable/disable, change passphrase, include passwords/secrets, manual backup, list backups, restore selected backup, and delete selected backup.
-
-## Security Expectations
-
-- Passwords and tokens should never appear in workspace JSON, diagnostics, messages, logs, or non-secret exports.
-- MCP client auth tokens are shown only at creation/reset time; workspace data stores verifier references only, and exports strip auth token metadata.
-- Bundle integrity hashes live inside the encrypted payload so they do not expose a stable public workspace fingerprint.
-- Exporting secrets is always explicit and encrypted.
-- Import never applies a tampered bundle or restores bundled secrets before integrity verification succeeds.
+See also [Security And Safety](architecture/security-and-safety.md) and [Multi-window Tabs](multi-window-tabs.md).

@@ -1,4 +1,7 @@
 import type { ScreenshotId } from './screenshots'
+import type { DatastoreEngineId } from './datastores'
+
+export type DocumentationStatus = 'Live' | 'Experimental' | 'Plan only' | 'Unavailable'
 
 export type DocStep = {
   title: string
@@ -14,6 +17,11 @@ export type DocArticle = {
   screenshots: ScreenshotId[]
   steps: DocStep[]
   notes?: string[]
+  status?: DocumentationStatus
+  warning?: string
+  relatedGuides?: string[]
+  appliesTo?: DatastoreEngineId[]
+  featured?: boolean
 }
 
 export const docArticles: DocArticle[] = [
@@ -21,7 +29,7 @@ export const docArticles: DocArticle[] = [
     slug: 'install-and-update',
     title: 'Install And Update DataPad++',
     description: 'Download the right desktop artifact, install it, and understand updater behavior.',
-    category: 'Get started',
+    category: 'Getting started',
     readingTime: '6 min',
     screenshots: ['download-release', 'hero-workbench'],
     steps: [
@@ -55,7 +63,7 @@ export const docArticles: DocArticle[] = [
     slug: 'first-launch',
     title: 'First Launch Checklist',
     description: 'Orient yourself in the workbench before connecting to important systems.',
-    category: 'Get started',
+    category: 'Getting started',
     readingTime: '5 min',
     screenshots: ['hero-workbench', 'library-environments'],
     steps: [
@@ -85,9 +93,11 @@ export const docArticles: DocArticle[] = [
     slug: 'connections',
     title: 'Create A Connection',
     description: 'Build, test, save, and organize datastore connection profiles.',
-    category: 'Core workflows',
+    category: 'Connections, environments, and secrets',
     readingTime: '8 min',
     screenshots: ['connection-wizard', 'explorer-tree'],
+    status: 'Live',
+    relatedGuides: ['environments', 'workspace-import-export', 'safety-model'],
     steps: [
       {
         title: 'Choose New Connection',
@@ -95,7 +105,7 @@ export const docArticles: DocArticle[] = [
       },
       {
         title: 'Enter native connection details',
-        body: 'Fill in host, port, database, file path, connection string, credential mode, or cloud profile fields depending on the selected datastore.',
+        body: 'Fill in host, port, database, file path, credential mode, or cloud profile fields for the adapter. A complete connection string is treated as one opaque secret and stored unchanged behind an operating-system vault reference.',
       },
       {
         title: 'Name the profile clearly',
@@ -107,7 +117,7 @@ export const docArticles: DocArticle[] = [
       },
       {
         title: 'Test before saving',
-        body: 'Run the connection test, review warnings or disabled reasons, then save only when the profile represents the target accurately.',
+        body: 'Run the connection test, review warnings or disabled reasons, then save only when the profile represents the target accurately. Connections start each session without a health badge; status appears only after a test or real datastore operation supplies evidence.',
       },
       {
         title: 'Organize in the Library',
@@ -119,7 +129,7 @@ export const docArticles: DocArticle[] = [
     slug: 'environments',
     title: 'Use Environments And Variables',
     description: 'Keep risk, secrets, and target context visible while you work.',
-    category: 'Core workflows',
+    category: 'Connections, environments, and secrets',
     readingTime: '7 min',
     screenshots: ['library-environments', 'safety-preview'],
     steps: [
@@ -149,7 +159,7 @@ export const docArticles: DocArticle[] = [
     slug: 'library',
     title: 'Save Work In The Library',
     description: 'Organize connections, saved queries, scripts, notes, tests, and reusable snippets.',
-    category: 'Core workflows',
+    category: 'Getting started',
     readingTime: '6 min',
     screenshots: ['library-environments', 'sql-query-results'],
     steps: [
@@ -179,7 +189,7 @@ export const docArticles: DocArticle[] = [
     slug: 'explorer',
     title: 'Explore Datastore Objects',
     description: 'Use datastore-native object trees and context menus before writing queries.',
-    category: 'Core workflows',
+    category: 'Exploring and IntelliSense',
     readingTime: '8 min',
     screenshots: ['explorer-tree', 'search-diagnostics'],
     steps: [
@@ -209,9 +219,11 @@ export const docArticles: DocArticle[] = [
     slug: 'querying',
     title: 'Query In The Right Mode',
     description: 'Choose raw editors, visual builders, consoles, and scoped query surfaces.',
-    category: 'Core workflows',
+    category: 'Querying and query builders',
     readingTime: '9 min',
     screenshots: ['sql-query-results', 'mongodb-builder', 'redis-browser'],
+    status: 'Live',
+    relatedGuides: ['typed-query-builders', 'sql-database-schema-scope', 'oracle-explorer-intellisense'],
     steps: [
       {
         title: 'Open a query from a connection or object',
@@ -231,7 +243,7 @@ export const docArticles: DocArticle[] = [
       },
       {
         title: 'Review generated queries',
-        body: 'When visual builders generate a query, read and adjust it before saving or running against sensitive systems.',
+        body: 'When visual builders generate a query, read it before saving or running. Invalid typed values or nested groups block compilation, execution, count, and editor handoff instead of falling back to stale text.',
       },
       {
         title: 'Save useful work',
@@ -243,9 +255,11 @@ export const docArticles: DocArticle[] = [
     slug: 'results-and-editing',
     title: 'Inspect Results And Edit Safely',
     description: 'Read table, document, raw, and key-value results with safe editing boundaries.',
-    category: 'Core workflows',
+    category: 'Results and safe editing',
     readingTime: '8 min',
     screenshots: ['sql-query-results', 'mongodb-builder', 'redis-browser', 'safety-preview'],
+    status: 'Live',
+    relatedGuides: ['document-results-editing', 'key-value-full-value', 'result-export'],
     steps: [
       {
         title: 'Inspect the renderer that matches the payload',
@@ -253,7 +267,7 @@ export const docArticles: DocArticle[] = [
       },
       {
         title: 'Use raw views when needed',
-        body: 'Switch to raw JSON, text, details, messages, or history when the rich renderer hides information you need.',
+        body: 'Switch to formatted raw JSON, text, details, messages, or history when the rich renderer hides information you need. Full-value actions retrieve authoritative content rather than copying a shortened preview.',
       },
       {
         title: 'Select precisely',
@@ -273,9 +287,12 @@ export const docArticles: DocArticle[] = [
     slug: 'import-export',
     title: 'Import, Export, And Backup Data',
     description: 'Use guarded desktop file workflows for portable data movement.',
-    category: 'Core workflows',
+    category: 'Import, export, and native backup',
     readingTime: '7 min',
-    screenshots: ['import-export', 'settings-backups'],
+    screenshots: ['datastore-transfer', 'result-export'],
+    status: 'Live',
+    warning: 'Support is action-specific. Review the selected datastore manifest before assuming import, export, backup, or restore is executable.',
+    relatedGuides: ['native-datastore-transfers', 'result-export', 'workspace-import-export'],
     steps: [
       {
         title: 'Open the action from the object context',
@@ -287,11 +304,11 @@ export const docArticles: DocArticle[] = [
       },
       {
         title: 'Review the preview',
-        body: 'Confirm file path, overwrite mode, target identity, read-only state, environment risk, and any scan or cost warning before execution.',
+        body: 'Confirm the backend-owned selection, destination type, fail-on-conflict policy, target identity, read-only state, environment risk, and any scan or cost warning before execution.',
       },
       {
-        title: 'Run bounded workflows first',
-        body: 'For new connections, export a small object or validate mode before moving larger volumes of data.',
+        title: 'Follow the transfer job',
+        body: 'For new connections, export a small object or validate mode before larger volumes. Transfers Center keeps progress, cancellation, warnings, retry state, native job identifiers, and completed artifacts visible.',
       },
       {
         title: 'Store workspace backups separately',
@@ -303,7 +320,7 @@ export const docArticles: DocArticle[] = [
     slug: 'result-export',
     title: 'Export Result Files',
     description: 'Save query and object-view results in formats that match the current payload.',
-    category: 'Core workflows',
+    category: 'Import, export, and native backup',
     readingTime: '5 min',
     screenshots: ['result-export', 'sql-query-results'],
     steps: [
@@ -321,7 +338,7 @@ export const docArticles: DocArticle[] = [
       },
       {
         title: 'Review redaction and shape',
-        body: 'Export serializers sanitize secret-looking fields and preserve the shape needed for downstream analysis, fixtures, or support handoffs.',
+        body: 'Export serializers preserve payload shape and redact only confirmed secret evidence. Ordinary returned values are not masked merely because a field name resembles a credential.',
       },
       {
         title: 'Save through the desktop file picker',
@@ -333,9 +350,12 @@ export const docArticles: DocArticle[] = [
     slug: 'settings-workspace-backups',
     title: 'Settings, Workspace Bundles, And Backups',
     description: 'Configure appearance, workspace security, encrypted exports, and automatic backups.',
-    category: 'Administration',
+    category: 'Workspaces, backups, and recovery',
     readingTime: '7 min',
     screenshots: ['settings-backups', 'library-environments'],
+    status: 'Live',
+    warning: 'A workspace bundle contains DataPad++ configuration and saved work. It is not a backup of any connected datastore.',
+    relatedGuides: ['workspace-import-export', 'workspace-size-analysis', 'connections'],
     steps: [
       {
         title: 'Open Settings as a tab',
@@ -343,23 +363,23 @@ export const docArticles: DocArticle[] = [
       },
       {
         title: 'Review Appearance and Workspace',
-        body: 'Tune theme, layout, workspace defaults, and saved-work behavior before heavy use.',
+        body: 'Tune theme, layout, workspace defaults, plugins, and saved-work behavior. The workspace registry switches the active payload, Explorer, tabs, and detached-window layout together.',
       },
       {
         title: 'Export a workspace bundle',
-        body: 'Use the system save dialog to create an encrypted .datapadpp-workspace file with integrity metadata.',
+        body: 'Open the export dialog, choose secret inclusion, enter and confirm a passphrase, then use the system picker to create a compact authenticated encrypted .datapadpp-workspace file.',
       },
       {
         title: 'Choose secret inclusion deliberately',
-        body: 'Including passwords or secrets in a workspace bundle is explicit and remains inside the encrypted payload.',
+        body: 'Secret-free export removes values and references. Secret-inclusive export requires every selected vault reference to resolve and keeps those values only inside the authenticated encrypted payload.',
       },
       {
         title: 'Enable auto-backups when useful',
         body: 'Opt-in backups are encrypted, passphrase-protected, and rotate so snapshots do not grow without bound.',
       },
       {
-        title: 'Verify import before relying on backups',
-        body: 'Test import with a non-critical workspace so you know the passphrase and integrity checks behave as expected.',
+        title: 'Import file first and review',
+        body: 'Select the file, unlock it, review schema 12 compatibility, sizes, counts, warnings and secrets, then name a new workspace or explicitly replace the current workspace with recovery state.',
       },
     ],
   },
@@ -367,7 +387,7 @@ export const docArticles: DocArticle[] = [
     slug: 'api-server',
     title: 'Run A Local API Server',
     description: 'Expose selected datastore resources and saved queries as local REST, GraphQL, or gRPC endpoints.',
-    category: 'Plugin workflows',
+    category: 'Integrations and automation',
     readingTime: '8 min',
     screenshots: ['api-server', 'safety-preview'],
     steps: [
@@ -414,7 +434,7 @@ export const docArticles: DocArticle[] = [
     slug: 'mcp-server',
     title: 'Connect Local MCP Clients',
     description: 'Use the desktop-only MCP Server with scoped tokens, setup snippets, metrics, and logs.',
-    category: 'Plugin workflows',
+    category: 'Integrations and automation',
     readingTime: '8 min',
     screenshots: ['mcp-server', 'settings-backups'],
     steps: [
@@ -456,7 +476,7 @@ export const docArticles: DocArticle[] = [
     slug: 'datastore-security-checks',
     title: 'Review Datastore Security Checks',
     description: 'Scan datastore versions for vulnerabilities and review local/read-only posture checks.',
-    category: 'Plugin workflows',
+    category: 'Connections, environments, and secrets',
     readingTime: '8 min',
     screenshots: ['settings-backups', 'safety-preview'],
     steps: [
@@ -499,7 +519,7 @@ export const docArticles: DocArticle[] = [
     slug: 'workspace-search',
     title: 'Search The Workspace',
     description: 'Find connections, Library work, open tabs, closed tabs, scripts, queries, and test suites quickly.',
-    category: 'Plugin workflows',
+    category: 'Integrations and automation',
     readingTime: '5 min',
     screenshots: ['workspace-search', 'library-environments'],
     steps: [
@@ -529,7 +549,7 @@ export const docArticles: DocArticle[] = [
     slug: 'test-suites',
     title: 'Build Datastore Test Suites',
     description: 'Capture repeatable setup, execute, assertion, and teardown checks beside the datastore they validate.',
-    category: 'Advanced workflows',
+    category: 'Integrations and automation',
     readingTime: '7 min',
     screenshots: ['test-suites', 'library-environments'],
     steps: [
@@ -567,7 +587,7 @@ export const docArticles: DocArticle[] = [
     slug: 'datastore-explorer',
     title: 'Explore Datastore Metadata',
     description: 'Browse each datastore through its native hierarchy and purpose-built detail views.',
-    category: 'Core workflows',
+    category: 'Exploring and IntelliSense',
     readingTime: '6 min',
     screenshots: ['explorer-tree', 'relationship-explorer'],
     steps: [
@@ -601,7 +621,7 @@ export const docArticles: DocArticle[] = [
     slug: 'relationship-explorer',
     title: 'Use SQL Relationship Diagrams',
     description: 'Understand table shape, joins, and schema boundaries before writing broad SQL.',
-    category: 'Advanced workflows',
+    category: 'Exploring and IntelliSense',
     readingTime: '6 min',
     screenshots: ['relationship-explorer', 'explorer-tree'],
     steps: [
@@ -635,7 +655,7 @@ export const docArticles: DocArticle[] = [
     slug: 'datastore-coverage-maturity',
     title: 'Understand Datastore Coverage',
     description: 'Read native-complete, contract-complete, fixture-backed, and preview-first claims without overestimating live readiness.',
-    category: 'Administration',
+    category: 'Datastore-specific guides',
     readingTime: '7 min',
     screenshots: ['search-diagnostics', 'safety-preview'],
     steps: [
@@ -665,7 +685,7 @@ export const docArticles: DocArticle[] = [
     slug: 'sql-workflows',
     title: 'SQL Family Workflows',
     description: 'Work with PostgreSQL, SQL Server, MySQL, MariaDB, SQLite, CockroachDB, TimescaleDB, DuckDB, Oracle, and related engines.',
-    category: 'Datastore guides',
+    category: 'Datastore-specific guides',
     readingTime: '10 min',
     screenshots: ['explorer-tree', 'sql-query-results', 'safety-preview'],
     steps: [
@@ -699,9 +719,9 @@ export const docArticles: DocArticle[] = [
     slug: 'mongodb-workflows',
     title: 'MongoDB Workflows',
     description: 'Build queries, inspect documents, review explain plans, and manage collection workflows.',
-    category: 'Datastore guides',
+    category: 'Datastore-specific guides',
     readingTime: '8 min',
-    screenshots: ['mongodb-builder', 'explorer-tree', 'import-export'],
+    screenshots: ['mongodb-builder', 'explorer-tree', 'document-editor'],
     steps: [
       {
         title: 'Open a collection',
@@ -737,9 +757,9 @@ export const docArticles: DocArticle[] = [
     slug: 'redis-valkey-workflows',
     title: 'Redis And Valkey Workflows',
     description: 'Browse keys, inspect types, run console commands, and protect key operations.',
-    category: 'Datastore guides',
+    category: 'Datastore-specific guides',
     readingTime: '8 min',
-    screenshots: ['redis-browser', 'import-export', 'safety-preview'],
+    screenshots: ['redis-browser', 'key-value-inspector', 'safety-preview'],
     steps: [
       {
         title: 'Start in the key browser',
@@ -767,7 +787,7 @@ export const docArticles: DocArticle[] = [
     slug: 'search-dynamodb-and-secondary',
     title: 'Search, DynamoDB, And Secondary Engines',
     description: 'Understand preview-first workflows for search, wide-column, cloud, graph, warehouse, metrics, and local engines.',
-    category: 'Datastore guides',
+    category: 'Datastore-specific guides',
     readingTime: '9 min',
     screenshots: ['search-diagnostics', 'explorer-tree', 'safety-preview'],
     steps: [
@@ -797,7 +817,7 @@ export const docArticles: DocArticle[] = [
     slug: 'safety-model',
     title: 'Safety Model',
     description: 'Learn why DataPad++ disables, previews, or confirms risky actions.',
-    category: 'Administration',
+    category: 'Connections, environments, and secrets',
     readingTime: '6 min',
     screenshots: ['safety-preview', 'library-environments'],
     steps: [
@@ -823,9 +843,322 @@ export const docArticles: DocArticle[] = [
       },
     ],
   },
+  {
+    slug: 'workspace-import-export',
+    title: 'Import Or Export A Workspace',
+    description: 'Move a versioned workspace safely, choose whether secrets travel, and activate the imported workspace immediately.',
+    category: 'Workspaces, backups, and recovery',
+    readingTime: '9 min',
+    screenshots: ['workspace-import-review', 'settings-backups'],
+    status: 'Live',
+    warning: 'Workspace bundles preserve DataPad++ state, not the connected datastore data. Keep independent datastore backups.',
+    relatedGuides: ['settings-workspace-backups', 'workspace-size-analysis', 'connections'],
+    featured: true,
+    steps: [
+      {
+        title: 'Choose Export from Workspace and Backups',
+        body: 'Exports exclude passwords and secrets by default. Enable secret inclusion only when the receiving machine should receive every resolvable vault-backed credential.',
+      },
+      {
+        title: 'Protect the bundle',
+        body: 'Enter and confirm a strong passphrase, review the security summary, then choose the destination. Canceling the save picker leaves the dialog ready for another attempt.',
+      },
+      {
+        title: 'Choose the import file first',
+        body: 'Import validates the size and encrypted envelope before asking for a passphrase. A wrong passphrase can be retried without selecting the file again.',
+      },
+      {
+        title: 'Review schema, counts, and secrets',
+        body: 'The review shows format, workspace schema, encrypted/decrypted sizes, object counts, warnings, and whether secret material is available. Schema 12 is the current synchronized workspace contract.',
+      },
+      {
+        title: 'Name and commit the workspace',
+        body: 'Create New Workspace is the default and accepts an editable name. Replace Current Workspace is explicitly destructive, keeps the current identity, and creates recovery state. Secret import always requires a separate opt-in.',
+      },
+    ],
+  },
+  {
+    slug: 'workspace-size-analysis',
+    title: 'Analyze Workspace And Backup Size',
+    description: 'Find large histories or cached payloads using byte-only diagnostics without exposing private content.',
+    category: 'Workspaces, backups, and recovery',
+    readingTime: '6 min',
+    screenshots: ['settings-backups'],
+    status: 'Live',
+    relatedGuides: ['workspace-import-export', 'settings-workspace-backups'],
+    steps: [
+      {
+        title: 'Open Workspace and Backups',
+        body: 'Choose Analyze Workspace Size to inspect the active workspace, recovery state, and projected bundle sizes.',
+      },
+      {
+        title: 'Read section contributions',
+        body: 'Compare connections, environments, open/closed tabs, saved work, execution history, adapter data, and refreshable payload contributions by byte count.',
+      },
+      {
+        title: 'Inspect the largest tabs',
+        body: 'The report splits large tab contributions into draft, history, object, metrics, and test state without displaying queries or values.',
+      },
+      {
+        title: 'Analyze an existing backup',
+        body: 'Unlock a bundle through Analyze Backup to inspect encrypted, compressed, and decrypted sizes without importing it.',
+      },
+      {
+        title: 'Understand normalization',
+        body: 'New persistence omits refreshable results/diagnostics and bounds execution history while preserving saved queries, current drafts, targets, definitions, and layout.',
+      },
+    ],
+  },
+  {
+    slug: 'typed-query-builders',
+    title: 'Build Valid Typed Queries',
+    description: 'Create nested filters with type-aware values, validated JSON, and native array predicates.',
+    category: 'Querying and query builders',
+    readingTime: '10 min',
+    screenshots: ['typed-query-builder', 'mongodb-builder'],
+    status: 'Live',
+    appliesTo: ['mongodb', 'cosmosdb', 'dynamodb', 'postgresql', 'cockroachdb', 'mysql', 'mariadb', 'sqlite', 'sqlserver'],
+    relatedGuides: ['querying', 'sql-database-schema-scope', 'document-results-editing'],
+    featured: true,
+    steps: [
+      {
+        title: 'Choose the field and operator',
+        body: 'The builder uses explicit group ownership for AND/OR nesting. Enabled invalid rows block compilation instead of being dropped or replaced with a stale query.',
+      },
+      {
+        title: 'Select the value type',
+        body: 'Strings, finite numbers, booleans, timezone-bearing dates, UUID/GUID values, MongoDB ObjectIds, JSON, and multi-value inputs validate before compilation.',
+      },
+      {
+        title: 'Edit JSON in the dialog',
+        body: 'Open the JSON editor for more space, format/search the draft, choose Validate, and apply only after the current text passes. Invalid text remains available for correction.',
+      },
+      {
+        title: 'Use native array predicates',
+        body: 'Has Items, Has No Items, and Has Length appear only where a reliable server-side expression exists. Missing, null, and scalar values do not count as empty arrays.',
+      },
+      {
+        title: 'Run only a valid compilation',
+        body: 'Run, Count, and Use in Query Editor remain disabled while the builder is invalid. Performance guidance identifies predicates that may be computed or non-indexed.',
+      },
+    ],
+  },
+  {
+    slug: 'sql-database-schema-scope',
+    title: 'Select SQL Database And Schema Scope',
+    description: 'Keep database and schema context on the query tab instead of repeating session-selection statements.',
+    category: 'Querying and query builders',
+    readingTime: '5 min',
+    screenshots: ['sql-query-results', 'explorer-tree'],
+    status: 'Live',
+    appliesTo: ['postgresql', 'cockroachdb', 'sqlserver', 'mysql', 'mariadb', 'oracle', 'timescaledb'],
+    relatedGuides: ['sql-workflows', 'oracle-explorer-intellisense'],
+    steps: [
+      {
+        title: 'Open a SQL tab from the target',
+        body: 'Explorer actions initialize the connection, environment, and available database/schema context on the tab.',
+      },
+      {
+        title: 'Choose database or catalog',
+        body: 'Use the database selector only for engines with a safe supported routing/session mechanism. Other engines keep connection-level or qualified-name behavior.',
+      },
+      {
+        title: 'Choose the schema',
+        body: 'The selected schema drives object completion and generated qualification. Oracle uses it as the authoritative completion owner.',
+      },
+      {
+        title: 'Write only the query',
+        body: 'The tab applies supported session scope automatically, so generated builder SQL does not prepend a user-authored USE statement.',
+      },
+      {
+        title: 'Verify the visible context',
+        body: 'Connection, environment, database/schema, and environment color remain attached to the tab, including while inactive or moved between windows.',
+      },
+    ],
+  },
+  {
+    slug: 'document-results-editing',
+    title: 'Edit Document Results Safely',
+    description: 'Add or remove fields, use native typed inputs, and validate raw JSON before datastore execution.',
+    category: 'Results and safe editing',
+    readingTime: '10 min',
+    screenshots: ['document-editor', 'mongodb-builder'],
+    status: 'Live',
+    appliesTo: ['mongodb', 'cosmosdb', 'litedb', 'arango'],
+    relatedGuides: ['results-and-editing', 'typed-query-builders'],
+    featured: true,
+    steps: [
+      {
+        title: 'Open the field context menu',
+        body: 'Add Field targets an object or a scalar\'s object parent; arrays remain editable through raw JSON. Remove Field applies to object properties while root deletion stays Delete Document.',
+      },
+      {
+        title: 'Choose a supported native type',
+        body: 'Editors preserve numbers, decimals, booleans, DateTime, ObjectId, MongoDB UUID, LiteDB GUID, binary, and other native wrappers without reclassifying ordinary strings.',
+      },
+      {
+        title: 'Respect protected identity',
+        body: 'Duplicate, empty, unsafe, reserved, identity, partition/shard, and concurrency fields cannot be added, removed, or changed.',
+      },
+      {
+        title: 'Inspect or edit raw JSON',
+        body: 'View Raw JSON formats the selected value. Edit Raw JSON requires explicit validation after every change and keeps Save disabled until the current text passes all checks.',
+      },
+      {
+        title: 'Wait for authoritative evidence',
+        body: 'The result changes only after execution succeeds and returns before/after data. Projected, lazy, truncated, stale, read-only, or insufficiently identified documents remain viewable but not mutable.',
+      },
+    ],
+  },
+  {
+    slug: 'key-value-full-value',
+    title: 'Inspect A Complete Key-Value Value',
+    description: 'Open, format, copy, and safely edit authoritative values without relying on shortened cell previews.',
+    category: 'Results and safe editing',
+    readingTime: '7 min',
+    screenshots: ['key-value-inspector', 'redis-browser'],
+    status: 'Live',
+    appliesTo: ['redis', 'valkey', 'memcached'],
+    relatedGuides: ['redis-valkey-workflows', 'result-export'],
+    featured: true,
+    steps: [
+      {
+        title: 'Search without losing the draft',
+        body: 'Edit the namespace delimiter or search pattern, then deliberately run the search. Typing no longer refreshes the page or replaces the field.',
+      },
+      {
+        title: 'Open Value from the row menu',
+        body: 'Scalar rows avoid a redundant expansion control. Open Value requests the authoritative value in a dedicated inspector.',
+      },
+      {
+        title: 'Read the compact header',
+        body: 'The field/key name leads the view, with content type and byte size shown as small inline badges.',
+      },
+      {
+        title: 'Choose source or formatted JSON',
+        body: 'Source preserves the original representation. Formatted JSON appears only when parsing succeeds and never changes stored data.',
+      },
+      {
+        title: 'Copy or edit deliberately',
+        body: 'Copy actions operate on the complete retrieved value. Editing remains subject to concrete identity, native type support, read-only posture, environment confirmation, and server evidence.',
+      },
+    ],
+  },
+  {
+    slug: 'native-datastore-transfers',
+    title: 'Import, Export, Backup, And Restore Datastore Data',
+    description: 'Use native and portable formats through a staged, conflict-safe transfer workflow.',
+    category: 'Import, export, and native backup',
+    readingTime: '12 min',
+    screenshots: ['datastore-transfer', 'transfer-center'],
+    status: 'Live',
+    warning: 'Transfer status is action-specific. A datastore with live export may still have plan-only or unavailable import, backup, or restore.',
+    relatedGuides: ['import-export', 'result-export', 'datastore-coverage-maturity'],
+    featured: true,
+    steps: [
+      {
+        title: 'Choose the operation',
+        body: 'Select Import, Export, Backup, or Restore. Result export and workspace backup are separate workflows with different scope and artifacts.',
+      },
+      {
+        title: 'Confirm objects and format',
+        body: 'The selected adapter exposes native formats plus clearly labelled portable or potentially lossy alternatives. Unsupported formats never appear as executable.',
+      },
+      {
+        title: 'Choose the destination',
+        body: 'Use an allowed local selection, server path, repository, directory object, named stage, cloud URI, or managed restore target. Full local paths stay backend-owned.',
+      },
+      {
+        title: 'Validate and review',
+        body: 'Review schema/type compatibility, permissions, locks, cost/scan impact, destination isolation, overwrite policy, and adapter-specific warnings. Imports fail on conflicts by default.',
+      },
+      {
+        title: 'Follow the job',
+        body: 'Transfers Center shows progress, cancellation, warnings, retry state, native job identifiers, and completed artifacts. Temporary local output is promoted only after success.',
+      },
+    ],
+  },
+  {
+    slug: 'multi-window-tabs',
+    title: 'Move Tabs Between Windows',
+    description: 'Enable the experimental desktop workspace and move eligible working tabs without creating another application session.',
+    category: 'Experimental features',
+    readingTime: '8 min',
+    screenshots: ['multi-window-tabs', 'hero-workbench'],
+    status: 'Experimental',
+    warning: 'Cross-window dragging is enabled only on platforms where WebView drag behavior passes the release checks. Move commands remain the reliable accessible path.',
+    relatedGuides: ['library', 'settings-workspace-backups'],
+    featured: true,
+    steps: [
+      {
+        title: 'Enable Multi-window Tabs',
+        body: 'Open Settings → Plugins and enable the desktop-only experimental plugin. Browser preview stays single-window.',
+      },
+      {
+        title: 'Move an eligible tab',
+        body: 'Use Move to New Window, Move to Window…, or Move to Main Window from the tab menu. Query, object, metrics, test, and search work can move; administrative surfaces remain in main.',
+      },
+      {
+        title: 'Use drag where supported',
+        body: 'A supported platform can insert over another strip or create an editor window outside the app. Escape and invalid destinations cancel without moving ownership.',
+      },
+      {
+        title: 'Respect execution locks',
+        body: 'Queued or running work blocks movement. Drafts flush before transfer, and failed window creation leaves the tab in its source window.',
+      },
+      {
+        title: 'Understand close and restore',
+        body: 'Closing an editor window reattaches its tabs to main. Closing main coordinates application shutdown. Window placement and ownership restore with the workspace.',
+      },
+    ],
+  },
+  {
+    slug: 'oracle-explorer-intellisense',
+    title: 'Navigate Large Oracle Schemas',
+    description: 'Page through large object catalogs and let IntelliSense complete the schema selected on the query tab.',
+    category: 'Exploring and IntelliSense',
+    readingTime: '7 min',
+    screenshots: ['oracle-paging', 'explorer-tree'],
+    status: 'Live',
+    appliesTo: ['oracle'],
+    relatedGuides: ['explorer', 'sql-database-schema-scope', 'sql-workflows'],
+    steps: [
+      {
+        title: 'Select the Oracle schema',
+        body: 'The query tab schema selector is authoritative for completion. Scoped target and current session schema are fallbacks only.',
+      },
+      {
+        title: 'Expand a paged branch',
+        body: 'Tables, Views, Materialized Views, and other large branches load deterministically in server pages rather than silently stopping at an early UI limit.',
+      },
+      {
+        title: 'Choose Load more',
+        body: 'Buffered children appear first, then the next cursor is requested. A failed page leaves already loaded objects available, and Refresh starts from the first page.',
+      },
+      {
+        title: 'Let completion continue in the background',
+        body: 'Object names load before larger column pages. Suggestions remain usable during progressive loading and a partial catalog can retry with Ctrl/Cmd+Space or schema refresh.',
+      },
+      {
+        title: 'Preserve exact identifiers',
+        body: 'Oracle completion and deduplication retain quoting, case, Unicode, dollar signs, and hash characters. Stale pages from another tab or schema are ignored.',
+      },
+    ],
+  },
 ]
 
-export const docCategories = Array.from(new Set(docArticles.map((article) => article.category)))
+export const docCategories = [
+  'Getting started',
+  'Connections, environments, and secrets',
+  'Workspaces, backups, and recovery',
+  'Exploring and IntelliSense',
+  'Querying and query builders',
+  'Results and safe editing',
+  'Import, export, and native backup',
+  'Experimental features',
+  'Integrations and automation',
+  'Datastore-specific guides',
+] as const
 
 export function getDocBySlug(slug: string) {
   return docArticles.find((article) => article.slug === slug)
