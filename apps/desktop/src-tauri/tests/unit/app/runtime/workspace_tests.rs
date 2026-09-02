@@ -360,6 +360,22 @@ fn fixture_profile_seed_includes_selected_profile_without_all_profiles() {
 }
 
 #[test]
+fn fixture_sqlite_smoke_seed_is_native_and_dependency_free() {
+    let seed = fixture_workspace_seed_for_profile(Some("sqlite-smoke"), "fixture.sqlite3");
+    let connection_ids = seed
+        .snapshot
+        .connections
+        .iter()
+        .map(|connection| connection.id.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(connection_ids, vec!["fixture-sqlite"]);
+    assert_eq!(seed.snapshot.tabs.len(), 1);
+    assert_eq!(seed.snapshot.tabs[0].connection_id, "fixture-sqlite");
+    assert!(seed.secrets.is_empty());
+}
+
+#[test]
 fn fixture_all_seed_includes_every_documented_profile() {
     let seed = fixture_workspace_seed_for_profile(Some("all"), "fixture.sqlite3");
     let connection_names = seed

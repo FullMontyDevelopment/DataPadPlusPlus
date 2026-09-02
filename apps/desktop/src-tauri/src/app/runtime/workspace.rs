@@ -13,7 +13,8 @@ use super::{
         resolve_environment,
     },
     fixtures::{
-        fixture_debug_enabled, fixture_workspace_seed, seed_fixture_secrets, workspace_is_empty,
+        fixture_debug_enabled, fixture_workspace_seed, screenshot_seed_enabled,
+        seed_fixture_secrets, workspace_is_empty,
     },
     library::ensure_library_nodes,
     ui::{normalize_ui_state, normalize_workspace_windows},
@@ -154,12 +155,15 @@ impl ManagedAppState {
             connection.auth.connection_string_secret_bindings.clear();
         }
         snapshot.ui.workspace_windows = normalize_workspace_windows(&snapshot);
+        let retain_screenshot_results = screenshot_seed_enabled();
         let transient_result_ids = snapshot
             .tabs
             .iter_mut()
             .filter_map(|tab| {
                 let result_id = tab.result.as_ref().map(|result| result.id.clone());
-                tab.result = None;
+                if !retain_screenshot_results {
+                    tab.result = None;
+                }
                 result_id.map(|result_id| (tab.id.clone(), result_id))
             })
             .collect();
@@ -1044,11 +1048,13 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     normalize_explorer_folder_orders(&mut snapshot.preferences.explorer_folder_orders);
     ensure_library_nodes(&mut snapshot);
 
-    for tab in &mut snapshot.tabs {
-        sanitize_persisted_tab(tab);
-    }
-    for closed_tab in &mut snapshot.closed_tabs {
-        sanitize_persisted_tab(&mut closed_tab.tab);
+    if !screenshot_seed_enabled() {
+        for tab in &mut snapshot.tabs {
+            sanitize_persisted_tab(tab);
+        }
+        for closed_tab in &mut snapshot.closed_tabs {
+            sanitize_persisted_tab(&mut closed_tab.tab);
+        }
     }
     let history_reduced = bound_persisted_history(&mut snapshot);
     snapshot.history_retention_notice_pending |= history_reduced;

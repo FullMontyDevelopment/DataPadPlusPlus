@@ -1,0 +1,167 @@
+name: Live Fixture Validation
+
+on:
+  pull_request:
+    paths:
+      - 'apps/desktop/src-tauri/src/adapters/**'
+      - 'apps/desktop/src-tauri/tests/adapters_integration.rs'
+      - 'tests/fixtures/**'
+      - '.github/workflows/live-fixtures.yml'
+  schedule:
+    - cron: '17 2 * * 1-5'
+    - cron: '43 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Fixture group to validate
+        required: true
+        default: core
+        type: choice
+        options:
+          - core
+          - oracle
+          - all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-fixtures-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-fixtures:
+    name: Core datastore fixtures
+    if: >-
+      github.event_name == 'pull_request' ||
+      github.event.schedule == '17 2 * * 1-5' ||
+      github.event.inputs.profile == 'core' ||
+      github.event.inputs.profile == 'all'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      DATAPADPLUSPLUS_FIXTURE_RUN: '1'
+      DATAPADPLUSPLUS_FIXTURE_PROFILE: core
+      DATAPADPLUSPLUS_WORKSPACE_DIR: ${{ runner.temp }}/datapadplusplus-live-fixtures
+      DATAPADPLUSPLUS_DESKTOP_BINARY: ${{ github.workspace }}/apps/desktop/src-tauri/target/release/datapadplusplus-desktop
+      RUST_BACKTRACE: '1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            pkg-config \
+            wget \
+            xvfb
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: swatinem/rust-cache@v2.9.1
+        with:
+          workspaces: './apps/desktop/src-tauri -> target'
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Start and seed core fixtures
+        run: |
+          npm run fixtures:up
+          npm run fixtures:seed
+
+      - name: Validate reference-engine fixture evidence
+        run: |
+          npm run fixtures:validate:postgres
+          npm run fixtures:validate:mongodb
+          npm run fixtures:validate:redis
+
+      - name: Run live Rust adapter tests
+        run: npm run rust:test:fixtures
+
+      - name: Build native desktop fixture binary
+        run: npm run e2e:desktop:build
+
+      - name: Run native desktop fixture journeys
+        run: xvfb-run -a npm run e2e:desktop
+
+      - name: Stop fixtures
+        if: always()
+        run: npm run fixtures:down
+
+  oracle-fixture:
+    name: Oracle paging and completion fixture
+    if: >-
+      github.event.schedule == '43 2 * * 0' ||
+      github.event.inputs.profile == 'oracle' ||
+      github.event.inputs.profile == 'all'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    env:
+      DATAPADPLUSPLUS_FIXTURE_RUN: '1'
+      DATAPADPLUSPLUS_FIXTURE_PROFILE: oracle
+      RUST_BACKTRACE: '1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            pkg-config \
+            wget
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install .NET
+        uses: actions/setup-dotnet@v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache Rust artifacts
+        uses: swatinem/rust-cache@v2.9.1
+        with:
+          workspaces: './apps/desktop/src-tauri -> target'
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Validate Oracle paging and completion
+        run: npm run fixtures:test:oracle
+
+      - name: Stop Oracle fixture
+        if: always()
+        run: npm run fixtures:stop:oracle

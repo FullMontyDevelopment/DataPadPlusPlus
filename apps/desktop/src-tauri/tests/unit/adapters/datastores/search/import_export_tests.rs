@@ -225,6 +225,7 @@ fn snapshot_source_option_and_regex_escaping_are_exact() {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn search_live_transfer_round_trips_both_engines_and_rolls_back_conflicts() {
     if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").unwrap_or_default() != "1" {
         return;
@@ -242,6 +243,7 @@ async fn search_live_transfer_round_trips_both_engines_and_rolls_back_conflicts(
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn search_live_snapshot_round_trips_both_engines_into_new_indices() {
     if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").unwrap_or_default() != "1" {
         return;

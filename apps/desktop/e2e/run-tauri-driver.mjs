@@ -1,24 +1,30 @@
-import { spawn, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import waitOn from 'wait-on'
 
 const repoRoot = resolve(import.meta.dirname, '..', '..', '..')
-const driverExecutable = process.platform === 'win32' ? 'tauri-driver.exe' : 'tauri-driver'
-const cargoDriverBin = join(process.env.CARGO_HOME ?? join(homedir(), '.cargo'), 'bin', driverExecutable)
-const driverBin =
-  process.env.DATAPADPLUSPLUS_TAURI_DRIVER_BIN ??
-  (existsSync(cargoDriverBin) ? cargoDriverBin : 'tauri-driver')
-const driverPort = process.env.DATAPADPLUSPLUS_TAURI_DRIVER_PORT ?? '4444'
-const nativeDriverBin = process.env.DATAPADPLUSPLUS_NATIVE_WEBDRIVER_BIN
+const suiteArgument = process.argv.find((argument) => argument.startsWith('--suite='))
+const suite =
+  suiteArgument?.slice('--suite='.length) ||
+  process.env.DATAPADPLUSPLUS_E2E_SUITE ||
+  'fixtures'
+const supportedSuites = new Set(['fixtures', 'smoke'])
+
+if (!supportedSuites.has(suite)) {
+  throw new Error(`Unknown DataPad++ desktop E2E suite: ${suite}`)
+}
+
 const workspaceDir =
   process.env.DATAPADPLUSPLUS_WORKSPACE_DIR ??
   mkdtempSync(join(tmpdir(), 'datapadplusplus-e2e-workspace-'))
 const desktopEnvironment = {
   ...process.env,
+  DATAPADPLUSPLUS_E2E_SUITE: suite,
   DATAPADPLUSPLUS_FIXTURE_RUN: process.env.DATAPADPLUSPLUS_FIXTURE_RUN ?? '1',
-  DATAPADPLUSPLUS_FIXTURE_PROFILE: process.env.DATAPADPLUSPLUS_FIXTURE_PROFILE ?? '',
+  DATAPADPLUSPLUS_FIXTURE_PROFILE:
+    process.env.DATAPADPLUSPLUS_FIXTURE_PROFILE ??
+    (suite === 'smoke' ? 'sqlite-smoke' : ''),
   DATAPADPLUSPLUS_WORKSPACE_DIR: workspaceDir,
   DATAPADPLUSPLUS_SECRET_STORE: 'file',
   DATAPADPLUSPLUS_SECRET_FILE: join(workspaceDir, 'secrets.json'),
@@ -29,6 +35,46 @@ const desktopEnvironment = {
     'sqlite',
     'datapadplusplus.sqlite3',
   ),
+}
+
+function prepareSqliteFixture() {
+  if (suite !== 'smoke' || process.env.DATAPADPLUSPLUS_E2E_PREPARE_SQLITE === '0') {
+    return
+  }
+
+  const script = resolve(repoRoot, 'tests', 'fixtures', 'sqlite', 'seed.py')
+  const candidates = process.env.PYTHON
+    ? [[process.env.PYTHON, []]]
+    : process.platform === 'win32'
+      ? [['py', ['-3']], ['python', []], ['python3', []]]
+      : [['python3', []], ['python', []]]
+
+  for (const [command, prefixArgs] of candidates) {
+    const probe = spawnSync(command, [...prefixArgs, '--version'], {
+      encoding: 'utf8',
+      stdio: 'ignore',
+      shell: false,
+    })
+    if (probe.status !== 0) {
+      continue
+    }
+
+    const seeded = spawnSync(command, [...prefixArgs, script], {
+      cwd: repoRoot,
+      env: desktopEnvironment,
+      stdio: 'inherit',
+      shell: false,
+    })
+    if (seeded.error) {
+      throw seeded.error
+    }
+    if (seeded.status !== 0) {
+      throw new Error(`SQLite fixture preparation failed with exit code ${seeded.status}`)
+    }
+    return
+  }
+
+  throw new Error('Python 3 is required to prepare the SQLite desktop E2E fixture.')
 }
 
 function candidateBinaries() {
@@ -65,26 +111,12 @@ function resolveApplicationBinary() {
     throw new Error(
       [
         'Unable to find a built DataPad++ desktop binary.',
-        'Run `npm run tauri:build` first or set DATAPADPLUSPLUS_DESKTOP_BINARY.',
+        'Run `npm run tauri:build` or the documented no-bundle Tauri E2E build, then set DATAPADPLUSPLUS_DESKTOP_BINARY if needed.',
       ].join(' '),
     )
   }
 
   return binary
-}
-
-function ensureTauriDriver() {
-  const probe = spawnSync(driverBin, ['--help'], {
-    encoding: 'utf8',
-    stdio: 'ignore',
-    shell: false,
-  })
-
-  if (probe.status !== 0) {
-    throw new Error(
-      'tauri-driver is required for desktop E2E. Install it with `cargo install tauri-driver --locked` or set DATAPADPLUSPLUS_TAURI_DRIVER_BIN.',
-    )
-  }
 }
 
 function runWdio(application) {
@@ -102,7 +134,6 @@ function runWdio(application) {
       env: {
         ...desktopEnvironment,
         DATAPADPLUSPLUS_DESKTOP_BINARY: application,
-        DATAPADPLUSPLUS_TAURI_DRIVER_PORT: driverPort,
       },
       stdio: 'inherit',
       shell: false,
@@ -118,30 +149,12 @@ function runWdio(application) {
   }
 }
 
-ensureTauriDriver()
 const application = resolveApplicationBinary()
-const driverArgs = ['--port', driverPort]
-
-if (nativeDriverBin) {
-  driverArgs.push('--native-driver', nativeDriverBin)
-}
-
-const driver = spawn(driverBin, driverArgs, {
-  cwd: repoRoot,
-  env: desktopEnvironment,
-  stdio: 'inherit',
-  shell: false,
-})
+prepareSqliteFixture()
 
 try {
-  await waitOn({
-    resources: [`tcp:127.0.0.1:${driverPort}`],
-    timeout: 30000,
-  })
   runWdio(application)
 } finally {
-  driver.kill()
-
   if (!process.env.DATAPADPLUSPLUS_WORKSPACE_DIR) {
     rmSync(workspaceDir, { recursive: true, force: true })
   }

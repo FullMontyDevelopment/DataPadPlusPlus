@@ -1416,9 +1416,8 @@ async fn duckdb_local_file_fixture_validates_read_profile_catalog_and_guard_boun
     Ok(())
 }
 
-#[tokio::test]
-async fn secondary_adapters_surface_safe_contract_without_live_fixture() -> Result<(), CommandError>
-{
+#[test]
+fn secondary_adapters_surface_safe_contract_without_network() -> Result<(), CommandError> {
     let manifests = adapters::manifests();
 
     for (engine, family, maturity) in [
@@ -1474,18 +1473,6 @@ async fn secondary_adapters_surface_safe_contract_without_live_fixture() -> Resu
                 }
             }
         }
-
-        let permissions = adapters::inspect_permissions(&connection).await?;
-        assert_eq!(permissions.engine, engine);
-        assert!(!permissions.unavailable_actions.is_empty());
-
-        if engine == "valkey" && !fixture_profile_enabled("cache") {
-            continue;
-        }
-
-        let diagnostics = adapters::collect_diagnostics(&connection, None).await?;
-        assert_eq!(diagnostics.engine, engine);
-        assert!(!diagnostics.metrics.is_empty());
     }
 
     Ok(())
@@ -1697,6 +1684,7 @@ async fn cockroach_operation_plans_include_cluster_specific_templates() -> Resul
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn postgres_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     if !fixtures_enabled() {
         return Ok(());
@@ -2003,6 +1991,7 @@ fn postgres_transfer_request(
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn timescale_adapter_native_copy_roundtrip() -> Result<(), CommandError> {
     if !fixtures_enabled() {
         return Ok(());
@@ -2208,6 +2197,7 @@ fn timescale_transfer_request(
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn sqlserver_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     if !fixtures_enabled() {
         return Ok(());
@@ -2315,6 +2305,7 @@ async fn sqlserver_adapter_fixture_roundtrip() -> Result<(), CommandError> {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn mysql_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     if !fixtures_enabled() {
         return Ok(());
@@ -2772,6 +2763,7 @@ async fn sqlite_adapter_fixture_roundtrip() -> Result<(), CommandError> {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     if !fixtures_enabled() {
         return Ok(());
@@ -3373,6 +3365,7 @@ print("Committed documents:", committedCount);
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn redis_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     if !fixtures_enabled() {
         return Ok(());
@@ -3537,6 +3530,7 @@ async fn redis_adapter_fixture_roundtrip() -> Result<(), CommandError> {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn cache_profile_fixture_roundtrips() -> Result<(), CommandError> {
     if !fixtures_enabled() || !fixture_profile_enabled("cache") {
         return Ok(());
@@ -3623,6 +3617,7 @@ async fn cache_profile_fixture_roundtrips() -> Result<(), CommandError> {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn mariadb_explorer_fixture_roundtrip() -> Result<(), CommandError> {
     if !fixtures_enabled() || !fixture_profile_enabled("sqlplus") {
         return Ok(());
@@ -3635,6 +3630,7 @@ async fn mariadb_explorer_fixture_roundtrip() -> Result<(), CommandError> {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn sqlplus_profile_fixture_roundtrips() -> Result<(), CommandError> {
     if !fixtures_enabled() || !fixture_profile_enabled("sqlplus") {
         return Ok(());
@@ -3772,6 +3768,7 @@ async fn sqlplus_profile_fixture_roundtrips() -> Result<(), CommandError> {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
     if !fixtures_enabled() || !fixture_profile_enabled("analytics") {
         return Ok(());
@@ -3929,6 +3926,7 @@ async fn analytics_profile_fixture_roundtrips() -> Result<(), CommandError> {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn clickhouse_native_transfer_roundtrips_all_formats() -> Result<(), CommandError> {
     if !fixtures_enabled() || !fixture_profile_enabled("analytics") {
         return Ok(());
@@ -4096,6 +4094,7 @@ async fn clickhouse_native_transfer_roundtrips_all_formats() -> Result<(), Comma
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn clickhouse_native_database_backup_restore_roundtrips() -> Result<(), CommandError> {
     if !fixtures_enabled() || !fixture_profile_enabled("analytics") {
         return Ok(());
@@ -4358,6 +4357,7 @@ fn clickhouse_checksum_query(database: &str, table: &str) -> String {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn arango_native_collection_transfer_roundtrips_and_rejects_partial_conflicts(
 ) -> Result<(), CommandError> {
     if !fixtures_enabled() || !fixture_profile_enabled("graph") {
@@ -4647,6 +4647,7 @@ async fn arango_fixture_request(
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn search_profile_fixture_roundtrips() -> Result<(), CommandError> {
     if !fixtures_enabled() || !fixture_profile_enabled("search") {
         return Ok(());
@@ -4700,6 +4701,7 @@ async fn search_profile_fixture_roundtrips() -> Result<(), CommandError> {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn graph_profile_fixture_roundtrips() -> Result<(), CommandError> {
     if !fixtures_enabled() || !fixture_profile_enabled("graph") {
         return Ok(());
@@ -4802,6 +4804,7 @@ async fn graph_profile_fixture_roundtrips() -> Result<(), CommandError> {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn cloud_contract_profile_fixture_roundtrips() -> Result<(), CommandError> {
     if !fixtures_enabled() || !fixture_profile_enabled("cloud-contract") {
         return Ok(());

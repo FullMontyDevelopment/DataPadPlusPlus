@@ -146,6 +146,7 @@ fn test_connection() -> ResolvedConnectionProfile {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn live_influxdb_line_protocol_round_trip_and_rollback() {
     if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").ok().as_deref() != Some("1") {
         return;

@@ -53,6 +53,7 @@ fn manifest_promotes_only_graph_transfer_not_backup() {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn live_fixture_round_trip_preserves_graph_and_native_types() {
     if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").ok().as_deref() != Some("1") {
         return;

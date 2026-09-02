@@ -148,6 +148,7 @@ fn neo4j_endpoint_rejects_control_characters_and_path_in_database() {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn neo4j_bolt_fixture_returns_graph_entities() {
     if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").unwrap_or_default() != "1" {
         return;

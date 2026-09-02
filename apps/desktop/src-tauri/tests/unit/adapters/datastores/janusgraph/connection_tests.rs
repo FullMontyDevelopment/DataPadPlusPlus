@@ -135,6 +135,7 @@ fn janusgraph_fixture_connection_error_is_actionable() {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn janusgraph_websocket_fixture_answers_query() {
     if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").unwrap_or_default() != "1" {
         return;

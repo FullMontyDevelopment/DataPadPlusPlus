@@ -83,6 +83,7 @@ fn main_transfer_manifests_are_live_and_plans_keep_confirmation() {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn live_cockroach_csv_and_backup_round_trip_are_conflict_safe() {
     if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").ok().as_deref() != Some("1") {
         return;

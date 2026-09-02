@@ -11,6 +11,7 @@ import {
 import { datastoreGroups } from './product'
 import { datastoreTransferManifest } from '../../../desktop/src/services/runtime/datastore-transfer-manifests'
 import { transferSupportMatrix } from './transfer-docs'
+import { screenshotSlots } from './screenshots'
 
 const requiredSections: Array<
   keyof Pick<
@@ -52,10 +53,28 @@ describe('datastore documentation', () => {
       expect(doc.summary).toBeTruthy()
       expect(doc.bestFor.length).toBeGreaterThanOrEqual(2)
       expect(doc.screenshots.length).toBeGreaterThanOrEqual(5)
+      expect(doc.prerequisites.length).toBeGreaterThanOrEqual(3)
+      expect(doc.quickstart).toHaveLength(8)
+      expect(doc.connectionFields.length).toBeGreaterThanOrEqual(3)
+      expect(doc.sampleQuery.length).toBeGreaterThan(8)
+      expect(doc.expectedResult.length).toBeGreaterThan(8)
+      expect(doc.capabilities.length).toBeGreaterThanOrEqual(5)
+      expect(doc.troubleshooting.length).toBeGreaterThanOrEqual(4)
 
       for (const section of requiredSections) {
         expect(doc[section].length, `${doc.title} ${section}`).toBeGreaterThan(0)
       }
+    }
+  })
+
+  it('has unique connection and workflow captures plus explicit shared assets', () => {
+    for (const doc of datastoreDocs) {
+      expect(doc.screenshots[0]?.id).toBe(`datastore-${doc.engine}-connection`)
+      expect(doc.screenshots[1]?.id).toBe(`datastore-${doc.engine}-workflow`)
+      for (const screenshot of doc.screenshots) {
+        expect(screenshotSlots[screenshot.id], `${doc.engine} -> ${screenshot.id}`).toBeTruthy()
+      }
+      expect(doc.screenshots.slice(2).every((screenshot) => screenshot.shared === true)).toBe(true)
     }
   })
 

@@ -144,6 +144,7 @@ fn transfer_target_understands_explorer_scope_and_plan_is_guarded() {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn live_cosmosdb_json_lines_round_trip_and_conflict_protection() {
     if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").ok().as_deref() != Some("1") {
         return;

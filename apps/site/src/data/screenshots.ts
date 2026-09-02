@@ -1,4 +1,6 @@
-export type ScreenshotId =
+import { declaredDatastoreEngines, type DatastoreEngineId } from './datastore-engines'
+
+export type CommonScreenshotId =
   | 'hero-workbench'
   | 'connection-wizard'
   | 'library-environments'
@@ -26,14 +28,26 @@ export type ScreenshotId =
   | 'multi-window-tabs'
   | 'oracle-paging'
 
+export type DatastoreScreenshotId = `datastore-${DatastoreEngineId}-${'connection' | 'workflow'}`
+
+export type ScreenshotId = CommonScreenshotId | DatastoreScreenshotId
+
 export type ScreenshotSlot = {
   id: ScreenshotId
   title: string
+  alt: string
   caption: string
-  image?: string
+  image: string
+  captureCase: string
+  sharedAsset?: boolean
 }
 
-export const screenshotSlots: Record<ScreenshotId, ScreenshotSlot> = {
+type ScreenshotDefinition = Pick<ScreenshotSlot, 'title' | 'caption' | 'image'> & {
+  id?: CommonScreenshotId
+  sharedAsset?: boolean
+}
+
+const commonScreenshotDefinitions: Record<CommonScreenshotId, ScreenshotDefinition> = {
   'hero-workbench': {
     id: 'hero-workbench',
     title: 'Workbench overview',
@@ -85,7 +99,7 @@ export const screenshotSlots: Record<ScreenshotId, ScreenshotSlot> = {
   'import-export': {
     id: 'import-export',
     title: 'Guarded document edit',
-    caption: 'A document field change paused for environment-aware review before execution.',
+    caption: 'A deterministic contract-mock document field change staged before environment-aware review; no live datastore is contacted.',
     image: '/screenshots/import-export.png',
   },
   'result-export': {
@@ -102,14 +116,14 @@ export const screenshotSlots: Record<ScreenshotId, ScreenshotSlot> = {
   },
   'download-release': {
     id: 'download-release',
-    title: 'Platform download',
-    caption: 'Release card recommending the best installer for the visitor platform.',
+    title: 'Update settings',
+    caption: 'Update channel, current version, available version, and install controls for the desktop app.',
     image: '/screenshots/download-release.png',
   },
   'safety-preview': {
     id: 'safety-preview',
-    title: 'Guarded preview',
-    caption: 'A destructive or administrative action shown as a reviewable plan first.',
+    title: 'Security settings',
+    caption: 'Global safe mode explains how risky writes, inline edits, API and MCP requests, and read-only work are guarded.',
     image: '/screenshots/safety-preview.png',
   },
   'api-server': {
@@ -133,7 +147,7 @@ export const screenshotSlots: Record<ScreenshotId, ScreenshotSlot> = {
   'test-suites': {
     id: 'test-suites',
     title: 'Datastore test suites',
-    caption: 'Opt-in visual suites with owned cases, removable steps, focused assertions, and adapter-backed preflight execution.',
+    caption: 'The test-suite workspace explains that a saved datastore target is required before cases can run.',
     image: '/screenshots/test-suites.png',
   },
   'relationship-explorer': {
@@ -152,23 +166,25 @@ export const screenshotSlots: Record<ScreenshotId, ScreenshotSlot> = {
     id: 'document-editor',
     title: 'Guarded document field editing',
     caption: 'A field-level document change paused for target and environment review before execution.',
-    image: '/screenshots/import-export.png',
+    image: '/screenshots/document-editor.png',
   },
   'key-value-inspector': {
     id: 'key-value-inspector',
-    title: 'Complete key-value inspector',
-    caption: 'Authoritative full-value content with inline type and size badges, source formatting, copy, and guarded edit actions.',
-    image: '/screenshots/redis-browser.png',
+    title: 'Key-value context actions',
+    caption: 'The read-only entry menu exposes copy and full-value inspection actions while mutation controls remain unavailable.',
+    image: '/screenshots/key-value-inspector.png',
   },
   'datastore-transfer': {
     id: 'datastore-transfer',
     title: 'Native datastore transfer',
     caption: 'Selected objects, native or portable formats, destination options, validation, and conflict-safe review.',
+    image: '/screenshots/datastore-transfer.png',
   },
   'transfer-center': {
     id: 'transfer-center',
     title: 'Transfers Center',
-    caption: 'Background progress, warnings, cancellation, retry state, native job identifiers, and completed artifacts.',
+    caption: 'A deterministic fixture failure in Transfers Center demonstrates the warning count, failure detail, retry control, and dismiss action without contacting a production system.',
+    image: '/screenshots/transfer-center.png',
   },
   'workspace-import-review': {
     id: 'workspace-import-review',
@@ -178,15 +194,87 @@ export const screenshotSlots: Record<ScreenshotId, ScreenshotSlot> = {
   },
   'multi-window-tabs': {
     id: 'multi-window-tabs',
-    title: 'Experimental multi-window tabs',
-    caption: 'A detached editor window keeps its tab, target, and environment while sharing the main workspace and backend.',
+    title: 'Experimental multi-window controls',
+    caption: 'The tab context menu exposes the preview-only move-to-window action and its current availability state.',
     image: '/screenshots/multi-window-tabs.png',
   },
   'oracle-paging': {
     id: 'oracle-paging',
     title: 'Oracle paging and completion',
     caption: 'Load more for large Oracle schema branches with selected-schema progressive object and column completion.',
+    image: '/screenshots/oracle-paging.png',
   },
+}
+
+const datastoreLabels: Record<DatastoreEngineId, string> = {
+  postgresql: 'PostgreSQL',
+  cockroachdb: 'CockroachDB',
+  sqlserver: 'SQL Server / Azure SQL',
+  mysql: 'MySQL',
+  mariadb: 'MariaDB',
+  sqlite: 'SQLite',
+  oracle: 'Oracle',
+  mongodb: 'MongoDB',
+  dynamodb: 'DynamoDB',
+  cassandra: 'Cassandra',
+  cosmosdb: 'Cosmos DB',
+  litedb: 'LiteDB',
+  redis: 'Redis',
+  valkey: 'Valkey',
+  memcached: 'Memcached',
+  neo4j: 'Neo4j',
+  neptune: 'Amazon Neptune',
+  arango: 'ArangoDB',
+  janusgraph: 'JanusGraph',
+  influxdb: 'InfluxDB',
+  timescaledb: 'TimescaleDB',
+  prometheus: 'Prometheus',
+  opentsdb: 'OpenTSDB',
+  elasticsearch: 'Elasticsearch',
+  opensearch: 'OpenSearch',
+  clickhouse: 'ClickHouse',
+  duckdb: 'DuckDB',
+  snowflake: 'Snowflake',
+  bigquery: 'BigQuery',
+}
+
+const commonScreenshotSlots = Object.fromEntries(
+  Object.entries(commonScreenshotDefinitions).map(([id, definition]) => [
+    id,
+    {
+      id,
+      ...definition,
+      alt: `${definition.title}. ${definition.caption}`,
+      captureCase: `common:${id}`,
+    },
+  ]),
+) as Record<CommonScreenshotId, ScreenshotSlot>
+
+const datastoreScreenshotSlots = Object.fromEntries(
+  declaredDatastoreEngines.flatMap((engine) => {
+    const label = datastoreLabels[engine]
+    return ([
+      {
+        id: `datastore-${engine}-connection`,
+        title: `${label} connection setup`,
+        caption: `The native ${label} connection form with safe fixture values, platform notes, and test feedback.`,
+        image: `/screenshots/datastores/${engine}-connection.png`,
+        captureCase: `datastore:${engine}:connection`,
+      },
+      {
+        id: `datastore-${engine}-workflow`,
+        title: `${label} native workflow`,
+        caption: `A representative ${label} explorer and read-only query workflow using deterministic nonproduction fixtures or a clearly labeled contract mock.`,
+        image: `/screenshots/datastores/${engine}-workflow.png`,
+        captureCase: `datastore:${engine}:workflow`,
+      },
+    ] as ScreenshotSlot[]).map((slot) => [slot.id, { ...slot, alt: `${slot.title}. ${slot.caption}` }])
+  }),
+) as Record<DatastoreScreenshotId, ScreenshotSlot>
+
+export const screenshotSlots: Record<ScreenshotId, ScreenshotSlot> = {
+  ...commonScreenshotSlots,
+  ...datastoreScreenshotSlots,
 }
 
 export function getScreenshotSlot(id: ScreenshotId) {

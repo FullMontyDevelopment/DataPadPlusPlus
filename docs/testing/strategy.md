@@ -56,6 +56,10 @@ Cover:
 - saving and reopening work
 - query builder toolbar modes
 
+The native desktop smoke lane is deliberately smaller than the container-backed breadth suite. It launches the compiled Tauri process against a real SQLite file and verifies startup does not invent checking or failure health, query and metadata success can record connected evidence, SQL builder `AND`/`OR` drafts produce different native results, workspace switching replaces both the Explorer and tab set, and a tab can move to a native editor window and return without duplication. This lane uses the encrypted file secret store in an isolated temporary workspace, requires no Docker service, and runs on a Windows GitHub-hosted runner for every pull request.
+
+The broader desktop fixture suite remains responsible for cross-protocol UI journeys. Adapter-level fixture tests and validators cover document edits, complete key-value reads, Oracle continuation, guarded transfers, conflict handling, cancellation, cleanup, and secret inventory behavior without weakening the small PR smoke lane.
+
 Generated API project validation has two compile lanes. `npm run api-export:validate` compiles a pairwise Rust/.NET set covering PostgreSQL, SQLite, MongoDB, DynamoDB, and REST/GraphQL/gRPC in normal CI. `npm run api-export:validate:full` compiles all 24 supported combinations; Rust DynamoDB projects use Rust 1.94.1 or newer. The dedicated manually dispatched matrix runs `npm run api-export:validate:full-live`, which also starts generated projects against the documented SQLite, MongoDB replica-set, and DynamoDB Local fixtures when those services are available. Local subsets are available through `api-export:validate:live-sqlite`, `api-export:validate:live-mongodb`, and `api-export:validate:live-dynamodb`. The fixture lane verifies health, real repository reads, CRUD safety, composite keys, tagged values, duplicate protection, and public GraphQL/gRPC data rather than fixed responses. Cloud credentials and production mutations remain opt-in.
 - document-field drag-and-drop into builder sections
 - safe inline document edits where supported
@@ -77,11 +81,16 @@ Every pull request should run:
 - lint
 - unit tests
 - dependency-free integration and contract tests
-- production build
+- desktop and website production builds
+- website tests
+- Oracle and LiteDB .NET sidecar tests
 - release workflow/script tests
 - Rust format, check, test, and clippy
+- a compiled Windows/Tauri smoke test against the local SQLite fixture
 
-The default GitHub CI path must not require Docker, local database ports, desktop WebDriver, cloud credentials, or live datastore services. Fixture-backed adapter tests and desktop E2E remain available through local/manual commands when a developer explicitly opts into them.
+The deterministic GitHub CI job must not require Docker, local database ports, desktop WebDriver, cloud credentials, or live datastore services. Its job summary reports executed, ignored, fixture-skipped, and failed counts separately. The separate `native-smoke` job owns the compiled desktop, test-only embedded WebDriver provider, isolated workspace, and SQLite file. The CI policy validator keeps those concerns out of the deterministic job and also prevents the native smoke job from quietly acquiring Docker dependencies.
+
+The separate Live Fixture Validation workflow runs the PostgreSQL, MongoDB, Redis, live Rust adapter evidence, and the compiled desktop fixture journeys under Xvfb when adapter or fixture code changes and on weekday schedules. Oracle paging and selected-schema completion run in an isolated weekly or manually selected job because Oracle Free has substantially higher startup and memory costs. Both jobs tear their containers down with unconditional cleanup steps.
 
 ## Current Commands
 
@@ -103,13 +112,18 @@ Useful focused checks:
 npm run lint
 npm run test
 npm run build
+npm run site:check
+npm run sidecars:test
 npm run release:test
 npm run ci:workflow:test
 npm run rust:fmt
 npm run rust:check
 npm run rust:test
 npm run rust:clippy
+npm run e2e:desktop:smoke
 ```
+
+`e2e:desktop:smoke` prepares the SQLite file automatically. Build the production-mode native process first with `npm run e2e:desktop:build`; that enables the test-only embedded WebDriver feature and does not produce installer bundles. The embedded provider avoids platform-driver version drift and is not included in normal release builds. GitHub Actions performs both preparation and execution itself.
 
 ## Fixture-Gated Tests
 
@@ -119,10 +133,10 @@ Container-backed tests are intentionally opt-in:
 npm run fixtures:up
 npm run fixtures:seed
 $env:DATAPADPLUSPLUS_FIXTURE_RUN='1'
-npm run rust:test
+npm run rust:test:fixtures
 ```
 
-Profiles such as `cache`, `redis-stack`, `sqlplus`, `analytics`, `search`, `graph`, `widecolumn`, `oracle`, and `cloud-contract` can be enabled when testing those families. These tests must not be required by default CI.
+The live tests are reported as ignored by the default `npm run rust:test` gate instead of being counted as successful without executing. `rust:test:fixtures` enables their compile-time fixture gate; `DATAPADPLUSPLUS_FIXTURE_RUN=1` and the selected profile still provide the runtime safety boundary. Profiles such as `cache`, `redis-stack`, `sqlplus`, `analytics`, `search`, `graph`, `widecolumn`, `oracle`, and `cloud-contract` can be enabled when testing those families. These tests must not be required by default CI.
 
 The PostgreSQL reference-engine fixture evidence path is:
 

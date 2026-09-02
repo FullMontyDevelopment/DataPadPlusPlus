@@ -28,6 +28,7 @@ let failed = false
 try {
   run(['run', 'fixtures:up'])
   run(['run', 'fixtures:seed'])
+  run(['run', 'e2e:desktop:build'])
   run(['run', 'e2e:desktop'])
 } catch (error) {
   failed = true

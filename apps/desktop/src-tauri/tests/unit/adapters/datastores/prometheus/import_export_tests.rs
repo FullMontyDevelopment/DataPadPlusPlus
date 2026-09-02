@@ -101,6 +101,7 @@ fn transfer_plan_does_not_claim_import_or_write_support() {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn live_prometheus_exports_native_json_openmetrics_and_csv() {
     if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").ok().as_deref() != Some("1") {
         return;

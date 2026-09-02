@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const sqliteFixture =
   process.env.DATAPADPLUSPLUS_SQLITE_FIXTURE ??
@@ -7,7 +8,7 @@ const sqliteFixture =
 const generatedFixtureEnv = readGeneratedFixtureEnv()
 
 function readGeneratedFixtureEnv() {
-  const path = 'tests/fixtures/.generated.env'
+  const path = resolve(import.meta.dirname, '..', '..', '..', '..', 'tests', 'fixtures', '.generated.env')
 
   if (!existsSync(path)) {
     return {}
@@ -316,43 +317,6 @@ async function clickControl(label) {
   assert.equal(clicked, true, `Unable to click control "${label}"`)
 }
 
-async function clickElementByText(text) {
-  const clicked = await browser.execute((targetText) => {
-    const normalize = (value) => value?.replace(/\s+/g, ' ').trim() ?? ''
-    const candidates = [
-      ...document.querySelectorAll(
-        '[role="tab"], [role="treeitem"], button, [role="button"], [aria-label]',
-      ),
-    ]
-    const exact = candidates.find((element) => {
-      const accessible =
-        element.getAttribute('aria-label') ??
-        element.getAttribute('title') ??
-        normalize(element.textContent)
-      return accessible === targetText || normalize(element.textContent) === targetText
-    })
-    const partial =
-      exact ??
-      candidates.find((element) => {
-        const label =
-          element.getAttribute('aria-label') ??
-          element.getAttribute('title') ??
-          normalize(element.textContent)
-        return label.includes(targetText) || normalize(element.textContent).includes(targetText)
-      })
-
-    if (!partial) {
-      return false
-    }
-
-    partial.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-    partial.click()
-    return true
-  }, text)
-
-  assert.equal(clicked, true, `Unable to click element containing "${text}"`)
-}
-
 async function setField(label, value) {
   const updated = await browser.execute(
     ({ targetLabel, nextValue }) => {
@@ -385,67 +349,33 @@ async function setField(label, value) {
   assert.equal(updated, true, `Unable to set field "${label}"`)
 }
 
-async function createAndTestConnection(connection) {
-  await clickControl('New connection')
-  await waitForText('Connection')
-
-  await setField('Database type', connection.engine)
-  await setField('Name', connection.name)
-
-  if (connection.engine !== 'sqlite') {
-    await setField('Server', connection.server)
-  }
-
-  if (connection.port) {
-    await setField('Port', connection.port)
-  }
-
-  await setField(connection.engine === 'sqlite' ? 'Database file' : 'Database', connection.database)
-
-  if (connection.engine !== 'sqlite') {
-    await setField('User name', connection.username)
-  }
-
-  if (connection.engine !== 'sqlite' && connection.secret) {
-    await setField('Password / Secret', connection.secret)
-  }
-
-  await clickControl('Save Connection')
-  await waitForText(connection.name)
-  await clickControl('Test Connection')
-  await waitForText('Connection ready', 60000)
-  await clickControl('Create query tab')
-  await waitForText(`${connection.name} scratch`)
-}
-
 async function runActiveQuery(connection) {
   await clickControl('Run query')
   await waitForText(connection.expectedResult, 60000)
 }
 
-function seededTabTitle(connection) {
-  const extensionByEngine = {
-    mongodb: 'json',
-    redis: 'redis',
-    valkey: 'redis',
-    memcached: 'txt',
-    neo4j: 'cypher',
-    arango: 'aql',
-    janusgraph: 'gremlin',
-    cassandra: 'cql',
-    prometheus: 'promql',
-    influxdb: 'influxql',
-    opensearch: 'json',
-    elasticsearch: 'json',
-    dynamodb: 'json',
-    neptune: 'gremlin',
-  }
-  return `${connection.name}.${extensionByEngine[connection.engine] ?? 'sql'}`
-}
-
 async function activateSeededFixtureTab(connection) {
-  await clickElementByText(seededTabTitle(connection))
-  await waitForText(connection.name)
+  const activated = await browser.execute((connectionName) => {
+    const tabs = [...document.querySelectorAll(
+      '[role="tablist"][aria-label="Editor tabs"] [role="tab"]',
+    )]
+    const tab = tabs.find((candidate) => candidate.textContent?.includes(connectionName))
+    if (!(tab instanceof HTMLElement)) {
+      return false
+    }
+    tab.click()
+    return true
+  }, connection.name)
+  assert.equal(activated, true, `Unable to activate the ${connection.name} fixture tab.`)
+  await browser.waitUntil(
+    async () => browser.execute(
+      (connectionName) => document.querySelector(
+        '[role="tablist"][aria-label="Editor tabs"] [role="tab"][aria-selected="true"]',
+      )?.textContent?.includes(connectionName) ?? false,
+      connection.name,
+    ),
+    { timeout: 20000, timeoutMsg: `Expected ${connection.name} to become the active tab.` },
+  )
 }
 
 async function loadExplorerForActiveConnection() {
@@ -462,21 +392,33 @@ async function loadExplorerForActiveConnection() {
   await clickControl('Connections view')
 }
 
-async function exportWorkspace() {
-  await clickControl('Open diagnostics drawer')
-  await waitForText('Diagnostics')
-  await setField('Passphrase', 'correct horse battery staple')
+async function inspectWorkspaceExportDialog() {
+  await clickControl('Open settings')
+  await waitForText('Settings')
+  await clickControl('Workspace + Backups')
+  await waitForText('Workspace')
   await clickControl('Export')
-  await browser.waitUntil(
-    async () =>
-      browser.execute(() => Boolean(document.querySelector('.drawer-code code')?.textContent?.trim())),
-    {
-      timeout: 20000,
-      timeoutMsg: 'Expected encrypted export payload to be rendered.',
-    },
-  )
-
-  return browser.execute(() => document.querySelector('.drawer-code code')?.textContent ?? '')
+  await waitForText('Workspace Export')
+  await setField('Passphrase', 'correct horse battery staple')
+  await setField('Confirm passphrase', 'correct horse battery staple')
+  const state = await browser.execute(() => {
+    const dialog = document.querySelector('[role="dialog"][aria-labelledby="workspace-export-dialog-title"]')
+    const includeSecrets = dialog?.querySelector('input[type="checkbox"]')
+    const submit = [...(dialog?.querySelectorAll('button') ?? [])].find(
+      (button) => button.textContent?.includes('Choose Location and Export'),
+    )
+    return {
+      includeSecrets: includeSecrets instanceof HTMLInputElement && includeSecrets.checked,
+      submitEnabled: submit instanceof HTMLButtonElement && !submit.disabled,
+      text: dialog?.textContent ?? '',
+    }
+  })
+  assert.equal(state.includeSecrets, false, 'Workspace export must exclude secrets by default.')
+  assert.equal(state.submitEnabled, true, 'A valid confirmed passphrase should enable export.')
+  assert.equal(state.text.includes('DataPadPlusPlus_pwd_123'), false)
+  assert.equal(state.text.includes('fixture-token'), false)
+  await clickControl('Cancel')
+  await clickControl('Close tab Settings')
 }
 
 async function editorTabCount() {
@@ -540,7 +482,6 @@ describe('DataPad++ Tauri desktop fixtures', () => {
       await waitForText(connection.name)
     }
 
-    await waitForText('Fixture PostgreSQL.sql')
     await expectNoText('Analytics Postgres')
     await expectNoText('Ops dashboard')
     await expectNoText('Redis hot key pack')
@@ -555,16 +496,13 @@ describe('DataPad++ Tauri desktop fixtures', () => {
     }
   })
 
-  it('saves real work and exports without raw secrets', async () => {
+  it('saves real work and opens a secret-safe workspace export', async () => {
     await clickControl('Library view')
     await clickControl('Save current query to library')
     await clickControl('Save')
     await waitForText('Queries')
 
-    const encryptedPayload = await exportWorkspace()
-    assert.equal(encryptedPayload.includes('DataPadPlusPlus_pwd_123'), false)
-    assert.equal(encryptedPayload.includes('fixture-token'), false)
-    assert.equal(encryptedPayload.includes('"secret"'), false)
+    await inspectWorkspaceExportDialog()
   })
 
   it('opens the visual Datastore Tests plugin editor for a fixture connection', async () => {
@@ -600,7 +538,7 @@ describe('DataPad++ Tauri desktop fixtures', () => {
 
     await clickControl('Open settings')
     await waitForText('Settings')
-    await clickControl('Experimental')
+    await clickControl('Plugins')
     await waitForText('Multi-window Tabs')
     await setMultiWindowTabsEnabled(true)
     await clickControl('Close tab Settings')
@@ -644,7 +582,8 @@ describe('DataPad++ Tauri desktop fixtures', () => {
     )
 
     await clickControl('Open settings')
-    await clickControl('Experimental')
+    await waitForText('Settings')
+    await clickControl('Plugins')
     await setMultiWindowTabsEnabled(false)
     await clickControl('Close tab Settings')
   })

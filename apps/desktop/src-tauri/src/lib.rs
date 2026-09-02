@@ -321,7 +321,7 @@ fn coordinate_window_close(window: &tauri::Window, event: &WindowEvent) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     infrastructure::initialize_app_logging();
-    let run_result = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .setup(|app| {
             infrastructure::log_info("app", "Tauri setup started.");
             let managed_state = app::runtime::ManagedAppState::load(app.handle().clone())
@@ -430,7 +430,10 @@ pub fn run() {
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(app::runtime::app_updates::updater_plugin())
+        .plugin(app::runtime::app_updates::updater_plugin());
+    #[cfg(feature = "webdriver")]
+    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
+    let run_result = builder
         .on_page_load(|webview, payload| {
             let event = match payload.event() {
                 PageLoadEvent::Started => "native-webview-page-load-started",

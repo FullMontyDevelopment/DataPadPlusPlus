@@ -7,6 +7,7 @@ Connection strings, credentials, and seeded smoke queries are listed in
 
 ## Commands
 
+- Native SQLite-only desktop smoke, after building the release binary: `npm run e2e:desktop:smoke`
 - Core fixtures: `npm run fixtures:up`
 - Seed running fixtures: `npm run fixtures:seed`
 - Start one optional profile: `npm run fixtures:up:profile -- <profile>`
@@ -31,8 +32,10 @@ Run seeded Rust fixture tests with:
 
 ```powershell
 $env:DATAPADPLUSPLUS_FIXTURE_RUN='1'
-npm run rust:test
+npm run rust:test:fixtures
 ```
+
+The ordinary `npm run rust:test` command reports live fixture tests as ignored. The dedicated command enables those tests only after the runtime fixture flag above has also been set.
 
 `DATAPADPLUSPLUS_*` is the current fixture environment prefix. Older `DATANAUT_*` and `UNIVERSALITY_*` variables may still be read as compatibility fallbacks, but new scripts and docs should use the DataPad++ prefix.
 
@@ -168,6 +171,7 @@ The validator runs focused Rust unit tests against temporary `.db` files and che
 
 | Profile | Services | Notes |
 | --- | --- | --- |
+| `sqlite-smoke` | SQLite file only | Native compiled-app PR smoke profile. It never seeds or expects Docker services. |
 | default | PostgreSQL, MySQL, SQL Server, MongoDB, Redis, SQLite file | Fast path used by existing E2E. |
 | `cache` | Valkey, Memcached | Lightweight cache fixtures. |
 | `redis-stack` | Redis Stack | Optional Redis JSON/Search/TimeSeries/probabilistic module coverage, plus vector-set seed checks when the image supports vector commands; use `--require-vector` only for VADD-capable images. |

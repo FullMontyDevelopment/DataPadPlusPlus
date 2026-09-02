@@ -31,6 +31,7 @@ fn transfer_queries_use_bindings_and_preserve_graph_shape() {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn live_fixture_round_trip_preserves_graphson_values_and_conflicts() {
     if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").ok().as_deref() != Some("1") {
         return;

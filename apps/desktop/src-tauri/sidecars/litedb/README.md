@@ -23,7 +23,10 @@ The sidecar intentionally exposes read-only datastore operations by default. Gua
 Run the optional real-engine validator with NuGet access enabled:
 
 ```powershell
+npm run litedb:sidecar:test
 dotnet build apps/desktop/src-tauri/sidecars/litedb/DataPadPlusPlus.LiteDbSidecar.csproj
 $env:DATAPADPLUSPLUS_LITEDB_DOTNET_VALIDATE='1'
 npm run fixtures:validate:litedb:dotnet
 ```
+
+The xUnit project exercises the actual stdin/stdout protocol process, sanitized typed errors, guarded document mutations with native LiteDB values, and JSON/NDJSON collection round trips. It runs in the normal local and GitHub Actions `check:all` gate; the broader validator remains opt-in because it also exercises fixture-specific workflows.

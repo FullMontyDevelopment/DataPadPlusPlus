@@ -1,40 +1,29 @@
-export const declaredDatastoreEngines = [
-  'postgresql',
-  'cockroachdb',
-  'sqlserver',
-  'mysql',
-  'mariadb',
-  'sqlite',
-  'oracle',
-  'mongodb',
-  'dynamodb',
-  'cassandra',
-  'cosmosdb',
-  'litedb',
-  'redis',
-  'valkey',
-  'memcached',
-  'neo4j',
-  'neptune',
-  'arango',
-  'janusgraph',
-  'influxdb',
-  'timescaledb',
-  'prometheus',
-  'opentsdb',
-  'elasticsearch',
-  'opensearch',
-  'clickhouse',
-  'duckdb',
-  'snowflake',
-  'bigquery',
-] as const
+import type { ScreenshotId } from './screenshots'
+import { declaredDatastoreEngines, type DatastoreEngineId } from './datastore-engines'
 
-export type DatastoreEngineId = (typeof declaredDatastoreEngines)[number]
+export { declaredDatastoreEngines, type DatastoreEngineId } from './datastore-engines'
 
 export type DatastoreScreenshot = {
-  title: string
-  caption: string
+  id: ScreenshotId
+  shared?: boolean
+}
+
+export type DatastoreConnectionField = {
+  name: string
+  required: boolean
+  description: string
+  example: string
+}
+
+export type DatastoreCapabilityRow = {
+  capability: string
+  support: 'Available' | 'Guarded' | 'Preview' | 'Unavailable'
+  notes: string
+}
+
+export type DatastoreTroubleshootingItem = {
+  symptom: string
+  resolution: string
 }
 
 export type DatastoreDoc = {
@@ -55,6 +44,15 @@ export type DatastoreDoc = {
   importExport: string[]
   safety: string[]
   screenshots: DatastoreScreenshot[]
+  prerequisites: string[]
+  platforms: string[]
+  connectionFields: DatastoreConnectionField[]
+  quickstart: string[]
+  sampleQuery: string
+  queryLanguage: string
+  expectedResult: string
+  capabilities: DatastoreCapabilityRow[]
+  troubleshooting: DatastoreTroubleshootingItem[]
 }
 
 const datastoreFamilyOrder = [
@@ -67,32 +65,30 @@ const datastoreFamilyOrder = [
   'Graph',
 ]
 
-function screenshotSet(title: string): DatastoreScreenshot[] {
+function screenshotSet(engine: DatastoreEngineId): DatastoreScreenshot[] {
   return [
-    {
-      title: `${title} connection setup`,
-      caption: `Native ${title} connection fields, credential choices, read-only posture, and test feedback.`,
-    },
-    {
-      title: `${title} explorer and objects`,
-      caption: `The ${title} object tree with datastore-specific folders, object metadata, and context actions.`,
-    },
-    {
-      title: `${title} query and results`,
-      caption: `Query modes, bounded execution controls, result renderers, and copy or edit affordances for ${title}.`,
-    },
-    {
-      title: `${title} diagnostics and admin`,
-      caption: `Diagnostics, performance posture, and guarded administrative previews for ${title}.`,
-    },
-    {
-      title: `${title} import, export, and safety`,
-      caption: `File workflows, backup or restore boundaries, disabled reasons, and environment guardrails for ${title}.`,
-    },
+    { id: `datastore-${engine}-connection` as ScreenshotId },
+    { id: `datastore-${engine}-workflow` as ScreenshotId },
+    { id: 'explorer-tree', shared: true },
+    { id: 'result-export', shared: true },
+    { id: 'transfer-center', shared: true },
   ]
 }
 
-const datastoreDocsBase: DatastoreDoc[] = [
+type DatastoreDocBase = Omit<
+  DatastoreDoc,
+  | 'prerequisites'
+  | 'platforms'
+  | 'connectionFields'
+  | 'quickstart'
+  | 'sampleQuery'
+  | 'queryLanguage'
+  | 'expectedResult'
+  | 'capabilities'
+  | 'troubleshooting'
+>
+
+const datastoreDocsBase: DatastoreDocBase[] = [
   {
     engine: 'postgresql',
     slug: 'postgresql',
@@ -132,7 +128,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Writes, DDL, maintenance, role, extension, and destructive actions stay disabled or preview-first until identity, permissions, and environment guardrails pass.',
     ],
-    screenshots: screenshotSet('PostgreSQL'),
+    screenshots: screenshotSet('postgresql'),
   },
   {
     engine: 'cockroachdb',
@@ -170,7 +166,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Live SQL remains read-oriented; cluster movement, data movement, destructive work, and EXPLAIN ANALYZE DEBUG stay preview-first unless explicitly enabled later.',
     ],
-    screenshots: screenshotSet('CockroachDB'),
+    screenshots: screenshotSet('cockroachdb'),
   },
   {
     engine: 'sqlserver',
@@ -207,7 +203,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Native .bak backup/restore is live only for SQL Server-visible destinations and restores to an isolated new database by default. Broader bcp/sqlcmd and live administration remain outside the scoped claim.',
     ],
-    screenshots: screenshotSet('SQL Server'),
+    screenshots: screenshotSet('sqlserver'),
   },
   {
     engine: 'mysql',
@@ -243,7 +239,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Guarded local/server file loading and streamed export are live where server capability and permissions allow. mysqlpump/mysqldump backup parity, richer grants, restore, and selected administration remain unavailable or separately gated.',
     ],
-    screenshots: screenshotSet('MySQL'),
+    screenshots: screenshotSet('mysql'),
   },
   {
     engine: 'mariadb',
@@ -278,7 +274,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Guarded local/server file loading and streamed export are live where MariaDB capability and permissions allow. mariadb-dump backup parity, richer roles/grants, restore, and broader administration remain unavailable or separately gated.',
     ],
-    screenshots: screenshotSet('MariaDB'),
+    screenshots: screenshotSet('mariadb'),
   },
   {
     engine: 'sqlite',
@@ -314,7 +310,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Local file writes require clear file identity, writable posture, no conflicting read-only setting, and explicit confirmation for lock-heavy or destructive maintenance.',
     ],
-    screenshots: screenshotSet('SQLite'),
+    screenshots: screenshotSet('sqlite'),
   },
   {
     engine: 'oracle',
@@ -350,7 +346,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Writes, destructive SQL, PL/SQL, calls, SELECT FOR UPDATE, and administrative statements use the same environment and read-only guardrails across the UI, API, and MCP server.',
     ],
-    screenshots: screenshotSet('Oracle'),
+    screenshots: screenshotSet('oracle'),
   },
   {
     engine: 'timescaledb',
@@ -385,7 +381,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Timescale-aware COPY import/export is live after hypertable and time-dimension validation. Native full backup/restore and policy/job-control mutation remain unavailable or separately gated.',
     ],
-    screenshots: screenshotSet('TimescaleDB'),
+    screenshots: screenshotSet('timescaledb'),
   },
   {
     engine: 'mongodb',
@@ -424,7 +420,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
       'Live document and script mutations require read-only and environment checks; destructive, administrative, unknown-command, and write scripts require confirmation before the first mutation.',
       'The embedded JavaScript runtime has bounded memory, stack, CPU, operations, output, timeout, and cancellation, with no filesystem, process, module-loading, eval, or arbitrary network access.',
     ],
-    screenshots: screenshotSet('MongoDB'),
+    screenshots: screenshotSet('mongodb'),
   },
   {
     engine: 'dynamodb',
@@ -460,7 +456,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Writes require complete keys and conditional guards; cloud, destructive, table movement, IAM, and backup operations stay preview-first unless explicitly validated.',
     ],
-    screenshots: screenshotSet('DynamoDB'),
+    screenshots: screenshotSet('dynamodb'),
   },
   {
     engine: 'cassandra',
@@ -495,7 +491,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Native reads share bounded result and read-only guardrails; mutations remain preview-first until complete primary-key conditions and write boundaries are validated.',
     ],
-    screenshots: screenshotSet('Cassandra'),
+    screenshots: screenshotSet('cassandra'),
   },
   {
     engine: 'cosmosdb',
@@ -530,7 +526,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Gremlin mutations use the shared environment and read-only guardrails. Throughput, region failover, drops, and broad data movement remain preview-first until credential-gated cloud validation passes.',
     ],
-    screenshots: screenshotSet('Cosmos DB'),
+    screenshots: screenshotSet('cosmosdb'),
   },
   {
     engine: 'litedb',
@@ -565,7 +561,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Live document editing requires an explicitly configured LiteDB sidecar and remains guarded by file identity, read-only posture, encryption, lock, and _id mismatch checks.',
     ],
-    screenshots: screenshotSet('LiteDB'),
+    screenshots: screenshotSet('litedb'),
   },
   {
     engine: 'redis',
@@ -602,7 +598,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Live edits require concrete key identity, type checks, read-only gates, environment confirmation, and capability metadata; unsupported module actions stay disabled or preview-first.',
     ],
-    screenshots: screenshotSet('Redis'),
+    screenshots: screenshotSet('redis'),
   },
   {
     engine: 'valkey',
@@ -637,7 +633,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Redis Stack module actions, vector-only actions, and unsupported module file formats remain hidden or disabled unless compatible live metadata proves support.',
     ],
-    screenshots: screenshotSet('Valkey'),
+    screenshots: screenshotSet('valkey'),
   },
   {
     engine: 'memcached',
@@ -672,7 +668,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Flush, mutation, and broad dump operations remain guarded previews unless a concrete key or server operation has explicit confirmation and environment clearance.',
     ],
-    screenshots: screenshotSet('Memcached'),
+    screenshots: screenshotSet('memcached'),
   },
   {
     engine: 'elasticsearch',
@@ -708,7 +704,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Managed cloud auth and broader destructive administration remain separately gated; transfer and snapshot execution still require compatible versions, repositories, permissions, and guarded destinations.',
     ],
-    screenshots: screenshotSet('Elasticsearch'),
+    screenshots: screenshotSet('elasticsearch'),
   },
   {
     engine: 'opensearch',
@@ -744,7 +740,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Managed SigV4/IAM execution, OpenSearch SQL plugins, Performance Analyzer, and broader administration remain optional; snapshot execution requires a compatible repository and permissions.',
     ],
-    screenshots: screenshotSet('OpenSearch'),
+    screenshots: screenshotSet('opensearch'),
   },
   {
     engine: 'clickhouse',
@@ -779,7 +775,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Broad mutations, OPTIMIZE/FREEZE execution, cluster changes, destructive table operations, and large exports remain preview-first unless adapter execution is validated.',
     ],
-    screenshots: screenshotSet('ClickHouse'),
+    screenshots: screenshotSet('clickhouse'),
   },
   {
     engine: 'duckdb',
@@ -815,7 +811,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Broad administration and extension install/load remain separate boundaries; restore is live only into a new isolated database file after validation.',
     ],
-    screenshots: screenshotSet('DuckDB'),
+    screenshots: screenshotSet('duckdb'),
   },
   {
     engine: 'snowflake',
@@ -850,7 +846,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Warehouse state changes, role/grant changes, large exports, drops, and cloud file workflows remain preview-first unless live execution is explicitly validated.',
     ],
-    screenshots: screenshotSet('Snowflake'),
+    screenshots: screenshotSet('snowflake'),
   },
   {
     engine: 'bigquery',
@@ -885,7 +881,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Writes, DDL, export, and administrative statements remain preview/dry-run only in the adapter phase unless live cloud execution is configured and validated.',
     ],
-    screenshots: screenshotSet('BigQuery'),
+    screenshots: screenshotSet('bigquery'),
   },
   {
     engine: 'influxdb',
@@ -920,7 +916,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Broad writes, retention changes, bucket changes, auth changes, and high-cardinality operations stay preview-first unless adapter-owned execution is validated.',
     ],
-    screenshots: screenshotSet('InfluxDB'),
+    screenshots: screenshotSet('influxdb'),
   },
   {
     engine: 'prometheus',
@@ -955,7 +951,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Prometheus is read-oriented in this scope; broad exports, expensive ranges, metadata operations, and write/admin actions remain guarded previews.',
     ],
-    screenshots: screenshotSet('Prometheus'),
+    screenshots: screenshotSet('prometheus'),
   },
   {
     engine: 'opentsdb',
@@ -990,7 +986,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'UID repair, metadata mutation, broad exports, and high-cardinality operations remain preview-first unless validated for the target deployment.',
     ],
-    screenshots: screenshotSet('OpenTSDB'),
+    screenshots: screenshotSet('opentsdb'),
   },
   {
     engine: 'neo4j',
@@ -1025,7 +1021,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Cypher writes use shared read-only and environment confirmations. Typed JSON Lines graph import/export is live against an empty target; destructive schema changes remain separately guarded.',
     ],
-    screenshots: screenshotSet('Neo4j'),
+    screenshots: screenshotSet('neo4j'),
   },
   {
     engine: 'neptune',
@@ -1061,7 +1057,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Query writes use shared read-only and environment confirmations. Cloud cancellation, CloudWatch, loader, import/export, and admin changes remain gated until credential-backed validation passes.',
     ],
-    screenshots: screenshotSet('Amazon Neptune'),
+    screenshots: screenshotSet('neptune'),
   },
   {
     engine: 'arango',
@@ -1096,7 +1092,7 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'AQL writes use shared read-only and environment confirmations. Collection drops, index administration, file workflows, and cluster/Foxx changes remain separately guarded.',
     ],
-    screenshots: screenshotSet('ArangoDB'),
+    screenshots: screenshotSet('arango'),
   },
   {
     engine: 'janusgraph',
@@ -1131,14 +1127,139 @@ const datastoreDocsBase: DatastoreDoc[] = [
     safety: [
       'Gremlin writes use shared read-only and environment confirmations. Schema/index administration, backend-sensitive operations, and import/export execution remain separately guarded.',
     ],
-    screenshots: screenshotSet('JanusGraph'),
+    screenshots: screenshotSet('janusgraph'),
   },
 ]
 
-export const datastoreDocs: DatastoreDoc[] = datastoreDocsBase.map((doc) => ({
-  ...doc,
-  importExport: transferDocumentation(doc.engine),
-}))
+const sampleQueries: Record<DatastoreEngineId, { language: string; query: string; expected: string }> = {
+  postgresql: { language: 'sql', query: 'SELECT id, name, status\nFROM public.customers\nORDER BY id\nLIMIT 25;', expected: 'Up to 25 customer rows in the Results grid.' },
+  cockroachdb: { language: 'sql', query: 'SELECT id, name, status\nFROM public.customers\nORDER BY id\nLIMIT 25;', expected: 'A bounded, consistently ordered customer result.' },
+  sqlserver: { language: 'sql', query: 'SELECT TOP (25) id, name, status\nFROM dbo.customers\nORDER BY id;', expected: 'Up to 25 rows from dbo.customers.' },
+  mysql: { language: 'sql', query: 'SELECT id, name, status\nFROM commerce.customers\nORDER BY id\nLIMIT 25;', expected: 'Up to 25 commerce customer rows.' },
+  mariadb: { language: 'sql', query: 'SELECT id, name, status\nFROM commerce.customers\nORDER BY id\nLIMIT 25;', expected: 'Up to 25 commerce customer rows.' },
+  sqlite: { language: 'sql', query: 'SELECT id, name, status\nFROM customers\nORDER BY id\nLIMIT 25;', expected: 'Rows read from the selected SQLite fixture file.' },
+  oracle: { language: 'sql', query: 'SELECT customer_id, customer_name, status\nFROM customers\nORDER BY customer_id\nFETCH FIRST 25 ROWS ONLY', expected: 'The first 25 rows in the selected Oracle schema.' },
+  timescaledb: { language: 'sql', query: "SELECT time, device_id, temperature\nFROM public.sensor_readings\nWHERE time > now() - interval '1 hour'\nORDER BY time DESC\nLIMIT 100;", expected: 'Recent readings from the selected hypertable.' },
+  mongodb: { language: 'javascript', query: "db.products.find({ active: true }, { name: 1, category: 1 }).sort({ name: 1 }).limit(25)", expected: 'Up to 25 active product documents.' },
+  dynamodb: { language: 'sql', query: 'SELECT productId, productName, category\nFROM "Products"\nWHERE category = \'demo\'', expected: 'Matching fixture items returned by the bounded PartiQL read.' },
+  cassandra: { language: 'sql', query: 'SELECT product_id, product_name, category\nFROM catalog.products\nLIMIT 25;', expected: 'Up to 25 rows from the catalog keyspace.' },
+  cosmosdb: { language: 'sql', query: 'SELECT TOP 25 c.id, c.name, c.category\nFROM c\nWHERE c.active = true', expected: 'Active documents from the selected container.' },
+  litedb: { language: 'javascript', query: 'db.products.find({ active: true }).limit(25)', expected: 'Documents read from the selected LiteDB collection.' },
+  redis: { language: 'text', query: 'SCAN 0 MATCH sample:* COUNT 100', expected: 'A cursor and a bounded page of matching keys.' },
+  valkey: { language: 'text', query: 'SCAN 0 MATCH sample:* COUNT 100', expected: 'A cursor and a bounded page of matching keys.' },
+  memcached: { language: 'text', query: 'stats items', expected: 'Read-only item and slab statistics.' },
+  elasticsearch: { language: 'json', query: 'GET products/_search\n{\n  "size": 25,\n  "query": { "term": { "active": true } }\n}', expected: 'Hits, total count, timing, and shard status.' },
+  opensearch: { language: 'json', query: 'GET products/_search\n{\n  "size": 25,\n  "query": { "term": { "active": true } }\n}', expected: 'Hits, total count, timing, and shard status.' },
+  clickhouse: { language: 'sql', query: 'SELECT event_time, event_name, user_id\nFROM analytics.events\nORDER BY event_time DESC\nLIMIT 100;', expected: 'The 100 most recent analytical events.' },
+  duckdb: { language: 'sql', query: "SELECT *\nFROM read_parquet('fixtures/orders.parquet')\nLIMIT 25;", expected: 'A bounded preview of the local Parquet fixture.' },
+  snowflake: { language: 'sql', query: 'SELECT order_id, customer_id, total\nFROM DEMO.PUBLIC.ORDERS\nORDER BY order_id\nLIMIT 25;', expected: 'Up to 25 rows using the selected warehouse and role.' },
+  bigquery: { language: 'sql', query: 'SELECT order_id, customer_id, total\nFROM `demo.analytics.orders`\nORDER BY order_id\nLIMIT 25;', expected: 'A bounded BigQuery result with job metadata.' },
+  influxdb: { language: 'text', query: 'from(bucket: "demo")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == "temperature")\n  |> limit(n: 100)', expected: 'Recent temperature series and Flux table metadata.' },
+  prometheus: { language: 'text', query: 'rate(http_requests_total[5m])', expected: 'A Prometheus instant vector for the fixture metrics.' },
+  opentsdb: { language: 'json', query: 'GET /api/query?start=1h-ago&m=avg:demo.temperature', expected: 'Time-series points grouped by metric tags.' },
+  neo4j: { language: 'sql', query: 'MATCH (p:Product)\nRETURN p.name, p.category\nORDER BY p.name\nLIMIT 25', expected: 'A table and graph-ready result for up to 25 Product nodes.' },
+  neptune: { language: 'sql', query: 'SELECT ?product ?name\nWHERE { ?product a :Product ; :name ?name . }\nLIMIT 25', expected: 'A bounded SPARQL binding result.' },
+  arango: { language: 'sql', query: 'FOR product IN products\n  FILTER product.active == true\n  SORT product.name\n  LIMIT 25\n  RETURN { name: product.name, category: product.category }', expected: 'Up to 25 active product documents from AQL.' },
+  janusgraph: { language: 'text', query: "g.V().hasLabel('product').limit(25).valueMap('name', 'category')", expected: 'A bounded Gremlin traversal result.' },
+}
+
+const fileEngines = new Set<DatastoreEngineId>(['sqlite', 'duckdb', 'litedb'])
+const cloudEngines = new Set<DatastoreEngineId>(['dynamodb', 'cosmosdb', 'neptune', 'snowflake', 'bigquery'])
+
+function scopeField(doc: DatastoreDocBase) {
+  if (doc.family === 'Document and NoSQL') return 'Database / container'
+  if (doc.family === 'Key-value and cache') return 'Database / namespace'
+  if (doc.family === 'Search') return 'Index / alias'
+  if (doc.family === 'Warehouse and analytical') return 'Database / schema'
+  if (doc.family === 'Time-series and metrics') return 'Bucket / project'
+  if (doc.family === 'Graph') return 'Graph / database'
+  return 'Database / schema'
+}
+
+function connectionFields(doc: DatastoreDocBase): DatastoreConnectionField[] {
+  if (fileEngines.has(doc.engine)) {
+    return [
+      { name: 'File path', required: true, description: `Path to the nonproduction ${doc.title} database or fixture.`, example: `fixtures/${doc.slug}/demo.db` },
+      { name: 'Mode', required: true, description: 'Open read-only for the first connection; enable writes only when the task requires them.', example: 'Read only' },
+      { name: 'Encryption / secret', required: false, description: 'Optional local database secret when the selected engine supports it.', example: 'Stored in the OS secret store' },
+    ]
+  }
+
+  if (doc.engine === 'bigquery') {
+    return [
+      { name: 'Project ID', required: true, description: 'Google Cloud project used for jobs and billing.', example: 'datapad-demo' },
+      { name: 'Dataset', required: false, description: 'Default dataset for browsing and unqualified names.', example: 'analytics' },
+      { name: 'Credentials', required: true, description: 'Application Default Credentials or a nonproduction service-account secret.', example: 'Application Default Credentials' },
+      { name: 'Location', required: false, description: 'Dataset and job location.', example: 'US' },
+    ]
+  }
+
+  if (doc.engine === 'dynamodb') {
+    return [
+      { name: 'Region', required: true, description: 'AWS region or local-emulator region.', example: 'us-east-1' },
+      { name: 'Endpoint', required: false, description: 'Override for DynamoDB Local or a contract mock.', example: 'http://127.0.0.1:8000' },
+      { name: 'Access key', required: true, description: 'Fixture-only access key stored outside the workspace.', example: 'Stored secret' },
+      { name: 'Secret key', required: true, description: 'Fixture-only secret key stored in the OS secret store.', example: 'Stored secret' },
+    ]
+  }
+
+  return [
+    { name: cloudEngines.has(doc.engine) ? 'Endpoint / account' : 'Server', required: true, description: `Host, service URL, or account identifier for ${doc.title}.`, example: cloudEngines.has(doc.engine) ? 'Nonproduction account or local mock' : '127.0.0.1' },
+    { name: 'Port', required: !cloudEngines.has(doc.engine), description: 'Native service port when the connection mode uses TCP.', example: 'Engine default' },
+    { name: scopeField(doc), required: false, description: `Initial ${scopeField(doc).toLowerCase()} scope used by Explorer and new query tabs.`, example: 'demo' },
+    { name: 'Username / identity', required: false, description: 'Least-privileged nonproduction identity.', example: 'datapad_reader' },
+    { name: 'Secret / TLS', required: false, description: 'Secret-store reference and transport-security settings; never commit raw credentials.', example: 'OS secret store + TLS verify' },
+  ]
+}
+
+function capabilityRows(doc: DatastoreDocBase): DatastoreCapabilityRow[] {
+  const preview = /preview|planned|experimental|unavailable/i.test(doc.maturity)
+  const editable = doc.resultViews.some((item) => /edit|mutation|write/i.test(item))
+  return [
+    { capability: 'Native explorer', support: preview ? 'Preview' : 'Available', notes: doc.explorer[0] ?? 'Native Explorer availability follows the adapter capability registry.' },
+    { capability: 'Read queries', support: preview ? 'Preview' : 'Available', notes: doc.queryModes[0] ?? 'Read-query availability follows the adapter capability registry.' },
+    { capability: 'Inline editing', support: editable ? 'Guarded' : 'Unavailable', notes: editable ? 'Requires key evidence, a writable profile, and environment confirmation.' : 'Use a reviewed statement or the engine-native tool instead.' },
+    { capability: 'Diagnostics / administration', support: 'Guarded', notes: doc.adminFeatures[0] ?? 'Administration is available only when the adapter exposes a reviewed preview and execution boundary.' },
+    { capability: 'Import / export / transfer', support: 'Guarded', notes: 'Availability follows the authoritative runtime transfer manifest and shows a disabled reason when execution is not implemented.' },
+  ]
+}
+
+function enrichDatastoreDoc(doc: DatastoreDocBase): DatastoreDoc {
+  const sample = sampleQueries[doc.engine]
+  return {
+    ...doc,
+    importExport: transferDocumentation(doc.engine),
+    prerequisites: [
+      'Install the current DataPad++ desktop pre-release on Windows, macOS, or Linux.',
+      `Use a disposable ${doc.title} fixture, emulator, or nonproduction account with least-privileged credentials.`,
+      'Keep an independent backup before enabling edits, administration, restore, or transfer execution.',
+    ],
+    platforms: ['Windows desktop', 'macOS desktop', 'Linux desktop', cloudEngines.has(doc.engine) ? 'Cloud contract mock used for documentation captures' : 'Local fixture or container used for documentation captures'],
+    connectionFields: connectionFields(doc),
+    quickstart: [
+      `Open Library, choose Add connection, and select ${doc.title}.`,
+      'Complete the connection fields, keep Read only enabled, then choose Test connection and review the returned capability warnings.',
+      `Save the profile and open its native ${doc.title} Explorer.`,
+      `Select the ${scopeField(doc).toLowerCase()} scope that should be attached to the new tab.`,
+      'Open a query tab, paste the bounded read-only sample below, and choose Run or press Ctrl/Cmd+Enter.',
+      'Inspect Results, Messages, History, and Details; dock the panel on the bottom or right as needed.',
+      'Export only the required rows after reviewing format, destination, and redaction options.',
+      'Open Diagnostics or Transfers from the drawer/status bar and treat disabled reasons as capability boundaries, not transient errors.',
+    ],
+    sampleQuery: sample.query,
+    queryLanguage: sample.language,
+    expectedResult: sample.expected,
+    capabilities: capabilityRows(doc),
+    troubleshooting: [
+      { symptom: 'Test connection fails or times out', resolution: 'Verify endpoint, port, TLS mode, proxy/emulator health, and network access. Keep the profile unsaved until the test explains the failure.' },
+      { symptom: 'Explorer branches are empty or disabled', resolution: `Confirm the selected ${scopeField(doc).toLowerCase()}, refresh the branch, and grant the minimum metadata permissions described in the connection warning.` },
+      { symptom: 'Run, edit, admin, or transfer is disabled', resolution: 'Read the visible disabled reason. Select a compatible target, turn off read-only only when authorized, or use the documented preview/export fallback.' },
+      { symptom: 'Results differ from the example', resolution: 'Confirm that the deterministic fixture is selected and that the query remains bounded. Cloud and emulator captures are labeled and may expose different metadata.' },
+    ],
+  }
+}
+
+export const datastoreDocs: DatastoreDoc[] = datastoreDocsBase.map(enrichDatastoreDoc)
 
 export const datastoreDocsByFamily = datastoreFamilyOrder
   .map((family) => ({

@@ -104,6 +104,7 @@ fn partial_failures_report_confirmed_count_without_row_contents() {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn cassandra_live_transfer_round_trips_native_json_and_rejects_conflicts() {
     if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").unwrap_or_default() != "1" {
         return;

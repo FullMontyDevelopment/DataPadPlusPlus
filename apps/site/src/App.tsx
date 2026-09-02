@@ -24,15 +24,8 @@ import {
   TerminalSquare,
 } from 'lucide-react'
 import heroMark from '../../desktop/src/assets/hero.png'
-import {
-  datastoreDocs,
-  datastoreDocsByFamily,
-  datastoreGuideLinksByArticleSlug,
-  getDatastoreDocBySlug,
-  type DatastoreDoc,
-  type DatastoreScreenshot,
-} from './data/datastores'
-import { docArticles, docCategories, getDocBySlug, getNextDoc } from './data/docs'
+import { datastoreDocs } from './data/datastores'
+import { docArticles } from './data/docs'
 import {
   coreFeatures,
   datastoreGroups,
@@ -42,6 +35,7 @@ import {
   websiteUrl,
 } from './data/product'
 import { getScreenshotSlot, type ScreenshotId } from './data/screenshots'
+import { DocsExperience } from './docs/DocsExperience'
 import {
   classifyReleaseDownloads,
   formatBytes,
@@ -180,60 +174,20 @@ function ScreenshotFrame({
 }: {
   title: string
   caption: string
-  image?: string
+  image: string
   compact?: boolean
 }) {
   return (
     <figure className={compact ? 'screenshot-frame compact' : 'screenshot-frame'}>
-      {image ? (
-        <img src={image} alt={`${title}. ${caption}`} />
-      ) : (
-        <div className="screenshot-placeholder">
-          <div className="placeholder-topbar">
-            <span />
-            <span />
-            <span />
-          </div>
-          <div className="placeholder-body">
-            <div className="placeholder-rail">
-              <span />
-              <span />
-              <span />
-              <span />
-            </div>
-            <div className="placeholder-main">
-              <strong>{title}</strong>
-              <p>{caption}</p>
-              <div className="placeholder-grid">
-                <span />
-                <span />
-                <span />
-                <span />
-                <span />
-                <span />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <img src={image} alt={`${title}. ${caption}`} />
       <figcaption>{caption}</figcaption>
     </figure>
   )
 }
 
-function ScreenshotPlaceholder({ id, compact = false }: { id: ScreenshotId; compact?: boolean }) {
+function ScreenshotAsset({ id, compact = false }: { id: ScreenshotId; compact?: boolean }) {
   const slot = getScreenshotSlot(id)
   return <ScreenshotFrame title={slot.title} caption={slot.caption} image={slot.image} compact={compact} />
-}
-
-function DatastoreScreenshotPlaceholder({
-  screenshot,
-  compact = false,
-}: {
-  screenshot: DatastoreScreenshot
-  compact?: boolean
-}) {
-  return <ScreenshotFrame title={screenshot.title} caption={screenshot.caption} compact={compact} />
 }
 
 function WorkbenchMockup() {
@@ -387,9 +341,9 @@ function HomePage({ releases, platform }: { releases: GitHubRelease[]; platform:
         </div>
       </section>
       <section className="section media-strip">
-        <ScreenshotPlaceholder id="connection-wizard" compact />
-        <ScreenshotPlaceholder id="sql-query-results" compact />
-        <ScreenshotPlaceholder id="redis-browser" compact />
+        <ScreenshotAsset id="connection-wizard" compact />
+        <ScreenshotAsset id="sql-query-results" compact />
+        <ScreenshotAsset id="redis-browser" compact />
       </section>
     </>
   )
@@ -414,7 +368,7 @@ function FeaturesPage() {
                 Learn the workflow <ArrowRight size={16} />
               </a>
             </div>
-            <ScreenshotPlaceholder id={feature.screenshot} compact />
+            <ScreenshotAsset id={feature.screenshot} compact />
           </section>
         ))}
       </div>
@@ -454,7 +408,7 @@ function SafetyPage() {
             </div>
           ))}
         </div>
-        <ScreenshotPlaceholder id="safety-preview" />
+        <ScreenshotAsset id="safety-preview" />
       </section>
     </main>
   )
@@ -634,305 +588,6 @@ function DownloadsPage({
   )
 }
 
-function DatastoreDocsIndex() {
-  return (
-    <main className="docs-shell datastore-docs-shell">
-      <PageTitle
-        icon={Database}
-        title="Datastore-Specific Docs"
-        body="Connection fields, native object models, query modes, result views, diagnostics, admin previews, import/export paths, and safety boundaries for each supported engine."
-      />
-      <section className="datastore-directory" aria-label="Datastore documentation">
-        {datastoreDocsByFamily.map((group) => (
-          <div className="datastore-family-group" key={group.family}>
-            <div className="datastore-family-heading">
-              <h2>{group.family}</h2>
-              <span>{group.docs.length} engines</span>
-            </div>
-            <div className="datastore-card-grid">
-              {group.docs.map((doc) => (
-                <a className="datastore-card" href={`/docs/datastores/${doc.slug}`} key={doc.slug}>
-                  <span>{doc.maturity}</span>
-                  <strong>{doc.title}</strong>
-                  <p>{doc.summary}</p>
-                  <small>{doc.bestFor.join(' / ')}</small>
-                  <ChevronRight size={18} />
-                </a>
-              ))}
-            </div>
-          </div>
-        ))}
-      </section>
-    </main>
-  )
-}
-
-function DatastoreDocSection({ title, items }: { title: string; items: string[] }) {
-  return (
-    <section className="datastore-doc-section">
-      <h2>{title}</h2>
-      <ul>
-        {items.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-function DatastoreDetailPage({ doc }: { doc: DatastoreDoc }) {
-  const sections = [
-    ['Connections And Authentication', doc.connections],
-    ['Explorer And Object Model', doc.explorer],
-    ['Query Modes', doc.queryModes],
-    ['Result Views And Editing', doc.resultViews],
-    ['Admin And Guarded Operations', doc.adminFeatures],
-    ['Diagnostics And Performance', doc.diagnostics],
-    ['Import, Export, And Backups', doc.importExport],
-    ['Safety Boundaries And Maturity', doc.safety],
-  ] as const
-  const relatedArticles = docArticles.filter((article) =>
-    datastoreGuideLinksByArticleSlug[article.slug]?.includes(doc.slug),
-  )
-
-  return (
-    <main className="doc-article-layout datastore-detail-layout">
-      <aside className="doc-sidebar">
-        <a className="all-docs-link" href="/docs">
-          <BookOpen size={16} />
-          All docs
-        </a>
-        <a className="all-docs-link" href="/docs/datastores">
-          <Database size={16} />
-          Datastores
-        </a>
-        {datastoreDocsByFamily.map((group) => (
-          <div key={group.family}>
-            <strong>{group.family}</strong>
-            {group.docs.map((item) => (
-              <a key={item.slug} className={item.slug === doc.slug ? 'active' : ''} href={`/docs/datastores/${item.slug}`}>
-                {item.title}
-              </a>
-            ))}
-          </div>
-        ))}
-      </aside>
-      <article className="doc-article datastore-article">
-        <span className="doc-meta">
-          {doc.family} - {doc.maturity}
-        </span>
-        <h1>{doc.title}</h1>
-        <p className="doc-description">{doc.summary}</p>
-        <div className="datastore-best-for" aria-label="Best fit">
-          {doc.bestFor.map((item) => (
-            <span key={item}>{item}</span>
-          ))}
-        </div>
-        <div className="article-screenshots datastore-screenshots">
-          {doc.screenshots.map((screenshot) => (
-            <DatastoreScreenshotPlaceholder screenshot={screenshot} compact key={screenshot.title} />
-          ))}
-        </div>
-        <div className="datastore-doc-sections">
-          {sections.map(([title, items]) => (
-            <DatastoreDocSection title={title} items={items} key={title} />
-          ))}
-        </div>
-        {relatedArticles.length ? (
-          <section className="related-datastores">
-            <h2>Related launch docs</h2>
-            <div>
-              {relatedArticles.map((article) => (
-                <a href={`/docs/${article.slug}`} key={article.slug}>
-                  {article.title} <ArrowRight size={16} />
-                </a>
-              ))}
-            </div>
-          </section>
-        ) : null}
-      </article>
-    </main>
-  )
-}
-
-function DocsPage({ slug }: { slug?: string }) {
-  if (slug === 'datastores') {
-    return <DatastoreDocsIndex />
-  }
-
-  if (slug?.startsWith('datastores/')) {
-    const datastoreDoc = getDatastoreDocBySlug(slug.slice('datastores/'.length))
-
-    if (!datastoreDoc) {
-      return (
-        <main className="page-shell">
-          <PageTitle icon={Database} title="Datastore docs not found" body="The requested datastore article is not available yet." />
-          <a className="primary-action inline-action" href="/docs/datastores">
-            Browse datastore docs
-          </a>
-        </main>
-      )
-    }
-
-    return <DatastoreDetailPage doc={datastoreDoc} />
-  }
-
-  const article = slug ? getDocBySlug(slug) : undefined
-  if (slug && !article) {
-    return (
-      <main className="page-shell">
-        <PageTitle icon={BookOpen} title="Docs page not found" body="The requested article is not available yet." />
-        <a className="primary-action inline-action" href="/docs">
-          Browse docs
-        </a>
-      </main>
-    )
-  }
-
-  if (!article) {
-    return (
-      <main className="docs-shell">
-        <PageTitle
-          icon={BookOpen}
-          title="Documentation And Wiki"
-          body="Canonical task guides for getting started, connections and secrets, workspaces, exploration, querying, results, transfers, experimental features, integrations, and every datastore."
-        />
-        <PreReleaseNotice />
-        <section className="docs-index">
-          <div className="docs-category featured-docs-category">
-            <h2>Datastore specifics</h2>
-            <a href="/docs/datastores">
-              <span>
-                <strong>Datastore-Specific Docs</strong>
-                Connections, admin features, result views, diagnostics, import/export, and safety boundaries for every declared engine.
-              </span>
-              <small>{datastoreDocs.length} engines</small>
-            </a>
-          </div>
-          {docCategories.map((category) => (
-            <div className="docs-category" key={category}>
-              <h2>{category}</h2>
-              {docArticles
-                .filter((item) => item.category === category)
-                .map((item) => (
-                  <a href={`/docs/${item.slug}`} key={item.slug}>
-                    <span>
-                      <strong>{item.title}</strong>
-                      {item.description}
-                    </span>
-                    <small>{item.readingTime}</small>
-                  </a>
-                ))}
-            </div>
-          ))}
-        </section>
-      </main>
-    )
-  }
-
-  const nextDoc = getNextDoc(article.slug)
-  const relatedDatastores = (datastoreGuideLinksByArticleSlug[article.slug] ?? [])
-    .map((datastoreSlug) => getDatastoreDocBySlug(datastoreSlug))
-    .filter((item): item is DatastoreDoc => Boolean(item))
-
-  return (
-    <main className="doc-article-layout">
-      <aside className="doc-sidebar">
-        <a className="all-docs-link" href="/docs">
-          <BookOpen size={16} />
-          All docs
-        </a>
-        <a className="all-docs-link" href="/docs/datastores">
-          <Database size={16} />
-          Datastores
-        </a>
-        {docCategories.map((category) => (
-          <div key={category}>
-            <strong>{category}</strong>
-            {docArticles
-              .filter((item) => item.category === category)
-              .map((item) => (
-                <a key={item.slug} className={item.slug === article.slug ? 'active' : ''} href={`/docs/${item.slug}`}>
-                  {item.title}
-                </a>
-              ))}
-          </div>
-        ))}
-      </aside>
-      <article className="doc-article">
-        <span className="doc-meta">
-          {article.category} · {article.readingTime}
-        </span>
-        {article.status ? <span className={`documentation-status status-${article.status.toLowerCase().replace(/\s+/g, '-')}`}>{article.status}</span> : null}
-        <h1>{article.title}</h1>
-        <p className="doc-description">{article.description}</p>
-        {article.warning ? (
-          <aside className="article-warning">
-            <AlertTriangle size={19} aria-hidden="true" />
-            <p>{article.warning}</p>
-          </aside>
-        ) : null}
-        <div className="article-screenshots">
-          {article.screenshots.map((screenshot) => (
-            <ScreenshotPlaceholder id={screenshot} compact key={screenshot} />
-          ))}
-        </div>
-        <section className="step-list">
-          {article.steps.map((step, index) => (
-            <div className="step-item" key={step.title}>
-              <span>{String(index + 1).padStart(2, '0')}</span>
-              <div>
-                <h2>{step.title}</h2>
-                <p>{step.body}</p>
-              </div>
-            </div>
-          ))}
-        </section>
-        {article.notes?.length ? (
-          <section className="doc-notes">
-            <h2>Notes</h2>
-            {article.notes.map((note) => (
-              <p key={note}>{note}</p>
-            ))}
-          </section>
-        ) : null}
-        {article.relatedGuides?.length ? (
-          <section className="related-datastores">
-            <h2>Related guides</h2>
-            <div>
-              {article.relatedGuides.map((relatedSlug) => {
-                const related = getDocBySlug(relatedSlug)
-                return related ? (
-                  <a href={`/docs/${related.slug}`} key={related.slug}>
-                    {related.title} <ArrowRight size={16} />
-                  </a>
-                ) : null
-              })}
-            </div>
-          </section>
-        ) : null}
-        {relatedDatastores.length ? (
-          <section className="related-datastores">
-            <h2>Datastore details</h2>
-            <div>
-              {relatedDatastores.map((datastoreDoc) => (
-                <a href={`/docs/datastores/${datastoreDoc.slug}`} key={datastoreDoc.slug}>
-                  {datastoreDoc.title} <ArrowRight size={16} />
-                </a>
-              ))}
-            </div>
-          </section>
-        ) : null}
-        {nextDoc ? (
-          <a className="next-doc" href={`/docs/${nextDoc.slug}`}>
-            Next: {nextDoc.title} <ArrowRight size={18} />
-          </a>
-        ) : null}
-      </article>
-    </main>
-  )
-}
-
 function PageTitle({
   icon: Icon,
   title,
@@ -994,7 +649,7 @@ export function App() {
       case 'downloads':
         return <DownloadsPage releases={releases} releasesStatus={releasesStatus} platform={platform} />
       case 'docs':
-        return <DocsPage slug={route.slug} />
+        return <DocsExperience slug={route.slug} />
       case 'home':
       default:
         return <HomePage releases={releases} platform={platform} />

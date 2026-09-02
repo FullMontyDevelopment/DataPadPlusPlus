@@ -1,6 +1,7 @@
 use super::*;
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn redis_live_fixture_reads_the_complete_large_value_when_enabled() {
     if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").as_deref() != Ok("1") {
         return;

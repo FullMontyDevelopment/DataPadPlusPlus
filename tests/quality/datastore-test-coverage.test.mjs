@@ -369,6 +369,17 @@ test('aggregate quality gates include datastore coverage and test-target linting
   if (!/\bquality:test\b/.test(scripts['check:all'] ?? '')) {
     failures.push('check:all should include quality:test')
   }
+  if (!/\bsite:check\b/.test(scripts['check:all'] ?? '')) {
+    failures.push('check:all should include website tests and its production build through site:check')
+  }
+  if (!/\bsidecars:test\b/.test(scripts['check:all'] ?? '')) {
+    failures.push('check:all should include Oracle and LiteDB .NET tests through sidecars:test')
+  }
+  for (const scriptName of ['oracle:sidecar:test', 'litedb:sidecar:test']) {
+    if (!/dotnet test/.test(scripts[scriptName] ?? '')) {
+      failures.push(`${scriptName} should execute its .NET test project`)
+    }
+  }
   if (!/\brust:clippy\b/.test(scripts['check:native'] ?? '')) {
     failures.push('check:native should include rust:clippy')
   }

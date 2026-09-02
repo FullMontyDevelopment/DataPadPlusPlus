@@ -75,6 +75,7 @@ fn validates_server_locations_and_database_names() {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn live_fixture_creates_verifies_and_restores_native_backup() {
     if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").ok().as_deref() != Some("1") {
         return;

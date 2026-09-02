@@ -124,6 +124,7 @@ fn cassandra_bounded_response_preserves_paging_state() {
 }
 
 #[tokio::test]
+#[cfg_attr(not(feature = "live-fixtures"), ignore = "requires live fixtures")]
 async fn cassandra_live_fixture_returns_real_rows() {
     if std::env::var("DATAPADPLUSPLUS_FIXTURE_RUN").unwrap_or_default() != "1" {
         return;

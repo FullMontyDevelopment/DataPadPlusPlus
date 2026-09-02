@@ -109,7 +109,7 @@ fn fixture_workspace_seed_for_profile_options(
     };
     let seeds: Vec<FixtureConnectionSeed> = fixture_connection_seeds()
         .into_iter()
-        .filter(|seed| fixture_profile_requested(seed.profile, profile_value))
+        .filter(|seed| fixture_seed_requested(seed, profile_value))
         .collect();
     let mut secrets = Vec::new();
     let mut connections = Vec::new();
@@ -286,4 +286,22 @@ fn fixture_profile_requested(seed_profile: Option<&str>, profile_value: Option<&
             .map(str::trim)
             .any(|profile| profile == "all" || profile.eq_ignore_ascii_case(seed_profile)),
     }
+}
+
+fn fixture_seed_requested(seed: &FixtureConnectionSeed, profile_value: Option<&str>) -> bool {
+    let profiles = profile_value
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|profile| !profile.is_empty())
+        .collect::<Vec<_>>();
+
+    if profiles
+        .iter()
+        .any(|profile| profile.eq_ignore_ascii_case("sqlite-smoke"))
+    {
+        return seed.id == "fixture-sqlite";
+    }
+
+    fixture_profile_requested(seed.profile, profile_value)
 }

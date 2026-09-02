@@ -1,21 +1,21 @@
 import type { ScreenshotId } from './screenshots'
-import type { DatastoreEngineId } from './datastores'
+import type { DatastoreEngineId } from './datastore-engines'
 
 export type DocumentationStatus = 'Live' | 'Experimental' | 'Plan only' | 'Unavailable'
 
-export type DocStep = {
+type LegacyDocStep = {
   title: string
   body: string
 }
 
-export type DocArticle = {
+type LegacyDocArticle = {
   slug: string
   title: string
   description: string
   category: string
   readingTime: string
   screenshots: ScreenshotId[]
-  steps: DocStep[]
+  steps: LegacyDocStep[]
   notes?: string[]
   status?: DocumentationStatus
   warning?: string
@@ -24,7 +24,37 @@ export type DocArticle = {
   featured?: boolean
 }
 
-export const docArticles: DocArticle[] = [
+export type DocCalloutTone = 'note' | 'tip' | 'important' | 'warning'
+
+export type DocProcedureStep = {
+  title: string
+  body: string
+  figure?: ScreenshotId
+}
+
+export type DocBlock =
+  | { type: 'paragraph'; text: string }
+  | { type: 'procedure'; steps: DocProcedureStep[] }
+  | { type: 'figure'; screenshot: ScreenshotId }
+  | { type: 'callout'; tone: DocCalloutTone; title: string; body: string }
+  | { type: 'list'; items: string[] }
+  | { type: 'table'; columns: string[]; rows: string[][] }
+  | { type: 'code'; language: string; code: string; label?: string }
+  | { type: 'links'; links: { href: string; label: string; description: string }[] }
+
+export type DocSection = {
+  id: string
+  title: string
+  blocks: DocBlock[]
+}
+
+export type DocArticle = Omit<LegacyDocArticle, 'screenshots' | 'steps' | 'notes' | 'warning'> & {
+  prerequisites: string[]
+  keywords: string[]
+  sections: DocSection[]
+}
+
+const legacyDocArticles: LegacyDocArticle[] = [
   {
     slug: 'install-and-update',
     title: 'Install And Update DataPad++',
@@ -1147,6 +1177,330 @@ export const docArticles: DocArticle[] = [
   },
 ]
 
+function stableId(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+function upgradeLegacyArticle(article: LegacyDocArticle): DocArticle {
+  const procedureSteps = article.steps.map((step, index) => ({
+    ...step,
+    figure: article.screenshots[index],
+  }))
+  const remainingFigures = article.screenshots.slice(procedureSteps.length)
+  const detailBlocks: DocBlock[] = []
+
+  if (article.notes?.length) detailBlocks.push({ type: 'list', items: article.notes })
+  if (remainingFigures.length) {
+    detailBlocks.push(...remainingFigures.map((screenshot): DocBlock => ({ type: 'figure', screenshot })))
+  }
+
+  return {
+    slug: article.slug,
+    title: article.title,
+    description: article.description,
+    category: article.category,
+    readingTime: article.readingTime,
+    status: article.status,
+    relatedGuides: article.relatedGuides,
+    appliesTo: article.appliesTo,
+    featured: article.featured,
+    prerequisites: [
+      'Install the current DataPad++ desktop pre-release and open a disposable workspace.',
+      'Use a local fixture, emulator, or nonproduction datastore with least-privileged credentials.',
+    ],
+    keywords: [article.title, article.category, ...article.steps.flatMap((step) => [step.title, step.body])],
+    sections: [
+      {
+        id: 'quickstart',
+        title: 'Quickstart',
+        blocks: [
+          ...(article.warning
+            ? [{ type: 'callout', tone: 'warning', title: 'Before you begin', body: article.warning } as DocBlock]
+            : []),
+          { type: 'procedure', steps: procedureSteps },
+        ],
+      },
+      {
+        id: 'task-reference',
+        title: 'Task and control reference',
+        blocks: detailBlocks.length
+          ? detailBlocks
+          : [
+              {
+                type: 'paragraph',
+                text: 'The workbench keeps the active connection, environment, target scope, query mode, and panel state visible. Review that context before you run, edit, export, or administer anything.',
+              },
+            ],
+      },
+      {
+        id: 'safety-boundaries',
+        title: 'Safety boundaries',
+        blocks: [
+          {
+            type: 'callout',
+            tone: 'important',
+            title: 'Pre-release safety boundary',
+            body: 'DataPad++ is pre-release software. Start read-only, keep independent backups, review target and environment context, and treat preview-only or disabled controls as intentional product boundaries.',
+          },
+        ],
+      },
+      {
+        id: 'troubleshooting',
+        title: 'Troubleshooting',
+        blocks: [
+          {
+            type: 'table',
+            columns: ['Symptom', 'What to check'],
+            rows: [
+              ['A control is disabled', 'Read its disabled reason, then verify target scope, connection health, read-only mode, environment policy, and feature maturity.'],
+              ['The screen does not match this guide', 'Confirm the app version and platform, refresh the active tab, and check whether the feature is marked Experimental, Plan only, or Unavailable.'],
+              ['The operation produces no rows', 'Open Messages and History, verify the selected datastore scope, and retry with the guide’s bounded fixture query.'],
+            ],
+          },
+        ],
+      },
+    ],
+  }
+}
+
+type TaskGuideInput = {
+  slug: string
+  title: string
+  description: string
+  category: string
+  screenshots: ScreenshotId[]
+  steps: LegacyDocStep[]
+  referenceRows: string[][]
+  keywords: string[]
+  relatedGuides: string[]
+  status?: DocumentationStatus
+}
+
+function taskGuide(input: TaskGuideInput): DocArticle {
+  return {
+    slug: input.slug,
+    title: input.title,
+    description: input.description,
+    category: input.category,
+    readingTime: '8 min',
+    status: input.status ?? 'Live',
+    relatedGuides: input.relatedGuides,
+    prerequisites: [
+      'Open DataPad++ with the deterministic screenshot workspace or another nonproduction workspace.',
+      'Keep the active connection read-only until a guide explicitly calls for a reviewed write.',
+    ],
+    keywords: [...input.keywords, ...input.steps.flatMap((step) => [step.title, step.body])],
+    sections: [
+      {
+        id: 'quickstart',
+        title: 'Quickstart',
+        blocks: [
+          {
+            type: 'procedure',
+            steps: input.steps.map((step, index) => ({ ...step, figure: input.screenshots[index] })),
+          },
+        ],
+      },
+      {
+        id: 'task-reference',
+        title: 'Task and control reference',
+        blocks: [{ type: 'table', columns: ['Surface or task', 'How to use it'], rows: input.referenceRows }],
+      },
+      {
+        id: 'common-failures',
+        title: 'Common failure states',
+        blocks: [
+          {
+            type: 'callout',
+            tone: 'tip',
+            title: 'Start with visible context',
+            body: 'When an action is unavailable, inspect the active connection, environment badge, selected scope, tab type, Messages panel, and the disabled-reason text before changing configuration.',
+          },
+          {
+            type: 'table',
+            columns: ['Problem', 'Resolution'],
+            rows: [
+              ['The expected surface is hidden', 'Use the activity bar, View command, status-bar entry point, or Ctrl/Cmd+J for the panel and Ctrl/Cmd+B for the sidebar.'],
+              ['The tab has stale context', 'Refresh the tab, reselect its connection and scope, or open a new tab from the intended Explorer object.'],
+              ['A preview cannot execute', 'The feature may be preview-only for that datastore. Keep the generated plan or use the documented native-tool fallback.'],
+            ],
+          },
+        ],
+      },
+      {
+        id: 'safety-boundaries',
+        title: 'Safety boundaries',
+        blocks: [
+          {
+            type: 'callout',
+            tone: 'warning',
+            title: 'Confirm the target before writes',
+            body: 'DataPad++ is pre-release software. Use nonproduction fixtures, keep backups, retain read-only mode by default, and review destructive, administrative, restore, and transfer plans before execution.',
+          },
+        ],
+      },
+    ],
+  }
+}
+
+const newTaskGuides: DocArticle[] = [
+  taskGuide({
+    slug: 'interface-tour',
+    title: 'Tour The DataPad++ Interface',
+    description: 'Learn every navigation surface before you connect or run a query.',
+    category: 'Getting started',
+    screenshots: ['hero-workbench', 'library-environments'],
+    steps: [
+      { title: 'Choose a sidebar', body: 'Use the activity rail to open Library, Explorer, or Tests. Library owns saved connections, environments, folders, scripts, and reusable work; Explorer follows the active datastore; Tests opens visual datastore suites.' },
+      { title: 'Open a workspace tab', body: 'Open query, explorer, metrics, object-view, test-suite, environment, settings, API Server, MCP Server, Workspace Search, or Security Checks tabs. Each tab retains its own target and state.' },
+      { title: 'Use the query toolbar', body: 'Review Run, Cancel, Explain, query mode, connection context, and document-action controls. Controls appear only when the active tab and datastore can support them.' },
+      { title: 'Arrange supporting surfaces', body: 'Open Results, Messages, History, or Details and dock the panel at the bottom or right. Use connection, inspection, and diagnostics drawers for focused tasks.' },
+      { title: 'Read the status bar', body: 'Open updates, API/MCP servers, security checks, transfers, messages, panel visibility, or Settings from their status-bar entry points.' },
+    ],
+    referenceRows: [
+      ['Library sidebar', 'Connections, environments, folders, scripts, saved queries, and recently used work.'],
+      ['Explorer sidebar', 'Native database, schema, table, collection, index, bucket, metric, or graph objects for the active connection.'],
+      ['Tests sidebar', 'Owned suites, cases, steps, variables, assertions, and adapter-backed preflight runs.'],
+      ['Right drawers', 'Connection editing, object inspection, and connection/query diagnostics without leaving the active tab.'],
+      ['Status bar', 'Updates, servers, security, transfers, messages, panels, and Settings entry points.'],
+    ],
+    keywords: ['navigation', 'Library', 'Explorer', 'Tests', 'status bar', 'tabs', 'drawers', 'panels'],
+    relatedGuides: ['first-query', 'tabs-panels-and-drawers', 'appearance-shortcuts-logs'],
+  }),
+  taskGuide({
+    slug: 'first-query',
+    title: 'Run Your First Query',
+    description: 'Connect a safe fixture, select its scope, run a bounded read, and inspect the result.',
+    category: 'Getting started',
+    screenshots: ['connection-wizard', 'sql-query-results'],
+    steps: [
+      { title: 'Add and test a connection', body: 'In Library, choose Add connection, select the datastore, enter nonproduction fixture details, keep Read only enabled, and choose Test connection.' },
+      { title: 'Open a query from Explorer', body: 'Expand the connection, choose a database/schema/container/index/bucket/graph scope, and open a new query so the tab inherits that context.' },
+      { title: 'Run a bounded read', body: 'Enter a read-only query with a row or document limit, then choose Run or press Ctrl/Cmd+Enter. Choose Cancel if the request is no longer useful.' },
+      { title: 'Inspect the run', body: 'Review Results, Messages, History, and Details. Use Explain or Ctrl/Cmd+Shift+E only when the selected query mode and datastore expose a safe plan.' },
+      { title: 'Save the tab', body: 'Press Ctrl/Cmd+S, choose a Library location, and use a task-specific name that does not contain credentials or customer identifiers.' },
+    ],
+    referenceRows: [
+      ['Run', 'Executes the active selection or document with the current connection, scope, query mode, and safety policy.'],
+      ['Cancel', 'Requests cancellation for the active execution; server-side completion can still depend on the datastore.'],
+      ['Explain', 'Shows a plan for supported safe reads; Explain Analyze or equivalent may execute the statement and is labeled separately.'],
+      ['Connection context', 'Changes the tab target without changing another tab. Recheck database/schema/container scope afterward.'],
+    ],
+    keywords: ['query', 'run', 'cancel', 'explain', 'Ctrl Enter', 'connection context', 'query mode'],
+    relatedGuides: ['connections', 'querying', 'results-and-editing'],
+  }),
+  taskGuide({
+    slug: 'tabs-panels-and-drawers',
+    title: 'Use Tabs, Panels, And Drawers',
+    description: 'Manage workspace tabs and place supporting information where it is easiest to compare.',
+    category: 'Workspaces, backups, and recovery',
+    screenshots: ['multi-window-tabs', 'hero-workbench'],
+    steps: [
+      { title: 'Manage tabs', body: 'Save, rename, drag to reorder, or close a tab. Press Ctrl/Cmd+Shift+T to reopen the most recently closed tab.' },
+      { title: 'Choose a panel', body: 'Open Results, Messages, History, or Details. Press Ctrl/Cmd+J to show or hide the panel and choose bottom or right docking.' },
+      { title: 'Open a drawer', body: 'Use the connection drawer for profile context, inspection for the selected object or cell, and diagnostics for connection and execution evidence.' },
+      { title: 'Use multiple windows', body: 'When experimental multi-window support is enabled, detach a tab to another window. The windows share the workspace and backend while each tab keeps its own context.' },
+      { title: 'Recover layout', body: 'If a surface is lost, use Workspace Search, the status bar, or Settings to reopen it; reopen a closed tab before recreating work.' },
+    ],
+    referenceRows: [
+      ['Query tab', 'Editor, query mode, connection/scope, execution controls, and result panels.'], ['Explorer / object-view / metrics', 'Native browsing, selected-object detail, or datastore metrics.'], ['Environment / settings', 'Policy and application configuration workspaces.'], ['API / MCP / Search / Security', 'Dedicated integration, discovery, and diagnostic workspaces.'], ['Multi-window', 'Experimental; unavailable controls are labeled and no independent backend is created.'],
+    ],
+    keywords: ['save tab', 'rename tab', 'reorder tab', 'close tab', 'reopen tab', 'multi-window', 'Results', 'Messages', 'History', 'Details', 'bottom dock', 'right dock'],
+    relatedGuides: ['multi-window-tabs', 'workspace-search', 'interface-tour'],
+    status: 'Experimental',
+  }),
+  taskGuide({
+    slug: 'connection-health',
+    title: 'Check Connection Health',
+    description: 'Test connectivity, inspect capability warnings, and diagnose a failing profile.',
+    category: 'Connections, environments, and secrets',
+    screenshots: ['connection-wizard', 'search-diagnostics'],
+    steps: [
+      { title: 'Open the connection drawer', body: 'Select a Library connection and open Connection. Confirm engine, endpoint, environment, scope, credential source, TLS mode, and read-only posture.' },
+      { title: 'Test without saving secrets', body: 'Choose Test connection. The result separates transport/authentication failures from permission and capability warnings.' },
+      { title: 'Open diagnostics', body: 'Use the Diagnostics drawer to inspect timing, endpoint and adapter evidence, server metadata, and safe suggested actions.' },
+      { title: 'Refresh the Explorer', body: 'After a successful test, refresh the relevant branch. Empty branches usually mean scope or metadata permission problems, not a successful empty database.' },
+      { title: 'Escalate safely', body: 'Copy redacted diagnostics only. Never include tokens, passwords, personal file paths, or full production connection strings in an issue.' },
+    ],
+    referenceRows: [['Test connection', 'Validates endpoint, authentication, TLS, selected environment, and adapter handshake.'], ['Capability warning', 'Explains partial metadata, query, edit, diagnostics, admin, or transfer support.'], ['Diagnostics drawer', 'Shows redacted evidence and retry guidance for the selected connection or run.'], ['Security Checks', 'Audits profile posture without silently modifying the datastore.']],
+    keywords: ['health', 'test connection', 'timeout', 'TLS', 'credentials', 'diagnostics drawer', 'permission warning'],
+    relatedGuides: ['connections', 'datastore-security-checks', 'safety-model'],
+  }),
+  taskGuide({
+    slug: 'query-history-explain',
+    title: 'Use Query History And Explain',
+    description: 'Review previous executions, reopen a query, and inspect safe execution plans.',
+    category: 'Querying and query builders',
+    screenshots: ['sql-query-results', 'search-diagnostics'],
+    steps: [
+      { title: 'Open History', body: 'Show the bottom/right panel and select History. Filter entries by tab, target, status, or time before reopening one.' },
+      { title: 'Review captured context', body: 'Confirm the stored connection, environment, scope, query mode, duration, row count, and error state. History is diagnostic context, not proof that a rerun is still safe.' },
+      { title: 'Reopen without running', body: 'Open the history entry in a new query tab, review it, and update any time bounds or target names before execution.' },
+      { title: 'Explain a read', body: 'Select a supported read-only statement and choose Explain or Ctrl/Cmd+Shift+E. Use the rendered plan and Details panel to find scans, filters, joins, shards, or traversal cost.' },
+      { title: 'Avoid accidental execution', body: 'Explain Analyze and equivalent profile modes can execute the statement. Use them only for bounded reads against safe targets.' },
+    ],
+    referenceRows: [['History panel', 'Execution timestamp, target context, status, duration, affected/returned count, and reopen action.'], ['Explain', 'Non-executing plan where supported.'], ['Explain Analyze / Profile', 'May execute a read and consume production resources; separately labeled and guarded.'], ['Details panel', 'Plan nodes, raw payload, timings, notices, or adapter metadata.']],
+    keywords: ['history', 'reopen query', 'explain plan', 'explain analyze', 'profile', 'Details panel'],
+    relatedGuides: ['querying', 'results-and-editing', 'first-query'],
+  }),
+  taskGuide({
+    slug: 'metrics-and-inspection',
+    title: 'Inspect Objects And Metrics',
+    description: 'Open object views, inspect metadata, and use metrics without losing query context.',
+    category: 'Exploring and IntelliSense',
+    screenshots: ['explorer-tree', 'relationship-explorer'],
+    steps: [
+      { title: 'Select an Explorer object', body: 'Choose a native object in Explorer and open Object view or the Inspection drawer to see identifiers, columns/fields/properties, indexes, ownership, and available actions.' },
+      { title: 'Open metrics', body: 'Use the object action or status entry point to open a Metrics tab when the adapter supplies safe runtime evidence.' },
+      { title: 'Compare without retargeting', body: 'Keep the object-view or metrics tab beside the query tab. Each retains its own connection, environment, and scope.' },
+      { title: 'Refresh intentionally', body: 'Press F5 or use Refresh to request current metadata. Large branches and Oracle paging may show Load more rather than fetching everything.' },
+      { title: 'Read unavailable states', body: 'A disabled metric, inspection field, or admin action includes a reason such as missing permission, unsupported adapter capability, incompatible object kind, or plan-only status.' },
+    ],
+    referenceRows: [['Explorer tab', 'A full native browsing workspace.'], ['Object-view tab', 'Persistent selected-object metadata and actions.'], ['Metrics tab', 'Adapter-provided health, activity, size, latency, or performance evidence.'], ['Inspection drawer', 'Transient detail for the current tree node, result cell, or plan node.'], ['Diagnostics drawer', 'Connection and execution evidence with redacted copy actions.']],
+    keywords: ['metrics tab', 'object-view tab', 'inspection drawer', 'diagnostics drawer', 'F5', 'refresh', 'Load more'],
+    relatedGuides: ['explorer', 'datastore-explorer', 'relationship-explorer', 'oracle-explorer-intellisense'],
+  }),
+  taskGuide({
+    slug: 'transfers-center',
+    title: 'Use The Transfers Center',
+    description: 'Start a supported transfer, monitor progress, and recover from warnings or failures.',
+    category: 'Import, export, and native backup',
+    screenshots: ['datastore-transfer', 'transfer-center'],
+    steps: [
+      { title: 'Open a transfer action', body: 'Choose Import, Export, Backup, Restore, or Transfer from a compatible object action. Unsupported operations stay disabled with the runtime-manifest reason.' },
+      { title: 'Review the plan', body: 'Confirm source objects, native or portable format, destination, overwrite/conflict behavior, validation, backend impact, and environment guardrails.' },
+      { title: 'Start the job', body: 'Start only against an approved nonproduction target. A background job appears in Transfers Center and retains its native job identifier when available.' },
+      { title: 'Monitor or cancel', body: 'Open Transfers from the status bar to review progress, warnings, logs, cancellation, retry state, and completed artifacts.' },
+      { title: 'Validate the result', body: 'Check counts, checksums or engine-native validation, warnings, and destination scope before treating the transfer as successful.' },
+    ],
+    referenceRows: [['Import / export', 'Portable file movement where the runtime manifest marks formats as executable.'], ['Backup / restore', 'Engine-native operations; guarded separately and never implied by portable export.'], ['Cancel', 'Requests cancellation; an engine-native job may require time to stop.'], ['Retry', 'Creates a reviewed retry from retained safe parameters; secrets are resolved again.'], ['Completed artifact', 'Shows path, format, validation, warnings, and redacted job metadata.']],
+    keywords: ['Transfers Center', 'status bar transfers', 'import', 'export', 'backup', 'restore', 'cancel transfer', 'retry transfer'],
+    relatedGuides: ['native-datastore-transfers', 'import-export', 'result-export'],
+  }),
+  taskGuide({
+    slug: 'appearance-shortcuts-logs',
+    title: 'Configure Appearance, Shortcuts, And Logs',
+    description: 'Navigate all eight Settings sections and safely collect diagnostic logs.',
+    category: 'Workspaces, backups, and recovery',
+    screenshots: ['settings-backups', 'workspace-import-review'],
+    steps: [
+      { title: 'Open Settings', body: 'Use the status bar or Settings tab, then choose Appearance, Workspace + Backups, Updates, Security, Plugins, Shortcuts, Logs, or About.' },
+      { title: 'Adjust appearance', body: 'Choose theme, density, editor, result-grid, and panel presentation settings. Reduced-motion preferences remain respected.' },
+      { title: 'Review workspace and security', body: 'Configure workspace location, backup/export behavior, update channel, secret handling, read-only defaults, and environmental guardrails.' },
+      { title: 'Change shortcuts or plugins', body: 'Review conflicts before saving shortcut changes. Plugins and other experimental features show maturity and permission boundaries.' },
+      { title: 'Collect redacted logs', body: 'Filter Logs by level or component, copy only the minimum diagnostic slice, and inspect it for tokens, credentials, connection strings, personal paths, and customer data before sharing.' },
+    ],
+    referenceRows: [['Appearance', 'Theme, density, editor, grid, and layout preferences.'], ['Workspace + Backups', 'Workspace path, encrypted bundle import/export, backup posture, and size review.'], ['Updates', 'Release channel, checks, download state, and restart guidance.'], ['Security', 'Secret storage, read-only defaults, environment confirmation, and redaction.'], ['Plugins', 'Experimental extension discovery, status, permissions, and disabled reasons.'], ['Shortcuts', 'Searchable command bindings and conflict review.'], ['Logs', 'Local diagnostic events, filters, copy/export, and redaction guidance.'], ['About', 'Version, platform, licenses, links, and support information.']],
+    keywords: ['Appearance', 'Workspace Backups', 'Updates', 'Security', 'Plugins', 'Shortcuts', 'Logs', 'About', 'settings'],
+    relatedGuides: ['settings-workspace-backups', 'workspace-import-export', 'safety-model'],
+  }),
+]
+
+export const docArticles: DocArticle[] = [...legacyDocArticles.map(upgradeLegacyArticle), ...newTaskGuides]
+
 export const docCategories = [
   'Getting started',
   'Connections, environments, and secrets',
@@ -1159,6 +1513,45 @@ export const docCategories = [
   'Integrations and automation',
   'Datastore-specific guides',
 ] as const
+
+export type DocNavigationGroup = {
+  label: string
+  slugs: string[]
+}
+
+export const docNavigationGroups: DocNavigationGroup[] = [
+  { label: 'Start here', slugs: ['install-and-update', 'first-launch', 'interface-tour', 'first-query'] },
+  { label: 'Connections and organization', slugs: ['connections', 'environments', 'library', 'connection-health'] },
+  { label: 'Navigate and inspect', slugs: ['explorer', 'datastore-explorer', 'relationship-explorer', 'oracle-explorer-intellisense', 'metrics-and-inspection', 'tabs-panels-and-drawers'] },
+  { label: 'Query and edit', slugs: ['querying', 'query-history-explain', 'typed-query-builders', 'sql-database-schema-scope', 'results-and-editing', 'document-results-editing', 'key-value-full-value'] },
+  { label: 'Move and protect data', slugs: ['import-export', 'result-export', 'native-datastore-transfers', 'transfers-center', 'settings-workspace-backups', 'workspace-import-export', 'workspace-size-analysis'] },
+  { label: 'Automate and diagnose', slugs: ['api-server', 'mcp-server', 'workspace-search', 'test-suites', 'appearance-shortcuts-logs', 'multi-window-tabs'] },
+  { label: 'Safety and troubleshooting', slugs: ['datastore-security-checks', 'safety-model', 'datastore-coverage-maturity'] },
+  { label: 'Datastore guides', slugs: ['sql-workflows', 'mongodb-workflows', 'redis-valkey-workflows', 'search-dynamodb-and-secondary'] },
+]
+
+export const documentedNavigationSurfaces = [
+  'Library sidebar', 'Explorer sidebar', 'Tests sidebar', 'query tab', 'explorer tab', 'metrics tab', 'object-view tab', 'test-suite tab', 'environment tab', 'settings tab', 'API Server tab', 'MCP Server tab', 'Workspace Search tab', 'Security Checks tab',
+  'Run control', 'Cancel control', 'Explain control', 'query-mode control', 'connection-context control', 'document-action control', 'Results panel', 'Messages panel', 'History panel', 'Details panel', 'bottom docking', 'right docking',
+  'connection drawer', 'inspection drawer', 'diagnostics drawer', 'tab save', 'tab rename', 'tab reorder', 'tab close', 'tab reopen', 'multi-window', 'updates status', 'API server status', 'MCP server status', 'security checks status', 'transfers status', 'messages status', 'panel visibility status', 'settings status',
+  'Appearance settings', 'Workspace + Backups settings', 'Updates settings', 'Security settings', 'Plugins settings', 'Shortcuts settings', 'Logs settings', 'About settings',
+] as const
+
+export const navigationSurfaceArticle = Object.fromEntries(
+  documentedNavigationSurfaces.map((surface) => {
+    const normalized = surface.toLowerCase()
+    const slug = normalized.includes('settings') || ['updates status', 'panel visibility status'].includes(normalized)
+      ? 'appearance-shortcuts-logs'
+      : normalized.includes('drawer') || normalized.includes('metrics') || normalized.includes('object-view')
+        ? 'metrics-and-inspection'
+        : normalized.includes('panel') || normalized.includes('tab') || normalized.includes('docking') || normalized.includes('multi-window')
+          ? 'tabs-panels-and-drawers'
+          : normalized.includes('run') || normalized.includes('cancel') || normalized.includes('explain') || normalized.includes('query-mode') || normalized.includes('connection-context') || normalized.includes('document-action')
+            ? 'first-query'
+            : 'interface-tour'
+    return [surface, slug]
+  }),
+) as Record<(typeof documentedNavigationSurfaces)[number], string>
 
 export function getDocBySlug(slug: string) {
   return docArticles.find((article) => article.slug === slug)
