@@ -21,9 +21,9 @@ pub(super) fn screenshot_folder_for_connection(connection: &ConnectionProfile) -
         Some("Analytics") | Some("Cloud Warehouse") => "Analytics".into(),
         Some("Graph") | Some("Cloud Graph") => "Graph".into(),
         Some("Enterprise SQL") => "Operations/Enterprise".into(),
-        Some("Cloud + Wide Column") | Some("Cloud Document") => "Cloud Contracts".into(),
+        Some("Cloud + Wide Column") | Some("Cloud Document") => "Cloud Services".into(),
         Some("Local Files") => "Local Files".into(),
-        _ => "Showcase".into(),
+        _ => "Examples".into(),
     }
 }
 
@@ -36,7 +36,7 @@ pub(super) fn screenshot_saved_work(
         (
             "saved-screenshot-revenue-by-region",
             "Revenue by region",
-            "Regional revenue and order volume for the current demo window.",
+            "Regional revenue and order volume for the current reporting window.",
             "Commerce",
             "fixture-postgresql",
             "sql",
@@ -46,7 +46,7 @@ pub(super) fn screenshot_saved_work(
         (
             "saved-screenshot-open-orders",
             "Open orders by status",
-            "Operational order queue with bounded rows for safe screenshots.",
+            "Operational order queue with a bounded result set.",
             "Commerce",
             "fixture-mariadb",
             "sql",
@@ -106,7 +106,7 @@ pub(super) fn screenshot_saved_work(
         (
             "saved-screenshot-funnel-conversion",
             "Funnel conversion",
-            "Warehouse event funnel for the screenshot demo tenant.",
+            "Warehouse event funnel for the selected tenant.",
             "Analytics",
             "fixture-clickhouse",
             "sql",
@@ -166,8 +166,8 @@ pub(super) fn screenshot_api_server_preferences(
         active_server_id: Some("api-server-screenshot".into()),
         servers: vec![DatastoreApiServerConfig {
             id: "api-server-screenshot".into(),
-            name: "Showcase API Server".into(),
-            description: Some("Read-only local API profile for website screenshots.".into()),
+            name: "Customer Data API".into(),
+            description: Some("Read-only local API profile for approved data resources.".into()),
             host: "127.0.0.1".into(),
             port: 17640,
             auto_start: false,
@@ -194,8 +194,10 @@ pub(super) fn screenshot_mcp_server_preferences(
         active_server_id: Some("mcp-server-screenshot".into()),
         servers: vec![DatastoreMcpServerConfig {
             id: "mcp-server-screenshot".into(),
-            name: "Showcase MCP Server".into(),
-            description: Some("Local-only MCP profile with allowlisted demo datastores.".into()),
+            name: "Analytics MCP Server".into(),
+            description: Some(
+                "Local-only MCP profile with allowlisted datastore connections.".into(),
+            ),
             host: "127.0.0.1".into(),
             port: 17641,
             auto_start: false,

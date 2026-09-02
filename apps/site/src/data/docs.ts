@@ -114,8 +114,8 @@ const legacyDocArticles: LegacyDocArticle[] = [
         body: 'Check Appearance, Workspace, Backups, Security, Shortcuts, and Health before storing long-lived work.',
       },
       {
-        title: 'Connect to a local fixture first',
-        body: 'For evaluation, start with SQLite or Docker-backed fixtures so you can learn query, explorer, and result behavior without risking important data.',
+        title: 'Start with a datastore you control',
+        body: 'For your first connection, use a development or staging datastore—or a local database file you own—with a least-privileged, read-only account. You can then learn Explorer, query, and result behavior against your own schema and data.',
       },
     ],
   },
@@ -684,7 +684,7 @@ const legacyDocArticles: LegacyDocArticle[] = [
   {
     slug: 'datastore-coverage-maturity',
     title: 'Understand Datastore Coverage',
-    description: 'Read native-complete, contract-complete, fixture-backed, and preview-first claims without overestimating live readiness.',
+    description: 'Understand which datastore features are available, guarded, in preview, or unavailable before you rely on them.',
     category: 'Datastore-specific guides',
     readingTime: '7 min',
     screenshots: ['search-diagnostics', 'safety-preview'],
@@ -694,20 +694,20 @@ const legacyDocArticles: LegacyDocArticle[] = [
         body: 'The datastore docs list every declared engine and describe connection fields, object models, query modes, result views, diagnostics, import/export, and safety boundaries.',
       },
       {
-        title: 'Distinguish native-complete from contract-complete',
-        body: 'Native-complete means the scoped release claim has live or fixture-backed evidence. Contract-complete means the UX, contracts, plans, and residual risks are covered, while live validation may still be optional.',
+        title: 'Read the availability labels',
+        body: 'Available features can be used with a supported connection. Guarded features require additional permissions or confirmation. Preview features can change and may support only part of the workflow. Unavailable controls include a reason and, when possible, a safer alternative.',
       },
       {
-        title: 'Read residual-risk wording',
-        body: 'Cloud auth, driver-specific modes, high-cost operations, destructive admin flows, and broader import/export execution can remain outside a scoped claim.',
+        title: 'Review limitations',
+        body: 'A guide calls out unsupported authentication modes, high-cost operations, destructive administration, and import/export limits so you can choose an appropriate workflow before connecting.',
       },
       {
-        title: 'Check fixture evidence',
-        body: 'Use the testing docs when you need to verify PostgreSQL, MongoDB, Redis/Valkey, Oracle, DynamoDB, search, DuckDB, LiteDB, or other optional fixture evidence locally.',
+        title: 'Check your connection and permissions',
+        body: 'Open the guide for your datastore to verify supported authentication, required metadata permissions, query modes, result views, diagnostics, and transfer boundaries before using an important system.',
       },
       {
         title: 'Use read-only first',
-        body: 'Even native-complete workflows should begin with local, fixture-backed, or read-only profiles until you trust the target, credentials, and environment guardrails.',
+        body: 'Begin with a read-only profile and a development or staging target until you trust the connection, credentials, selected scope, and environment guardrails.',
       },
     ],
   },
@@ -827,7 +827,7 @@ const legacyDocArticles: LegacyDocArticle[] = [
       },
       {
         title: 'Read capability gates',
-        body: 'Some adapters are scoped, preview-backed, fixture-backed, read-oriented, or cloud-contract oriented. Capability labels and disabled reasons are part of the product surface.',
+        body: 'Some adapters are read-oriented, scoped to particular authentication modes, or still in preview. Capability labels and disabled reasons tell you what is usable for the selected connection.',
       },
       {
         title: 'Use bounded builders',
@@ -1208,8 +1208,8 @@ function upgradeLegacyArticle(article: LegacyDocArticle): DocArticle {
     appliesTo: article.appliesTo,
     featured: article.featured,
     prerequisites: [
-      'Install the current DataPad++ desktop pre-release and open a disposable workspace.',
-      'Use a local fixture, emulator, or nonproduction datastore with least-privileged credentials.',
+      'Install the current DataPad++ desktop pre-release and open the workspace where you want to organize your connections and saved work.',
+      'Have access to a datastore or database file you are authorized to inspect. Start read-only with a least-privileged account.',
     ],
     keywords: [article.title, article.category, ...article.steps.flatMap((step) => [step.title, step.body])],
     sections: [
@@ -1257,7 +1257,7 @@ function upgradeLegacyArticle(article: LegacyDocArticle): DocArticle {
             rows: [
               ['A control is disabled', 'Read its disabled reason, then verify target scope, connection health, read-only mode, environment policy, and feature maturity.'],
               ['The screen does not match this guide', 'Confirm the app version and platform, refresh the active tab, and check whether the feature is marked Experimental, Plan only, or Unavailable.'],
-              ['The operation produces no rows', 'Open Messages and History, verify the selected datastore scope, and retry with the guide’s bounded fixture query.'],
+              ['The operation produces no rows', 'Open Messages and History, verify the selected datastore scope, replace the sample object names with names from your datastore, and retry with a bounded read.'],
             ],
           },
         ],
@@ -1289,8 +1289,8 @@ function taskGuide(input: TaskGuideInput): DocArticle {
     status: input.status ?? 'Live',
     relatedGuides: input.relatedGuides,
     prerequisites: [
-      'Open DataPad++ with the deterministic screenshot workspace or another nonproduction workspace.',
-      'Keep the active connection read-only until a guide explicitly calls for a reviewed write.',
+      'Open DataPad++ and the workspace where you want to organize your own connections and saved work.',
+      'Connect with an account you are authorized to use, and keep it read-only until your task requires a reviewed write.',
     ],
     keywords: [...input.keywords, ...input.steps.flatMap((step) => [step.title, step.body])],
     sections: [
@@ -1338,7 +1338,7 @@ function taskGuide(input: TaskGuideInput): DocArticle {
             type: 'callout',
             tone: 'warning',
             title: 'Confirm the target before writes',
-            body: 'DataPad++ is pre-release software. Use nonproduction fixtures, keep backups, retain read-only mode by default, and review destructive, administrative, restore, and transfer plans before execution.',
+            body: 'DataPad++ is pre-release software. Start with development or staging, keep independent backups, retain read-only mode by default, and review destructive, administrative, restore, and transfer plans before execution against your data.',
           },
         ],
       },
@@ -1373,11 +1373,11 @@ const newTaskGuides: DocArticle[] = [
   taskGuide({
     slug: 'first-query',
     title: 'Run Your First Query',
-    description: 'Connect a safe fixture, select its scope, run a bounded read, and inspect the result.',
+    description: 'Connect to your datastore, select its scope, run a bounded read, and inspect the result.',
     category: 'Getting started',
     screenshots: ['connection-wizard', 'sql-query-results'],
     steps: [
-      { title: 'Add and test a connection', body: 'In Library, choose Add connection, select the datastore, enter nonproduction fixture details, keep Read only enabled, and choose Test connection.' },
+      { title: 'Add and test a connection', body: 'In Library, choose Add connection, select your datastore, enter its host or file and authentication details, keep Read only enabled, and choose Test connection.' },
       { title: 'Open a query from Explorer', body: 'Expand the connection, choose a database/schema/container/index/bucket/graph scope, and open a new query so the tab inherits that context.' },
       { title: 'Run a bounded read', body: 'Enter a read-only query with a row or document limit, then choose Run or press Ctrl/Cmd+Enter. Choose Cancel if the request is no longer useful.' },
       { title: 'Inspect the run', body: 'Review Results, Messages, History, and Details. Use Explain or Ctrl/Cmd+Shift+E only when the selected query mode and datastore expose a safe plan.' },

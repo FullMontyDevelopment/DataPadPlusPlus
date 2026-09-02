@@ -286,18 +286,18 @@ function datastoreModel(doc: DatastoreDoc): ArticleModel {
       blocks: [{
         type: 'procedure',
         steps: doc.quickstart.map((body, stepIndex) => ({
-          title: ['Create the connection', 'Test and save', 'Open the native explorer', 'Select a scope', 'Run the fixture read', 'Inspect the result', 'Export when needed', 'Open diagnostics or transfers'][stepIndex] ?? `Step ${stepIndex + 1}`,
+          title: ['Create the connection', 'Test and save', 'Open the native explorer', 'Select a scope', 'Run a bounded read', 'Inspect the result', 'Export when needed', 'Open diagnostics or transfers'][stepIndex] ?? `Step ${stepIndex + 1}`,
           body,
           figure: stepIndex === 1 ? doc.screenshots[0]?.id : stepIndex === 4 ? doc.screenshots[1]?.id : undefined,
         })),
       }],
     },
     { id: 'connection-fields', title: 'Connection fields', blocks: [{ type: 'table', columns: ['Field', 'Required', 'Purpose', 'Safe example'], rows: doc.connectionFields.map((field) => [field.name, field.required ? 'Yes' : 'No', field.description, field.example]) }] },
-    { id: 'sample-query', title: 'Run the sample query', blocks: [{ type: 'code', language: doc.queryLanguage, code: doc.sampleQuery, label: `${doc.title} read-only example` }, { type: 'callout', tone: 'note', title: 'Expected result', body: doc.expectedResult }] },
+    { id: 'sample-query', title: 'Run the sample query', blocks: [{ type: 'callout', tone: 'important', title: 'Use names from your datastore', body: 'The object names and values below are examples. Replace them with a database, schema, table, collection, index, bucket, metric, key pattern, or graph label that exists in your datastore. Keep the limit until you have reviewed the result.' }, { type: 'code', language: doc.queryLanguage, code: doc.sampleQuery, label: `${doc.title} read-only example` }, { type: 'callout', tone: 'note', title: 'Expected result', body: doc.expectedResult }] },
     { id: 'explore-and-inspect', title: 'Explore and inspect', blocks: [{ type: 'list', items: [...doc.explorer, ...doc.resultViews] }] },
     { id: 'diagnostics-and-administration', title: 'Diagnose, administer, and transfer', blocks: [{ type: 'list', items: [...doc.diagnostics, ...doc.adminFeatures, ...doc.importExport] }, { type: 'figure', screenshot: doc.screenshots[4]?.id ?? 'transfer-center' }] },
     { id: 'capabilities', title: 'Capabilities and availability', blocks: [{ type: 'table', columns: ['Capability', 'Status', 'Notes'], rows: doc.capabilities.map((row) => [row.capability, row.support, row.notes]) }] },
-    { id: 'safety-and-limitations', title: 'Safety and limitations', blocks: [{ type: 'callout', tone: 'warning', title: 'Use a nonproduction target', body: doc.safety.join(' ') }] },
+    { id: 'safety-and-limitations', title: 'Safety and limitations', blocks: [{ type: 'callout', tone: 'warning', title: 'Confirm safety before writes', body: `Start with development or staging and a read-only account. Before using an important datastore, confirm the selected target, scope, identity, environment policy, and backup plan. ${doc.safety.join(' ')}` }] },
     { id: 'troubleshooting', title: 'Troubleshooting', blocks: [{ type: 'table', columns: ['Symptom', 'Resolution'], rows: doc.troubleshooting.map((item) => [item.symptom, item.resolution]) }] },
   ]
   return {

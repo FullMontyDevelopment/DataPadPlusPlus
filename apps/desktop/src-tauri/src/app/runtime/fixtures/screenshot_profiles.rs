@@ -57,7 +57,7 @@ pub(super) fn screenshot_environments(
     vec![
         EnvironmentProfile {
             id: "env-local-demo".into(),
-            label: "Local Demo".into(),
+            label: "Development".into(),
             color: "#2dbf9b".into(),
             risk: "low".into(),
             inherits_from: None,
@@ -144,7 +144,7 @@ pub(super) fn screenshot_connection_display(
             "Northwind Analytics PostgreSQL",
             "Commerce",
             "#2dbf9b",
-            "Curated relational demo for revenue, orders, and operational health screenshots.",
+            "Revenue, orders, and operational health data for the commerce team.",
         ),
         "fixture-sqlserver" => (
             "Operations SQL Server",
@@ -162,25 +162,25 @@ pub(super) fn screenshot_connection_display(
             "Local Accounts SQLite",
             "Local Files",
             "#c9a86a",
-            "Portable local-file account sample for import/export screenshots.",
+            "Portable local account data for import and export workflows.",
         ),
         "fixture-mongodb" => (
             "Commerce Catalog MongoDB",
             "Commerce",
             "#5abf6f",
-            "Document catalog, orders, and large-document samples for builder and browser views.",
+            "Document catalog and order data for builder and browser views.",
         ),
         "fixture-redis" => (
             "Realtime Cache Redis",
             "Cache",
             "#d15b5b",
-            "Hot keys, order streams, product inventory, and session cache samples.",
+            "Hot keys, order streams, product inventory, and session data.",
         ),
         "fixture-valkey" => (
             "Edge Cache Valkey",
             "Cache",
             "#c9463c",
-            "Valkey cache data for stream and high-volume key screenshots.",
+            "Valkey cache data for stream and high-volume key workflows.",
         ),
         "fixture-memcached" => (
             "Feature Flag Memcached",
@@ -192,7 +192,7 @@ pub(super) fn screenshot_connection_display(
             "Orders MariaDB",
             "Commerce",
             "#b98edb",
-            "Order lifecycle data for SQL family comparison screenshots.",
+            "Order lifecycle data for SQL reporting workflows.",
         ),
         "fixture-cockroachdb" => (
             "Regional Accounts CockroachDB",
@@ -204,7 +204,7 @@ pub(super) fn screenshot_connection_display(
             "Order Metrics TimescaleDB",
             "Analytics",
             "#55a8e6",
-            "Hypertable order and service metrics for time-series screenshots.",
+            "Hypertable order and service metrics for time-series analysis.",
         ),
         "fixture-clickhouse" => (
             "Warehouse Events ClickHouse",
@@ -222,7 +222,7 @@ pub(super) fn screenshot_connection_display(
             "Service Health Prometheus",
             "Operations",
             "#e87941",
-            "Prometheus health vectors for diagnostics screenshots.",
+            "Prometheus health vectors for service diagnostics.",
         ),
         "fixture-opensearch" => (
             "Search Catalog OpenSearch",
@@ -234,7 +234,7 @@ pub(super) fn screenshot_connection_display(
             "Search Orders Elasticsearch",
             "Search",
             "#f0bf4f",
-            "Order search index for search-family comparison screenshots.",
+            "Order search index with filtered and ranked results.",
         ),
         "fixture-neo4j" => (
             "Customer Journey Neo4j",
@@ -258,7 +258,7 @@ pub(super) fn screenshot_connection_display(
             "Order Ledger Cassandra",
             "Cloud + Wide Column",
             "#64a6d8",
-            "Wide-column order ledger data for table and key access screenshots.",
+            "Wide-column order ledger data for table and key access.",
         ),
         "fixture-oracle" => (
             "Finance Operations Oracle",
@@ -270,31 +270,31 @@ pub(super) fn screenshot_connection_display(
             "Serverless Orders DynamoDB",
             "Cloud + Wide Column",
             "#5487e8",
-            "Local DynamoDB order and event sample for cloud-contract screenshots.",
+            "Serverless order and event data with key-condition access patterns.",
         ),
         "fixture-bigquery" => (
             "Marketing Analytics BigQuery",
             "Cloud Warehouse",
             "#669df6",
-            "Mock BigQuery analytics endpoint for cloud warehouse screenshots.",
+            "Marketing analytics data for cloud warehouse workflows.",
         ),
         "fixture-snowflake" => (
             "Revenue Warehouse Snowflake",
             "Cloud Warehouse",
             "#7dd3fc",
-            "Mock Snowflake warehouse endpoint for BI-oriented screenshots.",
+            "Revenue warehouse data for business intelligence workflows.",
         ),
         "fixture-cosmosdb" => (
             "Customer Profiles Cosmos DB",
             "Cloud Document",
             "#58a6ff",
-            "Mock Cosmos DB customer profile sample for document workflows.",
+            "Customer profile documents for account workflows.",
         ),
         "fixture-neptune" => (
             "Recommendation Graph Neptune",
             "Cloud Graph",
             "#64d2ff",
-            "Mock Neptune recommendation graph sample.",
+            "Recommendation graph data for product discovery workflows.",
         ),
         _ => return None,
     })
@@ -302,8 +302,8 @@ pub(super) fn screenshot_connection_display(
 
 pub(super) fn screenshot_tags_for_connection(connection: &ConnectionProfile) -> Vec<String> {
     let mut tags = vec![
-        "screenshot".into(),
-        "demo".into(),
+        "example".into(),
+        "development".into(),
         connection.family.clone(),
     ];
     if let Some(group) = &connection.group {

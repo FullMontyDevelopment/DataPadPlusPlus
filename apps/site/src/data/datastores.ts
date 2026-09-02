@@ -94,7 +94,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'postgresql',
     title: 'PostgreSQL',
     family: 'SQL and relational',
-    maturity: 'Native-complete scoped claim',
+    maturity: 'Available',
     summary:
       'PostgreSQL gets a typed SQL workbench with rich catalog views, live read execution, primary-key row evidence, and guarded operational previews.',
     bestFor: ['Application databases', 'Routine and extension review', 'Lock and session diagnostics'],
@@ -135,7 +135,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'cockroachdb',
     title: 'CockroachDB',
     family: 'SQL and relational',
-    maturity: 'Native-complete scoped claim',
+    maturity: 'Available',
     summary:
       'CockroachDB uses PostgreSQL-style SQL with distributed database posture, Cockroach Cloud metadata, and preview-first cluster operations.',
     bestFor: ['Distributed SQL', 'Region and locality review', 'Jobs and contention analysis'],
@@ -174,7 +174,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     title: 'SQL Server/Azure SQL',
     aliases: ['SQL Server', 'Azure SQL'],
     family: 'SQL and relational',
-    maturity: 'Native-complete scoped claim',
+    maturity: 'Available',
     summary:
       'SQL Server and Azure SQL expose TDS SQL, Showplan rendering, Query Store, Extended Events, Agent posture, and guarded table/file workflows.',
     bestFor: ['Corporate SQL systems', 'Query Store review', 'Showplan and DMV diagnostics'],
@@ -210,7 +210,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'mysql',
     title: 'MySQL',
     family: 'SQL and relational',
-    maturity: 'Native-complete scoped claim',
+    maturity: 'Available',
     summary:
       'MySQL combines live SQL, Workbench-style metadata, performance_schema diagnostics, and guarded table maintenance previews.',
     bestFor: ['MySQL application data', 'Performance schema review', 'Table maintenance planning'],
@@ -246,7 +246,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'mariadb',
     title: 'MariaDB',
     family: 'SQL and relational',
-    maturity: 'Native-complete scoped claim',
+    maturity: 'Available',
     summary:
       'MariaDB shares the MySQL-compatible base and adds MariaDB-specific roles, storage engines, server variables, and ANALYZE FORMAT=JSON workflows.',
     bestFor: ['MariaDB SQL systems', 'Role mapping review', 'Storage-engine diagnostics'],
@@ -281,10 +281,10 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'sqlite',
     title: 'SQLite',
     family: 'SQL and relational',
-    maturity: 'Native-complete scoped claim',
+    maturity: 'Available',
     summary:
       'SQLite is treated as a local-file workbench with file posture, PRAGMA health, integrity checks, guarded VACUUM INTO, and table import/export.',
-    bestFor: ['Local database files', 'Embedded app data', 'Fixture inspection'],
+    bestFor: ['Local database files', 'Embedded app data', 'Portable data inspection'],
     connections: [
       'Choose SQLite and select a local database file, read-only posture, attached database behavior, and timeout or locking expectations.',
       'Check file existence, write permissions, read-only state, and lock warnings before saving the profile.',
@@ -317,7 +317,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'oracle',
     title: 'Oracle',
     family: 'SQL and relational',
-    maturity: 'Native-complete scoped claim',
+    maturity: 'Available',
     summary:
       'Oracle 19c+ uses a bundled managed driver for live SQL and PL/SQL, schema and package inspection, DBMS output, plans, and guarded writes.',
     bestFor: ['Oracle schemas', 'Package and storage review', 'SQL and PL/SQL development'],
@@ -353,7 +353,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'timescaledb',
     title: 'TimescaleDB',
     family: 'SQL and relational',
-    maturity: 'Native-complete scoped claim',
+    maturity: 'Available',
     summary:
       'TimescaleDB builds on PostgreSQL with hypertables, chunks, compression, retention, continuous aggregates, jobs, Toolkit checks, and time-bucket dashboards.',
     bestFor: ['Time-series SQL', 'Hypertable diagnostics', 'Compression and retention planning'],
@@ -388,7 +388,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'mongodb',
     title: 'MongoDB',
     family: 'Document and NoSQL',
-    maturity: 'Native-complete scoped claim',
+    maturity: 'Available',
     summary:
       'MongoDB uses a document-first workbench with collection builders, aggregation helpers, explain dashboards, diagnostics, and guarded document edits.',
     bestFor: ['Document collections', 'Aggregation workflows', 'Schema and index inspection'],
@@ -427,10 +427,10 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'dynamodb',
     title: 'DynamoDB',
     family: 'Document and NoSQL',
-    maturity: 'Native-complete scoped claim',
+    maturity: 'Available',
     summary:
       'DynamoDB exposes typed endpoint and credential flows, table/key/index metadata, read-only PartiQL, capacity signals, and guarded conditional item operations.',
-    bestFor: ['AWS table inspection', 'Local DynamoDB fixtures', 'Capacity and key-condition workflows'],
+    bestFor: ['AWS table inspection', 'Development tables', 'Capacity and key-condition workflows'],
     connections: [
       'Choose DynamoDB and configure local endpoint or AWS credential mode, region, profile, assume-role, web identity, ECS/EC2 metadata posture, retry settings, and capacity preferences.',
       'Use endpointUrl routing and SigV4-shaped headers for local or endpoint-override profiles before trying optional AWS validation.',
@@ -451,7 +451,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
       'Review consumed capacity, pagination, table metadata, hot partition posture, TTL/stream state, backup posture, alarms, CloudWatch/IAM optional checks, and access previews.',
     ],
     importExport: [
-      'Use guarded table export/import previews and optional local fixture evidence; S3 import/export and cloud backup execution remain separately gated.',
+      'Use guarded table export/import previews; S3 import/export and cloud backup execution remain separately gated.',
     ],
     safety: [
       'Writes require complete keys and conditional guards; cloud, destructive, table movement, IAM, and backup operations stay preview-first unless explicitly validated.',
@@ -463,7 +463,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'cassandra',
     title: 'Cassandra',
     family: 'Document and NoSQL',
-    maturity: 'Native CQL read runtime; writes and admin gated',
+    maturity: 'Available for CQL reads; writes and administration are guarded',
     summary:
       'Cassandra runs bounded CQL reads over the native binary protocol and adds partition-key query helpers, tracing, storage health, grants, and snapshot/import/export planning.',
     bestFor: ['Wide-column schemas', 'Partition-key reads', 'Tracing and storage posture'],
@@ -498,7 +498,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'cosmosdb',
     title: 'Cosmos DB',
     family: 'Document and NoSQL',
-    maturity: 'Native Cosmos DB NoSQL query runtime; cloud admin gated',
+    maturity: 'Available for NoSQL queries; cloud administration is guarded',
     summary:
       'Cosmos DB supports parameterized SQL API reads with a visual NoSQL builder and bounded continuation-token paging, plus a native GraphSON v2 Gremlin WebSocket runtime with Cosmos authentication, bounded graph results, and request-charge metrics.',
     bestFor: ['Cosmos SQL API containers', 'Cosmos Gremlin graphs', 'RU throughput review'],
@@ -533,7 +533,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'litedb',
     title: 'LiteDB',
     family: 'Document and NoSQL',
-    maturity: 'Bundled LiteDB sidecar with live document and transfer workflows',
+    maturity: 'Available with the bundled LiteDB service',
     summary:
       'LiteDB is documented as a local document-file workflow with collection metadata, index and file storage panels, sidecar boundaries, and guarded local management.',
     bestFor: ['Local document files', 'Embedded .NET data', 'Sidecar-backed validation'],
@@ -568,7 +568,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'redis',
     title: 'Redis',
     family: 'Key-value and cache',
-    maturity: 'Native-complete scoped claim',
+    maturity: 'Available',
     summary:
       'Redis opens in a native key browser with type-aware results, console mode, Redis Stack capability gates, live guarded key edits, and file import/export workflows.',
     bestFor: ['Cache inspection', 'Streams and ACL review', 'Redis Stack-aware key workflows'],
@@ -605,7 +605,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'valkey',
     title: 'Valkey',
     family: 'Key-value and cache',
-    maturity: 'Native-complete scoped claim',
+    maturity: 'Available',
     summary:
       'Valkey uses the Redis-compatible core workflow while hiding Redis Stack/vector-only surfaces unless compatible metadata proves support.',
     bestFor: ['Valkey key inspection', 'Core Redis-compatible operations', 'Read-safe cache workflows'],
@@ -640,7 +640,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'memcached',
     title: 'Memcached',
     family: 'Key-value and cache',
-    maturity: 'Native known-key runtime; broad enumeration unavailable',
+    maturity: 'Available for known-key reads; broad enumeration is unavailable',
     summary:
       'Memcached is documented around known-key operations and server diagnostics because it has no portable native key browser.',
     bestFor: ['Cache server diagnostics', 'Known-key reads', 'Slab and item-class review'],
@@ -675,7 +675,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'elasticsearch',
     title: 'Elasticsearch',
     family: 'Search',
-    maturity: 'Native-complete scoped claim',
+    maturity: 'Available',
     summary:
       'Elasticsearch focuses on search DSL builders, mappings, shard/profile diagnostics, explicit-id document edits, and guarded index/admin previews.',
     bestFor: ['Search indexes', 'Query DSL and aggregations', 'Shard and profile diagnostics'],
@@ -711,7 +711,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'opensearch',
     title: 'OpenSearch',
     family: 'Search',
-    maturity: 'Native-complete scoped claim',
+    maturity: 'Available',
     summary:
       'OpenSearch mirrors scoped search workflows and adds OpenSearch-specific SQL, ISM, security, and Performance Analyzer boundaries.',
     bestFor: ['OpenSearch indexes', 'ISM and security review', 'Search DSL diagnostics'],
@@ -747,7 +747,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'clickhouse',
     title: 'ClickHouse',
     family: 'Warehouse and analytical',
-    maturity: 'Native HTTP SQL and transfer runtime',
+    maturity: 'Available for HTTP SQL and transfers',
     summary:
       'ClickHouse is documented as a warehouse-style SQL surface with MergeTree, query-log, cluster, TTL, optimize, freeze, metrics, and import/export previews.',
     bestFor: ['Analytical SQL', 'MergeTree posture', 'Query-log diagnostics'],
@@ -782,7 +782,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'duckdb',
     title: 'DuckDB',
     family: 'Warehouse and analytical',
-    maturity: 'Native-complete scoped claim',
+    maturity: 'Available',
     summary:
       'DuckDB is a local-file analytics workbench with local read SQL, EXPLAIN/profile rendering, extension posture, CSV import/export, and backup-folder execution.',
     bestFor: ['Local analytics files', 'CSV and embedded OLAP', 'EXPLAIN/profile review'],
@@ -818,7 +818,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'snowflake',
     title: 'Snowflake',
     family: 'Warehouse and analytical',
-    maturity: 'Native InfluxDB 1.x query and line-protocol transfer runtime',
+    maturity: 'Available for InfluxDB 1.x queries and line-protocol transfers',
     summary:
       'Snowflake is documented as a SQL-first warehouse workflow with account/project posture, query history, credits, warehouses, stages, shares, and clone/copy previews.',
     bestFor: ['Cloud warehouse review', 'Credit and warehouse posture', 'Query history analysis'],
@@ -853,7 +853,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'bigquery',
     title: 'BigQuery',
     family: 'Warehouse and analytical',
-    maturity: 'Native Prometheus HTTP query and bounded export runtime',
+    maturity: 'Available for Prometheus HTTP queries and bounded exports',
     summary:
       'BigQuery uses GoogleSQL, project/dataset/table metadata, dry-run estimates, job timelines, slot and reservation posture, and guarded cloud-operation previews.',
     bestFor: ['GoogleSQL analytics', 'Dry-run cost estimates', 'Job and reservation review'],
@@ -888,7 +888,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'influxdb',
     title: 'InfluxDB',
     family: 'Time-series and metrics',
-    maturity: 'Native OpenTSDB HTTP query and bounded export runtime',
+    maturity: 'Available for OpenTSDB HTTP queries and bounded exports',
     summary:
       'InfluxDB keeps org, bucket, token, tag, field, retention, cardinality, Flux/InfluxQL, and chart-ready result context visible.',
     bestFor: ['Time-series buckets', 'Flux or InfluxQL reads', 'Retention and cardinality review'],
@@ -923,7 +923,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'prometheus',
     title: 'Prometheus',
     family: 'Time-series and metrics',
-    maturity: 'Contract-complete preview-first',
+    maturity: 'Preview',
     summary:
       'Prometheus focuses on endpoints, metric and label discovery, PromQL, targets, rules, chart-ready results, cardinality, retention, and guarded metadata previews.',
     bestFor: ['PromQL exploration', 'Metrics and labels', 'Targets and rules review'],
@@ -958,7 +958,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'opentsdb',
     title: 'OpenTSDB',
     family: 'Time-series and metrics',
-    maturity: 'Contract-complete preview-first',
+    maturity: 'Preview',
     summary:
       'OpenTSDB documents metric, tag, UID, stats, retention, profile, and guarded metadata operations for time-series APIs.',
     bestFor: ['OpenTSDB metric APIs', 'UID metadata review', 'Tag-based queries'],
@@ -993,7 +993,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'neo4j',
     title: 'Neo4j',
     family: 'Graph',
-    maturity: 'Native Bolt and Query API runtime',
+    maturity: 'Available for Bolt and Query API connections',
     summary:
       'Neo4j runs live Cypher over Bolt by default or the current HTTP Query API, with bounded graph normalization, live metadata, and guarded mutations.',
     bestFor: ['Cypher graph queries', 'Label and relationship exploration', 'Constraint and index review'],
@@ -1029,7 +1029,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     title: 'Amazon Neptune',
     aliases: ['Neptune'],
     family: 'Graph',
-    maturity: 'Native AWS IAM query runtime; cloud evidence gated',
+    maturity: 'Available for AWS IAM queries; some cloud diagnostics are limited',
     summary:
       'Amazon Neptune runs Gremlin and openCypher through the AWS Neptune Data SDK and signs SPARQL with SigV4, while explicit custom endpoints can use unsigned HTTP.',
     bestFor: ['AWS graph workloads', 'Gremlin or openCypher reads', 'IAM and metrics review'],
@@ -1064,7 +1064,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'arango',
     title: 'ArangoDB',
     family: 'Graph',
-    maturity: 'Native HTTP and AQL query runtime',
+    maturity: 'Available for HTTP and AQL queries',
     summary:
       'ArangoDB runs live AQL through an authenticated TLS-capable HTTP client, consumes bounded cursor batches, and cleans server cursors on completion or failure.',
     bestFor: ['AQL graph queries', 'Graph and collection inspection', 'Multi-model metadata review'],
@@ -1099,7 +1099,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'janusgraph',
     title: 'JanusGraph',
     family: 'Graph',
-    maturity: 'Native Gremlin WebSocket runtime',
+    maturity: 'Available for Gremlin WebSocket queries',
     summary:
       'JanusGraph runs live GraphSON v3 Gremlin over WebSocket with SASL, partial-response aggregation, TLS/custom CAs, bounded graph results, and live schema metadata.',
     bestFor: ['Gremlin traversals', 'Graph schema review', 'Backend/index posture'],
@@ -1137,11 +1137,11 @@ const sampleQueries: Record<DatastoreEngineId, { language: string; query: string
   sqlserver: { language: 'sql', query: 'SELECT TOP (25) id, name, status\nFROM dbo.customers\nORDER BY id;', expected: 'Up to 25 rows from dbo.customers.' },
   mysql: { language: 'sql', query: 'SELECT id, name, status\nFROM commerce.customers\nORDER BY id\nLIMIT 25;', expected: 'Up to 25 commerce customer rows.' },
   mariadb: { language: 'sql', query: 'SELECT id, name, status\nFROM commerce.customers\nORDER BY id\nLIMIT 25;', expected: 'Up to 25 commerce customer rows.' },
-  sqlite: { language: 'sql', query: 'SELECT id, name, status\nFROM customers\nORDER BY id\nLIMIT 25;', expected: 'Rows read from the selected SQLite fixture file.' },
+  sqlite: { language: 'sql', query: 'SELECT id, name, status\nFROM customers\nORDER BY id\nLIMIT 25;', expected: 'Up to 25 rows read from the selected SQLite database file.' },
   oracle: { language: 'sql', query: 'SELECT customer_id, customer_name, status\nFROM customers\nORDER BY customer_id\nFETCH FIRST 25 ROWS ONLY', expected: 'The first 25 rows in the selected Oracle schema.' },
   timescaledb: { language: 'sql', query: "SELECT time, device_id, temperature\nFROM public.sensor_readings\nWHERE time > now() - interval '1 hour'\nORDER BY time DESC\nLIMIT 100;", expected: 'Recent readings from the selected hypertable.' },
   mongodb: { language: 'javascript', query: "db.products.find({ active: true }, { name: 1, category: 1 }).sort({ name: 1 }).limit(25)", expected: 'Up to 25 active product documents.' },
-  dynamodb: { language: 'sql', query: 'SELECT productId, productName, category\nFROM "Products"\nWHERE category = \'demo\'', expected: 'Matching fixture items returned by the bounded PartiQL read.' },
+  dynamodb: { language: 'sql', query: 'SELECT productId, productName, category\nFROM "Products"\nWHERE category = \'active\'', expected: 'Matching items returned by the bounded PartiQL read.' },
   cassandra: { language: 'sql', query: 'SELECT product_id, product_name, category\nFROM catalog.products\nLIMIT 25;', expected: 'Up to 25 rows from the catalog keyspace.' },
   cosmosdb: { language: 'sql', query: 'SELECT TOP 25 c.id, c.name, c.category\nFROM c\nWHERE c.active = true', expected: 'Active documents from the selected container.' },
   litedb: { language: 'javascript', query: 'db.products.find({ active: true }).limit(25)', expected: 'Documents read from the selected LiteDB collection.' },
@@ -1151,11 +1151,11 @@ const sampleQueries: Record<DatastoreEngineId, { language: string; query: string
   elasticsearch: { language: 'json', query: 'GET products/_search\n{\n  "size": 25,\n  "query": { "term": { "active": true } }\n}', expected: 'Hits, total count, timing, and shard status.' },
   opensearch: { language: 'json', query: 'GET products/_search\n{\n  "size": 25,\n  "query": { "term": { "active": true } }\n}', expected: 'Hits, total count, timing, and shard status.' },
   clickhouse: { language: 'sql', query: 'SELECT event_time, event_name, user_id\nFROM analytics.events\nORDER BY event_time DESC\nLIMIT 100;', expected: 'The 100 most recent analytical events.' },
-  duckdb: { language: 'sql', query: "SELECT *\nFROM read_parquet('fixtures/orders.parquet')\nLIMIT 25;", expected: 'A bounded preview of the local Parquet fixture.' },
+  duckdb: { language: 'sql', query: 'SELECT order_id, customer_id, total\nFROM orders\nORDER BY order_id\nLIMIT 25;', expected: 'Up to 25 rows from an orders table in the selected DuckDB database.' },
   snowflake: { language: 'sql', query: 'SELECT order_id, customer_id, total\nFROM DEMO.PUBLIC.ORDERS\nORDER BY order_id\nLIMIT 25;', expected: 'Up to 25 rows using the selected warehouse and role.' },
   bigquery: { language: 'sql', query: 'SELECT order_id, customer_id, total\nFROM `demo.analytics.orders`\nORDER BY order_id\nLIMIT 25;', expected: 'A bounded BigQuery result with job metadata.' },
   influxdb: { language: 'text', query: 'from(bucket: "demo")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == "temperature")\n  |> limit(n: 100)', expected: 'Recent temperature series and Flux table metadata.' },
-  prometheus: { language: 'text', query: 'rate(http_requests_total[5m])', expected: 'A Prometheus instant vector for the fixture metrics.' },
+  prometheus: { language: 'text', query: 'rate(http_requests_total[5m])', expected: 'A Prometheus instant vector for the matching metric series.' },
   opentsdb: { language: 'json', query: 'GET /api/query?start=1h-ago&m=avg:demo.temperature', expected: 'Time-series points grouped by metric tags.' },
   neo4j: { language: 'sql', query: 'MATCH (p:Product)\nRETURN p.name, p.category\nORDER BY p.name\nLIMIT 25', expected: 'A table and graph-ready result for up to 25 Product nodes.' },
   neptune: { language: 'sql', query: 'SELECT ?product ?name\nWHERE { ?product a :Product ; :name ?name . }\nLIMIT 25', expected: 'A bounded SPARQL binding result.' },
@@ -1178,8 +1178,13 @@ function scopeField(doc: DatastoreDocBase) {
 
 function connectionFields(doc: DatastoreDocBase): DatastoreConnectionField[] {
   if (fileEngines.has(doc.engine)) {
+    const examplePath = doc.engine === 'sqlite'
+      ? 'C:/data/application.db'
+      : doc.engine === 'duckdb'
+        ? 'C:/data/analytics.duckdb'
+        : 'C:/data/archive.litedb'
     return [
-      { name: 'File path', required: true, description: `Path to the nonproduction ${doc.title} database or fixture.`, example: `fixtures/${doc.slug}/demo.db` },
+      { name: 'File path', required: true, description: `Path to a ${doc.title} database file you are authorized to open.`, example: examplePath },
       { name: 'Mode', required: true, description: 'Open read-only for the first connection; enable writes only when the task requires them.', example: 'Read only' },
       { name: 'Encryption / secret', required: false, description: 'Optional local database secret when the selected engine supports it.', example: 'Stored in the OS secret store' },
     ]
@@ -1187,33 +1192,33 @@ function connectionFields(doc: DatastoreDocBase): DatastoreConnectionField[] {
 
   if (doc.engine === 'bigquery') {
     return [
-      { name: 'Project ID', required: true, description: 'Google Cloud project used for jobs and billing.', example: 'datapad-demo' },
+      { name: 'Project ID', required: true, description: 'Google Cloud project used for jobs and billing.', example: 'my-analytics-project' },
       { name: 'Dataset', required: false, description: 'Default dataset for browsing and unqualified names.', example: 'analytics' },
-      { name: 'Credentials', required: true, description: 'Application Default Credentials or a nonproduction service-account secret.', example: 'Application Default Credentials' },
+      { name: 'Credentials', required: true, description: 'Application Default Credentials or an authorized service-account secret.', example: 'Application Default Credentials' },
       { name: 'Location', required: false, description: 'Dataset and job location.', example: 'US' },
     ]
   }
 
   if (doc.engine === 'dynamodb') {
     return [
-      { name: 'Region', required: true, description: 'AWS region or local-emulator region.', example: 'us-east-1' },
-      { name: 'Endpoint', required: false, description: 'Override for DynamoDB Local or a contract mock.', example: 'http://127.0.0.1:8000' },
-      { name: 'Access key', required: true, description: 'Fixture-only access key stored outside the workspace.', example: 'Stored secret' },
-      { name: 'Secret key', required: true, description: 'Fixture-only secret key stored in the OS secret store.', example: 'Stored secret' },
+      { name: 'Region', required: true, description: 'AWS region that contains your table.', example: 'us-east-1' },
+      { name: 'Endpoint', required: false, description: 'Optional endpoint override. Leave blank to use the selected AWS region.', example: 'Leave blank for AWS' },
+      { name: 'Access key', required: true, description: 'Access key for a least-privileged identity, stored outside the workspace.', example: 'Stored secret' },
+      { name: 'Secret key', required: true, description: 'Secret key stored in the operating-system secret store.', example: 'Stored secret' },
     ]
   }
 
   return [
-    { name: cloudEngines.has(doc.engine) ? 'Endpoint / account' : 'Server', required: true, description: `Host, service URL, or account identifier for ${doc.title}.`, example: cloudEngines.has(doc.engine) ? 'Nonproduction account or local mock' : '127.0.0.1' },
+    { name: cloudEngines.has(doc.engine) ? 'Endpoint / account' : 'Server', required: true, description: `Host, service URL, or account identifier for your ${doc.title} deployment.`, example: cloudEngines.has(doc.engine) ? `${doc.title} account or service URL` : 'db.example.internal' },
     { name: 'Port', required: !cloudEngines.has(doc.engine), description: 'Native service port when the connection mode uses TCP.', example: 'Engine default' },
     { name: scopeField(doc), required: false, description: `Initial ${scopeField(doc).toLowerCase()} scope used by Explorer and new query tabs.`, example: 'demo' },
-    { name: 'Username / identity', required: false, description: 'Least-privileged nonproduction identity.', example: 'datapad_reader' },
+    { name: 'Username / identity', required: false, description: 'Authorized, least-privileged identity for the selected datastore.', example: 'datapad_reader' },
     { name: 'Secret / TLS', required: false, description: 'Secret-store reference and transport-security settings; never commit raw credentials.', example: 'OS secret store + TLS verify' },
   ]
 }
 
 function capabilityRows(doc: DatastoreDocBase): DatastoreCapabilityRow[] {
-  const preview = /preview|planned|experimental|unavailable/i.test(doc.maturity)
+  const preview = /^preview\b/i.test(doc.maturity)
   const editable = doc.resultViews.some((item) => /edit|mutation|write/i.test(item))
   return [
     { capability: 'Native explorer', support: preview ? 'Preview' : 'Available', notes: doc.explorer[0] ?? 'Native Explorer availability follows the adapter capability registry.' },
@@ -1231,10 +1236,10 @@ function enrichDatastoreDoc(doc: DatastoreDocBase): DatastoreDoc {
     importExport: transferDocumentation(doc.engine),
     prerequisites: [
       'Install the current DataPad++ desktop pre-release on Windows, macOS, or Linux.',
-      `Use a disposable ${doc.title} fixture, emulator, or nonproduction account with least-privileged credentials.`,
+      `Have the endpoint, database file, or cloud account details for a ${doc.title} datastore you are authorized to use. Start with least-privileged, read-only access.`,
       'Keep an independent backup before enabling edits, administration, restore, or transfer execution.',
     ],
-    platforms: ['Windows desktop', 'macOS desktop', 'Linux desktop', cloudEngines.has(doc.engine) ? 'Cloud contract mock used for documentation captures' : 'Local fixture or container used for documentation captures'],
+    platforms: ['Windows desktop', 'macOS desktop', 'Linux desktop'],
     connectionFields: connectionFields(doc),
     quickstart: [
       `Open Library, choose Add connection, and select ${doc.title}.`,
@@ -1251,10 +1256,10 @@ function enrichDatastoreDoc(doc: DatastoreDocBase): DatastoreDoc {
     expectedResult: sample.expected,
     capabilities: capabilityRows(doc),
     troubleshooting: [
-      { symptom: 'Test connection fails or times out', resolution: 'Verify endpoint, port, TLS mode, proxy/emulator health, and network access. Keep the profile unsaved until the test explains the failure.' },
+      { symptom: 'Test connection fails or times out', resolution: 'Verify endpoint, port, TLS mode, proxy settings, service health, firewall rules, and network access. Keep the profile unsaved until the test explains the failure.' },
       { symptom: 'Explorer branches are empty or disabled', resolution: `Confirm the selected ${scopeField(doc).toLowerCase()}, refresh the branch, and grant the minimum metadata permissions described in the connection warning.` },
       { symptom: 'Run, edit, admin, or transfer is disabled', resolution: 'Read the visible disabled reason. Select a compatible target, turn off read-only only when authorized, or use the documented preview/export fallback.' },
-      { symptom: 'Results differ from the example', resolution: 'Confirm that the deterministic fixture is selected and that the query remains bounded. Cloud and emulator captures are labeled and may expose different metadata.' },
+      { symptom: 'The sample query fails or returns different columns', resolution: `Replace the example names with objects from your ${doc.title} datastore, confirm the selected ${scopeField(doc).toLowerCase()}, and keep the query bounded while you validate the result.` },
     ],
   }
 }

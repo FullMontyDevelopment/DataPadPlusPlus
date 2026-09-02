@@ -190,58 +190,34 @@ function ScreenshotAsset({ id, compact = false }: { id: ScreenshotId; compact?: 
   return <ScreenshotFrame title={slot.title} caption={slot.caption} image={slot.image} compact={compact} />
 }
 
-function WorkbenchMockup() {
+function HeroProductVisual() {
+  const screenshot = getScreenshotSlot('sql-query-results')
+
   return (
-    <div className="workbench-mockup" aria-label="DataPad++ workbench preview">
-      <div className="mock-titlebar">
-        <span className="traffic red" />
-        <span className="traffic amber" />
-        <span className="traffic green" />
-        <span>DataPad++</span>
+    <figure className="hero-product-visual">
+      <div className="hero-product-window">
+        <div className="hero-product-chrome" aria-hidden="true">
+          <span className="hero-window-dot is-red" />
+          <span className="hero-window-dot is-amber" />
+          <span className="hero-window-dot is-green" />
+          <strong>DataPad++</strong>
+          <span className="hero-capture-proof">
+            <i /> Actual desktop capture
+          </span>
+        </div>
+        <div className="hero-product-image">
+          <img
+            src={screenshot.image}
+            alt="DataPad++ desktop application showing a PostgreSQL query, Local Demo environment, result grid, connections, and status controls."
+            fetchPriority="high"
+          />
+        </div>
       </div>
-      <div className="mock-shell">
-        <aside className="mock-sidebar">
-          <strong>Connections</strong>
-          {['PostgreSQL Local', 'MongoDB Atlas', 'Redis Cache', 'SQL Server'].map((item, index) => (
-            <span key={item} className={index === 0 ? 'active' : ''}>
-              <Database size={13} /> {item}
-            </span>
-          ))}
-          <strong>Environments</strong>
-          {['Development', 'Staging', 'Production'].map((item) => (
-            <span key={item}>
-              <ShieldCheck size={13} /> {item}
-            </span>
-          ))}
-        </aside>
-        <main className="mock-editor">
-          <div className="mock-toolbar">
-            <span>Query 1</span>
-            <button type="button">Run</button>
-            <button type="button">Explain</button>
-          </div>
-          <pre>{`-- Your query here\nSELECT * FROM users\nORDER BY created_at DESC\nLIMIT 100;`}</pre>
-          <div className="mock-results">
-            <strong>Results</strong>
-            {['Jane Cooper', 'Darrell Steward', 'Esther Howard', 'Jenny Wilson'].map((name, index) => (
-              <span key={name}>
-                <b>{index + 1}</b>
-                {name}
-                <em>ready</em>
-              </span>
-            ))}
-          </div>
-        </main>
-        <aside className="mock-inspector">
-          <span className="selected">Explorer</span>
-          <span>public</span>
-          <span>Tables</span>
-          <span className="active">users</span>
-          <span>orders</span>
-          <span>indexes</span>
-        </aside>
-      </div>
-    </div>
+      <figcaption>
+        <span>Example workspace</span>
+        PostgreSQL query and bounded results in the current desktop app.
+      </figcaption>
+    </figure>
   )
 }
 
@@ -299,7 +275,7 @@ function HomePage({ releases, platform }: { releases: GitHubRelease[]; platform:
         </div>
         <div className="hero-visual">
           <img className="hero-mark" src={heroMark} alt="" />
-          <WorkbenchMockup />
+          <HeroProductVisual />
         </div>
       </section>
       <ReleaseSummary release={latestRelease} platform={platform} />

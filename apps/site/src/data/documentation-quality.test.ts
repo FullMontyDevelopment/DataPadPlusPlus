@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { datastoreDocs } from './datastores'
 import { docArticles, docCategories } from './docs'
 import { screenshotSlots } from './screenshots'
 
@@ -93,5 +94,11 @@ describe('documentation quality', () => {
     ).toEqual([])
     expect(Object.values(screenshotSlots).filter((slot) => /placeholder/i.test(`${slot.title} ${slot.caption} ${slot.captureCase}`))).toEqual([])
     expect(new Set(Object.values(screenshotSlots).map((slot) => slot.image)).size).toBe(Object.keys(screenshotSlots).length)
+  })
+
+  it('keeps published guides focused on readers using their own datastores', () => {
+    const publishedContent = JSON.stringify({ docArticles, datastoreDocs, screenshotSlots })
+
+    expect(publishedContent).not.toMatch(/fixture|contract[- ]mock|screenshot workspace|clone(?:d)? the repo(?:sitory)?|test harness/i)
   })
 })

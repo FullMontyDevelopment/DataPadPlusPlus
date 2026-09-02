@@ -22,7 +22,54 @@ async function settle() {
 
 async function capture(name) {
   await settle()
-  await browser.saveScreenshot(resolve(screenshotRoot, name))
+  const path = resolve(screenshotRoot, name)
+  try {
+    await browser.saveScreenshot(path)
+  } catch {
+    await browser.pause(300)
+    await browser.saveScreenshot(path)
+  }
+}
+
+async function setSidebarVisible(visible) {
+  const current = await browser.execute(() => Boolean(document.querySelector('.workbench-sidebar')))
+  if (current === visible) return
+  const selector = visible
+    ? 'button[aria-label="Show Library"]'
+    : 'button[aria-label="Collapse Library sidebar"]'
+  const control = await $(selector)
+  if (await control.isExisting()) {
+    await control.click()
+  } else {
+    await browser.execute(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', code: 'KeyB', ctrlKey: true, bubbles: true }))
+    })
+  }
+  await browser.waitUntil(
+    async () => browser.execute((expected) => Boolean(document.querySelector('.workbench-sidebar')) === expected, visible),
+    { timeout: 10000, timeoutMsg: `Expected the Library sidebar to be ${visible ? 'visible' : 'hidden'}.` },
+  )
+  await settle()
+}
+
+async function isolateLibraryConnection(name) {
+  await browser.execute((requestedName) => {
+    document.querySelectorAll('.documentation-capture-hidden').forEach((item) => item.classList.remove('documentation-capture-hidden'))
+    const button = [...document.querySelectorAll('button.library-tree-label')]
+      .find((candidate) => candidate.textContent?.replace(/\s+/g, ' ').trim() === requestedName)
+    const target = button?.closest('[data-library-node-id]')
+    if (!(target instanceof HTMLElement)) return
+    document.querySelectorAll('.workbench-sidebar [data-library-node-id]').forEach((item) => {
+      if (item !== target && !item.contains(target) && !target.contains(item)) item.classList.add('documentation-capture-hidden')
+    })
+  }, name)
+  await settle()
+}
+
+async function clearLibraryIsolation() {
+  await browser.execute(() => {
+    document.querySelectorAll('.documentation-capture-hidden').forEach((item) => item.classList.remove('documentation-capture-hidden'))
+  })
 }
 
 async function findLibraryButton(text) {
@@ -79,6 +126,7 @@ async function closeDrawer() {
 }
 
 async function openConnectionForm(label) {
+  await setSidebarVisible(true)
   await closeDrawer()
   const create = await $('button[aria-label="Create connection"]')
   await create.scrollIntoView({ block: 'center' })
@@ -89,6 +137,10 @@ async function openConnectionForm(label) {
   const option = await $(`button[role="option"][aria-label="${label}"]`)
   await option.scrollIntoView({ block: 'center' })
   await option.click()
+  await browser.execute(() => {
+    const scroll = document.querySelector('.drawer-scroll')
+    if (scroll instanceof HTMLElement) scroll.scrollTop = 0
+  })
   await settle()
 }
 
@@ -146,12 +198,13 @@ describe('common documentation screenshots', () => {
     }
     await browser.execute(() => {
       const style = document.createElement('style')
-      style.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important;cursor:none!important;scroll-behavior:auto!important}::selection{background:transparent!important;color:inherit!important}:focus{outline-color:transparent!important}'
+      style.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important;cursor:none!important;scroll-behavior:auto!important}::selection{background:transparent!important;color:inherit!important}:focus{outline-color:transparent!important}.editor-tab:not(.is-active),.editor-tab-scroll-button,.documentation-capture-hidden{display:none!important}.editor-tab.is-active{max-width:420px!important;min-width:240px!important}.editor-tabs{overflow:hidden!important;scrollbar-width:none!important}'
       document.head.append(style)
     })
   })
 
   it('captures datastore transfer review and Transfers Center', async () => {
+    await setSidebarVisible(false)
     const selected = await browser.execute(() => {
       const tab = [...document.querySelectorAll('[role="tab"]')]
         .find((candidate) => /table_health/i.test(candidate.textContent ?? ''))
@@ -159,7 +212,7 @@ describe('common documentation screenshots', () => {
       tab.click()
       return true
     })
-    if (!selected) throw new Error('Documentation transfer fixture tab was not available.')
+    if (!selected) throw new Error('The transfer example tab was not available.')
     await browser.waitUntil(
       async () => browser.execute(() => Boolean(document.querySelector('.object-view-workspace'))),
       { timeout: 20000 },
@@ -180,11 +233,11 @@ describe('common documentation screenshots', () => {
       button.click()
       return { clicked: true, actions: [], activeTabs: [], objectText: '' }
     })
-    if (!action.clicked) throw new Error(`Transfer fixture action missing: ${JSON.stringify(action)}`)
+    if (!action.clicked) throw new Error(`Transfer example action missing: ${JSON.stringify(action)}`)
     await browser.waitUntil(async () => browser.execute(() => Boolean(document.querySelector('.datastore-transfer-dialog'))), { timeout: 20000 })
     const remoteDestination = await $('.datastore-transfer-wide-field input')
     await remoteDestination.waitForExist({ timeout: 20000 })
-    await remoteDestination.setValue('external://documentation/table-health/')
+    await remoteDestination.setValue('C:/exports/table-health/')
     await settle()
     await capture('datastore-transfer.png')
 
@@ -209,6 +262,7 @@ describe('common documentation screenshots', () => {
   })
 
   it('captures dedicated document, key-value, and Oracle views', async () => {
+    await setSidebarVisible(false)
     await activateOpenTab('Commerce Catalog MongoDB')
     await ensureBottomPanel(true)
     await capture('mongodb-builder.png')
@@ -226,6 +280,10 @@ describe('common documentation screenshots', () => {
     await activateOpenTab('Realtime Cache Redis')
     await ensureBottomPanel(true)
     await capture('redis-browser.png')
+    await browser.waitUntil(
+      async () => browser.execute(() => Boolean(document.querySelector('.keyvalue-result-entry'))),
+      { timeout: 10000, timeoutMsg: 'Expected a Redis result entry before opening its context menu.' },
+    )
     const keyMenuOpened = await browser.execute(() => {
       const entry = document.querySelector('.keyvalue-result-entry')
       if (!(entry instanceof HTMLElement)) return false
@@ -261,7 +319,10 @@ describe('common documentation screenshots', () => {
   it('captures Library, Explorer, results, relationships, tabs, and connection setup', async () => {
     await activateOpenTab('Northwind Analytics PostgreSQL')
     await ensureBottomPanel(false)
+    await setSidebarVisible(true)
+    await isolateLibraryConnection('Northwind Analytics PostgreSQL')
     await capture('library-environments.png')
+    await clearLibraryIsolation()
 
     const connectionMenuOpened = await browser.execute(() => {
       const connection = [...document.querySelectorAll('button.library-tree-label')]
@@ -286,6 +347,7 @@ describe('common documentation screenshots', () => {
       { timeout: 20000 },
     )
     await capture('explorer-tree.png')
+    await setSidebarVisible(false)
     const relationshipMap = await $('button=Relationship map')
     await relationshipMap.click()
     await browser.waitUntil(
@@ -297,6 +359,7 @@ describe('common documentation screenshots', () => {
     await activateOpenTab('Northwind Analytics PostgreSQL')
     await ensureBottomPanel(true)
     await capture('sql-query-results.png')
+    await capture('hero-workbench.png')
     const exportResult = await $('button[aria-label="Export result"]')
     await exportResult.waitForClickable({ timeout: 10000 })
     await exportResult.click()
@@ -333,11 +396,13 @@ describe('common documentation screenshots', () => {
     await browser.keys('Escape')
 
     await openConnectionForm('PostgreSQL')
+    await setSidebarVisible(false)
     await capture('connection-wizard.png')
     await closeDrawer()
   })
 
   it('captures service workspaces, search, settings, updates, and workspace import', async () => {
+    await setSidebarVisible(true)
     const workspaceSearch = await $('button[aria-label="Open Workspace Search"]')
     await workspaceSearch.scrollIntoView({ block: 'center' })
     await workspaceSearch.click()
@@ -345,6 +410,7 @@ describe('common documentation screenshots', () => {
       async () => browser.execute(() => Boolean(document.querySelector('[aria-label="Workspace Search"]'))),
       { timeout: 10000 },
     )
+    await setSidebarVisible(false)
     const searchInput = await $('input[aria-label="Search workspace"]')
     await searchInput.setValue('orders')
     await settle()

@@ -7,8 +7,8 @@ use crate::{
         models::{
             AppPreferences, ConnectionAuth, ConnectionProfile, DatastoreApiServerConfig,
             DatastoreApiServerPreferences, DatastoreMcpServerConfig, DatastoreMcpServerPreferences,
-            EnvironmentProfile, LockState, MySqlConnectionOptions, QueryHistoryEntry,
-            QueryTabState, SavedWorkItem, SecretRef, UiState, WorkspaceSnapshot,
+            EnvironmentProfile, FirstInstallGuidePreferences, LockState, MySqlConnectionOptions,
+            QueryHistoryEntry, QueryTabState, SavedWorkItem, SecretRef, UiState, WorkspaceSnapshot,
         },
     },
     persistence, security,
@@ -147,6 +147,7 @@ fn fixture_workspace_seed_for_profile_options(
         .chain(fixture_snippets(&created_at))
         .collect::<Vec<_>>();
     if screenshot_seed {
+        saved_work.retain(|item| !item.id.starts_with("saved-fixture-"));
         for item in &mut saved_work {
             if item.environment_id.as_deref() == Some("env-fixtures") {
                 item.environment_id = Some(active_environment_id.into());
@@ -163,6 +164,9 @@ fn fixture_workspace_seed_for_profile_options(
         for closed_tab in &mut closed_tabs {
             if closed_tab.tab.environment_id == "env-fixtures" {
                 closed_tab.tab.environment_id = active_environment_id.into();
+            }
+            if closed_tab.tab.title == "Recovered fixture scratch.sql" {
+                closed_tab.tab.title = "Recovered analytics scratch.sql".into();
             }
         }
     }
@@ -219,7 +223,16 @@ fn fixture_workspace_seed_for_profile_options(
                 enabled: screenshot_seed,
             },
             multi_window_tabs: Default::default(),
-            first_install_guide: Default::default(),
+            first_install_guide: if screenshot_seed {
+                FirstInstallGuidePreferences {
+                    status: "completed".into(),
+                    current_step_id: None,
+                    updated_at: Some(created_at.clone()),
+                    completed_at: Some(created_at.clone()),
+                }
+            } else {
+                Default::default()
+            },
             explorer_folder_orders: HashMap::new(),
         },
         datastore_security_checks: None,

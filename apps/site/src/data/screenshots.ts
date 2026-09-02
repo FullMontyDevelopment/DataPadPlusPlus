@@ -99,7 +99,7 @@ const commonScreenshotDefinitions: Record<CommonScreenshotId, ScreenshotDefiniti
   'import-export': {
     id: 'import-export',
     title: 'Guarded document edit',
-    caption: 'A deterministic contract-mock document field change staged before environment-aware review; no live datastore is contacted.',
+    caption: 'A document field change staged for target and environment review before it is sent to the datastore.',
     image: '/screenshots/import-export.png',
   },
   'result-export': {
@@ -183,7 +183,7 @@ const commonScreenshotDefinitions: Record<CommonScreenshotId, ScreenshotDefiniti
   'transfer-center': {
     id: 'transfer-center',
     title: 'Transfers Center',
-    caption: 'A deterministic fixture failure in Transfers Center demonstrates the warning count, failure detail, retry control, and dismiss action without contacting a production system.',
+    caption: 'Transfers Center shows a failed example transfer with its warning count, failure detail, retry control, and dismiss action.',
     image: '/screenshots/transfer-center.png',
   },
   'workspace-import-review': {
@@ -257,14 +257,14 @@ const datastoreScreenshotSlots = Object.fromEntries(
       {
         id: `datastore-${engine}-connection`,
         title: `${label} connection setup`,
-        caption: `The native ${label} connection form with safe fixture values, platform notes, and test feedback.`,
+        caption: `The native ${label} connection form with illustrative, non-secret values, platform notes, and connection-test feedback.`,
         image: `/screenshots/datastores/${engine}-connection.png`,
         captureCase: `datastore:${engine}:connection`,
       },
       {
         id: `datastore-${engine}-workflow`,
         title: `${label} native workflow`,
-        caption: `A representative ${label} explorer and read-only query workflow using deterministic nonproduction fixtures or a clearly labeled contract mock.`,
+        caption: `A representative ${label} explorer and bounded read-only workflow. Replace the example objects with names from your datastore.`,
         image: `/screenshots/datastores/${engine}-workflow.png`,
         captureCase: `datastore:${engine}:workflow`,
       },

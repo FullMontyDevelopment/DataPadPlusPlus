@@ -100,7 +100,7 @@ export const datastoreGroups = [
 
 export const launchWorkflow = [
   'Install a pre-release build for your platform.',
-  'Create a local, fixture-backed, or read-only connection.',
+  'Create a connection to your development, staging, or read-only datastore.',
   'Attach the right environment before querying.',
   'Explore native objects and diagnostics.',
   'Run bounded reads, inspect results, export what you need, then save useful work.',

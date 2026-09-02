@@ -28,7 +28,7 @@ export const config = {
         label: 'table_health',
         kind: 'view',
         path: ['datapadplusplus', 'observability', 'Views', 'table_health'],
-        summary: 'Deterministic read-only fixture used for documentation screenshots.',
+        summary: 'Read-only view used to review table health before export.',
         queryTemplate: 'select table_name, rows_estimate, last_vacuum from observability.table_health limit 50;',
         payload: {
           schema: 'observability',
@@ -78,7 +78,7 @@ export const config = {
       postgresTab.lastRunAt = executedAt
       postgresTab.result = resultFor(
         'postgresql',
-        '3 bounded rows returned from the documentation fixture.',
+        '3 bounded rows returned.',
         'table',
         ['table', 'schema', 'json'],
         [
@@ -99,7 +99,7 @@ export const config = {
               { label: 'last_vacuum', detail: 'timestamptz · nullable' },
             ],
           },
-          { renderer: 'json', value: { fixture: true, rows: 3 } },
+          { renderer: 'json', value: { source: 'example', rows: 3 } },
         ],
       )
     }
@@ -150,10 +150,10 @@ export const config = {
               protectedPaths: [['_id']],
               maxDocumentBytes: 16777216,
             },
-            metadata: { fixture: true, contractMock: true },
+            metadata: { source: 'example' },
           },
           { renderer: 'json', value: { database: 'catalog', collection: 'products', count: 2 } },
-          { renderer: 'raw', text: 'Deterministic contract fixture: 2 documents.' },
+          { renderer: 'raw', text: '2 documents returned from catalog.products.' },
         ],
       )
     }
@@ -185,7 +185,7 @@ export const config = {
       redisTab.lastRunAt = executedAt
       redisTab.result = resultFor(
         'redis',
-        'Complete hash value loaded from the documentation fixture.',
+        'Complete hash value loaded.',
         'keyvalue',
         ['keyvalue', 'raw'],
         [
@@ -196,8 +196,8 @@ export const config = {
             redisType: 'hash',
             entries: {
               userId: 'demo-user',
-              region: 'local-fixture',
-              plan: 'documentation',
+              region: 'emea',
+              plan: 'standard',
               lastSeenAt: '2026-09-02T09:30:00Z',
             },
             ttl: '23m 11s',
@@ -206,10 +206,10 @@ export const config = {
             memoryUsageBytes: 4915,
             encoding: 'listpack',
             length: 4,
-            value: { userId: 'demo-user', region: 'local-fixture', plan: 'documentation' },
+            value: { userId: 'demo-user', region: 'emea', plan: 'standard' },
             sampleTruncated: false,
             supports: { edit: true, ttl: true, export: true },
-            metadata: { fixture: true, contractMock: true },
+            metadata: { source: 'example' },
           },
           { renderer: 'raw', text: 'HGETALL session:demo-user\nTTL session:demo-user' },
         ],
@@ -224,7 +224,7 @@ export const config = {
         field: 'status',
         value: 'open',
         valueType: 'string',
-        filters: [{ id: 'search-filter-region', field: 'region', operator: 'term', value: 'local-fixture', valueType: 'string' }],
+        filters: [{ id: 'search-filter-region', field: 'region', operator: 'term', value: 'emea', valueType: 'string' }],
         sourceFields: [{ id: 'search-source-id', field: 'order_id' }, { id: 'search-source-total', field: 'total' }],
         sort: [{ id: 'search-sort-total', field: 'total', direction: 'desc' }],
         aggregations: [{ id: 'search-agg-status', field: 'status', name: 'orders_by_status', type: 'terms', size: 10 }],
@@ -234,7 +234,7 @@ export const config = {
       searchTab.lastRunAt = executedAt
       searchTab.result = resultFor(
         'opensearch',
-        '2 search hits returned from the documentation contract mock.',
+        '2 search hits returned from orders.',
         'searchHits',
         ['searchHits', 'profile', 'metrics', 'json'],
         [
@@ -242,14 +242,14 @@ export const config = {
             renderer: 'searchHits',
             total: 2,
             hits: [
-              { id: 'order-demo-1042', score: 1.23, source: { order_id: 'DEMO-1042', status: 'open', region: 'local-fixture', total: 184.5 } },
-              { id: 'order-demo-1041', score: 0.98, source: { order_id: 'DEMO-1041', status: 'open', region: 'local-fixture', total: 96.2 } },
+              { id: 'order-1042', score: 1.23, source: { order_id: 'ORD-1042', status: 'open', region: 'emea', total: 184.5 } },
+              { id: 'order-1041', score: 0.98, source: { order_id: 'ORD-1041', status: 'open', region: 'emea', total: 96.2 } },
             ],
             aggregations: { orders_by_status: { open: 2 } },
           },
-          { renderer: 'profile', summary: 'Contract-mock search profile.', stages: [{ name: 'query', durationMs: 7, rows: 2, details: { shards: 1 } }] },
+          { renderer: 'profile', summary: 'Search execution profile.', stages: [{ name: 'query', durationMs: 7, rows: 2, details: { shards: 1 } }] },
           { renderer: 'metrics', metrics: [{ name: 'hits_total', value: 2 }, { name: 'took_ms', value: 8, unit: 'ms' }] },
-          { renderer: 'json', value: { fixture: true, took: 8, hits: 2 } },
+          { renderer: 'json', value: { source: 'example', took: 8, hits: 2 } },
         ],
       )
     }
@@ -280,7 +280,7 @@ export const config = {
       testSuite: {
         id: 'suite-documentation-orders',
         name: 'Order data smoke tests',
-        description: 'Deterministic read-only fixture suite for documentation screenshots.',
+        description: 'Read-only smoke tests for an order-data connection.',
         engine: 'postgresql',
         family: 'sql',
         connectionId: 'fixture-postgresql',
@@ -294,7 +294,7 @@ export const config = {
             name: 'Orders are readable',
             enabled: true,
             setup: [],
-            execute: [{ id: 'step-orders-read', label: 'Read five fixture orders', phase: 'execute', kind: 'query', language: 'sql', queryText: 'select order_id, status from public.orders limit 5;', rowLimit: 5, timeoutMs: 5000 }],
+            execute: [{ id: 'step-orders-read', label: 'Read five recent orders', phase: 'execute', kind: 'query', language: 'sql', queryText: 'select order_id, status from public.orders limit 5;', rowLimit: 5, timeoutMs: 5000 }],
             assertions: [{ id: 'assert-orders-no-error', label: 'Query completes without error', kind: 'no-error', comparison: 'equals', expected: true, sourceStepId: 'step-orders-read' }],
             teardown: [],
           },
@@ -303,7 +303,7 @@ export const config = {
             name: 'Active orders remain bounded',
             enabled: true,
             setup: [],
-            execute: [{ id: 'step-order-count', label: 'Count active fixture orders', phase: 'execute', kind: 'query', language: 'sql', queryText: "select count(*) from public.orders where status = 'active';", rowLimit: 1, timeoutMs: 5000 }],
+            execute: [{ id: 'step-order-count', label: 'Count active orders', phase: 'execute', kind: 'query', language: 'sql', queryText: "select count(*) from public.orders where status = 'active';", rowLimit: 1, timeoutMs: 5000 }],
             assertions: [{ id: 'assert-order-count', label: 'At least one active order exists', kind: 'row-count', comparison: 'greater-than-or-equal', expected: 1, sourceStepId: 'step-order-count' }],
             teardown: [],
           },
@@ -333,6 +333,7 @@ export const config = {
     snapshot.ui.activeConnectionId = tab.connectionId
     snapshot.ui.activeEnvironmentId = tab.environmentId
     snapshot.ui.activeTabId = tab.id
+    snapshot.ui.sidebarCollapsed = false
     snapshot.ui.rightDrawer = 'none'
     const mainWindow = snapshot.ui.workspaceWindows?.find((item) => item.role === 'main')
     if (mainWindow) {
