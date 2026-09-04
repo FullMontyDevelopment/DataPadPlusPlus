@@ -8,6 +8,8 @@ function requireMatch(text, pattern, message) {
   }
 }
 
+const JOB_LEVEL_RUNNER_CONTEXT = /^ {6}[A-Za-z_][A-Za-z0-9_]*:\s*.*\$\{\{\s*runner\./m
+
 export function validateLiveFixturesWorkflow(repoRoot = process.cwd()) {
   const path = resolve(repoRoot, '.github/workflows/live-fixtures.yml')
   const text = readFileSync(path, 'utf8')
@@ -26,6 +28,10 @@ export function validateLiveFixturesWorkflow(repoRoot = process.cwd()) {
   requireMatch(text, /xvfb-run -a npm run e2e:desktop/, 'The core fixture job must execute native desktop fixture journeys')
   requireMatch(text, /^\s*oracle-fixture:\s*$/m, 'Live fixtures must define an Oracle continuation job')
   requireMatch(text, /npm run fixtures:test:oracle/, 'The Oracle job must validate paging and completion')
+
+  if (JOB_LEVEL_RUNNER_CONTEXT.test(text)) {
+    throw new Error('Live fixture jobs must use the runner context only after a runner starts, such as in step-level env')
+  }
 
   const cleanupSteps = [...text.matchAll(/- name: Stop [^\n]+\n\s+if: always\(\)/g)]
   if (cleanupSteps.length < 2) {

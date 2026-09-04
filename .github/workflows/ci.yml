@@ -90,8 +90,6 @@ jobs:
       DATAPADPLUSPLUS_E2E_SUITE: smoke
       DATAPADPLUSPLUS_FIXTURE_RUN: '1'
       DATAPADPLUSPLUS_FIXTURE_PROFILE: sqlite-smoke
-      DATAPADPLUSPLUS_WORKSPACE_DIR: ${{ runner.temp }}\datapadplusplus-native-smoke
-      DATAPADPLUSPLUS_DESKTOP_BINARY: ${{ github.workspace }}\apps\desktop\src-tauri\target\release\datapadplusplus-desktop.exe
       RUST_BACKTRACE: '1'
 
     steps:
@@ -119,4 +117,7 @@ jobs:
         run: npm run e2e:desktop:build
 
       - name: Run native SQLite smoke suite
+        env:
+          DATAPADPLUSPLUS_WORKSPACE_DIR: ${{ runner.temp }}\datapadplusplus-native-smoke
+          DATAPADPLUSPLUS_DESKTOP_BINARY: ${{ github.workspace }}\apps\desktop\src-tauri\target\release\datapadplusplus-desktop.exe
         run: npm run e2e:desktop:smoke

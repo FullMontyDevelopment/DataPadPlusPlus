@@ -42,8 +42,6 @@ jobs:
     env:
       DATAPADPLUSPLUS_FIXTURE_RUN: '1'
       DATAPADPLUSPLUS_FIXTURE_PROFILE: core
-      DATAPADPLUSPLUS_WORKSPACE_DIR: ${{ runner.temp }}/datapadplusplus-live-fixtures
-      DATAPADPLUSPLUS_DESKTOP_BINARY: ${{ github.workspace }}/apps/desktop/src-tauri/target/release/datapadplusplus-desktop
       RUST_BACKTRACE: '1'
 
     steps:
@@ -100,6 +98,9 @@ jobs:
         run: npm run e2e:desktop:build
 
       - name: Run native desktop fixture journeys
+        env:
+          DATAPADPLUSPLUS_WORKSPACE_DIR: ${{ runner.temp }}/datapadplusplus-live-fixtures
+          DATAPADPLUSPLUS_DESKTOP_BINARY: ${{ github.workspace }}/apps/desktop/src-tauri/target/release/datapadplusplus-desktop
         run: xvfb-run -a npm run e2e:desktop
 
       - name: Stop fixtures

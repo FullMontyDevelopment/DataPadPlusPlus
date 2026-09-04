@@ -124,6 +124,42 @@ test('CI workflow validator rejects Docker in the native SQLite smoke job', () =
   assert.throws(() => validateCiWorkflow(root), /must not start Docker fixtures/)
 })
 
+test('CI workflow validator rejects runner context in job-level environment values', () => {
+  const root = mkdtempSync(join(tmpdir(), 'datapadplusplus-ci-'))
+  mkdirSync(join(root, '.github', 'workflows'), { recursive: true })
+  writeFileSync(
+    join(root, '.github', 'workflows', 'ci.yml'),
+    [
+      'name: CI',
+      'on:',
+      '  pull_request:',
+      '  push:',
+      '  workflow_dispatch:',
+      'permissions:',
+      '  contents: read',
+      'jobs:',
+      '  deterministic-tests:',
+      '    name: Unit and dependency-free integration tests',
+      '    runs-on: ubuntu-22.04',
+      '    env:',
+      "      DATAPADPLUSPLUS_FIXTURE_RUN: '0'",
+      '    steps:',
+      '      - run: npm run ci:test',
+      '      - run: node tests/ci/write-test-summary.mjs',
+      '  native-smoke:',
+      '    runs-on: windows-latest',
+      '    env:',
+      '      DATAPADPLUSPLUS_FIXTURE_PROFILE: sqlite-smoke',
+      '      DATAPADPLUSPLUS_WORKSPACE_DIR: ${{ runner.temp }}/native-smoke',
+      '    steps:',
+      '      - run: npm run e2e:desktop:build',
+      '      - run: npm run e2e:desktop:smoke',
+    ].join('\n'),
+  )
+
+  assert.throws(() => validateCiWorkflow(root), /runner context only after a runner starts/)
+})
+
 test('CI scripts use Node-compatible explicit ESM import specifiers', () => {
   const ciDir = join(process.cwd(), 'tests', 'ci')
   const failures = []

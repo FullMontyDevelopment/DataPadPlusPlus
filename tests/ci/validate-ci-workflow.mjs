@@ -15,6 +15,8 @@ const NATIVE_SMOKE_FORBIDDEN_PATTERNS = [
   [/DATAPADPLUSPLUS_FIXTURE_PROFILE:\s*['"]?(?!sqlite-smoke)[^\s'"]+/, 'Native smoke CI must use only the SQLite fixture profile'],
 ]
 
+const JOB_LEVEL_RUNNER_CONTEXT = /^ {6}[A-Za-z_][A-Za-z0-9_]*:\s*.*\$\{\{\s*runner\./m
+
 function requireMatch(text, pattern, message) {
   if (!pattern.test(text)) {
     throw new Error(message)
@@ -73,6 +75,10 @@ export function validateCiWorkflow(repoRoot = process.cwd()) {
   requireMatch(nativeSmokeJob, /DATAPADPLUSPLUS_FIXTURE_PROFILE:\s*sqlite-smoke/, 'Native smoke CI must select only SQLite')
   requireMatch(nativeSmokeJob, /npm\s+run\s+e2e:desktop:build/, 'Native smoke CI must build the production-mode process with its test-only embedded WebDriver provider')
   requireMatch(nativeSmokeJob, /npm\s+run\s+e2e:desktop:smoke/, 'Native smoke CI must run the SQLite desktop E2E suite')
+
+  if (JOB_LEVEL_RUNNER_CONTEXT.test(nativeSmokeJob)) {
+    throw new Error('Native smoke CI must use the runner context only after a runner starts, such as in step-level env')
+  }
 
   for (const [pattern, message] of NATIVE_SMOKE_FORBIDDEN_PATTERNS) {
     if (pattern.test(nativeSmokeJob)) {
