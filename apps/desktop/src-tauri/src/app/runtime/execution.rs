@@ -55,6 +55,12 @@ impl ManagedAppState {
             security::analyze_mongodb_script(&query_template)?;
         }
         let query_text = resolve_string_template(&query_template, &resolved_environment.variables)?;
+        super::datastore_mcp_server::authorize_run_step(
+            &self.app,
+            request.execution_id.as_deref(),
+            &query_text,
+            &request.language,
+        )?;
         let mut resolved_request = request.clone();
         resolved_request.query_text =
             resolve_string_template(&request.query_text, &resolved_environment.variables)?;

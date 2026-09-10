@@ -31,6 +31,7 @@ mod profile_options_mysql;
 mod profile_options_timeseries;
 mod profile_options_warehouse;
 mod profiles;
+mod query_compiler;
 mod query_tabs;
 mod query_tabs_scoped;
 mod query_tabs_scoped_redis;

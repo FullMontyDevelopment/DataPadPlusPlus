@@ -18,6 +18,7 @@ interface DocumentFieldInspectorProps {
   row: DocumentGridRow
   theme: string
   onChangeType(row: DocumentGridRow, nextType: DocumentValueType): void
+  onBeginRawEdit?(row: DocumentGridRow): Promise<boolean>
   onClose(): void
   onSaveRaw(row: DocumentGridRow, value: unknown): void
   onValidateRaw(row: DocumentGridRow, value: unknown): string[]
@@ -32,6 +33,7 @@ export function DocumentFieldInspector({
   row,
   theme,
   onChangeType,
+  onBeginRawEdit,
   onClose,
   onSaveRaw,
   onValidateRaw,
@@ -96,7 +98,7 @@ export function DocumentFieldInspector({
   }
 
   const save = () => {
-    if (!saveEnabled) return
+    if (!saveEnabled || editUnavailableReason) return
     onSaveRaw(row, JSON.parse(draft) as unknown)
   }
 
@@ -162,6 +164,12 @@ export function DocumentFieldInspector({
             disabled={!canEditRaw || Boolean(editUnavailableReason)}
             title={editUnavailableReason}
             onClick={() => {
+              if (onBeginRawEdit) {
+                void onBeginRawEdit(row).then((ready) => {
+                  if (ready) { setMode('edit'); setValidatedDraft(undefined) }
+                })
+                return
+              }
               setMode('edit')
               setDraft(formattedValue)
               setValidatedDraft(undefined)
@@ -172,7 +180,7 @@ export function DocumentFieldInspector({
         ) : (
           <>
             <button type="button" className="drawer-button" onClick={validate}>Validate JSON</button>
-            <button type="button" className="drawer-button drawer-button--primary" disabled={!saveEnabled} onClick={save}>Save</button>
+            <button type="button" className="drawer-button drawer-button--primary" disabled={!saveEnabled || Boolean(editUnavailableReason)} onClick={save}>Save</button>
             <button
               type="button"
               className="drawer-button"

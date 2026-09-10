@@ -130,6 +130,10 @@ export const DATASTORE_MCP_SERVER_SCOPES = [
   'datastore:list',
   'datastore:explore',
   'query:read',
+  'library:read',
+  'library:write',
+  'tests:run',
+  'query:write',
   'operation:diagnostic',
 ] as const
 

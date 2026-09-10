@@ -1,12 +1,11 @@
+import { prepareCosmosExecution } from '../../query-builder/cosmos-execution'
 import type { DatastoreWorkbenchSlice } from '../types'
 import { CosmosObjectViewWorkspace } from './CosmosObjectViewWorkspace'
 import { CosmosSqlEditorWorkspace } from './CosmosSqlEditorWorkspace'
 import {
-  buildCosmosSqlRequest,
   cosmosSqlEditorStateFromBuilder,
   createCosmosSqlQueryEditorState,
   isCosmosSqlBuilderState,
-  validateCosmosSqlEditorState,
 } from '../../query-builder/cosmos-sql'
 import {
   createDatastoreExplorerProvider,
@@ -41,47 +40,7 @@ export const cosmosdbWorkbenchSlice = {
     editorText(editorState) {
       return editorState.kind === 'cosmos-sql' ? editorState.sql : ''
     },
-    prepareExecution({ tab, builderState, editorState, mode, selectedText }) {
-      if (!isCosmosSqlBuilderState(builderState)) {
-        return { queryText: tab.queryText, errors: ['Cosmos DB query state is unavailable.'] }
-      }
-      if (mode === 'builder') {
-        const request = buildCosmosSqlRequest(builderState)
-        return {
-          queryText: request.query,
-          builderState,
-          datastoreExecutionInput: {
-            kind: 'cosmos-sql',
-            database: request.database,
-            container: request.container,
-            sql: request.query,
-            parameters: request.parameters,
-            ...(Object.prototype.hasOwnProperty.call(request, 'partitionKey')
-              ? { partitionKey: request.partitionKey }
-              : {}),
-            enableCrossPartitionQueries: request.enableCrossPartitionQueries,
-          },
-        }
-      }
-      const resolvedState = editorState?.kind === 'cosmos-sql'
-        ? editorState
-        : createCosmosSqlQueryEditorState(tab.queryText, builderState)
-      const validation = validateCosmosSqlEditorState(
-        resolvedState,
-        {
-          database: builderState.database,
-          container: builderState.container,
-        },
-        selectedText,
-      )
-      return {
-        queryText: selectedText?.trim() || resolvedState.sql,
-        builderState,
-        datastoreExecutionInput: validation.input,
-        errors: validation.errors,
-        warnings: validation.warnings,
-      }
-    },
+    prepareExecution: prepareCosmosExecution,
   },
   explorer: createDatastoreExplorerProvider({
     engine: 'cosmosdb',

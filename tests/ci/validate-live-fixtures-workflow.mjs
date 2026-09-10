@@ -15,7 +15,9 @@ export function validateLiveFixturesWorkflow(repoRoot = process.cwd()) {
   const text = readFileSync(path, 'utf8')
 
   requireMatch(text, /^\s*pull_request:\s*$/m, 'Live fixtures must run when adapter or fixture code changes')
-  requireMatch(text, /^\s*schedule:\s*$/m, 'Live fixtures must have a scheduled execution')
+  if (/^\s*schedule\s*:/m.test(text) || /github\.event\.schedule/.test(text)) {
+    throw new Error('Live fixtures must not run on a schedule or retain schedule-only job conditions')
+  }
   requireMatch(text, /^\s*workflow_dispatch:\s*$/m, 'Live fixtures must support manual profile selection')
   requireMatch(text, /^\s*contents:\s*read\s*$/m, 'Live fixtures must use read-only repository permissions')
   requireMatch(text, /^\s*core-fixtures:\s*$/m, 'Live fixtures must define a core reference-engine job')
@@ -25,7 +27,7 @@ export function validateLiveFixturesWorkflow(repoRoot = process.cwd()) {
   requireMatch(text, /npm run fixtures:validate:redis/, 'The core fixture job must validate Redis')
   requireMatch(text, /npm run rust:test:fixtures/, 'The core fixture job must execute live Rust adapter tests')
   requireMatch(text, /npm run e2e:desktop:build/, 'The core fixture job must build the native desktop test binary')
-  requireMatch(text, /xvfb-run -a npm run e2e:desktop/, 'The core fixture job must execute native desktop fixture journeys')
+  requireMatch(text, /xvfb-run -a (?:bash apps\/desktop\/e2e\/with-linux-keyring\.sh )?npm run e2e:desktop/, 'The core fixture job must execute native desktop fixture journeys')
   requireMatch(text, /^\s*oracle-fixture:\s*$/m, 'Live fixtures must define an Oracle continuation job')
   requireMatch(text, /npm run fixtures:test:oracle/, 'The Oracle job must validate paging and completion')
 
@@ -47,6 +49,13 @@ export function validateLiveFixturesWorkflow(repoRoot = process.cwd()) {
     throw new Error('Core fixtures must install .NET, prepare the bundled Oracle runtime, run core Rust tests, then build the desktop')
   }
   requireMatch(coreJob, /libxdo-dev/, 'Core fixtures must install the Linux desktop linker dependencies')
+  for (const dependency of ['dbus-x11', 'gnome-keyring', 'libsecret-tools']) {
+    requireMatch(coreJob, new RegExp(`\\b${dependency}\\b`), 'Core fixtures must install the isolated Linux credential store dependencies')
+  }
+  const desktopRuns = coreJob.split('\n').filter((line) => /npm run e2e:desktop(?::mcp)?(?:\s|$)/.test(line))
+  if (desktopRuns.length === 0 || desktopRuns.some((line) => !line.includes('dbus-run-session -- xvfb-run -a bash apps/desktop/e2e/with-linux-keyring.sh'))) {
+    throw new Error('Core fixtures must execute desktop journeys inside an isolated D-Bus and keyring session')
+  }
 
   return { path }
 }

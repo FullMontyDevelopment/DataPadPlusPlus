@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import type {
   DocumentNodeChildrenRequest,
@@ -25,6 +25,8 @@ interface DocumentLazyHydrationOptions {
   tabId?: string
   resetKey?: string
   suspended?: boolean
+  scopeKey?: string
+  isDocumentPreparing?(index: number): boolean
   onFetchDocumentNodeChildren?(
     request: DocumentNodeChildrenRequest,
   ): Promise<DocumentNodeChildrenResponse | undefined>
@@ -41,6 +43,8 @@ export function useDocumentLazyHydration({
   tabId,
   resetKey,
   suspended = false,
+  scopeKey,
+  isDocumentPreparing,
   onFetchDocumentNodeChildren,
   onHydrated,
   onMessage,
@@ -54,13 +58,16 @@ export function useDocumentLazyHydration({
     value: new Map(),
   }))
   const documentsRef = useRef(documents)
+  const draftsRef = useRef(draftDocuments)
   const generationRef = useRef(0)
   const suspendedRef = useRef(suspended)
   const requestsRef = useRef(new Map<Array<Record<string, unknown>>, Set<string>>())
+  const documentGenerations = useRef(new Map<number, number>())
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     documentsRef.current = documents
-  }, [documents])
+    draftsRef.current = draftDocuments
+  }, [documents, draftDocuments])
 
   useEffect(() => {
     suspendedRef.current = suspended
@@ -70,7 +77,8 @@ export function useDocumentLazyHydration({
       setHydratingRows({ source: documents, value: new Set() })
       setHydrationErrors({ source: documents, value: new Map() })
     })
-  }, [documents, resetKey, suspended])
+    return () => { generationRef.current += 1 }
+  }, [documents, resetKey, suspended, scopeKey])
 
   const hydrateLazyRow = async (
     row: DocumentGridRow,
@@ -80,6 +88,7 @@ export function useDocumentLazyHydration({
       onMessage('Wait for the running query to finish before loading this field.')
       return undefined
     }
+    if (isDocumentPreparing?.(row.documentIndex)) return undefined
     if (!onFetchDocumentNodeChildren || !editContext || !tabId || !collection) {
       onMessage('Run a full query or select a collection before expanding this field.')
       return undefined
@@ -93,6 +102,7 @@ export function useDocumentLazyHydration({
 
     const sourceDocuments = documents
     const sourceGeneration = generationRef.current
+    const documentGeneration = documentGenerations.current.get(row.documentIndex) ?? 0
     const sourceRequests = requestsRef.current.get(sourceDocuments) ?? new Set<string>()
     if (sourceRequests.has(row.id)) {
       return undefined
@@ -117,6 +127,8 @@ export function useDocumentLazyHydration({
       validateResponse(response, tabId, documentId, row.path)
       if (
         generationRef.current === sourceGeneration &&
+        (documentGenerations.current.get(row.documentIndex) ?? 0) === documentGeneration &&
+        JSON.stringify(draftsRef.current[row.documentIndex]?._id) === JSON.stringify(documentId) &&
         !suspendedRef.current &&
         documentsRef.current === sourceDocuments
       ) {
@@ -128,6 +140,8 @@ export function useDocumentLazyHydration({
       const message = dataEditErrorMessage(error, 'Unable to expand this field.')
       if (
         generationRef.current === sourceGeneration &&
+        (documentGenerations.current.get(row.documentIndex) ?? 0) === documentGeneration &&
+        JSON.stringify(draftsRef.current[row.documentIndex]?._id) === JSON.stringify(documentId) &&
         !suspendedRef.current &&
         documentsRef.current === sourceDocuments
       ) {
@@ -137,10 +151,13 @@ export function useDocumentLazyHydration({
       return undefined
     } finally {
       sourceRequests.delete(row.id)
-      if (sourceRequests.size === 0) {
+      if (sourceRequests.size === 0 && requestsRef.current.get(sourceDocuments) === sourceRequests) {
         requestsRef.current.delete(sourceDocuments)
       }
-      setRowLoading(setHydratingRows, sourceDocuments, row.id, false)
+      if (generationRef.current === sourceGeneration && documentsRef.current === sourceDocuments &&
+          (documentGenerations.current.get(row.documentIndex) ?? 0) === documentGeneration) {
+        setRowLoading(setHydratingRows, sourceDocuments, row.id, false)
+      }
     }
   }
 
@@ -152,6 +169,12 @@ export function useDocumentLazyHydration({
       ? hydratingRows.value
       : EMPTY_ROW_ID_SET,
     hydrateLazyRow,
+    invalidateDocumentHydration: (index: number) => {
+      documentGenerations.current.set(index, (documentGenerations.current.get(index) ?? 0) + 1)
+      const prefix = `document:${index}:`
+      setHydratingRows((current) => ({ ...current, value: new Set([...current.value].filter((id) => !id.startsWith(prefix))) }))
+      setHydrationErrors((current) => ({ ...current, value: new Map([...current.value].filter(([id]) => !id.startsWith(prefix))) }))
+    },
   }
 }
 

@@ -85,9 +85,10 @@ pub async fn refresh_metrics_tab(
     tab_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
     let mut runtime = clone_runtime(&state)?;
-    let response = runtime.refresh_metrics_tab(&tab_id).await?;
-    replace_runtime(&state, runtime)?;
-    Ok(response)
+    let workspace_id = runtime.workspace_switcher_status()?.active_workspace_id;
+    let original = runtime.snapshot.clone();
+    runtime.refresh_metrics_tab(&tab_id).await?;
+    commit_tab_refresh(&state, &workspace_id, &original, runtime, &tab_id)
 }
 
 #[tauri::command]
@@ -96,9 +97,10 @@ pub async fn refresh_object_view_tab(
     tab_id: String,
 ) -> Result<BootstrapPayload, CommandError> {
     let mut runtime = clone_runtime(&state)?;
-    let response = runtime.refresh_object_view_tab(&tab_id).await?;
-    replace_runtime(&state, runtime)?;
-    Ok(response)
+    let workspace_id = runtime.workspace_switcher_status()?.active_workspace_id;
+    let original = runtime.snapshot.clone();
+    runtime.refresh_object_view_tab(&tab_id).await?;
+    commit_tab_refresh(&state, &workspace_id, &original, runtime, &tab_id)
 }
 
 #[tauri::command]

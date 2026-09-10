@@ -9,7 +9,7 @@ const suite =
   suiteArgument?.slice('--suite='.length) ||
   process.env.DATAPADPLUSPLUS_E2E_SUITE ||
   'fixtures'
-const supportedSuites = new Set(['fixtures', 'smoke'])
+const supportedSuites = new Set(['fixtures', 'smoke', 'mcp'])
 
 if (!supportedSuites.has(suite)) {
   throw new Error(`Unknown DataPad++ desktop E2E suite: ${suite}`)
@@ -24,7 +24,7 @@ const desktopEnvironment = {
   DATAPADPLUSPLUS_FIXTURE_RUN: process.env.DATAPADPLUSPLUS_FIXTURE_RUN ?? '1',
   DATAPADPLUSPLUS_FIXTURE_PROFILE:
     process.env.DATAPADPLUSPLUS_FIXTURE_PROFILE ??
-    (suite === 'smoke' ? 'sqlite-smoke' : ''),
+    (suite === 'smoke' ? 'sqlite-smoke' : suite === 'mcp' ? 'sqlite-smoke' : ''),
   DATAPADPLUSPLUS_WORKSPACE_DIR: workspaceDir,
   DATAPADPLUSPLUS_SECRET_STORE: 'file',
   DATAPADPLUSPLUS_SECRET_FILE: join(workspaceDir, 'secrets.json'),
@@ -38,7 +38,7 @@ const desktopEnvironment = {
 }
 
 function prepareSqliteFixture() {
-  if (suite !== 'smoke' || process.env.DATAPADPLUSPLUS_E2E_PREPARE_SQLITE === '0') {
+  if (!['smoke', 'mcp'].includes(suite) || process.env.DATAPADPLUSPLUS_E2E_PREPARE_SQLITE === '0') {
     return
   }
 

@@ -5,7 +5,7 @@ import type { BootstrapPayload } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
 import { useAppActions } from './app-actions'
 import { initialState, reducer } from './app-state-reducer'
-import { dispatchBootstrapPayload } from './app-state-payload'
+import { dispatchBootstrapPayload, preserveUnsavedDraftsOnExternalPayload } from './app-state-payload'
 import { toUserError, toUserMessage } from './app-state-selectors'
 import { useStartupUpdateCheck } from './use-startup-update-check'
 import type { Actions, AppContextValue, StateShape, AppErrorOptions } from './app-state-types'
@@ -264,7 +264,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
             const status = await desktopClient.getWorkspaceSwitcherStatus().catch(() => undefined)
             dispatch({ type: 'WORKSPACE_CONTEXT_COMMITTED', payload: nextPayload, status })
           } else {
-            dispatchBootstrapPayload(dispatch, nextPayload)
+            dispatchBootstrapPayload(dispatch, preserveUnsavedDraftsOnExternalPayload(nextPayload, stateRef.current.payload))
           }
         }).catch(() => {
           // A command response may already carry the authoritative workspace context.

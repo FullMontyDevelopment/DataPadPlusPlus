@@ -228,15 +228,24 @@ async fn run_step(
         );
     }
 
-    let query_template = step
-        .get("queryText")
-        .and_then(Value::as_str)
-        .or_else(|| {
-            step.get("builderState")
-                .and_then(|state| state.get("lastAppliedQueryText"))
-                .and_then(Value::as_str)
-        })
-        .unwrap_or_default();
+    let query_template = if kind == "builder" {
+        runtime
+            .connection_by_id(&context.test_tab.connection_id)
+            .and_then(|connection| {
+                super::super::query_compiler::compile(
+                    &step["builderState"],
+                    &connection,
+                    context.test_tab,
+                )
+            })
+            .map(|(text, _)| text)
+            .unwrap_or_default()
+    } else {
+        step.get("queryText")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
     if query_template.trim().is_empty() {
         let message = "Configure a query or generated builder request before running this step.";
         emit_progress(
@@ -256,7 +265,7 @@ async fn run_step(
         );
     }
 
-    let query_text = resolve_suite_variables(query_template, suite_variables);
+    let query_text = resolve_suite_variables(&query_template, suite_variables);
     let execution_tab_id = generate_id("test-step-tab");
     let mut execution_tab = context.test_tab.clone();
     execution_tab.id = execution_tab_id.clone();
@@ -299,7 +308,11 @@ async fn run_step(
         context.confirmed_guardrail_id.map(str::to_string)
     };
     let execution_request = ExecutionRequest {
-        execution_id: Some(generate_id("test-step-execution")),
+        execution_id: Some(format!(
+            "{}:{}",
+            context.run_id,
+            generate_id("test-step-execution")
+        )),
         tab_id: execution_tab_id.clone(),
         connection_id: context.test_tab.connection_id.clone(),
         environment_id: context.test_tab.environment_id.clone(),

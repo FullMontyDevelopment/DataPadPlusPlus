@@ -1,14 +1,16 @@
 struct DatapadMcpTools {
     app: AppHandle,
+    workspace_id: String,
     config: Arc<Mutex<DatastoreMcpServerConfig>>,
     #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
 }
 
 impl DatapadMcpTools {
-    fn new(app: AppHandle, config: Arc<Mutex<DatastoreMcpServerConfig>>) -> Self {
+    fn new(app: AppHandle, config: Arc<Mutex<DatastoreMcpServerConfig>>, workspace_id: String) -> Self {
         Self {
             app,
+            workspace_id,
             config,
             tool_router: Self::tool_router(),
         }
@@ -19,6 +21,8 @@ impl DatapadMcpTools {
         let state = state.lock().map_err(|_| {
             McpError::internal_error("Workspace state is temporarily unavailable.", None)
         })?;
+        state.ensure_unlocked().map_err(command_to_mcp)?;
+        check_workspace(&state, &self.workspace_id).map_err(command_to_mcp)?;
         Ok(ManagedAppState {
             app: state.app.clone(),
             snapshot: state.snapshot.clone(),
@@ -51,6 +55,77 @@ impl DatapadMcpTools {
 
 #[tool_router]
 impl DatapadMcpTools {
+
+    #[tool(description = "Validate and plan a saved query or script run. Requires library:read, query:read; writes additionally require query:write. Review blockers and requiredConfirmationText.", annotations(read_only_hint = true))]
+    async fn datapad_plan_saved_query_run(&self, context: rmcp::service::RequestContext<RoleServer>, Parameters(args): Parameters<PlanSavedRunArgs>) -> Result<CallToolResult,McpError> {
+        let token = authorize_tool(&context,SCOPE_LIBRARY_READ)?;
+        Ok(library_reply(self.plan_saved_run(args,&token.id,false)))
+    }
+    #[tool(description = "Start a previously planned saved query or script run. Single-use, revision-bound plan; returns runId for status and cancellation. Writes require explicit scope and any required confirmation.", annotations(read_only_hint = false, destructive_hint = true))]
+    async fn datapad_run_saved_query(&self, context: rmcp::service::RequestContext<RoleServer>, Parameters(args): Parameters<StartSavedRunArgs>) -> Result<CallToolResult,McpError> {
+        let token = authorize_tool(&context,SCOPE_LIBRARY_READ)?;
+        Ok(library_reply(self.start_saved_run(args,&token.id,false)))
+    }
+
+    #[tool(description = "Validate and plan a saved test suite run. Requires library:read, query:read, and tests:run; writes additionally require query:write. Review blockers and requiredConfirmationText.", annotations(read_only_hint = true))]
+    async fn datapad_plan_test_suite_run(&self, context: rmcp::service::RequestContext<RoleServer>, Parameters(args): Parameters<PlanSavedRunArgs>) -> Result<CallToolResult,McpError> {
+        let token = authorize_tool(&context,SCOPE_LIBRARY_READ)?;
+        Ok(library_reply(self.plan_saved_run(args,&token.id,true)))
+    }
+    #[tool(description = "Start a previously planned saved test suite run. Single-use, revision-bound plan; returns runId for status and cancellation. Writes require explicit scope and any required confirmation.", annotations(read_only_hint = false, destructive_hint = true))]
+    async fn datapad_run_test_suite(&self, context: rmcp::service::RequestContext<RoleServer>, Parameters(args): Parameters<StartSavedRunArgs>) -> Result<CallToolResult,McpError> {
+        let token = authorize_tool(&context,SCOPE_LIBRARY_READ)?;
+        Ok(library_reply(self.start_saved_run(args,&token.id,true)))
+    }
+    #[tool(description = "Get status and bounded redacted results of this token's saved-item run.", annotations(read_only_hint = true))]
+    async fn datapad_get_run(&self, context: rmcp::service::RequestContext<RoleServer>, Parameters(args): Parameters<SavedRunArgs>) -> Result<CallToolResult,McpError> {
+        let token = authorize_tool(&context,SCOPE_LIBRARY_READ)?;
+        Ok(library_reply(self.saved_run_status(args,&token.id,false)))
+    }
+    #[tool(description = "Request cancellation of this token's saved-item run. Cancellation is not rollback; test cleanup is attempted.", annotations(read_only_hint = false, destructive_hint = false))]
+    async fn datapad_cancel_run(&self, context: rmcp::service::RequestContext<RoleServer>, Parameters(args): Parameters<SavedRunArgs>) -> Result<CallToolResult,McpError> {
+        let token = authorize_tool(&context,SCOPE_LIBRARY_READ)?;
+        Ok(library_reply(self.saved_run_status(args,&token.id,true)))
+    }
+
+    #[tool(description = "List saved queries and scripts in the active workspace Library. No search phrase or Workspace Search plugin required. Requires library:read.", annotations(read_only_hint = true))]
+    async fn datapad_list_saved_queries(&self, context: rmcp::service::RequestContext<RoleServer>, Parameters(args): Parameters<ListLibraryArgs>) -> Result<CallToolResult, McpError> {
+        authorize_tool(&context, SCOPE_LIBRARY_READ)?;
+        Ok(library_reply(self.list_library(args, false)))
+    }
+
+    #[tool(description = "Read the complete saved query or script definition, workspace identity, revision, and redacted-field markers. Requires library:read.", annotations(read_only_hint = true))]
+    async fn datapad_get_saved_query(&self, context: rmcp::service::RequestContext<RoleServer>, Parameters(args): Parameters<LibraryItemArgs>) -> Result<CallToolResult, McpError> {
+        authorize_tool(&context, SCOPE_LIBRARY_READ)?;
+        Ok(library_reply(self.library_runtime().and_then(|runtime| get_item(&runtime,args,false))))
+    }
+
+    #[tool(description = "Update an existing saved query or script. Requires library:read, library:write and expectedRevision from get. Never overwrites unsaved tabs. Does not execute datastore requests.", annotations(read_only_hint = false, destructive_hint = true))]
+    async fn datapad_update_saved_query(&self, context: rmcp::service::RequestContext<RoleServer>, Parameters(args): Parameters<UpdateLibraryArgs>) -> Result<CallToolResult, McpError> {
+        authorize_tool(&context, SCOPE_LIBRARY_READ)?;
+        let token = authorize_tool(&context, SCOPE_LIBRARY_WRITE)?;
+        Ok(library_reply(self.update_library(args,false,&token.id)))
+    }
+
+
+    #[tool(description = "List saved test suites in the active workspace Library. No search phrase or Workspace Search plugin required. Requires library:read.", annotations(read_only_hint = true))]
+    async fn datapad_list_test_suites(&self, context: rmcp::service::RequestContext<RoleServer>, Parameters(args): Parameters<ListLibraryArgs>) -> Result<CallToolResult, McpError> {
+        authorize_tool(&context, SCOPE_LIBRARY_READ)?;
+        Ok(library_reply(self.list_library(args, true)))
+    }
+
+    #[tool(description = "Read the complete saved test suite definition, workspace identity, revision, and redacted-field markers. Requires library:read.", annotations(read_only_hint = true))]
+    async fn datapad_get_test_suite(&self, context: rmcp::service::RequestContext<RoleServer>, Parameters(args): Parameters<LibraryItemArgs>) -> Result<CallToolResult, McpError> {
+        authorize_tool(&context, SCOPE_LIBRARY_READ)?;
+        Ok(library_reply(self.library_runtime().and_then(|runtime| get_item(&runtime,args,true))))
+    }
+
+    #[tool(description = "Update an existing saved test suite. Requires library:read, library:write and expectedRevision from get. Never overwrites unsaved tabs. Does not execute datastore requests.", annotations(read_only_hint = false, destructive_hint = true))]
+    async fn datapad_update_test_suite(&self, context: rmcp::service::RequestContext<RoleServer>, Parameters(args): Parameters<UpdateLibraryArgs>) -> Result<CallToolResult, McpError> {
+        authorize_tool(&context, SCOPE_LIBRARY_READ)?;
+        let token = authorize_tool(&context, SCOPE_LIBRARY_WRITE)?;
+        Ok(library_reply(self.update_library(args,true,&token.id)))
+    }
     #[tool(description = "List DataPad++ plugins and whether they are enabled in this workspace.")]
     async fn datapad_list_plugins(
         &self,
@@ -70,7 +145,7 @@ impl DatapadMcpTools {
     }
 
     #[tool(
-        description = "Search the Workspace Search plugin index without exposing secrets or result payloads."
+        description = "Literal keyword search (not wildcards). Requires Workspace Search enabled. includedTypes accepts connection, folder, query, script, test-suite, library-item, open-tab, closed-tab. Use datapad_list_saved_queries or datapad_list_test_suites to enumerate saved items without search."
     )]
     async fn datapad_search_workspace(
         &self,
@@ -244,7 +319,7 @@ impl DatapadMcpTools {
     ) -> Result<CallToolResult, McpError> {
         authorize_tool(&context, SCOPE_DATASTORE_EXPLORE)?;
         let config = self.current_config()?;
-        let mut runtime = self.authorized_runtime(
+        let runtime = self.authorized_runtime(
             &config,
             &request.connection_id,
             &request.environment_id,
@@ -441,7 +516,7 @@ impl DatapadMcpTools {
 impl ServerHandler for DatapadMcpTools {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("DataPad++ desktop MCP server. All tools require auth-token scopes; writes and admin actions are unavailable in v1.")
+            .with_instructions("Use datapad_list_saved_queries and datapad_list_test_suites to discover saved Library work; keyword search is not a listing. Get an item before updating it with its expected revision. library:write edits definitions only. Saved runs require planning and query:read; mutations additionally require query:write. Test runs also require tests:run. Existing safety checks and explicit confirmations still apply. Raw datapad_run_query remains read-only. Reconnect after changing workspaces.")
     }
 }
 

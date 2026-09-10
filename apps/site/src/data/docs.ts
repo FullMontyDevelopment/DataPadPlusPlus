@@ -486,7 +486,7 @@ const legacyDocArticles: LegacyDocArticle[] = [
       },
       {
         title: 'Start the endpoint and test access',
-        body: 'MCP uses Streamable HTTP at /mcp. Requests need Authorization headers, and write, destructive, admin, and costly operations remain blocked in the current scope.',
+        body: 'MCP uses Streamable HTTP at /mcp and requires Authorization headers. Raw queries remain read-only. Saved queries and test suites use separate listing, editing, planning, and execution tools with explicit permissions and existing guardrails.',
       },
       {
         title: 'Discover enabled plugins',
@@ -494,7 +494,15 @@ const legacyDocArticles: LegacyDocArticle[] = [
       },
       {
         title: 'Use plugin surfaces with scoped rights',
-        body: 'Workspace Search uses workspace:search, Security Checks uses security:read, API Server summary access uses api-server:read, MCP Server summary access uses mcp-server:read, and Workspaces listing uses workspaces:read. MCP v1 keeps these plugin tools read-only.',
+        body: 'Workspace Search uses workspace:search, Security Checks uses security:read, API Server summaries use api-server:read, MCP Server summaries use mcp-server:read, and workspace listing uses workspaces:read. These metadata tools remain read-only.',
+      },
+      {
+        title: 'Find and edit saved queries and test suites',
+        body: 'Grant library:read and call datapad_list_saved_queries or datapad_list_test_suites without a search phrase. These list the Library even when Workspace Search is disabled. Get the item, then use its workspace ID, item ID and revision to update it with library:write. Builder filters are validated and recompiled; unsaved tabs and stale revisions are protected. Library access covers saved definitions across the active workspace and never resolves vault secrets.',
+      },
+      {
+        title: 'Plan and run saved work',
+        body: 'Use the saved-query or test-suite plan tool, review the target and confirmations, then start the run and poll datapad_get_run. Runs require query:read; potentially mutating steps also require query:write, and suites require tests:run. These permissions are opt-in. Connection allowlists, read-only settings, and Safe Mode still apply. Test providers currently cover PostgreSQL, SQLite, MongoDB, Redis, Valkey, and DynamoDB. Cancellation is not rollback; verify interrupted writes before retrying. Reconnect MCP after changing workspaces.',
       },
       {
         title: 'Review observability',
@@ -1437,7 +1445,7 @@ export const documentedPlugins: DocumentedPlugin[] = [
     id: 'datastore-mcp-server',
     title: 'MCP Server',
     slug: 'mcp-server',
-    summary: 'Give local MCP clients allowlisted, scoped, read-only access to selected DataPad++ tools.',
+    summary: 'Give local MCP clients scoped discovery, saved-work editing, and explicitly authorized execution.',
     status: 'Experimental',
     availability: 'Desktop app; Streamable HTTP on a loopback endpoint.',
     enablement: 'Current workspace preference.',

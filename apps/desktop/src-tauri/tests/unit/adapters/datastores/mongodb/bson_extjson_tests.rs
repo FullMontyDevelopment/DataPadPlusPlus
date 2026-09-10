@@ -2,6 +2,49 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn edit_baselines_preserve_large_integers_and_nonfinite_numbers_over_json() {
+    for number in [
+        i64::MIN,
+        i64::MAX,
+        9_007_199_254_740_992,
+        -9_007_199_254_740_992,
+    ] {
+        let value = mongodb_bson_to_json(&Bson::Int64(number));
+        assert_eq!(value, json!({"$numberLong": number.to_string()}));
+        let transported: Value = serde_json::from_str(&value.to_string()).unwrap();
+        assert_eq!(
+            mongodb_json_to_bson(&transported, "test").unwrap(),
+            Bson::Int64(number)
+        );
+    }
+    for (number, text) in [
+        (f64::NAN, "NaN"),
+        (f64::INFINITY, "Infinity"),
+        (f64::NEG_INFINITY, "-Infinity"),
+    ] {
+        let value = mongodb_bson_to_json(&Bson::Double(number));
+        assert_eq!(value, json!({"$numberDouble": text}));
+        let Bson::Double(restored) = mongodb_json_to_bson(&value, "test").unwrap() else {
+            panic!("expected double")
+        };
+        assert!(restored == number || (restored.is_nan() && number.is_nan()));
+    }
+}
+
+#[test]
+fn edit_hydration_marks_native_types_without_a_supported_write_codec() {
+    for value in [
+        Bson::JavaScriptCode("return 1".into()),
+        Bson::Symbol("symbol".into()),
+        Bson::Undefined,
+    ] {
+        let hydrated = mongodb_edit_bson_to_json(&value);
+        assert_eq!(hydrated["__datapadUnsupported"], json!(true));
+        assert_eq!(hydrated["value"], value.into_canonical_extjson());
+    }
+}
+
+#[test]
 fn converts_common_extended_json_scalars_to_native_bson() {
     assert!(matches!(
         mongodb_json_to_bson(&json!({ "$oid": "507f1f77bcf86cd799439011" }), "test")

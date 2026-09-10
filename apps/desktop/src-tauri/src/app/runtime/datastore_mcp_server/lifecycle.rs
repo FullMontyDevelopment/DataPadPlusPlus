@@ -184,6 +184,7 @@ impl DatastoreMcpServerManager {
         &mut self,
         app: AppHandle,
         server: DatastoreMcpServerConfig,
+        workspace_id: String,
     ) -> Result<(), CommandError> {
         validate_port(server.port)?;
         if let Some(running) = self.running.get(&server.id) {
@@ -252,6 +253,7 @@ impl DatastoreMcpServerManager {
                             Ok(DatapadMcpTools::new(
                                 app_for_service.clone(),
                                 Arc::clone(&config_for_service),
+                                workspace_id.clone(),
                             ))
                         },
                         Arc::new(
@@ -322,6 +324,7 @@ impl DatastoreMcpServerManager {
     }
 
     fn stop(&mut self, server_id: &str) {
+        stop_server_runs(server_id);
         if let Some(running) = self.running.remove(server_id) {
             running.cancellation.cancel();
             running.handle.abort();
@@ -329,7 +332,8 @@ impl DatastoreMcpServerManager {
     }
 
     fn stop_all(&mut self) {
-        for (_, running) in self.running.drain() {
+        for (id, running) in self.running.drain() {
+            stop_server_runs(&id);
             running.cancellation.cancel();
             running.handle.abort();
         }

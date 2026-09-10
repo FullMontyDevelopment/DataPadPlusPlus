@@ -573,9 +573,12 @@ pub fn shutdown_datapad_application(
     }
     {
         let state = lock_state(&state)?;
-        if state.snapshot.tabs.iter().any(|tab| {
-            tab.active_execution.is_some() || matches!(tab.status.as_str(), "running" | "queued")
-        }) {
+        if crate::app::runtime::datastore_mcp_server::has_active_runs()
+            || state.snapshot.tabs.iter().any(|tab| {
+                tab.active_execution.is_some()
+                    || matches!(tab.status.as_str(), "running" | "queued")
+            })
+        {
             return Err(CommandError::new(
                 "window-execution-active",
                 "Wait for running work to finish or cancel it before closing DataPad++.",

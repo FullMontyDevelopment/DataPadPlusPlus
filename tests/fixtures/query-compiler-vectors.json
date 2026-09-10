@@ -1,0 +1,1026 @@
+[
+  {
+    "name": "0-mongodb-mongo-find",
+    "input": {
+      "builderState": {
+        "kind": "mongo-find",
+        "database": "catalog",
+        "collection": "items",
+        "filters": [],
+        "filterGroups": [],
+        "projectionMode": "all",
+        "projectionFields": [],
+        "sort": [],
+        "skip": 0,
+        "limit": 20,
+        "lastAppliedQueryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {},\n  \"limit\": 20\n}"
+      },
+      "connection": {
+        "engine": "mongodb"
+      }
+    },
+    "queryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {},\n  \"limit\": 20\n}"
+  },
+  {
+    "name": "1-mongodb-mongo-aggregation",
+    "input": {
+      "builderState": {
+        "kind": "mongo-aggregation",
+        "database": "catalog",
+        "collection": "items",
+        "stages": [
+          {
+            "id": "stage-match",
+            "enabled": true,
+            "stage": "$match",
+            "body": "{}"
+          }
+        ],
+        "limit": 20,
+        "lastAppliedQueryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"operation\": \"aggregate\",\n  \"pipeline\": [\n    {\n      \"$match\": {}\n    }\n  ],\n  \"limit\": 20\n}"
+      },
+      "connection": {
+        "engine": "mongodb"
+      }
+    },
+    "queryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"operation\": \"aggregate\",\n  \"pipeline\": [\n    {\n      \"$match\": {}\n    }\n  ],\n  \"limit\": 20\n}"
+  },
+  {
+    "name": "2-cosmosdb-cosmos-sql",
+    "input": {
+      "builderState": {
+        "kind": "cosmos-sql",
+        "database": "catalog",
+        "container": "items",
+        "projectionFields": [],
+        "filters": [],
+        "filterLogic": "and",
+        "sort": [],
+        "offset": 0,
+        "limit": 50,
+        "partitionKeyEnabled": false,
+        "partitionKeyValue": "",
+        "partitionKeyValueType": "string",
+        "enableCrossPartitionQueries": true,
+        "lastAppliedQueryText": "{\n  \"operation\": \"QueryDocuments\",\n  \"database\": \"catalog\",\n  \"container\": \"items\",\n  \"query\": \"SELECT TOP 50 * FROM c\",\n  \"parameters\": [],\n  \"enableCrossPartitionQueries\": true\n}"
+      },
+      "connection": {
+        "engine": "cosmosdb"
+      }
+    },
+    "queryText": "{\n  \"operation\": \"QueryDocuments\",\n  \"database\": \"catalog\",\n  \"container\": \"items\",\n  \"query\": \"SELECT TOP 50 * FROM c\",\n  \"parameters\": [],\n  \"enableCrossPartitionQueries\": true\n}"
+  },
+  {
+    "name": "3-dynamodb-dynamodb-key-condition",
+    "input": {
+      "builderState": {
+        "kind": "dynamodb-key-condition",
+        "table": "items",
+        "partitionKey": {
+          "id": "ddb-condition-1788970766679-5ec31898bc3718",
+          "enabled": true,
+          "field": "pk",
+          "operator": "eq",
+          "value": "",
+          "valueType": "string"
+        },
+        "filters": [],
+        "projectionFields": [],
+        "consistentRead": false,
+        "limit": 20,
+        "lastAppliedQueryText": "{\n  \"operation\": \"Scan\",\n  \"tableName\": \"items\",\n  \"limit\": 20\n}"
+      },
+      "connection": {
+        "engine": "dynamodb"
+      }
+    },
+    "queryText": "{\n  \"operation\": \"Scan\",\n  \"tableName\": \"items\",\n  \"limit\": 20\n}"
+  },
+  {
+    "name": "4-cassandra-cql-partition",
+    "input": {
+      "builderState": {
+        "kind": "cql-partition",
+        "keyspace": "catalog",
+        "table": "items",
+        "projectionFields": [],
+        "partitionKeys": [
+          {
+            "id": "cql-condition-1788970766679-aefcf7336ba06",
+            "enabled": true,
+            "field": "",
+            "operator": "eq",
+            "value": "",
+            "valueType": "string"
+          }
+        ],
+        "clusteringKeys": [],
+        "filters": [],
+        "allowFiltering": false,
+        "limit": 20,
+        "lastAppliedQueryText": "select *\nfrom catalog.items\nlimit 20;"
+      },
+      "connection": {
+        "engine": "cassandra"
+      }
+    },
+    "queryText": "select *\nfrom catalog.items\nlimit 20;"
+  },
+  {
+    "name": "5-elasticsearch-search-dsl",
+    "input": {
+      "builderState": {
+        "kind": "search-dsl",
+        "index": "items",
+        "queryMode": "match-all",
+        "field": "",
+        "value": "",
+        "valueType": "string",
+        "filters": [],
+        "sourceFields": [],
+        "sort": [],
+        "aggregations": [],
+        "size": 20,
+        "lastAppliedQueryText": "{\n  \"index\": \"items\",\n  \"body\": {\n    \"query\": {\n      \"match_all\": {}\n    },\n    \"size\": 20\n  }\n}"
+      },
+      "connection": {
+        "engine": "elasticsearch"
+      }
+    },
+    "queryText": "{\n  \"index\": \"items\",\n  \"body\": {\n    \"query\": {\n      \"match_all\": {}\n    },\n    \"size\": 20\n  }\n}"
+  },
+  {
+    "name": "6-opensearch-search-dsl",
+    "input": {
+      "builderState": {
+        "kind": "search-dsl",
+        "index": "items",
+        "queryMode": "match-all",
+        "field": "",
+        "value": "",
+        "valueType": "string",
+        "filters": [],
+        "sourceFields": [],
+        "sort": [],
+        "aggregations": [],
+        "size": 20,
+        "lastAppliedQueryText": "{\n  \"index\": \"items\",\n  \"body\": {\n    \"query\": {\n      \"match_all\": {}\n    },\n    \"size\": 20\n  }\n}"
+      },
+      "connection": {
+        "engine": "opensearch"
+      }
+    },
+    "queryText": "{\n  \"index\": \"items\",\n  \"body\": {\n    \"query\": {\n      \"match_all\": {}\n    },\n    \"size\": 20\n  }\n}"
+  },
+  {
+    "name": "7-postgresql-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "postgresql"
+      }
+    },
+    "queryText": "select * from \"items\" limit 20;"
+  },
+  {
+    "name": "8-mysql-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "mysql"
+      }
+    },
+    "queryText": "select * from `items` limit 20;"
+  },
+  {
+    "name": "9-mariadb-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "mariadb"
+      }
+    },
+    "queryText": "select * from `items` limit 20;"
+  },
+  {
+    "name": "10-sqlserver-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "sqlserver"
+      }
+    },
+    "queryText": "select top 20 * from [items];"
+  },
+  {
+    "name": "11-sqlite-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "sqlite"
+      }
+    },
+    "queryText": "select * from [main].[items] limit 20;"
+  },
+  {
+    "name": "12-cockroachdb-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "cockroachdb"
+      }
+    },
+    "queryText": "select * from \"items\" limit 20;"
+  },
+  {
+    "name": "13-oracle-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "oracle"
+      }
+    },
+    "queryText": "select * from \"ITEMS\" fetch first 20 rows only;"
+  },
+  {
+    "name": "14-mongodb-mongo-find",
+    "input": {
+      "builderState": {
+        "kind": "mongo-find",
+        "database": "catalog",
+        "collection": "items",
+        "filters": [
+          {
+            "id": "typed",
+            "field": "value",
+            "operator": "eq",
+            "valueType": "number",
+            "value": "42"
+          }
+        ],
+        "filterGroups": [],
+        "projectionMode": "all",
+        "projectionFields": [],
+        "sort": [],
+        "skip": 0,
+        "limit": 20,
+        "lastAppliedQueryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {},\n  \"limit\": 20\n}"
+      },
+      "connection": {
+        "engine": "mongodb"
+      }
+    },
+    "queryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {\n    \"value\": 42\n  },\n  \"limit\": 20\n}"
+  },
+  {
+    "name": "15-mongodb-mongo-find",
+    "input": {
+      "builderState": {
+        "kind": "mongo-find",
+        "database": "catalog",
+        "collection": "items",
+        "filters": [
+          {
+            "id": "typed",
+            "field": "value",
+            "operator": "eq",
+            "valueType": "date",
+            "value": "2026-09-09T10:00:00Z"
+          }
+        ],
+        "filterGroups": [],
+        "projectionMode": "all",
+        "projectionFields": [],
+        "sort": [],
+        "skip": 0,
+        "limit": 20,
+        "lastAppliedQueryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {},\n  \"limit\": 20\n}"
+      },
+      "connection": {
+        "engine": "mongodb"
+      }
+    },
+    "queryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {\n    \"value\": {\n      \"$date\": \"2026-09-09T10:00:00.000Z\"\n    }\n  },\n  \"limit\": 20\n}"
+  },
+  {
+    "name": "16-mongodb-mongo-find",
+    "input": {
+      "builderState": {
+        "kind": "mongo-find",
+        "database": "catalog",
+        "collection": "items",
+        "filters": [
+          {
+            "id": "typed",
+            "field": "value",
+            "operator": "eq",
+            "valueType": "uuid",
+            "value": "123e4567-e89b-12d3-a456-426614174000"
+          }
+        ],
+        "filterGroups": [],
+        "projectionMode": "all",
+        "projectionFields": [],
+        "sort": [],
+        "skip": 0,
+        "limit": 20,
+        "lastAppliedQueryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {},\n  \"limit\": 20\n}"
+      },
+      "connection": {
+        "engine": "mongodb"
+      }
+    },
+    "queryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {\n    \"value\": {\n      \"$uuid\": \"123e4567-e89b-12d3-a456-426614174000\"\n    }\n  },\n  \"limit\": 20\n}"
+  },
+  {
+    "name": "17-mongodb-mongo-find",
+    "input": {
+      "builderState": {
+        "kind": "mongo-find",
+        "database": "catalog",
+        "collection": "items",
+        "filters": [
+          {
+            "id": "typed",
+            "field": "value",
+            "operator": "eq",
+            "valueType": "objectId",
+            "value": "507f1f77bcf86cd799439011"
+          }
+        ],
+        "filterGroups": [],
+        "projectionMode": "all",
+        "projectionFields": [],
+        "sort": [],
+        "skip": 0,
+        "limit": 20,
+        "lastAppliedQueryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {},\n  \"limit\": 20\n}"
+      },
+      "connection": {
+        "engine": "mongodb"
+      }
+    },
+    "queryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {\n    \"value\": {\n      \"$oid\": \"507f1f77bcf86cd799439011\"\n    }\n  },\n  \"limit\": 20\n}"
+  },
+  {
+    "name": "18-mongodb-mongo-find",
+    "input": {
+      "builderState": {
+        "kind": "mongo-find",
+        "database": "catalog",
+        "collection": "items",
+        "filters": [
+          {
+            "id": "typed",
+            "field": "value",
+            "operator": "eq",
+            "valueType": "boolean",
+            "value": "true"
+          }
+        ],
+        "filterGroups": [],
+        "projectionMode": "all",
+        "projectionFields": [],
+        "sort": [],
+        "skip": 0,
+        "limit": 20,
+        "lastAppliedQueryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {},\n  \"limit\": 20\n}"
+      },
+      "connection": {
+        "engine": "mongodb"
+      }
+    },
+    "queryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {\n    \"value\": true\n  },\n  \"limit\": 20\n}"
+  },
+  {
+    "name": "19-mongodb-mongo-find",
+    "input": {
+      "builderState": {
+        "kind": "mongo-find",
+        "database": "catalog",
+        "collection": "items",
+        "filters": [
+          {
+            "id": "typed",
+            "field": "value",
+            "operator": "eq",
+            "valueType": "json",
+            "value": "{\"a\":1}"
+          }
+        ],
+        "filterGroups": [],
+        "projectionMode": "all",
+        "projectionFields": [],
+        "sort": [],
+        "skip": 0,
+        "limit": 20,
+        "lastAppliedQueryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {},\n  \"limit\": 20\n}"
+      },
+      "connection": {
+        "engine": "mongodb"
+      }
+    },
+    "queryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {\n    \"value\": {\n      \"a\": 1\n    }\n  },\n  \"limit\": 20\n}"
+  },
+  {
+    "name": "20-postgresql-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-items",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "postgresql"
+      }
+    },
+    "queryText": "select * from \"items\" where cardinality(\"values\") > 0 limit 20;"
+  },
+  {
+    "name": "21-postgresql-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-no-items",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "postgresql"
+      }
+    },
+    "queryText": "select * from \"items\" where cardinality(\"values\") = 0 limit 20;"
+  },
+  {
+    "name": "22-postgresql-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-length",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "postgresql"
+      }
+    },
+    "queryText": "select * from \"items\" where cardinality(\"values\") = 3 limit 20;"
+  },
+  {
+    "name": "23-mysql-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-items",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "mysql"
+      }
+    },
+    "queryText": "select * from `items` where case when json_valid(`values`) then case when json_type(`values`) = 'ARRAY' then json_length(`values`) end end > 0 limit 20;"
+  },
+  {
+    "name": "24-mysql-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-no-items",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "mysql"
+      }
+    },
+    "queryText": "select * from `items` where case when json_valid(`values`) then case when json_type(`values`) = 'ARRAY' then json_length(`values`) end end = 0 limit 20;"
+  },
+  {
+    "name": "25-mysql-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-length",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "mysql"
+      }
+    },
+    "queryText": "select * from `items` where case when json_valid(`values`) then case when json_type(`values`) = 'ARRAY' then json_length(`values`) end end = 3 limit 20;"
+  },
+  {
+    "name": "26-mariadb-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-items",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "mariadb"
+      }
+    },
+    "queryText": "select * from `items` where case when json_valid(`values`) then case when json_type(`values`) = 'ARRAY' then json_length(`values`) end end > 0 limit 20;"
+  },
+  {
+    "name": "27-mariadb-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-no-items",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "mariadb"
+      }
+    },
+    "queryText": "select * from `items` where case when json_valid(`values`) then case when json_type(`values`) = 'ARRAY' then json_length(`values`) end end = 0 limit 20;"
+  },
+  {
+    "name": "28-mariadb-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-length",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "mariadb"
+      }
+    },
+    "queryText": "select * from `items` where case when json_valid(`values`) then case when json_type(`values`) = 'ARRAY' then json_length(`values`) end end = 3 limit 20;"
+  },
+  {
+    "name": "29-sqlserver-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-items",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "sqlserver"
+      }
+    },
+    "queryText": "select top 20 * from [items] where case when isjson(cast([values] as nvarchar(max))) = 1 and left(ltrim(cast([values] as nvarchar(max))), 1) = '[' then (select count_big(*) from openjson(cast([values] as nvarchar(max)))) end > 0;"
+  },
+  {
+    "name": "30-sqlserver-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-no-items",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "sqlserver"
+      }
+    },
+    "queryText": "select top 20 * from [items] where case when isjson(cast([values] as nvarchar(max))) = 1 and left(ltrim(cast([values] as nvarchar(max))), 1) = '[' then (select count_big(*) from openjson(cast([values] as nvarchar(max)))) end = 0;"
+  },
+  {
+    "name": "31-sqlserver-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-length",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "sqlserver"
+      }
+    },
+    "queryText": "select top 20 * from [items] where case when isjson(cast([values] as nvarchar(max))) = 1 and left(ltrim(cast([values] as nvarchar(max))), 1) = '[' then (select count_big(*) from openjson(cast([values] as nvarchar(max)))) end = 3;"
+  },
+  {
+    "name": "32-sqlite-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-items",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "sqlite"
+      }
+    },
+    "queryText": "select * from [main].[items] where case when json_valid([values]) then case when json_type([values]) = 'array' then json_array_length([values]) end end > 0 limit 20;"
+  },
+  {
+    "name": "33-sqlite-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-no-items",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "sqlite"
+      }
+    },
+    "queryText": "select * from [main].[items] where case when json_valid([values]) then case when json_type([values]) = 'array' then json_array_length([values]) end end = 0 limit 20;"
+  },
+  {
+    "name": "34-sqlite-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-length",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "sqlite"
+      }
+    },
+    "queryText": "select * from [main].[items] where case when json_valid([values]) then case when json_type([values]) = 'array' then json_array_length([values]) end end = 3 limit 20;"
+  },
+  {
+    "name": "35-cockroachdb-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-items",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "cockroachdb"
+      }
+    },
+    "queryText": "select * from \"items\" where \"values\" is not null and coalesce(array_length(\"values\", 1), 0) > 0 limit 20;"
+  },
+  {
+    "name": "36-cockroachdb-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-no-items",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "cockroachdb"
+      }
+    },
+    "queryText": "select * from \"items\" where \"values\" is not null and coalesce(array_length(\"values\", 1), 0) = 0 limit 20;"
+  },
+  {
+    "name": "37-cockroachdb-sql-select",
+    "input": {
+      "builderState": {
+        "kind": "sql-select",
+        "table": "items",
+        "projectionFields": [],
+        "filters": [
+          {
+            "id": "length",
+            "field": "values",
+            "operator": "has-length",
+            "valueType": "number",
+            "value": "3"
+          }
+        ],
+        "filterLogic": "and",
+        "sort": [],
+        "limit": 20,
+        "lastAppliedQueryText": "select * from \"items\" limit 20;"
+      },
+      "connection": {
+        "engine": "cockroachdb"
+      }
+    },
+    "queryText": "select * from \"items\" where \"values\" is not null and coalesce(array_length(\"values\", 1), 0) = 3 limit 20;"
+  },
+  {
+    "name": "38-mongodb-mongo-find",
+    "input": {
+      "builderState": {
+        "kind": "mongo-find",
+        "database": "catalog",
+        "collection": "items",
+        "filters": [
+          {
+            "id": "one",
+            "field": "a",
+            "operator": "eq",
+            "valueType": "number",
+            "value": "1",
+            "groupId": "group"
+          },
+          {
+            "id": "two",
+            "field": "b",
+            "operator": "eq",
+            "valueType": "string",
+            "value": "Unicode 雪",
+            "groupId": "group"
+          },
+          {
+            "id": "three",
+            "field": "c",
+            "operator": "has-items",
+            "valueType": "json",
+            "value": ""
+          }
+        ],
+        "filterGroups": [
+          {
+            "id": "group",
+            "label": "Or group",
+            "logic": "or"
+          }
+        ],
+        "projectionMode": "all",
+        "projectionFields": [],
+        "sort": [],
+        "skip": 0,
+        "limit": 20,
+        "lastAppliedQueryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {},\n  \"limit\": 20\n}"
+      },
+      "connection": {
+        "engine": "mongodb"
+      }
+    },
+    "queryText": "{\n  \"database\": \"catalog\",\n  \"collection\": \"items\",\n  \"filter\": {\n    \"$and\": [\n      {\n        \"c\": {\n          \"$type\": \"array\",\n          \"$not\": {\n            \"$size\": 0\n          }\n        }\n      },\n      {\n        \"$or\": [\n          {\n            \"a\": 1\n          },\n          {\n            \"b\": \"Unicode 雪\"\n          }\n        ]\n      }\n    ]\n  },\n  \"limit\": 20\n}"
+  }
+]

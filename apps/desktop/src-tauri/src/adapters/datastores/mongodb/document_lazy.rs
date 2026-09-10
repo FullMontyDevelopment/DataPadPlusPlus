@@ -6,7 +6,7 @@ use mongodb::{
 use serde_json::{json, Map, Value};
 
 use super::super::super::*;
-use super::bson_extjson::mongodb_bson_to_json;
+use super::bson_extjson::{mongodb_bson_to_json, mongodb_edit_bson_to_json};
 use super::connection::{mongodb_client, mongodb_database_name_for_collection_query};
 
 const LAZY_VALUE_FIELD: &str = "__datapadValue";
@@ -75,7 +75,7 @@ pub(crate) async fn fetch_mongodb_document_node_children(
         document_id: request.document_id.clone(),
         path: request.path.clone(),
         value: if request.mode.as_deref() == Some("full-value") {
-            mongodb_bson_to_json(&value)
+            mongodb_edit_bson_to_json(&value)
         } else {
             summarize_hydrated_value(&value, &request.path)
         },

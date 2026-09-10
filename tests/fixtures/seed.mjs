@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import net from 'node:net'
+import { waitForDynamoDbReady } from './dynamodb-readiness.mjs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import {
@@ -1173,6 +1174,7 @@ async function seedCloudContract() {
         'content-type': 'application/x-amz-json-1.0',
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(5000),
     })
     const text = await response.text()
 
@@ -1182,6 +1184,8 @@ async function seedCloudContract() {
 
     return text ? JSON.parse(text) : {}
   }
+
+  await waitForDynamoDbReady({ request: dynamodb })
 
   const tables = [
     { name: 'accounts', key: 'account_id' },

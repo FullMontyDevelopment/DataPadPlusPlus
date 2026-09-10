@@ -193,7 +193,7 @@ pub async fn list_explorer_nodes(
             request.scope.as_deref().unwrap_or("<root>")
         ),
     );
-    let mut runtime = clone_runtime(&state)?;
+    let runtime = clone_runtime(&state)?;
     let response = runtime.list_explorer_nodes(request).await?;
     infrastructure::log_breadcrumb(
         "command",
@@ -204,7 +204,6 @@ pub async fn list_explorer_nodes(
             response.scope.as_deref().unwrap_or("<root>")
         ),
     );
-    replace_runtime(&state, runtime)?;
     Ok(response)
 }
 

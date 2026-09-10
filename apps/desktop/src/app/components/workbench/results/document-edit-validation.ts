@@ -127,7 +127,7 @@ export function containsUnavailableValue(value: unknown): boolean {
   if (!isObjectRecord(value)) {
     return false
   }
-  if (value.__datapadTruncated === true || value.__datapadUnsupported === true) {
+  if (value.__datapadLazyNode === true || value.__datapadTruncated === true || value.__datapadUnsupported === true) {
     return true
   }
   return Object.values(value).some(containsUnavailableValue)

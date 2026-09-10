@@ -18,12 +18,18 @@ pub(super) fn search_workspace_snapshot(
     let match_case = request.match_case.unwrap_or(false);
     let whole_word = request.whole_word.unwrap_or(false);
     let included_types = request.included_types.map(|types| {
-        types
+        let types = types
             .into_iter()
             .map(|value| value.trim().to_ascii_lowercase())
-            .filter(|value| WORKSPACE_SEARCH_RESULT_TYPES.contains(&value.as_str()))
-            .collect::<HashSet<_>>()
-    });
+            .collect::<HashSet<_>>();
+        if types.is_empty() || types.iter().any(|value| !WORKSPACE_SEARCH_RESULT_TYPES.contains(&value.as_str())) {
+            return Err(McpError::invalid_params(
+                "Choose supported workspace search types, or omit includedTypes to search all types.",
+                Some(json!({ "supportedTypes": WORKSPACE_SEARCH_RESULT_TYPES })),
+            ));
+        }
+        Ok(types)
+    }).transpose()?;
     let needle = if match_case {
         query.to_string()
     } else {

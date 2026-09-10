@@ -98,6 +98,10 @@ function normalizeDatastoreMcpServerScopes(scopes: unknown): DatastoreMcpServerS
     'datastore:list',
     'datastore:explore',
     'query:read',
+    'library:read',
+    'library:write',
+    'tests:run',
+    'query:write',
     'operation:diagnostic',
   ])
   const values = Array.isArray(scopes) ? scopes : []

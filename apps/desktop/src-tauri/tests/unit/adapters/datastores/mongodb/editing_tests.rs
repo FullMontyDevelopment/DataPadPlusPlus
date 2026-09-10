@@ -154,6 +154,80 @@ fn mongodb_insert_document_requires_a_json_object() {
 }
 
 #[test]
+fn mongodb_rejects_incomplete_edit_baselines_before_checking_concurrency() {
+    for marker in [
+        "__datapadLazyNode",
+        "__datapadTruncated",
+        "__datapadUnsupported",
+    ] {
+        for kind in [
+            "set-field",
+            "change-field-type",
+            "rename-field",
+            "add-field",
+            "unset-field",
+            "update-document",
+            "delete-document",
+        ] {
+            let mut edit = request(kind, vec![]);
+            edit.target.expected_document =
+                Some(json!({"_id": "product-1", "nested": [{marker: true}]}));
+            let error = mongodb_expected_document_filter(&edit, &doc! {"_id": "product-1"}, None)
+                .expect_err("incomplete data must be a loading error, not a conflict");
+            assert_eq!(error.code, "mongodb-document-not-loaded");
+            assert!(error.message.contains("Load the complete document"));
+        }
+    }
+}
+
+#[test]
+fn mongodb_full_baseline_still_rejects_changes_to_unedited_fields_and_removal() {
+    let original = doc! {"_id": "product-1", "name": "before", "nested": {"array": [1, 2]}};
+    let mut edit = request("set-field", vec![]);
+    edit.target.expected_document = Some(mongodb_document_to_json(&original));
+    assert!(
+        mongodb_expected_document_filter(&edit, &doc! {"_id": "product-1"}, Some(&original))
+            .unwrap()
+            .is_some()
+    );
+    let changed = doc! {"_id": "product-1", "name": "before", "nested": {"array": [1, 2, 3]}};
+    assert!(
+        mongodb_expected_document_filter(&edit, &doc! {"_id": "product-1"}, Some(&changed))
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        mongodb_expected_document_filter(&edit, &doc! {"_id": "product-1"}, None)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn hydrated_baselines_preserve_numeric_bson_types_and_detect_type_only_changes() {
+    let original = doc! {"_id": "one", "int": Bson::Int32(1), "long": Bson::Int64(1), "double": 1.0, "negativeZero": -0.0};
+    let mut edit = request("set-field", vec![]);
+    let baseline = mongodb_edit_document_to_json(&original);
+    assert_eq!(
+        mongodb_json_to_document(&baseline, "baseline", "test").unwrap(),
+        original
+    );
+    edit.target.expected_document = Some(baseline);
+    assert!(
+        mongodb_expected_document_filter(&edit, &doc! {"_id": "one"}, Some(&original))
+            .unwrap()
+            .is_some()
+    );
+    let mut changed = original.clone();
+    changed.insert("int", Bson::Int64(1));
+    assert!(
+        mongodb_expected_document_filter(&edit, &doc! {"_id": "one"}, Some(&changed))
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
 fn mongodb_replacement_document_preserves_identity_and_rejects_operators() {
     let document = mongodb_replacement_document(
         &request(

@@ -86,6 +86,53 @@ pub(super) fn mongodb_bson_to_json(value: &Bson) -> Value {
     bson_to_json_at_depth(value, 0)
 }
 
+/// Full-value hydration is also an edit baseline. Preserve BSON numeric types
+/// (including integral doubles and signed zero) across WebView JSON transport.
+pub(super) fn mongodb_edit_document_to_json(document: &Document) -> Value {
+    Value::Object(
+        document
+            .iter()
+            .map(|(key, value)| (key.clone(), edit_bson_to_json(value, 1)))
+            .collect(),
+    )
+}
+
+pub(super) fn mongodb_edit_bson_to_json(value: &Bson) -> Value {
+    edit_bson_to_json(value, 0)
+}
+
+fn edit_bson_to_json(value: &Bson, depth: usize) -> Value {
+    if depth >= MAX_BSON_JSON_DEPTH {
+        return bson_depth_marker(value);
+    }
+    match value {
+        Bson::Document(document) => Value::Object(
+            document
+                .iter()
+                .map(|(key, value)| (key.clone(), edit_bson_to_json(value, depth + 1)))
+                .collect(),
+        ),
+        Bson::Array(values) => Value::Array(
+            values
+                .iter()
+                .map(|value| edit_bson_to_json(value, depth + 1))
+                .collect(),
+        ),
+        Bson::Int32(_) | Bson::Int64(_) | Bson::Double(_) => value.clone().into_canonical_extjson(),
+        // These legacy types have no supported mutation codec. Keep their
+        // representation available for inspection, but never replace them with
+        // ordinary objects/strings in a supposedly lossless edit.
+        Bson::JavaScriptCode(_)
+        | Bson::JavaScriptCodeWithScope(_)
+        | Bson::Symbol(_)
+        | Bson::Undefined => json!({
+            "__datapadUnsupported": true,
+            "value": value.clone().into_canonical_extjson(),
+        }),
+        _ => bson_to_json_at_depth(value, depth),
+    }
+}
+
 fn bson_to_json_at_depth(value: &Bson, depth: usize) -> Value {
     if depth >= MAX_BSON_JSON_DEPTH {
         return bson_depth_marker(value);
@@ -94,7 +141,7 @@ fn bson_to_json_at_depth(value: &Bson, depth: usize) -> Value {
     match value {
         Bson::Double(value) => Number::from_f64(*value)
             .map(Value::Number)
-            .unwrap_or(Value::Null),
+            .unwrap_or_else(|| json!({ "$numberDouble": if value.is_nan() { "NaN" } else if value.is_sign_negative() { "-Infinity" } else { "Infinity" } })),
         Bson::String(value) => Value::String(value.clone()),
         Bson::Array(values) => Value::Array(
             values
@@ -117,6 +164,11 @@ fn bson_to_json_at_depth(value: &Bson, depth: usize) -> Value {
             "$scope": document_to_json_at_depth(&code.scope, depth + 1),
         }),
         Bson::Int32(value) => Value::Number((*value).into()),
+        // JSON is transported through a WebView. Integers outside JavaScript's
+        // exact range must not be rounded before returning as an edit baseline.
+        Bson::Int64(value) if !(-9_007_199_254_740_991..=9_007_199_254_740_991).contains(value) => {
+            json!({ "$numberLong": value.to_string() })
+        }
         Bson::Int64(value) => Value::Number((*value).into()),
         Bson::Timestamp(Timestamp { time, increment }) => json!({
             "$timestamp": {

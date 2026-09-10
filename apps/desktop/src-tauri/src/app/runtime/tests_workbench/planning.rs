@@ -127,14 +127,22 @@ pub(super) fn plan(
                 let kind = step.get("kind").and_then(Value::as_str).unwrap_or("query");
                 let mut step_blockers = Vec::new();
                 let mut step_warnings = Vec::new();
-                let generated_request = step
-                    .get("queryText")
-                    .and_then(Value::as_str)
-                    .or_else(|| {
-                        step.get("builderState")
-                            .and_then(|state| state.get("lastAppliedQueryText"))
-                            .and_then(Value::as_str)
-                    })
+                let generated = if kind == "builder" {
+                    Some(
+                        super::super::query_compiler::compile(
+                            &step["builderState"],
+                            &connection,
+                            tab,
+                        )?
+                        .0,
+                    )
+                } else {
+                    step.get("queryText")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                };
+                let generated_request = generated
+                    .as_deref()
                     .map(|query| resolve_suite_variables(query, &suite_variables));
                 let mut status = "ready";
 

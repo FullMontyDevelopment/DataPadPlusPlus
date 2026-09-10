@@ -5,6 +5,7 @@ const suite = process.env.DATAPADPLUSPLUS_E2E_SUITE ?? 'fixtures'
 const specsBySuite = {
   fixtures: [resolve(import.meta.dirname, 'specs', 'desktop-fixtures.e2e.mjs')],
   smoke: [resolve(import.meta.dirname, 'specs', 'desktop-sqlite-smoke.e2e.mjs')],
+  mcp: [resolve(import.meta.dirname, 'specs', 'desktop-mcp.e2e.mjs')],
 }
 const application = process.env.DATAPADPLUSPLUS_DESKTOP_BINARY
 const appEnvironment = {
@@ -23,6 +24,9 @@ if (!(suite in specsBySuite)) {
 
 export const config = {
   runner: 'local',
+  outputDir: process.env.DATAPADPLUSPLUS_WORKSPACE_DIR
+    ? resolve(process.env.DATAPADPLUSPLUS_WORKSPACE_DIR, '.e2e-artifacts')
+    : undefined,
   specs: specsBySuite[suite],
   maxInstances: 1,
   services: [
@@ -35,6 +39,8 @@ export const config = {
         env: appEnvironment,
         startTimeout: 60000,
         statusPollTimeout: 5000,
+        captureBackendLogs: true,
+        backendLogLevel: 'info',
       },
     ],
   ],
@@ -68,6 +74,12 @@ export const config = {
     )
     const fileName = `${test.title.replace(/[^A-Za-z0-9_.-]+/g, '-').slice(0, 100)}.png`
     mkdirSync(artifactDirectory, { recursive: true })
-    await browser.saveScreenshot(resolve(artifactDirectory, fileName))
+    try {
+      await browser.saveScreenshot(resolve(artifactDirectory, fileName))
+    } catch {
+      // A lost native session must not replace the original failing assertion
+      // with another failure in the screenshot hook.
+      console.warn('Could not capture a failure screenshot: the desktop session is unavailable.')
+    }
   },
 }

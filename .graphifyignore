@@ -14,6 +14,8 @@ apps/desktop/src-tauri/sidecars/**/bin/
 apps/desktop/src-tauri/sidecars/**/obj/
 apps/desktop/src-tauri/gen/
 packages/*/dist/
+apps/desktop/src-tauri/src/app/runtime/query_compiler.js
+packages/query-compiler/src/schemas.ts
 
 # Exclude test/debug data from architecture graphs.
 tests/

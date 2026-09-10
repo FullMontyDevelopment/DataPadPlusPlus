@@ -3211,6 +3211,14 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     typed_collection
         .insert_one(mongodb::bson::doc! {
             "_id": lazy_id,
+            "largeInteger": i64::MAX,
+            "nativeInt32": mongodb::bson::Bson::Int32(1),
+            "nativeInt64": mongodb::bson::Bson::Int64(1),
+            "nativeDouble": 1.0,
+            "nativeNegativeZero": -0.0,
+            "nativeDate": mongodb::bson::DateTime::from_millis(1_700_000_000_000),
+            "nativeUuid": uuid_id,
+            "nativeBinary": mongodb::bson::Binary { subtype: mongodb::bson::spec::BinarySubtype::Generic, bytes: vec![0, 1, 254, 255] },
             "deep": deep_value,
             "inventory": {
                 "items": [
@@ -3264,6 +3272,171 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     )
     .await?;
     assert_eq!(unusual_response.value, json!("unusual-ready"));
+
+    // Efficiency-mode edits must hydrate the entire selected document, not just
+    // the edited field. Exercise the same transport and atomic guard as the UI.
+    let full_request = DocumentNodeChildrenRequest {
+        tab_id: "tab-mongodb-lazy-edit".into(),
+        connection_id: connection.id.clone(),
+        environment_id: "env-dev".into(),
+        database: Some(database.into()),
+        collection: import_collection.clone(),
+        document_id: json!(lazy_id),
+        path: vec![],
+        mode: Some("full-value".into()),
+        query_text: None,
+    };
+    let before = typed_collection
+        .find_one(mongodb::bson::doc! {"_id": lazy_id})
+        .await?
+        .unwrap();
+    let baseline = adapters::fetch_document_node_children(&connection, &full_request)
+        .await?
+        .value;
+    assert_eq!(
+        baseline["largeInteger"],
+        json!({"$numberLong": i64::MAX.to_string()})
+    );
+    let mut lazy_query = execution_request(
+        &connection.id,
+        "env-dev",
+        "mongodb",
+        &json!({"database": database, "collection": import_collection, "filter": {"_id": lazy_id}})
+            .to_string(),
+    );
+    lazy_query.document_efficiency_mode = Some(true);
+    let lazy_result = adapters::execute(&connection, &lazy_query, vec![]).await?;
+    let lazy_document = &lazy_result.payloads[0]["documents"][0];
+    assert_eq!(lazy_result.payloads[0]["hydrationMode"], json!("lazy"));
+    assert_eq!(lazy_document["inventory"]["__datapadLazyNode"], json!(true));
+    assert_eq!(
+        baseline["inventory"]["items"][0]["details"]["a.b"]["$value"][1]["[0]"],
+        json!("unusual-ready")
+    );
+    assert!(!baseline.to_string().contains("__datapadLazyNode"));
+    let mut guarded_edit = DataEditExecutionRequest {
+        connection_id: connection.id.clone(),
+        environment_id: "env-dev".into(),
+        edit_kind: "add-field".into(),
+        target: DataEditTarget {
+            object_kind: "document".into(),
+            database: Some(database.into()),
+            collection: Some(import_collection.clone()),
+            document_id: Some(json!(lazy_id)),
+            expected_document: Some(baseline.clone()),
+            ..Default::default()
+        },
+        changes: vec![DataEditChange {
+            path: Some(vec!["editProbe".into()]),
+            value: Some(json!("added")),
+            ..Default::default()
+        }],
+        confirmation_text: None,
+    };
+    let added = adapters::execute_data_edit(&connection, &guarded_edit).await?;
+    assert!(
+        added.executed,
+        "full baseline accepts an efficiency-mode edit"
+    );
+    let after = typed_collection
+        .find_one(mongodb::bson::doc! {"_id": lazy_id})
+        .await?
+        .unwrap();
+    assert_eq!(before.get("inventory"), after.get("inventory"));
+    assert_eq!(before.get("deep"), after.get("deep"));
+    for field in ["largeInteger", "nativeDate", "nativeUuid", "nativeBinary"] {
+        assert_eq!(
+            before.get(field),
+            after.get(field),
+            "untouched BSON {field}"
+        );
+    }
+    let evidence = added.metadata.as_ref().unwrap()["documentEvidence"]["afterDocument"].clone();
+    assert_eq!(evidence["editProbe"], json!("added"));
+    guarded_edit.edit_kind = "set-field".into();
+    guarded_edit.target.expected_document = Some(evidence.clone());
+    guarded_edit.changes[0].value = Some(json!("second edit"));
+    assert!(
+        adapters::execute_data_edit(&connection, &guarded_edit)
+            .await?
+            .executed
+    );
+    let mut replacement = adapters::fetch_document_node_children(&connection, &full_request)
+        .await?
+        .value;
+    guarded_edit.target.expected_document = Some(replacement.clone());
+    replacement["rawProbe"] = json!("replaced");
+    let replace_edit = DataEditExecutionRequest {
+        edit_kind: "update-document".into(),
+        changes: vec![DataEditChange {
+            value: Some(replacement),
+            ..Default::default()
+        }],
+        ..guarded_edit.clone()
+    };
+    assert!(
+        adapters::execute_data_edit(&connection, &replace_edit)
+            .await?
+            .executed
+    );
+    let replaced = typed_collection
+        .find_one(mongodb::bson::doc! {"_id": lazy_id})
+        .await?
+        .unwrap();
+    for field in [
+        "inventory",
+        "deep",
+        "largeInteger",
+        "nativeInt32",
+        "nativeInt64",
+        "nativeDouble",
+        "nativeNegativeZero",
+        "nativeDate",
+        "nativeUuid",
+        "nativeBinary",
+    ] {
+        assert_eq!(
+            before.get(field),
+            replaced.get(field),
+            "root replacement preserves BSON {field}"
+        );
+    }
+    // A genuine unrelated concurrent change must still reject the prepared baseline.
+    guarded_edit.target.expected_document = Some(
+        adapters::fetch_document_node_children(&connection, &full_request)
+            .await?
+            .value,
+    );
+    typed_collection
+        .update_one(
+            mongodb::bson::doc! {"_id": lazy_id},
+            mongodb::bson::doc! {"$set": {"concurrent": true}},
+        )
+        .await?;
+    guarded_edit.changes[0].value = Some(json!("must not overwrite"));
+    assert!(
+        !adapters::execute_data_edit(&connection, &guarded_edit)
+            .await?
+            .executed
+    );
+    typed_collection
+        .delete_one(mongodb::bson::doc! {"_id": lazy_id})
+        .await?;
+    assert!(
+        !adapters::execute_data_edit(&connection, &guarded_edit)
+            .await?
+            .executed
+    );
+    guarded_edit.target.expected_document =
+        Some(json!({"_id": lazy_id, "nested": {"__datapadLazyNode": true}}));
+    assert_eq!(
+        adapters::execute_data_edit(&connection, &guarded_edit)
+            .await
+            .err()
+            .expect("preview rejected")
+            .code,
+        "mongodb-document-not-loaded"
+    );
 
     for (document_id, identity_type) in [
         (json!({ "$oid": object_id.to_hex() }), "objectId"),

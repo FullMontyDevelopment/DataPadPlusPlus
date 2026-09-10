@@ -5,7 +5,7 @@ pub(super) fn local_warnings() -> Vec<String> {
         "Binds only to 127.0.0.1 and exposes only /mcp.".into(),
         "Requires Authorization: Bearer <auth token> on every request.".into(),
         "Datastores are hidden until explicitly allowlisted.".into(),
-        "MCP v1 blocks write, destructive, and costly operations.".into(),
+        "Raw MCP queries remain read-only. Saved-item mutations require query:write and all existing guardrails; library:write changes saved definitions only.".into(),
     ]
 }
 
@@ -181,8 +181,8 @@ pub(super) fn plugin_catalog_for_snapshot(
             enabled_source: "workspace-preferences",
             summary: "Build and run visual, adapter-backed datastore test suites.",
             workspace_tab_kind: "test-suite",
-            required_scopes: &[],
-            mcp_tools: &[],
+            required_scopes: &[SCOPE_LIBRARY_READ, SCOPE_TESTS_RUN],
+            mcp_tools: &["datapad_list_test_suites", "datapad_get_test_suite", "datapad_update_test_suite", "datapad_plan_test_suite_run", "datapad_run_test_suite", "datapad_get_run", "datapad_cancel_run"],
             capabilities: &[
                 "visual-test-suites",
                 "suite-owned-test-cases",
@@ -218,7 +218,7 @@ pub(super) fn plugin_catalog_for_snapshot(
             capabilities: &[
                 "streamable-http-loopback-endpoint",
                 "scoped-auth-tokens",
-                "read-only-v1-tools",
+                "scoped-saved-work-tools",
             ],
         }),
         plugin_catalog_entry(PluginCatalogEntry {

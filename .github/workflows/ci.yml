@@ -129,3 +129,9 @@ jobs:
           DATAPADPLUSPLUS_WORKSPACE_DIR: ${{ runner.temp }}\datapadplusplus-native-smoke
           DATAPADPLUSPLUS_DESKTOP_BINARY: ${{ github.workspace }}\apps\desktop\src-tauri\target\release\datapadplusplus-desktop.exe
         run: npm run e2e:desktop:smoke
+
+      - name: Run authenticated MCP saved-work suite
+        env:
+          DATAPADPLUSPLUS_WORKSPACE_DIR: ${{ runner.temp }}\datapadplusplus-native-mcp
+          DATAPADPLUSPLUS_DESKTOP_BINARY: ${{ github.workspace }}\apps\desktop\src-tauri\target\release\datapadplusplus-desktop.exe
+        run: npm run e2e:desktop:mcp

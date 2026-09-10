@@ -20,11 +20,15 @@
     "node": ">=24.15.0 <25"
   },
   "scripts": {
+    "query-compiler:generate": "node tools/build-query-compiler.mjs",
+    "query-compiler:check": "node tools/build-query-compiler.mjs --check",
+    "query-compiler:lint": "eslint --config apps/desktop/eslint.config.js packages/query-compiler/src",
+    "query-compiler:typecheck": "tsc -p packages/query-compiler/tsconfig.json",
     "dev:preflight": "node .vscode/ensure-workspace-path.mjs",
     "dev": "npm run dev --workspace @datapadplusplus/desktop",
     "build": "npm run build --workspace @datapadplusplus/shared-types && npm run build --workspace @datapadplusplus/desktop",
     "typecheck": "npm run typecheck --workspace @datapadplusplus/shared-types && npm run typecheck --workspace @datapadplusplus/desktop",
-    "lint": "npm run lint --workspace @datapadplusplus/desktop",
+    "lint": "npm run lint --workspace @datapadplusplus/desktop && npm run query-compiler:lint && npm run query-compiler:typecheck",
     "test": "npm run test --workspace @datapadplusplus/desktop",
     "site:dev": "npm run dev --workspace @datapadplusplus/site",
     "site:build": "npm run build --workspace @datapadplusplus/site",
@@ -98,6 +102,7 @@
     "e2e:desktop": "node apps/desktop/e2e/run-tauri-driver.mjs --suite=fixtures",
     "e2e:desktop:build": "cd apps/desktop && node ../../node_modules/@tauri-apps/cli/tauri.js build --no-bundle --ci --features webdriver --config src-tauri/tauri.e2e.conf.json",
     "e2e:desktop:smoke": "node apps/desktop/e2e/run-tauri-driver.mjs --suite=smoke",
+    "e2e:desktop:mcp": "node apps/desktop/e2e/run-tauri-driver.mjs --suite=mcp",
     "check:e2e": "node tests/fixtures/run-desktop-e2e-with-fixtures.mjs",
     "tauri:dev": "npm run tauri:dev --workspace @datapadplusplus/desktop",
     "tauri:build": "npm run tauri:build --workspace @datapadplusplus/desktop"

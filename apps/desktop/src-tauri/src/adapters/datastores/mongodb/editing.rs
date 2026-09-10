@@ -3,7 +3,8 @@ use serde_json::{json, Value};
 
 use super::super::super::*;
 use super::bson_extjson::{
-    mongodb_document_to_json, mongodb_json_to_bson, mongodb_json_to_document,
+    mongodb_document_to_json, mongodb_edit_document_to_json, mongodb_json_to_bson,
+    mongodb_json_to_document,
 };
 use super::connection::{mongodb_client, mongodb_database_name};
 
@@ -71,6 +72,7 @@ pub(super) async fn execute_mongodb_data_edit(
         ));
     }
 
+    validate_mongodb_expected_document(request)?;
     let client = mongodb_client(connection).await?;
     let database_name = request
         .target
@@ -110,6 +112,17 @@ pub(super) async fn execute_mongodb_data_edit(
     let document_id_type = mongodb_identity_type(&document_id_bson);
     let filter = doc! { "_id": document_id_bson };
     let before_document = collection.find_one(filter.clone()).await?;
+    // Keep full-mode compatibility while retaining lossless hydrated baselines
+    // in authoritative evidence, so a second edit needs no new read baseline.
+    let render_document: fn(&Document) -> Value =
+        if before_document.as_ref().is_some_and(|document| {
+            request.target.expected_document.as_ref()
+                == Some(&mongodb_edit_document_to_json(document))
+        }) {
+            mongodb_edit_document_to_json
+        } else {
+            mongodb_document_to_json
+        };
     let Some(expected_filter) =
         mongodb_expected_document_filter(request, &filter, before_document.as_ref())?
     else {
@@ -126,8 +139,8 @@ pub(super) async fn execute_mongodb_data_edit(
             Some(json!({
                 "matchedCount": 0,
                 "documentEvidence": {
-                    "beforeDocument": before_document.as_ref().map(mongodb_document_to_json),
-                    "afterDocument": before_document.as_ref().map(mongodb_document_to_json)
+                    "beforeDocument": before_document.as_ref().map(render_document),
+                    "afterDocument": before_document.as_ref().map(render_document)
                 }
             })),
         ));
@@ -176,7 +189,7 @@ pub(super) async fn execute_mongodb_data_edit(
                 "deletedCount": deleted_count,
                 "existsAfter": exists_after,
                 "documentEvidence": {
-                    "beforeDocument": before_document.as_ref().map(mongodb_document_to_json),
+                    "beforeDocument": before_document.as_ref().map(render_document),
                     "afterDocument": null
                 }
             })),
@@ -211,8 +224,8 @@ pub(super) async fn execute_mongodb_data_edit(
                 "matchedCount": matched_count,
                 "modifiedCount": modified_count,
                 "documentEvidence": {
-                    "beforeDocument": before_document.as_ref().map(mongodb_document_to_json),
-                    "afterDocument": after_document.as_ref().map(mongodb_document_to_json)
+                    "beforeDocument": before_document.as_ref().map(render_document),
+                    "afterDocument": after_document.as_ref().map(render_document)
                 }
             })),
         ));
@@ -270,8 +283,8 @@ pub(super) async fn execute_mongodb_data_edit(
                 .map(bson_value_to_json)
                 .transpose()?,
             "documentEvidence": {
-                "beforeDocument": before_document.as_ref().map(mongodb_document_to_json),
-                "afterDocument": after_document.as_ref().map(mongodb_document_to_json)
+                "beforeDocument": before_document.as_ref().map(render_document),
+                "afterDocument": after_document.as_ref().map(render_document)
             }
         })),
     ))
@@ -282,13 +295,16 @@ fn mongodb_expected_document_filter(
     identity_filter: &Document,
     current_document: Option<&Document>,
 ) -> Result<Option<Document>, CommandError> {
+    validate_mongodb_expected_document(request)?;
     let Some(expected) = request.target.expected_document.as_ref() else {
         return Ok(Some(identity_filter.clone()));
     };
     let Some(current_document) = current_document else {
         return Ok(None);
     };
-    if &mongodb_document_to_json(current_document) != expected {
+    if &mongodb_document_to_json(current_document) != expected
+        && &mongodb_edit_document_to_json(current_document) != expected
+    {
         return Ok(None);
     }
     let exact_document_expression = Bson::Array(vec![
@@ -301,6 +317,37 @@ fn mongodb_expected_document_filter(
         Bson::Document(doc! { "$eq": exact_document_expression }),
     );
     Ok(Some(filter))
+}
+
+fn validate_mongodb_expected_document(
+    request: &DataEditExecutionRequest,
+) -> Result<(), CommandError> {
+    if let Some(expected) = &request.target.expected_document {
+        if !expected.is_object() || mongodb_contains_unavailable_value(expected) {
+            return Err(CommandError::new(
+                "mongodb-document-not-loaded",
+                "Load the complete document before editing. Some expected values are lazy, truncated, or unsupported; reopen the editor to retry loading.",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn mongodb_contains_unavailable_value(value: &Value) -> bool {
+    match value {
+        Value::Array(values) => values.iter().any(mongodb_contains_unavailable_value),
+        Value::Object(values) => {
+            [
+                "__datapadLazyNode",
+                "__datapadTruncated",
+                "__datapadUnsupported",
+            ]
+            .iter()
+            .any(|key| values.get(*key) == Some(&Value::Bool(true)))
+                || values.values().any(mongodb_contains_unavailable_value)
+        }
+        _ => false,
+    }
 }
 
 pub(super) fn mongodb_insert_document(

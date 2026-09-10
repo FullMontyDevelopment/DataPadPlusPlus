@@ -91,7 +91,7 @@ See [Settings, Workspaces, And Backups](settings-and-workspace.md).
 ## Plugins And Integrations
 
 - API Server profiles deliberately expose selected resources or saved queries over local REST/OpenAPI, GraphQL, or gRPC surfaces.
-- MCP Server profiles bind locally, require scoped bearer credentials, and expose only enabled read-oriented tools and contexts.
+- MCP Server profiles bind locally and require scoped bearer credentials. Saved Library queries, scripts, builders, and test suites can be listed, read, edited with revision checks, and run through explicit plans. Definition editing and datastore writes have separate permissions; raw-query tools remain read-only. See [MCP saved work](mcp-saved-work.md).
 - Datastore Security Checks separate curated vulnerability/version evidence from bounded read-only posture checks.
 - Datastore Tests provide target-bound suites, preflight, adapter-backed observations, focused assertions, and guarded execution.
 - Experimental plugins are disabled by default and identify desktop/browser and platform limitations in Settings.

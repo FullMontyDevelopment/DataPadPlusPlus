@@ -169,7 +169,7 @@ export function McpServerWorkspace({
   const [tokenLabel, setTokenLabel] = useState('MCP client')
   const [selectedScopes, setSelectedScopes] = useState<
     Set<DatastoreMcpServerScope>
-  >(() => new Set(DATASTORE_MCP_SERVER_SCOPES))
+  >(() => new Set(DATASTORE_MCP_SERVER_SCOPES.filter(scope => !['library:read', 'library:write', 'tests:run', 'query:write'].includes(scope))))
   const [serverDrafts, setServerDrafts] = useState<
     Record<string, Partial<Record<McpServerTextField, string>>>
   >({})
@@ -1378,6 +1378,10 @@ function escapeShellSingleQuoted(value: string) {
 }
 
 function scopeDescription(scope: DatastoreMcpServerScope) {
+  if (scope === 'library:read') return 'Read saved query, script, and test-suite definitions throughout the active workspace. Does not resolve secrets or permit datastore access.'
+  if (scope === 'library:write') return 'Edit existing saved definitions throughout the active workspace. Does not grant permission to run them or overwrite unsaved drafts.'
+  if (scope === 'tests:run') return 'Plan and run saved test suites on allowlisted targets; query permissions and existing safety checks still apply.'
+  if (scope === 'query:write') return 'Allow saved-item runs that may modify datastore data, including test setup and cleanup. Read-only connections, confirmations, and environment restrictions still apply.'
   switch (scope) {
     case 'plugin:read':
       return 'List DataPad++ plugins and MCP-visible plugin metadata.'

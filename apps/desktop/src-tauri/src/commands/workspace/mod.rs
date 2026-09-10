@@ -83,9 +83,9 @@ use crate::{
             WorkspaceCreateRequest, WorkspaceImportCancelRequest, WorkspaceImportCommitRequest,
             WorkspaceImportCommitResponse, WorkspaceImportPreview, WorkspaceImportPreviewRequest,
             WorkspaceImportSelection, WorkspaceRenameRequest, WorkspaceSearchSettingsRequest,
-            WorkspaceStorageAnalysisRequest, WorkspaceStorageReport, WorkspaceSwitchRequest,
-            WorkspaceSwitcherSettingsRequest, WorkspaceSwitcherStatus, WorkspaceTabDragSession,
-            WorkspaceTabDragSessionRequest, WorkspaceTabTransferRequest,
+            WorkspaceSnapshot, WorkspaceStorageAnalysisRequest, WorkspaceStorageReport,
+            WorkspaceSwitchRequest, WorkspaceSwitcherSettingsRequest, WorkspaceSwitcherStatus,
+            WorkspaceTabDragSession, WorkspaceTabDragSessionRequest, WorkspaceTabTransferRequest,
             WorkspaceTabTransferResponse, WorkspaceWindowCloseRequest, WorkspaceWindowContext,
             WorkspaceWindowGeometryRequest, WorkspaceWindowListResponse,
         },
@@ -134,13 +134,48 @@ fn clone_runtime(state: &State<'_, SharedAppState>) -> Result<ManagedAppState, C
     })
 }
 
-fn replace_runtime(
+// Async metadata work owns only its result, never the workspace snapshot it started with.
+fn merge_refreshed_tab(
+    current: &mut WorkspaceSnapshot,
+    original: &WorkspaceSnapshot,
+    refreshed: &WorkspaceSnapshot,
+    tab_id: &str,
+) -> Result<bool, CommandError> {
+    let Some(before) = original.tabs.iter().find(|tab| tab.id == tab_id) else {
+        return Ok(false);
+    };
+    let Some(after) = refreshed.tabs.iter().find(|tab| tab.id == tab_id) else {
+        return Ok(false);
+    };
+    let Some(tab) = current.tabs.iter_mut().find(|tab| tab.id == tab_id) else {
+        return Ok(false);
+    };
+    if serde_json::to_value(&*tab)? != serde_json::to_value(before)? {
+        return Ok(false);
+    }
+    tab.metrics_state = after.metrics_state.clone();
+    tab.object_view_state = after.object_view_state.clone();
+    tab.status = after.status.clone();
+    tab.error = after.error.clone();
+    tab.last_run_at = after.last_run_at.clone();
+    tab.result = after.result.clone();
+    Ok(true)
+}
+
+fn commit_tab_refresh(
     state: &State<'_, SharedAppState>,
+    workspace_id: &str,
+    original: &WorkspaceSnapshot,
     runtime: ManagedAppState,
-) -> Result<(), CommandError> {
+    tab_id: &str,
+) -> Result<BootstrapPayload, CommandError> {
     let mut state = lock_state(state)?;
-    state.snapshot = runtime.snapshot;
-    Ok(())
+    if state.workspace_switcher_status()?.active_workspace_id == workspace_id
+        && merge_refreshed_tab(&mut state.snapshot, original, &runtime.snapshot, tab_id)?
+    {
+        state.persist()?;
+    }
+    Ok(state.bootstrap_payload())
 }
 
 fn request_execution_id(request: &mut ExecutionRequest) -> String {

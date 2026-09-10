@@ -81,12 +81,7 @@ impl ManagedAppState {
             }
         }
 
-        self.snapshot.ui.active_tab_id = tab_id.into();
-        self.snapshot.ui.active_connection_id = tab.connection_id;
-        self.snapshot.ui.active_environment_id = tab.environment_id;
-        self.snapshot.ui.right_drawer = "none".into();
         self.snapshot.updated_at = timestamp_now();
-        self.persist()?;
         Ok(self.bootstrap_payload())
     }
 
@@ -199,12 +194,7 @@ impl ManagedAppState {
             }
         }
 
-        self.snapshot.ui.active_tab_id = tab_id.into();
-        self.snapshot.ui.active_connection_id = tab.connection_id;
-        self.snapshot.ui.active_environment_id = tab.environment_id;
-        self.snapshot.ui.right_drawer = "none".into();
         self.snapshot.updated_at = timestamp_now();
-        self.persist()?;
         Ok(self.bootstrap_payload())
     }
 }

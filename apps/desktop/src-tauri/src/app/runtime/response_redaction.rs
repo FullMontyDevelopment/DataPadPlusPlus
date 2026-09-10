@@ -15,6 +15,10 @@ use super::response_redaction_keys::is_secret_like_payload_key;
 
 const SECRET_REPLACEMENT: &str = "********";
 
+pub(super) fn redact_external_value(value: &mut Value, environment: &ResolvedEnvironment) {
+    redact_runtime_value(value, &secret_values(environment));
+}
+
 pub(super) fn prepare_execution_result_for_workspace(
     mut result: ExecutionResultEnvelope,
     environment: &ResolvedEnvironment,

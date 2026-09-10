@@ -152,7 +152,6 @@ export const DocumentGridRowView = memo(function DocumentGridRowView({
                 coerceValue(row.value, event.target.value as DocumentValueType),
                 'change-field-type',
               )
-              onStopEditing()
             }}
             onKeyDown={handleTypeKeyDown}
           >
@@ -340,9 +339,9 @@ function FieldNameEditor({
 
     if (nextName && nextName !== row.label) {
       onRenameField(row, nextName)
+    } else {
+      onStopEditing()
     }
-
-    onStopEditing()
   }
 
   return (
@@ -383,7 +382,6 @@ function FieldValueEditor({
       return
     }
     onUpdateValue(row, parsed.value, 'set-field')
-    onStopEditing()
   }
 
   return (

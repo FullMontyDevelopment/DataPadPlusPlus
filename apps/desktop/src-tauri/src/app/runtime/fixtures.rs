@@ -289,7 +289,15 @@ pub(super) fn seed_fixture_secrets(secrets: &[(SecretRef, String)]) -> Result<()
     }
 
     for (secret_ref, secret) in secrets {
-        security::store_secret_value(secret_ref, secret)?;
+        security::store_secret_value(secret_ref, secret).map_err(|_| {
+            CommandError::new(
+                "fixture-secret-store",
+                format!(
+                    "Could not store {}. Fixture credentials require a writable encrypted file and an unlocked OS credential vault; on Linux, start a Secret Service in the test D-Bus session.",
+                    secret_ref.label
+                ),
+            )
+        })?;
     }
 
     Ok(())

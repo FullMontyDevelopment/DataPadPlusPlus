@@ -322,8 +322,10 @@ pub(super) fn workspace_search_snippet(
     match_start: usize,
     match_end: usize,
 ) -> (String, usize, usize) {
-    let raw_start = match_start.saturating_sub(SNIPPET_CONTEXT);
-    let raw_end = (match_end + SNIPPET_CONTEXT).min(line.len());
+    let mut raw_start = match_start.saturating_sub(SNIPPET_CONTEXT);
+    let mut raw_end = (match_end + SNIPPET_CONTEXT).min(line.len());
+    while !line.is_char_boundary(raw_start) { raw_start -= 1; }
+    while !line.is_char_boundary(raw_end) { raw_end += 1; }
     let prefix = if raw_start > 0 { "..." } else { "" };
     let suffix = if raw_end < line.len() { "..." } else { "" };
     let text = format!("{prefix}{}{suffix}", &line[raw_start..raw_end]);
@@ -335,7 +337,7 @@ pub(super) fn workspace_search_snippet(
 }
 
 pub(super) fn is_whole_word_match(text: &str, start: usize, end: usize) -> bool {
-    !is_word_byte(text.as_bytes().get(start.saturating_sub(1)).copied())
+    (start == 0 || !is_word_byte(text.as_bytes().get(start - 1).copied()))
         && !is_word_byte(text.as_bytes().get(end).copied())
 }
 

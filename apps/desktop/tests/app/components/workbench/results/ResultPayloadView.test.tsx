@@ -626,7 +626,7 @@ describe('ResultPayloadView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
     fireEvent.doubleClick(screen.getByRole('button', { name: 'active' }))
-    const valueInput = screen.getByLabelText('Edit value status')
+    const valueInput = await screen.findByLabelText('Edit value status')
     const inlineEditor = valueInput.closest('.document-inline-value-editor')
     const editorActions = inlineEditor?.querySelector('.document-inline-value-editor-actions')
     expect(editorActions).not.toBeNull()
@@ -796,7 +796,7 @@ describe('ResultPayloadView', () => {
 
     fireEvent.contextMenu(screen.getByText('account-1'))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Add Field' }))
-    const dialog = screen.getByRole('dialog', { name: 'Add document field' })
+    const dialog = await screen.findByRole('dialog', { name: 'Add document field' })
     fireEvent.change(within(dialog).getByLabelText('New field name'), {
       target: { value: 'timezone' },
     })
@@ -851,13 +851,15 @@ describe('ResultPayloadView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
     fireEvent.doubleClick(screen.getByRole('button', { name: 'active' }))
-    const valueInput = screen.getByLabelText('Edit value status')
+    const valueInput = await screen.findByLabelText('Edit value status')
     fireEvent.change(valueInput, { target: { value: 'paused' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
       expect(screen.getByText('MongoDB rejected the document edit.')).toBeInTheDocument()
     })
+    expect(screen.getByLabelText('Edit value status')).toHaveValue('paused')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(screen.getByRole('button', { name: 'active' })).toBeInTheDocument()
   })
 
@@ -906,7 +908,7 @@ describe('ResultPayloadView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
     fireEvent.doubleClick(screen.getByRole('button', { name: 'active' }))
-    const valueInput = screen.getByLabelText('Edit value status')
+    const valueInput = await screen.findByLabelText('Edit value status')
     fireEvent.change(valueInput, { target: { value: 'paused' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
@@ -956,7 +958,7 @@ describe('ResultPayloadView', () => {
     fireEvent.contextMenu(screen.getByRole('button', { name: 'active' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Remove Field' }))
 
-    expect(screen.getByRole('dialog', { name: 'Remove field status?' })).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: 'Remove field status?' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 
     expect(confirmSpy).not.toHaveBeenCalled()
@@ -1007,7 +1009,7 @@ describe('ResultPayloadView', () => {
 
     fireEvent.contextMenu(screen.getByText('account-1'))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Document' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
 
     await waitFor(() => {
       expect(executeDataEdit).toHaveBeenCalledWith({
@@ -1070,7 +1072,7 @@ describe('ResultPayloadView', () => {
 
     fireEvent.contextMenu(screen.getByText('account-1'))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Document' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
 
     await waitFor(() => {
       expect(screen.getByText('MongoDB did not find a document with the supplied _id.')).toBeInTheDocument()
@@ -1101,7 +1103,7 @@ describe('ResultPayloadView', () => {
 
     fireEvent.contextMenu(screen.getByText('account-1'))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Document' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
 
     await waitFor(() => {
       expect(screen.getByText('MongoDB permission denied; password=********')).toBeInTheDocument()
@@ -1205,7 +1207,7 @@ describe('ResultPayloadView', () => {
 
     fireEvent.contextMenu(screen.getByText('account-1'))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Document' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
 
     await waitFor(() => {
       expect(screen.getByRole('dialog', { name: 'Delete this document?' })).toBeInTheDocument()
@@ -1223,7 +1225,7 @@ describe('ResultPayloadView', () => {
     expect(screen.queryByText('account-1')).not.toBeInTheDocument()
   })
 
-  it('clears stale document field confirmations when a new document payload arrives', () => {
+  it('clears stale document field confirmations when a new document payload arrives', async () => {
     const executeDataEdit = vi.fn()
     const { rerender } = render(
       <ResultPayloadView
@@ -1244,7 +1246,7 @@ describe('ResultPayloadView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand account-1' }))
     fireEvent.contextMenu(screen.getByRole('button', { name: 'active' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Remove Field' }))
-    expect(screen.getByRole('dialog', { name: 'Remove field status?' })).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: 'Remove field status?' })).toBeInTheDocument()
 
     rerender(
       <ResultPayloadView

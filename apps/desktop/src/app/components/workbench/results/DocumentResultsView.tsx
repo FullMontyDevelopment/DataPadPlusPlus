@@ -62,6 +62,7 @@ import { documentCountText } from './document-results-summary'
 import { copyText } from './payload-export'
 import { useDataEditConfirmation } from './use-data-edit-confirmation'
 import { useDocumentLazyHydration } from './use-document-lazy-hydration'
+import { useDocumentEditPreparation } from './use-document-edit-preparation'
 
 interface DocumentResultsViewProps {
   connection?: ConnectionProfile
@@ -134,18 +135,7 @@ export function DocumentResultsView({
 }: DocumentResultsViewProps) {
   const connectionBehavior = documentResultBehaviorForConnection(connection)
   const [editPending, setEditPending] = useState(false)
-  const behavior = executionLocked || editPending
-    ? {
-        ...connectionBehavior,
-        canEditDocuments: false,
-        canRenameFields: false,
-        canChangeTypes: false,
-        contextActions: connectionBehavior.contextActions,
-        editModeLabel: executionLocked
-          ? 'Result editing is unavailable while the query is running'
-          : 'Wait for the current document edit to finish',
-      }
-    : connectionBehavior
+  const editInFlight = useRef(false)
   const [draftState, setDraftState] = useState(() => ({
     source: documents,
     documents,
@@ -182,6 +172,34 @@ export function DocumentResultsView({
   } = useDataEditConfirmation()
   const draftDocuments = draftState.source === documents ? draftState.documents : documents
   const efficiencyModeEnabled = hydrationMode === 'lazy'
+  const editScopeKey = JSON.stringify([tabId, editContext, database, collection, connection?.id, connection?.readOnly, editMetadata, documentResetToken])
+  const preparation = useDocumentEditPreparation({
+    documents,
+    draftDocuments,
+    scopeKey: editScopeKey,
+    enabled: connection?.engine === 'mongodb' && efficiencyModeEnabled,
+    locked: executionLocked || Boolean(connection?.readOnly),
+    request: editContext && tabId && (collection || editContext.collection) ? {
+      ...editContext, tabId, database: database ?? editContext.database,
+      collection: (collection || editContext.collection)!,
+    } : undefined,
+    fetch: onFetchDocumentNodeChildren,
+    invalidateHydration: (index) => invalidateDocumentHydration(index),
+    onPrepared: (index, document) => updateDraftDocuments((current) => current.map((item, itemIndex) => itemIndex === index ? document : item)),
+    onMessage: setCopyMessage,
+  })
+  const behavior = executionLocked || editPending || preparation.preparing
+    ? {
+        ...connectionBehavior,
+        canEditDocuments: false,
+        canRenameFields: false,
+        canChangeTypes: false,
+        contextActions: connectionBehavior.contextActions,
+        editModeLabel: executionLocked
+          ? 'Result editing is unavailable while the query is running'
+          : 'Wait for the current document edit to finish',
+      }
+    : connectionBehavior
   const effectiveActiveEditor = draftState.source === documents ? activeEditor : undefined
   const activeContextMenu = contextMenu?.source === documents ? contextMenu : undefined
   const pendingFieldDeleteRow = pendingFieldDelete?.source === documents
@@ -266,7 +284,7 @@ export function DocumentResultsView({
   const activeEditUnavailableReason = activeContextMenu
     ? executionLocked
       ? 'Wait for the running query to finish.'
-      : editPending
+      : editPending || preparation.preparing
         ? 'Wait for the current document edit to finish.'
         : !onExecuteDataEdit
           ? 'Guarded datastore edit execution is unavailable.'
@@ -281,7 +299,7 @@ export function DocumentResultsView({
   const inspectorEditUnavailableReason = inspectorRow
     ? executionLocked
       ? 'Wait for the running query to finish.'
-      : editPending
+      : editPending || preparation.preparing
         ? 'Wait for the current document edit to finish.'
         : !onExecuteDataEdit
           ? 'Guarded datastore edit execution is unavailable.'
@@ -329,6 +347,7 @@ export function DocumentResultsView({
       cancelDataEditConfirmation()
       setExpandedRows(new Set())
       setPreparedTreeIndex(undefined)
+      setDraftState({ source: documents, documents })
       setExpandAllState({ documents: draftDocuments, pending: false })
       setActiveEditor(undefined)
       setContextMenu(undefined)
@@ -338,7 +357,7 @@ export function DocumentResultsView({
       setPendingFieldDelete(undefined)
       setPendingDocumentDelete(undefined)
     })
-  }, [cancelDataEditConfirmation, documentResetToken, draftDocuments])
+  }, [cancelDataEditConfirmation, documentResetToken, documents, draftDocuments])
 
   useEffect(() => {
     if (!executionLocked) {
@@ -425,6 +444,7 @@ export function DocumentResultsView({
     hydrationErrors: activeHydrationErrors,
     hydratingRows: activeHydratingRows,
     hydrateLazyRow,
+    invalidateDocumentHydration,
   } = useDocumentLazyHydration({
     collection,
     database,
@@ -434,6 +454,8 @@ export function DocumentResultsView({
     tabId,
     resetKey: documentResetToken,
     suspended: executionLocked,
+    scopeKey: editScopeKey,
+    isDocumentPreparing: (index) => preparation.isPreparingDocument(index),
     onFetchDocumentNodeChildren,
     onHydrated: (row, response) => {
       updateDraftDocuments((current) =>
@@ -453,30 +475,56 @@ export function DocumentResultsView({
     onMessage: setCopyMessage,
   })
 
-  const applyDocumentEdit = (
+  useEffect(() => {
+    queueMicrotask(() => {
+      setActiveEditor(undefined)
+      setInspectorRowId(undefined)
+      setPendingAddField(undefined)
+      setPendingFieldDelete(undefined)
+      setPendingDocumentDelete(undefined)
+      cancelDataEditConfirmation()
+    })
+  }, [editScopeKey, documents, cancelDataEditConfirmation])
+
+  const prepareEdit = async (row: DocumentGridRow) => {
+    if (executionLocked || editInFlight.current) return undefined
+    const reason = !onExecuteDataEdit ? 'Guarded datastore edit execution is unavailable.' :
+      documentEditUnavailableReason(connection, editContext, draftDocuments, row, editMetadata)
+    if (reason) { setCopyMessage(reason); return undefined }
+    return preparation.prepare(row)
+  }
+
+  const applyDocumentEdit = async (
     row: DocumentGridRow,
     editKind: DataEditKind,
     changes: DataEditChange[],
     updater: (current: Array<Record<string, unknown>>) => Array<Record<string, unknown>>,
     successMessage: string,
   ) => {
-    if (executionLocked || editPending) {
+    if (executionLocked || editInFlight.current) {
       setCopyMessage('Wait for the running query to finish before editing this result.')
-      return
+      return false
     }
-    void (async () => {
+    const baseline = preparation.getBaseline(row)
+    if (!baseline || containsUnavailableValue(baseline)) {
+      setCopyMessage('Load the complete document and reopen the editor before saving.')
+      return false
+    }
+    const baselineDocuments = draftDocuments.map((document, index) => index === row.documentIndex ? baseline : document)
+    const isCurrent = preparation.responseGuard(row)
+    editInFlight.current = true
       setEditPending(true)
       try {
         if (!onExecuteDataEdit || !editContext || !connection) {
           setCopyMessage('Edit unavailable; this result is missing guarded datastore execution scope.')
-          return
+          return false
         }
 
-        const nextDocuments = updater(draftDocuments)
+        const nextDocuments = updater(baselineDocuments)
         const request = buildDocumentEditRequest(
           connection,
           editContext,
-          draftDocuments,
+          baselineDocuments,
           row,
           editKind,
           changes,
@@ -494,11 +542,11 @@ export function DocumentResultsView({
               editMetadata,
             ) ?? 'Edit unavailable; document targeting is incomplete.',
           )
-          return
+          return false
         }
 
         const response = await executeDataEditWithConfirmation(
-          onExecuteDataEdit,
+          (request) => isCurrent() ? onExecuteDataEdit(request) : Promise.resolve(undefined),
           request,
           {
             actionLabel: successMessage,
@@ -511,12 +559,15 @@ export function DocumentResultsView({
           'Datastore did not confirm the edit.',
         )
 
+        if (!isCurrent()) return false
         if (!response?.executed) {
           setCopyMessage(failureMessage)
-          return
+          return false
         }
 
         const authoritativeDocument = response.metadata?.documentEvidence?.afterDocument
+        const savedDocument = authoritativeDocument ?? nextDocuments[row.documentIndex] ?? baseline
+        preparation.accept(row, savedDocument)
         updateDraftDocuments((current) =>
           current.map((document, index) =>
             index === row.documentIndex
@@ -525,12 +576,14 @@ export function DocumentResultsView({
           ),
         )
         setCopyMessage(response.messages.at(-1) ?? successMessage)
+        return true
       } catch (error) {
-        setCopyMessage(dataEditErrorMessage(error, 'Document edit failed.'))
+        if (isCurrent()) setCopyMessage(dataEditErrorMessage(error, 'Document edit failed.'))
+        return false
       } finally {
+        editInFlight.current = false
         setEditPending(false)
       }
-    })()
   }
 
   const beginEditing = (row: DocumentGridRow, cell: DocumentEditCell) => {
@@ -554,13 +607,14 @@ export function DocumentResultsView({
       return
     }
 
-    setDraftState((current) =>
-      current.source === documents ? current : { source: documents, documents },
-    )
-    setActiveEditor({ rowId: row.id, cell })
+    void prepareEdit(row).then((prepared) => {
+      if (!prepared) return
+      setDraftState((current) => current.source === documents ? current : { source: documents, documents })
+      setActiveEditor({ rowId: prepared.id, cell })
+    })
   }
 
-  const stopEditing = () => setActiveEditor(undefined)
+  const stopEditing = () => { setActiveEditor(undefined) }
 
   const toggleRow = (row: DocumentGridRow) => {
     if (expandedRows.has(row.id)) {
@@ -670,7 +724,7 @@ export function DocumentResultsView({
       return
     }
 
-    applyDocumentEdit(
+    void applyDocumentEdit(
       row,
       editKind,
       [
@@ -685,7 +739,7 @@ export function DocumentResultsView({
           index === row.documentIndex ? setValueAtPath(document, row.path, nextValue) : document,
         ),
       editKind === 'change-field-type' ? 'Changed field type.' : 'Updated field value.',
-    )
+    ).then((saved) => { if (saved) stopEditing() })
   }
 
   const renameRowField = (row: DocumentGridRow, nextFieldName: string) => {
@@ -710,7 +764,7 @@ export function DocumentResultsView({
       return
     }
 
-    applyDocumentEdit(
+    void applyDocumentEdit(
       row,
       'rename-field',
       [
@@ -726,7 +780,7 @@ export function DocumentResultsView({
             : document,
         ),
       'Renamed field.',
-    )
+    ).then((saved) => { if (saved) stopEditing() })
   }
 
   const deleteRowField = (row: DocumentGridRow) => {
@@ -736,7 +790,7 @@ export function DocumentResultsView({
 
     stopEditing()
     setInspectorRowId(undefined)
-    applyDocumentEdit(
+    void applyDocumentEdit(
       row,
       'unset-field',
       [
@@ -766,7 +820,7 @@ export function DocumentResultsView({
       path: newPath,
       value,
     }
-    applyDocumentEdit(
+    void applyDocumentEdit(
       editRow,
       'add-field',
       [{ path: pathSegments(newPath), value, valueType: valueTypeName(value) }],
@@ -776,7 +830,7 @@ export function DocumentResultsView({
           : document,
       ),
       `Added field ${fieldName}.`,
-    )
+    ).then((saved) => { if (saved) setPendingAddField(undefined) })
     setExpandedRows((current) => new Set(current).add(
       `document:${row.documentIndex}:${JSON.stringify(destinationPath)}`,
     ))
@@ -797,22 +851,20 @@ export function DocumentResultsView({
         )
         return
       }
+      void prepareEdit(row).then((prepared) => {
+        if (!prepared) return
+        setInspectorMode('edit')
+        setInspectorRowId(prepared.id)
+      })
+      return
     }
 
     if (containsUnavailableValue(row.value) && efficiencyModeEnabled) {
       void hydrateLazyRow(row, 'full-value').then((response) => {
         if (!response) return
-        if (mode === 'edit' && containsUnavailableValue(response.value)) {
-          setCopyMessage('Raw JSON editing is unavailable because the datastore could not hydrate this value losslessly.')
-          return
-        }
         setInspectorMode(mode)
         setInspectorRowId(row.id)
       })
-      return
-    }
-    if (mode === 'edit' && containsUnavailableValue(row.value)) {
-      setCopyMessage('Raw JSON editing is unavailable until every selected value is loaded losslessly.')
       return
     }
 
@@ -821,7 +873,7 @@ export function DocumentResultsView({
   }
 
   const validateRawValue = (row: DocumentGridRow, value: unknown) => {
-    const document = draftDocuments[row.documentIndex]
+    const document = preparation.getBaseline(row)
     if (!document) return ['The selected document is no longer present.']
     const nextDocument = row.path.length === 0
       ? value as Record<string, unknown>
@@ -836,7 +888,7 @@ export function DocumentResultsView({
 
   const saveRawValue = (row: DocumentGridRow, value: unknown) => {
     const rootEdit = row.path.length === 0
-    applyDocumentEdit(
+    void applyDocumentEdit(
       row,
       rootEdit ? 'update-document' : 'set-field',
       [{
@@ -853,7 +905,7 @@ export function DocumentResultsView({
   }
 
   const deleteDocument = (row: DocumentGridRow) => {
-    if (executionLocked) {
+    if (executionLocked || editInFlight.current) {
       setCopyMessage('Wait for the running query to finish before deleting this document.')
       return
     }
@@ -863,10 +915,17 @@ export function DocumentResultsView({
         return
       }
 
+      const baseline = preparation.getBaseline(row)
+      if (!baseline || containsUnavailableValue(baseline)) {
+        setCopyMessage('Load the complete document and reopen the delete action before continuing.')
+        return
+      }
+      const isCurrent = preparation.responseGuard(row)
+
       const request = buildDocumentDeleteRequest(
         connection,
         editContext,
-        draftDocuments,
+        draftDocuments.map((document, index) => index === row.documentIndex ? baseline : document),
         row,
         editMetadata,
       )
@@ -877,8 +936,9 @@ export function DocumentResultsView({
       }
 
       try {
+        editInFlight.current = true
         setEditPending(true)
-        const response = await executeDataEditWithConfirmation(onExecuteDataEdit, request, {
+        const response = await executeDataEditWithConfirmation((request) => isCurrent() ? onExecuteDataEdit(request) : Promise.resolve(undefined), request, {
           actionLabel: 'Delete this document.',
           confirm: confirmDataEdit,
           confirmationTitle: 'Delete this document?',
@@ -888,6 +948,7 @@ export function DocumentResultsView({
           'Datastore did not confirm the delete.',
         )
 
+        if (!isCurrent()) return
         if (!response?.executed) {
           setCopyMessage(failureMessage)
           return
@@ -900,15 +961,18 @@ export function DocumentResultsView({
         )
         setCopyMessage(response.messages.at(-1) ?? 'Deleted document.')
       } catch (error) {
-        setCopyMessage(dataEditErrorMessage(error, 'Document delete failed.'))
+        if (isCurrent()) setCopyMessage(dataEditErrorMessage(error, 'Document delete failed.'))
       } finally {
+        editInFlight.current = false
         setEditPending(false)
       }
     })()
   }
 
   const changeRowType = (row: DocumentGridRow, nextType: DocumentValueType) => {
-    updateRowValue(row, coerceValue(row.value, nextType), 'change-field-type')
+    void prepareEdit(row).then((prepared) => {
+      if (prepared) updateRowValue(prepared, coerceValue(prepared.value, nextType), 'change-field-type')
+    })
   }
 
   const renderDocumentRow = (row: DocumentGridRow) => (
@@ -945,7 +1009,15 @@ export function DocumentResultsView({
   }
 
   return (
-    <div className="document-data-grid-shell" aria-label="Document results">
+    <div className="document-data-grid-shell" aria-label="Document results" onKeyDown={(event) => {
+      if (event.key === 'Escape' && preparation.preparing) preparation.cancel()
+    }}>
+      {preparation.preparing ? (
+        <div className="panel-footnote" role="status" aria-live="polite">
+          Loading complete document for editing…{' '}
+          <button type="button" className="drawer-button drawer-button--compact" onClick={preparation.cancel}>Cancel loading</button>
+        </div>
+      ) : null}
       <DocumentResultsToolbar
         efficiencyModeEnabled={efficiencyModeEnabled}
         hasSearch={hasSearch}
@@ -979,7 +1051,16 @@ export function DocumentResultsView({
             row={inspectorRow}
             theme={theme}
             onChangeType={changeRowType}
-            onClose={() => setInspectorRowId(undefined)}
+            onBeginRawEdit={async (row) => {
+              const prepared = await prepareEdit(row)
+              if (!prepared) return false
+              setInspectorMode('edit')
+              return true
+            }}
+            onClose={() => {
+              if (preparation.preparing) preparation.cancel()
+              setInspectorRowId(undefined)
+            }}
             onSaveRaw={saveRawValue}
             onValidateRaw={validateRawValue}
           />
@@ -1002,18 +1083,18 @@ export function DocumentResultsView({
           originElement={activeContextMenu.originElement}
           onClose={() => setContextMenu(undefined)}
           onAddField={() => {
-            setPendingAddField({ source: documents, row: activeContextMenu.row })
+            void prepareEdit(activeContextMenu.row).then((row) => { if (row) setPendingAddField({ source: documents, row }) })
             setContextMenu(undefined)
           }}
           onCopyDocument={() => void copyDocument(activeContextMenu.row)}
           onCopyPath={() => void copyText(activeContextMenu.row.fieldPath || '$')}
           onCopyValue={() => void copyValue(activeContextMenu.row.value)}
           onDelete={() => {
-            setPendingFieldDelete({ source: documents, row: activeContextMenu.row })
+            void prepareEdit(activeContextMenu.row).then((row) => { if (row) setPendingFieldDelete({ source: documents, row }) })
             setContextMenu(undefined)
           }}
           onDeleteDocument={() => {
-            setPendingDocumentDelete({ source: documents, row: activeContextMenu.row })
+            void prepareEdit(activeContextMenu.row).then((row) => { if (row) setPendingDocumentDelete({ source: documents, row }) })
             setContextMenu(undefined)
           }}
           documentDeleteUnavailableReason={
@@ -1043,7 +1124,6 @@ export function DocumentResultsView({
           onCancel={() => setPendingAddField(undefined)}
           onAdd={(fieldName, value) => {
             const row = pendingAddFieldRow
-            setPendingAddField(undefined)
             addRowField(row, fieldName, value)
           }}
         />

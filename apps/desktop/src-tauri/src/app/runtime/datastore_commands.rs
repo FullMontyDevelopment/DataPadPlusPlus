@@ -47,7 +47,7 @@ use crate::{
 
 impl ManagedAppState {
     pub async fn list_explorer_nodes(
-        &mut self,
+        &self,
         mut request: ExplorerRequest,
     ) -> Result<ExplorerResponse, CommandError> {
         self.ensure_unlocked()?;
@@ -59,12 +59,6 @@ impl ManagedAppState {
             adapters::list_explorer_nodes(&resolved, &request).await?,
             &resolved_environment,
         );
-
-        if request.scope.is_none() {
-            self.snapshot.explorer_nodes = response.nodes.clone();
-            self.snapshot.updated_at = timestamp_now();
-            self.persist()?;
-        }
 
         Ok(response)
     }

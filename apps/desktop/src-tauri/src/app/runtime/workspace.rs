@@ -65,7 +65,7 @@ impl ManagedAppState {
             fixture_debug_enabled() && loaded_snapshot.as_ref().is_none_or(workspace_is_empty);
         let snapshot = if seed_fixture_workspace {
             let seed = fixture_workspace_seed();
-            let _ = seed_fixture_secrets(&seed.secrets);
+            seed_fixture_secrets(&seed.secrets)?;
             seed.snapshot
         } else {
             loaded_snapshot.unwrap_or_else(blank_workspace_snapshot)
@@ -213,6 +213,9 @@ impl ManagedAppState {
     }
 
     fn emit_workspace_context_changed(&self) {
+        if super::datastore_mcp_server::reset_workspace_servers(self).is_err() {
+            crate::infrastructure::log_breadcrumb("mcp", "workspace-server-restart-failed");
+        }
         let _ = self.app.emit(
             "datapad://workspace-changed",
             serde_json::json!({
@@ -234,6 +237,12 @@ impl ManagedAppState {
     }
 
     fn ensure_workspace_context_change_allowed(&self) -> Result<(), CommandError> {
+        if super::datastore_mcp_server::has_active_runs() {
+            return Err(CommandError::new(
+                "workspace-context-execution-active",
+                "Wait for MCP executions to finish, or cancel them, before changing workspaces.",
+            ));
+        }
         if self.snapshot.tabs.iter().any(|tab| {
             tab.active_execution.is_some() || matches!(tab.status.as_str(), "queued" | "running")
         }) {
@@ -1676,17 +1685,7 @@ fn normalize_mcp_server_tokens(tokens: &mut Vec<DatastoreMcpServerTokenConfig>) 
 }
 
 fn normalize_mcp_scopes(scopes: &mut Vec<String>) {
-    scopes.retain(|scope| {
-        matches!(
-            scope.as_str(),
-            "workspace:read"
-                | "workspace:switch"
-                | "datastore:list"
-                | "datastore:explore"
-                | "query:read"
-                | "operation:diagnostic"
-        )
-    });
+    scopes.retain(|scope| super::datastore_mcp_server::ALLOWED_SCOPES.contains(&scope.as_str()));
     scopes.sort();
     scopes.dedup();
     if scopes.is_empty() {

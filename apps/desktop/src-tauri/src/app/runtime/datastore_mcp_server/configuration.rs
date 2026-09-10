@@ -63,6 +63,12 @@ mod plugin_summaries;
 mod read_only;
 mod security_catalog;
 mod workspace_search;
+mod workspace_library;
+use workspace_library::*;
+mod saved_runs;
+use saved_runs::*;
+pub(crate) use saved_runs::authorize_run_step;
+pub(crate) use saved_runs::has_active_runs;
 #[path = "workspace_search_documents.rs"]
 mod workspace_search_document_helpers;
 
@@ -97,9 +103,13 @@ const SCOPE_WORKSPACE_SWITCH: &str = "workspace:switch";
 const SCOPE_DATASTORE_LIST: &str = "datastore:list";
 const SCOPE_DATASTORE_EXPLORE: &str = "datastore:explore";
 const SCOPE_QUERY_READ: &str = "query:read";
+const SCOPE_LIBRARY_READ: &str = "library:read";
+const SCOPE_LIBRARY_WRITE: &str = "library:write";
+const SCOPE_TESTS_RUN: &str = "tests:run";
+const SCOPE_QUERY_WRITE: &str = "query:write";
 const SCOPE_OPERATION_DIAGNOSTIC: &str = "operation:diagnostic";
 
-const ALLOWED_SCOPES: &[&str] = &[
+pub(super) const ALLOWED_SCOPES: &[&str] = &[
     SCOPE_PLUGIN_READ,
     SCOPE_WORKSPACE_SEARCH,
     SCOPE_WORKSPACES_READ,
@@ -111,6 +121,10 @@ const ALLOWED_SCOPES: &[&str] = &[
     SCOPE_DATASTORE_LIST,
     SCOPE_DATASTORE_EXPLORE,
     SCOPE_QUERY_READ,
+    SCOPE_LIBRARY_READ,
+    SCOPE_LIBRARY_WRITE,
+    SCOPE_TESTS_RUN,
+    SCOPE_QUERY_WRITE,
     SCOPE_OPERATION_DIAGNOSTIC,
 ];
 
@@ -511,7 +525,7 @@ pub fn start_server(
     runtime.persist()?;
 
     let mut manager = manager.lock().map_err(|_| state_error())?;
-    manager.start(app, server)?;
+    manager.start(app, server, active_workspace_id(runtime)?)?;
     Ok(manager.status(&runtime.snapshot.preferences.datastore_mcp_server))
 }
 
@@ -694,5 +708,18 @@ pub fn hot_reload_active_config(
     };
     let mut manager = manager.lock().map_err(|_| state_error())?;
     manager.hot_reload_config(server)
+}
+
+pub(crate) fn reset_workspace_servers(runtime: &ManagedAppState) -> Result<(), CommandError> {
+    let Some(shared) = runtime.app.try_state::<SharedDatastoreMcpServer>() else { return Ok(()); };
+    let mut manager = shared.lock().map_err(|_| state_error())?;
+    manager.stop_all();
+    let preferences = &runtime.snapshot.preferences.datastore_mcp_server;
+    if preferences.enabled {
+        if let Some(server) = active_server(preferences).filter(|server| server.auto_start) {
+            manager.start(runtime.app.clone(), server, active_workspace_id(runtime)?)?;
+        }
+    }
+    Ok(())
 }
 

@@ -28,6 +28,48 @@ use std::{fs, path::PathBuf, sync::Mutex as TestMutex};
 static ENV_LOCK: TestMutex<()> = TestMutex::new(());
 
 #[test]
+fn workspace_reload_preserves_explicit_mcp_scopes_without_granting_new_permissions() {
+    let mut snapshot = blank_workspace_snapshot();
+    let token = |id: &str, scopes: Vec<String>| DatastoreMcpServerTokenConfig {
+        id: id.into(),
+        scopes,
+        verifier_secret_ref: SecretRef {
+            id: id.into(),
+            service: "datapad-test".into(),
+            account: id.into(),
+            provider: "file".into(),
+            label: "Isolated token".into(),
+        },
+        ..Default::default()
+    };
+    snapshot
+        .preferences
+        .datastore_mcp_server
+        .servers
+        .push(DatastoreMcpServerConfig {
+            id: "mcp-test".into(),
+            tokens: vec![
+                token(
+                    "new",
+                    super::datastore_mcp_server::ALLOWED_SCOPES
+                        .iter()
+                        .map(|scope| (*scope).into())
+                        .collect(),
+                ),
+                token("old", vec!["query:read".into()]),
+            ],
+            ..Default::default()
+        });
+    let migrated = migrate_snapshot(snapshot);
+    let tokens = &migrated.preferences.datastore_mcp_server.servers[0].tokens;
+    assert_eq!(
+        tokens[0].scopes.len(),
+        super::datastore_mcp_server::ALLOWED_SCOPES.len()
+    );
+    assert_eq!(tokens[1].scopes, ["query:read"]);
+}
+
+#[test]
 fn workspace_schema_migration_advances_legacy_and_rejects_future_versions() {
     let mut missing_value =
         serde_json::to_value(blank_workspace_snapshot()).expect("workspace should serialize");
@@ -428,7 +470,7 @@ fn screenshot_fixture_seed_uses_polished_connections_environments_and_plugins() 
         .collect::<Vec<_>>();
     assert_eq!(
         environment_labels,
-        vec!["Local Demo", "Staging", "Production Preview"]
+        vec!["Development", "Staging", "Production Preview"]
     );
     assert_eq!(snapshot.ui.active_environment_id, "env-local-demo");
     assert_eq!(snapshot.ui.connection_group_mode, "group");
@@ -444,7 +486,7 @@ fn screenshot_fixture_seed_uses_polished_connections_environments_and_plugins() 
             .servers
             .first()
             .map(|server| server.name.as_str()),
-        Some("Showcase API Server")
+        Some("Customer Data API")
     );
     assert_eq!(
         snapshot
@@ -453,7 +495,7 @@ fn screenshot_fixture_seed_uses_polished_connections_environments_and_plugins() 
             .servers
             .first()
             .map(|server| server.name.as_str()),
-        Some("Showcase MCP Server")
+        Some("Analytics MCP Server")
     );
 }
 
@@ -531,11 +573,8 @@ fn existing_debug_workspace_is_not_empty_and_should_be_preserved() {
 fn migration_repairs_only_the_obsolete_cassandra_fixture_query() {
     const LEGACY_QUERY: &str = "select * from datapadplusplus.orders limit 25;";
     const CURRENT_QUERY: &str = "select account_id, order_id, status, total_amount, updated_at from datapadplusplus.orders_by_account where account_id = 1 limit 25;";
-    let mut snapshot = fixture_workspace_seed_for_profile_with_screenshot_seed(
-        Some("widecolumn"),
-        "fixture.sqlite3",
-    )
-    .snapshot;
+    let mut snapshot =
+        fixture_workspace_seed_for_profile(Some("widecolumn"), "fixture.sqlite3").snapshot;
     let tab = snapshot
         .tabs
         .iter_mut()
@@ -582,11 +621,8 @@ fn migration_repairs_only_the_obsolete_dynamodb_fixture_query() {
     const LEGACY_QUERY: &str = "{\n  \"table\": \"orders\",\n  \"limit\": 25\n}";
     const CURRENT_QUERY: &str =
         "{\n  \"operation\": \"Scan\",\n  \"tableName\": \"orders\",\n  \"limit\": 25\n}";
-    let mut snapshot = fixture_workspace_seed_for_profile_with_screenshot_seed(
-        Some("cloud-contract"),
-        "fixture.sqlite3",
-    )
-    .snapshot;
+    let mut snapshot =
+        fixture_workspace_seed_for_profile(Some("cloud-contract"), "fixture.sqlite3").snapshot;
     let tab = snapshot
         .tabs
         .iter_mut()
@@ -633,11 +669,8 @@ fn migration_repairs_only_the_obsolete_prometheus_fixture_query() {
     const LEGACY_QUERY: &str = "up";
     const CURRENT_QUERY: &str =
         r#"{__name__=~"prometheus_tsdb_head_(series|chunks|samples_appended_total)"}[15m]"#;
-    let mut snapshot = fixture_workspace_seed_for_profile_with_screenshot_seed(
-        Some("analytics"),
-        "fixture.sqlite3",
-    )
-    .snapshot;
+    let mut snapshot =
+        fixture_workspace_seed_for_profile(Some("analytics"), "fixture.sqlite3").snapshot;
     let tab = snapshot
         .tabs
         .iter_mut()
@@ -1345,6 +1378,29 @@ fn fixture_secrets_are_written_to_file_secret_store() {
     std::env::remove_var("DATAPADPLUSPLUS_SECRET_STORE");
     std::env::remove_var("DATAPADPLUSPLUS_SECRET_FILE");
     let _ = fs::remove_file(path);
+}
+
+#[test]
+fn fixture_secret_storage_failures_are_actionable_and_do_not_leak_values() {
+    let _guard = ENV_LOCK.lock().expect("env test lock");
+    let parent = temp_secret_file_path();
+    fs::write(&parent, "not a directory").expect("create blocked fixture directory");
+    std::env::set_var("DATAPADPLUSPLUS_SECRET_STORE", "file");
+    std::env::set_var("DATAPADPLUSPLUS_SECRET_FILE", parent.join("secrets.json"));
+
+    let seed = fixture_workspace_seed_for_profile(Some("core"), "fixture.sqlite3");
+    let error = seed_fixture_secrets(&seed.secrets).expect_err("failed storage must abort seeding");
+    assert_eq!(error.code, "fixture-secret-store");
+    assert!(error.message.contains(&seed.secrets[0].0.label));
+    assert!(error.message.contains("Secret Service"));
+    assert!(!error
+        .message
+        .contains(&parent.to_string_lossy().to_string()));
+    assert!(!error.message.contains("DataPadPlusPlus_pwd_123"));
+
+    std::env::remove_var("DATAPADPLUSPLUS_SECRET_STORE");
+    std::env::remove_var("DATAPADPLUSPLUS_SECRET_FILE");
+    let _ = fs::remove_file(parent);
 }
 
 #[test]

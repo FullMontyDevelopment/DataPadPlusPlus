@@ -5,11 +5,12 @@ on:
     paths:
       - 'apps/desktop/src-tauri/src/adapters/**'
       - 'apps/desktop/src-tauri/tests/adapters_integration.rs'
+      - 'apps/desktop/src-tauri/src/app/runtime/datastore_mcp_server/**'
+      - 'apps/desktop/src-tauri/src/app/runtime/query_compiler*'
+      - 'packages/query-compiler/**'
+      - 'apps/desktop/e2e/**'
       - 'tests/fixtures/**'
       - '.github/workflows/live-fixtures.yml'
-  schedule:
-    - cron: '17 2 * * 1-5'
-    - cron: '43 2 * * 0'
   workflow_dispatch:
     inputs:
       profile:
@@ -34,7 +35,6 @@ jobs:
     name: Core datastore fixtures
     if: >-
       github.event_name == 'pull_request' ||
-      github.event.schedule == '17 2 * * 1-5' ||
       github.event.inputs.profile == 'core' ||
       github.event.inputs.profile == 'all'
     runs-on: ubuntu-22.04
@@ -54,10 +54,13 @@ jobs:
           sudo apt-get install -y \
             build-essential \
             curl \
+            dbus-x11 \
             file \
+            gnome-keyring \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \
+            libsecret-tools \
             libwebkit2gtk-4.1-dev \
             libxdo-dev \
             pkg-config \
@@ -112,7 +115,39 @@ jobs:
         env:
           DATAPADPLUSPLUS_WORKSPACE_DIR: ${{ runner.temp }}/datapadplusplus-live-fixtures
           DATAPADPLUSPLUS_DESKTOP_BINARY: ${{ github.workspace }}/apps/desktop/src-tauri/target/release/datapadplusplus-desktop
-        run: xvfb-run -a npm run e2e:desktop
+        run: dbus-run-session -- xvfb-run -a bash apps/desktop/e2e/with-linux-keyring.sh npm run e2e:desktop
+
+      - name: Prepare additional MCP test providers
+        run: |
+          docker compose -f tests/fixtures/docker-compose.yml --profile cache --profile cloud-contract up -d --wait valkey dynamodb
+          node tests/fixtures/seed.mjs cloud-contract --only
+
+      - name: Run authenticated MCP journeys for all supported test providers
+        env:
+          DATAPADPLUSPLUS_FIXTURE_PROFILE: cache,cloud-contract
+          DATAPADPLUSPLUS_DESKTOP_BINARY: ${{ github.workspace }}/apps/desktop/src-tauri/target/release/datapadplusplus-desktop
+        run: |
+          for engine in postgresql mongodb redis valkey dynamodb; do
+            DATAPADPLUSPLUS_MCP_FIXTURE_ENGINE="$engine" \
+              DATAPADPLUSPLUS_WORKSPACE_DIR="${RUNNER_TEMP}/datapadplusplus-mcp-${engine}" \
+              dbus-run-session -- xvfb-run -a bash apps/desktop/e2e/with-linux-keyring.sh npm run e2e:desktop:mcp || exit 1
+          done
+
+      - name: Stop additional MCP fixtures
+        if: always()
+        run: docker compose -f tests/fixtures/docker-compose.yml --profile cache --profile cloud-contract stop valkey dynamodb
+
+      - name: Upload desktop failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: live-fixtures-desktop-diagnostics
+          path: |
+            ${{ runner.temp }}/datapadplusplus-live-fixtures/.e2e-artifacts/
+            ${{ runner.temp }}/datapadplusplus-mcp-*/.e2e-artifacts/
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
 
       - name: Stop fixtures
         if: always()
@@ -121,7 +156,6 @@ jobs:
   oracle-fixture:
     name: Oracle paging and completion fixture
     if: >-
-      github.event.schedule == '43 2 * * 0' ||
       github.event.inputs.profile == 'oracle' ||
       github.event.inputs.profile == 'all'
     runs-on: ubuntu-22.04

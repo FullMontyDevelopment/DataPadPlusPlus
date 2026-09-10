@@ -1,4 +1,54 @@
 use super::*;
+use crate::domain::models::QueryTabState;
+
+#[test]
+fn asynchronous_metadata_refresh_preserves_concurrent_saved_edits_and_selection() {
+    let mut before = crate::app::runtime::blank_workspace_snapshot();
+    before.tabs.push(QueryTabState {
+        id: "metrics".into(),
+        tab_kind: Some("metrics".into()),
+        ..Default::default()
+    });
+    let mut refreshed = before.clone();
+    refreshed.tabs[0].metrics_state = Some(serde_json::json!({"diagnostics":{"rows":1}}));
+    refreshed.tabs[0].status = "success".into();
+    let mut current = before.clone();
+    current
+        .library_nodes
+        .push(crate::domain::models::LibraryNode {
+            id: "saved".into(),
+            query_text: Some("new saved revision".into()),
+            ..Default::default()
+        });
+    current.ui.active_tab_id = "another-tab".into();
+    current.workspace_revision = 42;
+    assert!(merge_refreshed_tab(&mut current, &before, &refreshed, "metrics").unwrap());
+    assert_eq!(
+        current.library_nodes[0].query_text.as_deref(),
+        Some("new saved revision")
+    );
+    assert_eq!(current.ui.active_tab_id, "another-tab");
+    assert_eq!(current.workspace_revision, 42);
+    assert_eq!(current.tabs[0].status, "success");
+}
+
+#[test]
+fn asynchronous_metadata_refresh_never_resurrects_closed_tabs_or_overwrites_changed_targets() {
+    let mut before = crate::app::runtime::blank_workspace_snapshot();
+    before.tabs.push(QueryTabState {
+        id: "object".into(),
+        environment_id: "before".into(),
+        ..Default::default()
+    });
+    let refreshed = before.clone();
+    let mut current = before.clone();
+    current.tabs[0].environment_id = "after".into();
+    assert!(!merge_refreshed_tab(&mut current, &before, &refreshed, "object").unwrap());
+    assert_eq!(current.tabs[0].environment_id, "after");
+    current.tabs.clear();
+    assert!(!merge_refreshed_tab(&mut current, &before, &refreshed, "object").unwrap());
+    assert!(current.tabs.is_empty());
+}
 
 fn test_sqlite_path(name: &str) -> PathBuf {
     let unique = crate::app::runtime::generate_id(name);
