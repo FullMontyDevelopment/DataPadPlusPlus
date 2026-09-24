@@ -106,23 +106,7 @@ export const clientExecution = {
       return invokeDesktop<LocalDatabasePickResult>('pick_local_database_file', { request })
     }
 
-    const extension = localDatabaseExtension(request.engine)
-
-    if (!extension) {
-      return { canceled: true }
-    }
-
-    const filename =
-      request.purpose === 'create'
-        ? undefined
-        : `datapadplusplus-preview-existing.${extension}`
-
-    return {
-      canceled: false,
-      path: filename
-        ? `C:\\Users\\gmont\\DataPad++\\${filename}`
-        : 'C:\\Users\\gmont\\DataPad++',
-    }
+    return { canceled: true }
   },
 
   async createLocalDatabase(
@@ -132,44 +116,10 @@ export const clientExecution = {
       return invokeDesktop<LocalDatabaseCreateResult>('create_local_database', { request })
     }
 
-    return {
-      engine: request.engine,
-      path: request.path,
-      message: previewLocalDatabaseMessage(request),
-      warnings: request.engine === 'litedb'
-        ? [
-            'LiteDB file was prepared. The .NET LiteDB sidecar will initialize database pages when live file access is enabled.',
-          ]
-        : [],
-    }
+    throw new Error('Local database creation requires the desktop application. Browser preview did not create a file.')
   },
 }
 
 function yieldToBrowser() {
   return new Promise<void>((resolve) => window.setTimeout(resolve, 0))
-}
-
-function localDatabaseExtension(engine: LocalDatabasePickRequest['engine']) {
-  switch (engine) {
-    case 'sqlite':
-      return 'sqlite'
-    case 'duckdb':
-      return 'duckdb'
-    case 'litedb':
-      return 'db'
-    default:
-      return undefined
-  }
-}
-
-function previewLocalDatabaseMessage(request: LocalDatabaseCreateRequest) {
-  const label = request.engine === 'duckdb'
-    ? 'DuckDB'
-    : request.engine === 'litedb'
-      ? 'LiteDB'
-      : 'SQLite'
-
-  return request.mode === 'starter'
-    ? `Preview ${label} starter database prepared.`
-    : `Preview ${label} empty database prepared.`
 }

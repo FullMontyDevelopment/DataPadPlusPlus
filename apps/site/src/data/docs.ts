@@ -409,7 +409,7 @@ const legacyDocArticles: LegacyDocArticle[] = [
       },
       {
         title: 'Import file first and review',
-        body: 'Select the file, unlock it, review schema 12 compatibility, sizes, counts, warnings and secrets, then name a new workspace or explicitly replace the current workspace with recovery state.',
+        body: 'Select the file, unlock it, review workspace-schema compatibility, sizes, counts, warnings and secrets, then name a new workspace or explicitly replace the current workspace with recovery state. Current workspaces use schema 13; supported older workspaces migrate without changing the encrypted bundle format.',
       },
     ],
   },

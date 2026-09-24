@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CURRENT_WORKSPACE_SCHEMA_VERSION } from '@datapadplusplus/shared-types'
 import type { QueryTabState } from '@datapadplusplus/shared-types'
 import { createBlankSnapshot } from '../../../src/app/data/workspace-factory'
+import { clientWorkspace } from '../../../src/services/runtime/client-workspace'
+import { initialState, reducer } from '../../../src/app/state/app-state-reducer'
 import {
   createBrowserWorkspace,
   findConnection,
@@ -18,6 +21,98 @@ import {
 } from '../../../src/services/runtime/browser-store'
 
 describe('browser workspace storage', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('rejects a delayed dialog-open response after a newer close response', async () => {
+    window.localStorage.clear()
+    saveBrowserSnapshot(createBlankSnapshot())
+    const opened = await clientWorkspace.updateUiState({ rightDrawer: 'connection' })
+    const closed = await clientWorkspace.updateUiState({ rightDrawer: 'none' })
+    expect(closed.snapshot.workspaceRevision).toBeGreaterThan(opened.snapshot.workspaceRevision ?? 0)
+    const state = reducer(initialState, { type: 'COMMAND_SUCCESS', payload: closed })
+    const stale = reducer(state, { type: 'COMMAND_SUCCESS', payload: opened })
+    expect(stale.payload?.snapshot.ui.rightDrawer).toBe('none')
+    expect(loadBrowserSnapshot().workspaceRevision).toBe(closed.snapshot.workspaceRevision)
+  })
+
+  it('upgrades schema 12, preserves a recovery copy, and updates registry summaries', () => {
+    window.localStorage.clear()
+    const original = createBlankSnapshot()
+    original.schemaVersion = 12
+    original.tabs.push({
+      id: 'schema-draft', connectionId: '', environmentId: '', title: 'Draft',
+      family: 'sql', language: 'sql', editorLabel: 'SQL', queryText: 'select 42;',
+      status: 'idle', dirty: true, history: [],
+    })
+    const serialized = JSON.stringify(original)
+    window.localStorage.setItem('datapadplusplus.workspace.v2', serialized)
+    const loaded = loadBrowserSnapshot()
+    expect(loaded.schemaVersion).toBe(CURRENT_WORKSPACE_SCHEMA_VERSION)
+    expect(loaded.tabs.find(tab => tab.id === 'schema-draft')?.queryText).toBe('select 42;')
+    const recoveryKey = 'datapadplusplus.workspace.snapshot.v1.default.schema-12-to-13.recovery'
+    expect(JSON.parse(window.localStorage.getItem(recoveryKey)!)).toMatchObject({ schemaVersion: 12 })
+    const recovery = window.localStorage.getItem(recoveryKey)
+    saveBrowserSnapshot(loaded)
+    loadBrowserSnapshot()
+    expect(window.localStorage.getItem(recoveryKey)).toBe(recovery)
+    expect(getBrowserWorkspaceSwitcherStatus().workspaces[0]?.schemaVersion).toBe(CURRENT_WORKSPACE_SCHEMA_VERSION)
+  })
+
+  it('does not replace a future workspace with a blank one during registry initialization', () => {
+    window.localStorage.clear()
+    const snapshot = createBlankSnapshot()
+    snapshot.schemaVersion = CURRENT_WORKSPACE_SCHEMA_VERSION + 1
+    const original = JSON.stringify(snapshot)
+    window.localStorage.setItem('datapadplusplus.workspace.v2', original)
+    expect(() => loadBrowserSnapshot()).toThrow('newer DataPad++ version')
+    expect(window.localStorage.getItem('datapadplusplus.workspace.v2')).toBe(original)
+    expect(window.localStorage.length).toBe(1)
+  })
+
+  it('leaves the original intact when migration recovery cannot be stored', () => {
+    window.localStorage.clear()
+    const snapshot = createBlankSnapshot()
+    snapshot.schemaVersion = 12
+    const original = JSON.stringify(snapshot)
+    window.localStorage.setItem('datapadplusplus.workspace.v2', original)
+    const setItem = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+      if (key.endsWith('.recovery')) throw new DOMException('Storage full', 'QuotaExceededError')
+      setItem.call(this, key, value)
+    })
+    expect(() => loadBrowserSnapshot()).toThrow()
+    expect(window.localStorage.getItem('datapadplusplus.workspace.v2')).toBe(original)
+    expect(window.localStorage.getItem('datapadplusplus.workspaces.registry.v1')).toBeNull()
+  })
+
+  it('does not expose corrupt workspace contents through parse errors', () => {
+    window.localStorage.clear()
+    const privateText = 'mongodb://user:do-not-report@localhost'
+    const corrupt = '{"connectionString":"' + privateText
+    window.localStorage.setItem('datapadplusplus.workspace.v2', corrupt)
+    expect(() => loadBrowserSnapshot()).toThrow('not valid JSON')
+    try { loadBrowserSnapshot() } catch (error) {
+      expect(String(error)).not.toContain(privateText)
+      expect((error as Error).cause).toBeUndefined()
+    }
+    expect(window.localStorage.getItem('datapadplusplus.workspace.v2')).toBe(corrupt)
+  })
+
+  it('does not activate a future workspace during switching', () => {
+    window.localStorage.clear()
+    loadBrowserSnapshot()
+    const second = createBrowserWorkspace({ name: 'Other workspace' })
+    const secondId = getBrowserWorkspaceSwitcherStatus().activeWorkspaceId
+    switchBrowserWorkspace({ workspaceId: 'default' })
+    second.schemaVersion = CURRENT_WORKSPACE_SCHEMA_VERSION + 1
+    const key = 'datapadplusplus.workspace.snapshot.v1.' + secondId
+    const original = JSON.stringify(second)
+    window.localStorage.setItem(key, original)
+    expect(() => switchBrowserWorkspace({ workspaceId: secondId })).toThrow('newer DataPad++ version')
+    expect(getBrowserWorkspaceSwitcherStatus().activeWorkspaceId).toBe('default')
+    expect(window.localStorage.getItem(key)).toBe(original)
+  })
+
   it('keeps active results in memory without writing them to browser storage', () => {
     const snapshot = createBlankSnapshot()
     const tab: QueryTabState = {
@@ -123,6 +218,7 @@ describe('browser workspace storage', () => {
 
   it('removes plaintext connection strings from old browser snapshots after loading them', () => {
     const snapshot = createBlankSnapshot()
+    snapshot.schemaVersion = 12
     snapshot.connections = [
       {
         id: 'conn-old-secret',
@@ -153,6 +249,10 @@ describe('browser workspace storage', () => {
     expect(loaded.connections[0]?.connectionMode).toBe('connection-string')
     expect(window.localStorage.getItem('datapadplusplus.workspace.v2') ?? '')
       .not.toContain('mongodb://user:old-secret')
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      expect(window.localStorage.getItem(window.localStorage.key(index)!) ?? '')
+        .not.toContain('mongodb://user:old-secret')
+    }
   })
 
   it('does not persist plaintext environment secret variables in browser storage', () => {

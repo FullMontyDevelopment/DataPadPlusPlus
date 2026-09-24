@@ -18,17 +18,21 @@ pub(crate) fn postgres_dsn(connection: &ResolvedConnectionProfile) -> String {
         };
         format!(
             "postgres://{}:{}@{}:{}/{}{}",
-            connection
-                .username
-                .clone()
-                .unwrap_or_else(|| "postgres".into()),
-            connection.password.clone().unwrap_or_default(),
+            postgres_uri_encode(
+                &connection
+                    .username
+                    .clone()
+                    .unwrap_or_else(|| "postgres".into())
+            ),
+            postgres_uri_encode(&connection.password.clone().unwrap_or_default()),
             connection.host,
             connection.port.unwrap_or(default_port),
-            connection
-                .database
-                .clone()
-                .unwrap_or_else(|| default_database.into()),
+            postgres_uri_encode(
+                &connection
+                    .database
+                    .clone()
+                    .unwrap_or_else(|| default_database.into())
+            ),
             postgres_dsn_query(connection)
         )
     })

@@ -11,7 +11,7 @@ const DEFAULT_MONGODB_SERVER_SELECTION_TIMEOUT: Duration = Duration::from_secs(3
 pub(super) async fn mongodb_client(
     connection: &ResolvedConnectionProfile,
 ) -> Result<MongoClient, CommandError> {
-    let uri = mongodb_uri(connection);
+    let uri = mongodb_execution_uri(&mongodb_uri(connection))?;
 
     crate::infrastructure::log_breadcrumb(
         "mongodb-client",
@@ -28,8 +28,12 @@ pub(super) async fn mongodb_client(
         "mongodb-client",
         format!("parse-options-complete id={}", connection.id),
     );
-    options.server_selection_timeout = Some(DEFAULT_MONGODB_SERVER_SELECTION_TIMEOUT);
-    options.connect_timeout = Some(DEFAULT_MONGODB_CONNECT_TIMEOUT);
+    options
+        .server_selection_timeout
+        .get_or_insert(DEFAULT_MONGODB_SERVER_SELECTION_TIMEOUT);
+    options
+        .connect_timeout
+        .get_or_insert(DEFAULT_MONGODB_CONNECT_TIMEOUT);
 
     let client = MongoClient::with_options(options)?;
     crate::infrastructure::log_breadcrumb(
@@ -65,7 +69,11 @@ pub(super) async fn test_mongodb_connection(
         ok: true,
         engine: connection.engine.clone(),
         message: format!("Connection test succeeded for {}.", connection.name),
-        warnings: Vec::new(),
+        warnings: if mongodb_execution_uri(&mongodb_uri(connection))? != mongodb_uri(connection) {
+            vec!["Studio 3T display metadata was ignored for this connection attempt. The stored connection string is unchanged.".into()]
+        } else {
+            Vec::new()
+        },
         resolved_host: connection.host.clone(),
         resolved_database: Some(database_name),
         duration_ms: Some(duration_ms(started)),
@@ -183,6 +191,42 @@ fn percent_encode_uri_component(value: &str) -> String {
             _ => format!("%{byte:02X}").chars().collect(),
         })
         .collect()
+}
+
+/// Only known display metadata is removed from the temporary driver input.
+/// The saved URI is never rewritten; unknown native options still fail validation.
+pub(crate) fn mongodb_execution_uri(uri: &str) -> Result<String, CommandError> {
+    let Some((base, query)) = uri.split_once('?') else {
+        return Ok(uri.to_string());
+    };
+    let mut retained = Vec::new();
+    for pair in query.split('&') {
+        let key = pair.split_once('=').map_or(pair, |(key, _)| key);
+        let decoded = url::form_urlencoded::parse(format!("{key}=").as_bytes())
+            .next()
+            .map(|(key, _)| key.to_ascii_lowercase())
+            .unwrap_or_default();
+        if matches!(
+            decoded.as_str(),
+            "3t.uriversion"
+                | "3t.connection.name"
+                | "3t.databases"
+                | "3t.alwaysshowauthdb"
+                | "3t.alwaysshowdbfromuserrole"
+        ) {
+            continue;
+        }
+        if decoded.starts_with("3t.") {
+            return Err(CommandError::new("mongodb-client-option-unsupported",
+                "The connection string includes an unsupported Studio 3T option. Only display metadata can be ignored; configure SSH, TLS, authentication, and routing with supported native options."));
+        }
+        retained.push(pair);
+    }
+    Ok(if retained.is_empty() {
+        base.to_string()
+    } else {
+        format!("{base}?{}", retained.join("&"))
+    })
 }
 
 fn mongodb_database_name_from_uri(uri: &str) -> Option<String> {

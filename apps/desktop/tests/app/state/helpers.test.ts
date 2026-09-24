@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { CURRENT_WORKSPACE_SCHEMA_VERSION } from '@datapadplusplus/shared-types'
 import { createSeedSnapshot } from '../../fixtures/seed-workspace'
 import { createBlankBootstrapPayload } from '../../../src/app/data/workspace-factory'
 import {
@@ -181,17 +182,22 @@ describe('evaluateGuardrails', () => {
 })
 
 describe('migrateWorkspaceSnapshot', () => {
-  it('advances missing and legacy schemas to 12 without downgrading future workspaces', () => {
+  it('advances every supported schema sequentially without downgrading future workspaces', () => {
     const missing = createSeedSnapshot()
     delete (missing as { schemaVersion?: number }).schemaVersion
-    expect(migrateWorkspaceSnapshot(missing).schemaVersion).toBe(12)
+    expect(migrateWorkspaceSnapshot(missing).schemaVersion).toBe(CURRENT_WORKSPACE_SCHEMA_VERSION)
 
-    const current = createSeedSnapshot()
-    current.schemaVersion = 12
-    expect(migrateWorkspaceSnapshot(current).schemaVersion).toBe(12)
+    for (let version = 0; version <= CURRENT_WORKSPACE_SCHEMA_VERSION; version += 1) {
+      const current = createSeedSnapshot()
+      current.schemaVersion = version
+      const migrated = migrateWorkspaceSnapshot(current)
+      expect(migrated.schemaVersion).toBe(CURRENT_WORKSPACE_SCHEMA_VERSION)
+      expect(migrateWorkspaceSnapshot(migrated)).toEqual(migrated)
+      expect(current.schemaVersion).toBe(version)
+    }
 
     const future = createSeedSnapshot()
-    future.schemaVersion = 13
+    future.schemaVersion = CURRENT_WORKSPACE_SCHEMA_VERSION + 1
     expect(() => migrateWorkspaceSnapshot(future)).toThrow(
       'created by a newer DataPad++ version',
     )
@@ -199,12 +205,17 @@ describe('migrateWorkspaceSnapshot', () => {
 
   it('keeps vault-backed profiles in connection-string mode without plaintext', () => {
     const snapshot = structuredClone(createSeedSnapshot())
+    snapshot.schemaVersion = 12
     const connection = snapshot.connections[0]!
     connection.id = 'conn-custom-vault'
     connection.engine = 'mongodb'
     connection.family = 'document'
     connection.connectionMode = 'connection-string'
     connection.connectionString = undefined
+    connection.host = 'localhost'
+    connection.database = 'catalog'
+    connection.auth.username = 'existing-user'
+    connection.mongodbOptions = { appName: 'Existing application', queryTimeoutMs: 4500 }
     connection.auth.connectionStringSecretRef = {
       id: 'connection-string-ref',
       provider: 'desktop-secret-store',
@@ -212,6 +223,12 @@ describe('migrateWorkspaceSnapshot', () => {
       account: 'connection-string:connection-1:ref',
       label: 'MongoDB QA connection string',
     }
+    const originalConnection = structuredClone(connection)
+    const upgraded = migrateWorkspaceSnapshot(snapshot)
+    expect(upgraded.schemaVersion).toBe(13)
+    expect(upgraded.connections.find(item => item.id === connection.id)).toEqual(originalConnection)
+    expect(upgraded.connections.find(item => item.id === connection.id)?.mongodbOptions?.retryWrites).toBeUndefined()
+    expect(snapshot.schemaVersion).toBe(12)
 
     const migrated = migrateWorkspaceSnapshot(snapshot)
 
@@ -389,7 +406,7 @@ describe('migrateWorkspaceSnapshot', () => {
 
     const migrated = migrateWorkspaceSnapshot(legacy)
 
-    expect(migrated.schemaVersion).toBe(12)
+    expect(migrated.schemaVersion).toBe(CURRENT_WORKSPACE_SCHEMA_VERSION)
     expect(migrated.ui.activeActivity).toBe('library')
     expect(migrated.ui.activeSidebarPane).toBe('library')
     expect(migrated.ui.sidebarWidth).toBe(280)
@@ -778,7 +795,7 @@ describe('migrateWorkspaceSnapshot', () => {
     const migrated = migrateWorkspaceSnapshot(snapshot)
 
     expect(migrated.preferences.datastoreTests).toEqual({ enabled: false })
-    expect(migrated.schemaVersion).toBe(12)
+    expect(migrated.schemaVersion).toBe(CURRENT_WORKSPACE_SCHEMA_VERSION)
   })
 
   it('migrates legacy tabs into one synthetic main window with the plugin disabled', () => {

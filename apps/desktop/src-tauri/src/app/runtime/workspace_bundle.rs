@@ -248,12 +248,12 @@ fn is_legacy_auto_backup_secret(secret_ref: &SecretRef) -> bool {
         && secret_ref.service == "datapadplusplus.workspace-backup"
 }
 
-fn modeled_workspace_secret_refs(
+pub(super) fn modeled_workspace_secret_refs(
     snapshot: &WorkspaceSnapshot,
 ) -> Result<HashMap<String, SecretRef>, CommandError> {
     let mut refs_by_key = HashMap::<String, SecretRef>::new();
     for connection in &snapshot.connections {
-        collect_secret_refs_from_value(&serde_json::to_value(connection)?, &mut refs_by_key);
+        refs_by_key.extend(modeled_connection_secret_refs(connection)?);
     }
     for environment in &snapshot.environments {
         collect_secret_refs_from_value(&serde_json::to_value(environment)?, &mut refs_by_key);
@@ -263,6 +263,14 @@ fn modeled_workspace_secret_refs(
         &mut refs_by_key,
     );
     Ok(refs_by_key)
+}
+
+pub(super) fn modeled_connection_secret_refs(
+    connection: &crate::domain::models::ConnectionProfile,
+) -> Result<HashMap<String, SecretRef>, CommandError> {
+    let mut references = HashMap::new();
+    collect_secret_refs_from_value(&serde_json::to_value(connection)?, &mut references);
+    Ok(references)
 }
 
 pub(super) fn strip_workspace_secret_references(

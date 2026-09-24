@@ -231,7 +231,7 @@ function chooseDatabaseType(drawer: HTMLElement, datastoreLabel: string) {
 }
 
 function setConnectionDatabase(drawer: HTMLElement, database: string) {
-  fireEvent.change(within(drawer).getByLabelText('Database'), {
+  fireEvent.change(within(drawer).getByLabelText('Database / default scope'), {
     target: { value: database },
   })
 }
@@ -617,7 +617,7 @@ describe('App', () => {
     fireEvent.click(within(guide).getByRole('button', { name: 'Next' }))
 
     await screen.findByRole('dialog', { name: 'Test and save' })
-    fireEvent.click(within(drawer).getByLabelText('Close drawer'))
+    fireEvent.click(within(drawer).getByLabelText('Close connection editor'))
 
     const reopenedDrawer = await screen.findByLabelText(
       'connection drawer',
@@ -766,7 +766,7 @@ describe('App', () => {
     ).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: /Query 1/i })).not.toBeInTheDocument()
 
-    fireEvent.click(within(drawer).getByLabelText('Close drawer'))
+    fireEvent.click(within(drawer).getByLabelText('Close connection editor'))
 
     await waitFor(() => {
       expect(screen.queryByLabelText('connection drawer')).not.toBeInTheDocument()
@@ -793,38 +793,18 @@ describe('App', () => {
     expect(screen.queryByText('Library item was not found.')).not.toBeInTheDocument()
   })
 
-  it('shows connection test failures inside the unsaved connection drawer', async () => {
+  it('shows connection test failures inside the unsaved connection dialog', async () => {
     render(<App />)
-
     const drawer = await openConnectionDraft()
     chooseDatabaseType(drawer, 'MongoDB')
-    fireEvent.change(within(drawer).getByLabelText('Password / Credential'), {
-      target: { value: 'datapadplusplus' },
-    })
-    const testConnectionSpy = vi.spyOn(desktopClient, 'testConnection').mockRejectedValueOnce(
-      new Error('connection refused'),
-    )
-
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Test Connection' }))
-
-    await waitFor(() => {
-      expect(within(drawer).getByText('Connection issue')).toBeInTheDocument()
-    })
-    expect(within(drawer).getByText(/connection refused/i)).toBeInTheDocument()
-    expect(
-      within(drawer).getByText(
-        'DataPad++ Docker fixtures expose MongoDB on localhost:27018.',
-      ),
-    ).toBeInTheDocument()
-    expect(testConnectionSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ secret: 'datapadplusplus' }),
-    )
-    expect(within(drawer).getByLabelText('Password / Credential')).toHaveValue(
-      'datapadplusplus',
-    )
-    expect(
-      within(screen.getByLabelText('library sidebar')).queryByText('MongoDB connection'),
-    ).not.toBeInTheDocument()
+    fireEvent.click(within(drawer).getByText('Authentication'))
+    fireEvent.change(within(drawer).getByLabelText('Password'), { target: { value: 'datapadplusplus' } })
+    const testConnectionSpy = vi.spyOn(desktopClient, 'testConnection').mockRejectedValueOnce(new Error('connection refused'))
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Test connection' }))
+    await waitFor(() => expect(within(drawer).getByText(/connection refused/i)).toBeInTheDocument())
+    expect(testConnectionSpy).toHaveBeenCalledWith(expect.objectContaining({ secret: 'datapadplusplus' }))
+    expect(within(drawer).getByLabelText('Password')).toHaveValue('datapadplusplus')
+    expect(within(screen.getByLabelText('library sidebar')).queryByText('MongoDB connection')).not.toBeInTheDocument()
   })
 
   it('saves new connections without forcing an environment association', async () => {
@@ -832,7 +812,7 @@ describe('App', () => {
     snapshot.environments = [testEnvironment('env-local', 'Local')]
     snapshot.ui.activeEnvironmentId = 'env-local'
     saveBrowserSnapshot(snapshot)
-    const upsertConnectionSpy = vi.spyOn(desktopClient, 'upsertConnection')
+    const saveConnectionSpy = vi.spyOn(desktopClient, 'saveConnectionEditor')
     render(<App />)
 
     const drawer = await openConnectionDraft()
@@ -844,184 +824,78 @@ describe('App', () => {
     await waitFor(() => {
       expect(screen.queryByLabelText('connection drawer')).not.toBeInTheDocument()
     })
-    expect(upsertConnectionSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: 'PostgreSQL connection',
-        environmentIds: [],
-      }),
+    expect(saveConnectionSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ profile: expect.objectContaining({
+        name: 'PostgreSQL connection', environmentIds: [],
+      }) }),
     )
   })
 
   it('lets connection-string capable datastores switch connection methods', async () => {
     const testConnectionSpy = vi.spyOn(desktopClient, 'testConnection').mockResolvedValueOnce({
-      ok: true,
-      engine: 'postgresql',
-      message: 'Connection string accepted.',
-      warnings: [],
-      resolvedHost: '',
-      resolvedDatabase: undefined,
-      durationMs: 1,
+      ok: true, engine: 'postgresql', message: 'Accepted.', warnings: [], resolvedHost: '', durationMs: 1,
     })
     render(<App />)
-
     const drawer = await openConnectionDraft()
-    const methods = within(drawer).getByRole('tablist', { name: 'Connection methods' })
-
-    expect(within(methods).getByRole('tab', { name: /Fields/i })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    )
-    expect(within(methods).getByRole('tab', { name: /Connection String/i })).toBeInTheDocument()
-
-    fireEvent.click(within(methods).getByRole('tab', { name: /Connection String/i }))
-
-    expect(within(drawer).getByLabelText('Connection string')).toBeInTheDocument()
-    expect(within(drawer).queryByLabelText('Server')).not.toBeInTheDocument()
-
-    fireEvent.change(within(drawer).getByLabelText('Connection string'), {
-      target: {
-        value:
-          'postgresql://datapadplusplus:{{DB_PASSWORD}}@localhost:54329/datapadplusplus',
-      },
-    })
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Test Connection' }))
-
-    await waitFor(() => {
-      expect(testConnectionSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          profile: expect.objectContaining({
-            connectionMode: 'connection-string',
-            connectionString:
-              'postgresql://datapadplusplus:{{DB_PASSWORD}}@localhost:54329/datapadplusplus',
-            host: '',
-            port: undefined,
-          }),
-        }),
-      )
-    })
+    expect(within(drawer).getByRole('tab', { name: 'Connection fields' })).toHaveAttribute('aria-selected', 'true')
+    fireEvent.click(within(drawer).getByRole('tab', { name: 'Connection string' }))
+    expect(within(drawer).queryByLabelText('Host')).not.toBeInTheDocument()
+    const uri = 'postgresql://datapadplusplus:{{DB_PASSWORD}}@localhost:54329/datapadplusplus'
+    fireEvent.change(within(drawer).getByLabelText('Complete connection string'), { target: { value: uri } })
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Test connection' }))
+    await waitFor(() => expect(testConnectionSpy).toHaveBeenCalledWith(expect.objectContaining({
+      profile: expect.objectContaining({ connectionMode: 'connection-string', connectionString: uri, host: '', port: undefined }),
+    })))
   })
 
   it('accepts raw MongoDB Atlas connection strings with embedded credentials', async () => {
-    const atlasUri =
-      'mongodb+srv://garethmontgomeryrsa_db_user:plain-secret@datapadplusplus.kkravqn.mongodb.net/?appName=DataPadPlusPlus'
+    const uri = 'mongodb+srv://fixture-user:plain-secret@fixture.example.test/?appName=DataPadPlusPlus'
     const testConnectionSpy = vi.spyOn(desktopClient, 'testConnection').mockResolvedValueOnce({
-      ok: true,
-      engine: 'mongodb',
-      message: 'MongoDB Atlas connection string accepted.',
-      warnings: [],
-      resolvedHost: '',
-      resolvedDatabase: undefined,
-      durationMs: 1,
+      ok: true, engine: 'mongodb', message: 'Accepted.', warnings: [], resolvedHost: '', durationMs: 1,
     })
     render(<App />)
-
     const drawer = await openConnectionDraft()
     chooseDatabaseType(drawer, 'MongoDB')
-    const methods = within(drawer).getByRole('tablist', { name: 'Connection methods' })
-    fireEvent.click(within(methods).getByRole('tab', { name: /Connection String/i }))
-
-    fireEvent.change(within(drawer).getByLabelText('Connection string'), {
-      target: { value: atlasUri },
-    })
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Test Connection' }))
-
-    await waitFor(() => {
-      expect(testConnectionSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          profile: expect.objectContaining({
-            engine: 'mongodb',
-            connectionMode: 'connection-string',
-            connectionString: atlasUri,
-            host: '',
-            port: undefined,
-          }),
-        }),
-      )
-    })
+    fireEvent.click(within(drawer).getByRole('tab', { name: 'Connection string' }))
+    fireEvent.change(within(drawer).getByLabelText('Complete connection string'), { target: { value: uri } })
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Test connection' }))
+    await waitFor(() => expect(testConnectionSpy).toHaveBeenCalledWith(expect.objectContaining({
+      profile: expect.objectContaining({ engine: 'mongodb', connectionMode: 'connection-string', connectionString: uri, host: '', port: undefined }),
+    })))
   })
 
-  it('supports MongoDB Atlas SRV native fields without a port', async () => {
+  it('supports MongoDB SRV native fields without a port control', async () => {
     const testConnectionSpy = vi.spyOn(desktopClient, 'testConnection').mockResolvedValueOnce({
-      ok: true,
-      engine: 'mongodb',
-      message: 'MongoDB Atlas fields accepted.',
-      warnings: [],
-      resolvedHost: 'datapadplusplus.kkravqn.mongodb.net',
-      resolvedDatabase: undefined,
-      durationMs: 1,
+      ok: true, engine: 'mongodb', message: 'Accepted.', warnings: [], resolvedHost: 'fixture.example.test', durationMs: 1,
     })
     render(<App />)
-
     const drawer = await openConnectionDraft()
     chooseDatabaseType(drawer, 'MongoDB')
-
-    fireEvent.change(within(drawer).getByLabelText('MongoDB deployment'), {
-      target: { value: 'mongodb+srv' },
-    })
-    fireEvent.change(within(drawer).getByLabelText('MongoDB SRV host'), {
-      target: { value: 'datapadplusplus.kkravqn.mongodb.net' },
-    })
-    fireEvent.change(within(drawer).getByLabelText('User name'), {
-      target: { value: 'garethmontgomeryrsa_db_user' },
-    })
-    fireEvent.change(within(drawer).getByLabelText('Password / Credential'), {
-      target: { value: 'plain-secret' },
-    })
-
+    fireEvent.change(within(drawer).getByLabelText('Deployment'), { target: { value: 'mongodb+srv' } })
+    fireEvent.change(within(drawer).getByLabelText('Host'), { target: { value: 'fixture.example.test' } })
+    fireEvent.click(within(drawer).getByText('Authentication'))
+    fireEvent.change(within(drawer).getByLabelText('Username'), { target: { value: 'fixture-user' } })
+    fireEvent.change(within(drawer).getByLabelText('Password'), { target: { value: 'plain-secret' } })
     expect(within(drawer).queryByLabelText('Port')).not.toBeInTheDocument()
-
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Test Connection' }))
-
-    await waitFor(() => {
-      expect(testConnectionSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          secret: 'plain-secret',
-          profile: expect.objectContaining({
-            engine: 'mongodb',
-            connectionMode: 'native',
-            host: 'datapadplusplus.kkravqn.mongodb.net',
-            port: undefined,
-            mongodbOptions: expect.objectContaining({
-              connectionScheme: 'mongodb+srv',
-              authSource: 'admin',
-              appName: 'DataPadPlusPlus',
-              tls: true,
-            }),
-          }),
-        }),
-      )
-    })
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Test connection' }))
+    await waitFor(() => expect(testConnectionSpy).toHaveBeenCalledWith(expect.objectContaining({
+      secret: 'plain-secret', profile: expect.objectContaining({ engine: 'mongodb', host: 'fixture.example.test',
+        mongodbOptions: expect.objectContaining({ connectionScheme: 'mongodb+srv' }) }),
+    })))
   })
 
-  it('shows local-file and cloud-specific connection method tabs where supported', async () => {
+  it('shows supported local-file methods and explicitly limits cloud runtimes', async () => {
     render(<App />)
-
     const drawer = await openConnectionDraft()
     chooseDatabaseType(drawer, 'SQLite')
-
-    let methods = within(drawer).getByRole('tablist', { name: 'Connection methods' })
-    expect(within(methods).getByRole('tab', { name: /Local File/i })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    )
-    expect(within(methods).getByRole('tab', { name: /Connection String/i })).toBeInTheDocument()
-
-    fireEvent.click(within(methods).getByRole('tab', { name: /Connection String/i }))
-    expect(within(drawer).getByLabelText('Connection string')).toBeInTheDocument()
-    expect(within(drawer).queryByRole('button', { name: 'Open Existing' })).not.toBeInTheDocument()
-
+    expect(within(drawer).getByRole('tab', { name: 'Local database file' })).toHaveAttribute('aria-selected', 'true')
+    fireEvent.click(within(drawer).getByRole('tab', { name: 'Connection string' }))
+    expect(within(drawer).getByLabelText('Complete connection string')).toBeInTheDocument()
+    expect(within(drawer).queryByRole('button', { name: 'Open existing database' })).not.toBeInTheDocument()
     chooseDatabaseType(drawer, 'DynamoDB')
-    methods = within(drawer).getByRole('tablist', { name: 'Connection methods' })
-    expect(within(methods).getByRole('tab', { name: /Cloud IAM/i })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    )
-    expect(within(methods).getByRole('tab', { name: /Cloud SDK/i })).toBeInTheDocument()
-    expect(within(methods).queryByRole('tab', { name: /Fields/i })).not.toBeInTheDocument()
-
-    fireEvent.click(within(methods).getByRole('tab', { name: /Cloud SDK/i }))
-    expect(within(drawer).getByLabelText('DynamoDB connection mode')).toBeInTheDocument()
-    expect(within(drawer).getByLabelText('DynamoDB profile name')).toBeInTheDocument()
+    expect(within(drawer).getByRole('tab', { name: 'Cloud / endpoint settings' })).toHaveAttribute('aria-selected', 'true')
+    expect(within(drawer).queryByRole('tab', { name: 'Cloud identity' })).not.toBeInTheDocument()
+    expect(within(drawer).getByText(/Full managed-cloud connection support is unavailable/)).toBeInTheDocument()
   })
 
   it('opens diagnostics from the status bar without losing the active editor tab', async () => {
@@ -1196,7 +1070,7 @@ describe('App', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 2, name: 'Connection' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { level: 2, name: 'Edit connection' })).toBeInTheDocument()
     })
     expect(
       within(screen.getByLabelText('connection drawer')).getByRole('button', {
@@ -1292,17 +1166,17 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Change connection' }))
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 2, name: 'Connection' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { level: 2, name: 'Edit connection' })).toBeInTheDocument()
     })
 
-    const drawer = screen.getByRole('button', { name: 'Save Connection' }).closest('aside')
+    const drawer = screen.getByRole('dialog', { name: 'Edit connection' })
     expect(drawer).not.toBeNull()
     expect(within(drawer!).getByRole('button', { name: 'Save Connection' })).toBeInTheDocument()
     expect(within(drawer!).getByLabelText('Environment')).toBeInTheDocument()
-    expect(within(drawer!).getByLabelText('Database type')).toBeInTheDocument()
-    expect(within(drawer!).getByText('Connection options')).toBeInTheDocument()
-    expect(within(drawer!).getByRole('button', { name: 'Favorite' })).toBeInTheDocument()
-    expect(within(drawer!).getByRole('button', { name: 'Read-only' })).toBeInTheDocument()
+    expect(within(drawer!).getByText('PostgreSQL')).toBeInTheDocument()
+    expect(within(drawer!).getByText('General')).toBeInTheDocument()
+    expect(within(drawer!).getByRole('checkbox', { name: 'Favorite' })).toBeInTheDocument()
+    expect(within(drawer!).getByRole('checkbox', { name: 'Read-only connection' })).toBeInTheDocument()
     expect(within(drawer!).queryByText('Variables')).not.toBeInTheDocument()
     expect(within(drawer!).queryByText('No environment selected')).not.toBeInTheDocument()
     expect(within(drawer!).queryByRole('button', { name: 'Save Environment' })).not.toBeInTheDocument()
@@ -1469,8 +1343,9 @@ describe('App', () => {
     fireEvent.click(within(mongoDrawer).getByRole('button', { name: 'Save Connection' }))
 
     await waitFor(() => {
+      expect(loadBrowserSnapshot().ui.rightDrawer).toBe('none')
       expect(screen.queryByLabelText('connection drawer')).not.toBeInTheDocument()
-    })
+    }, { timeout: 4000 })
 
     let mongoTree = await expandConnectionObjects('Catalog Mongo')
     expect(mongoTree).toBeInTheDocument()
@@ -1649,129 +1524,74 @@ describe('App', () => {
     expect(screen.queryByRole('tab', { name: /Environment - Copy of Local/ })).not.toBeInTheDocument()
   })
 
-  it('shows SQLite local database actions and creates a starter database path', async () => {
-    const createLocalDatabaseSpy = vi.spyOn(desktopClient, 'createLocalDatabase')
+  it('creates a SQLite starter database only from the final save action', async () => {
+    vi.spyOn(desktopClient, 'pickLocalDatabaseFile').mockResolvedValue({ canceled: false, path: 'C:/fixture' })
+    const createSpy = vi.spyOn(desktopClient, 'createLocalDatabase').mockResolvedValue({
+      engine: 'sqlite', path: 'C:/fixture/starter-catalog.sqlite', message: 'Created.', warnings: [],
+    })
     render(<App />)
-
     const drawer = await openConnectionDraft()
     chooseDatabaseType(drawer, 'SQLite')
-
-    await waitFor(() => {
-      expect(within(drawer).getByRole('button', { name: 'Open Existing' })).toBeInTheDocument()
-    })
-    expect(within(drawer).getByRole('button', { name: 'Create New' })).toBeInTheDocument()
-    expect(within(drawer).queryByLabelText('Server')).not.toBeInTheDocument()
-    expect(within(drawer).queryByLabelText('Password / Credential')).not.toBeInTheDocument()
-
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Create New' }))
-
-    await waitFor(() => {
-      expect(within(drawer).getByRole('dialog', { name: 'Create SQLite database' })).toBeInTheDocument()
-    })
-
-    expect(within(drawer).getByLabelText('Folder')).toHaveValue('C:\\Users\\gmont\\DataPad++')
-    fireEvent.change(within(drawer).getByLabelText('Database name'), {
-      target: { value: 'starter-catalog' },
-    })
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Starter schema' }))
-
-    await waitFor(() => {
-      expect(createLocalDatabaseSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          engine: 'sqlite',
-          mode: 'starter',
-          path: 'C:\\Users\\gmont\\DataPad++\\starter-catalog.sqlite',
-        }),
-      )
-    })
-    await waitFor(() => {
-      expect(
-        (within(drawer).getByLabelText('Database file') as HTMLInputElement).value,
-      ).toContain('starter-catalog.sqlite')
-    })
-
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Save Connection' }))
-
-    await waitFor(() => {
-      expect(screen.queryByLabelText('connection drawer')).not.toBeInTheDocument()
-    })
+    expect(within(drawer).getByRole('button', { name: 'Open existing database' })).toBeInTheDocument()
+    expect(within(drawer).queryByLabelText('Host')).not.toBeInTheDocument()
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Create new database' }))
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Choose folder…' }))
+    await within(drawer).findByText('C:/fixture')
+    fireEvent.change(within(drawer).getByLabelText('Filename (.sqlite)'), { target: { value: 'starter-catalog' } })
+    fireEvent.click(within(drawer).getByLabelText('Include example tables and data'))
+    expect(createSpy).not.toHaveBeenCalled()
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Create Database and Save Connection' }))
+    await waitFor(() => expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({
+      engine: 'sqlite', mode: 'starter', path: 'C:/fixture/starter-catalog.sqlite',
+    })))
+    await waitFor(() => expect(screen.queryByLabelText('connection drawer')).not.toBeInTheDocument())
     expect(screen.queryByLabelText('Editor toolbar')).not.toBeInTheDocument()
   })
 
-  it('offers local database creation for LiteDB and DuckDB manifests', async () => {
+  it('offers explicit local creation with engine-appropriate starter options', async () => {
     render(<App />)
-
     const drawer = await openConnectionDraft()
     chooseDatabaseType(drawer, 'LiteDB')
-
-    await waitFor(() => {
-      expect(within(drawer).getByRole('button', { name: 'Open Existing' })).toBeInTheDocument()
-    })
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Create New' }))
-
-    await waitFor(() => {
-      expect(within(drawer).getByRole('dialog', { name: 'Create LiteDB database' })).toBeInTheDocument()
-    })
-    expect(within(drawer).getByRole('button', { name: 'Empty database' })).toBeInTheDocument()
-    expect(within(drawer).queryByRole('button', { name: 'Starter schema' })).not.toBeInTheDocument()
-
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Create new database' }))
+    expect(within(drawer).getByLabelText('Filename (.db)')).toBeInTheDocument()
+    expect(within(drawer).queryByLabelText('Include example tables and data')).not.toBeInTheDocument()
     chooseDatabaseType(drawer, 'DuckDB')
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Create New' }))
-
-    await waitFor(() => {
-      expect(within(drawer).getByRole('dialog', { name: 'Create DuckDB database' })).toBeInTheDocument()
-    })
-    expect(within(drawer).getByRole('button', { name: 'Starter schema' })).toBeInTheDocument()
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Create new database' }))
+    expect(within(drawer).getByLabelText('Filename (.duckdb)')).toBeInTheDocument()
+    expect(within(drawer).getByLabelText('Include example tables and data')).toBeInTheDocument()
   })
 
-  it('persists keyboard resizing for sidebar, right drawer, and bottom panel', async () => {
+  it('keeps panel resizing while the connection editor uses an independent dialog', async () => {
     render(<App />)
-
     await createFirstConnection()
     const workbench = document.querySelector('.ads-workbench') as HTMLElement
-
     fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize sidebar' }), { key: 'ArrowRight' })
-    await waitFor(() => {
-      expect(workbench.style.getPropertyValue('--sidebar-width')).toBe('296px')
-    })
-
+    await waitFor(() => expect(workbench.style.getPropertyValue('--sidebar-width')).toBe('296px'))
     fireEvent.click(screen.getByRole('button', { name: 'Change connection' }))
-
-    await waitFor(() => {
-      expect(screen.getByLabelText('connection drawer')).toBeInTheDocument()
-    })
-
-    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize right drawer' }), { key: 'ArrowLeft' })
-    await waitFor(() => {
-      expect(workbench.style.getPropertyValue('--drawer-width')).toBe('376px')
-    })
-
+    const dialog = await screen.findByRole('dialog', { name: 'Edit connection' })
+    expect(workbench).not.toContainElement(dialog)
+    expect(screen.queryByRole('separator', { name: 'Resize right drawer' })).not.toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     fireEvent.click(screen.getByRole('button', { name: 'Run query' }))
-    const bottomPanel = await screen.findByLabelText(
-      'Bottom panel',
-      undefined,
-      { timeout: 8000 },
-    )
+    const panel = await screen.findByLabelText('Bottom panel', undefined, { timeout: 8000 })
     fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize bottom panel' }), { key: 'ArrowUp' })
-
-    await waitFor(() => {
-      expect(bottomPanel).toHaveStyle({ height: '284px' })
-    })
+    await waitFor(() => expect(panel).toHaveStyle({ height: '284px' }))
   }, 15000)
 
   it('creates, stores a secret for, and deletes connections without offering duplication', async () => {
-    const storeSecretSpy = vi.spyOn(desktopClient, 'storeSecret')
+    const saveSpy = vi.spyOn(desktopClient, 'saveConnectionEditor').mockImplementation(async request => desktopClient.upsertConnection(request.profile))
     render(<App />)
 
     const drawer = await openConnectionDraft()
 
-    fireEvent.change(within(drawer).getByLabelText('Password / Credential'), {
+    fireEvent.click(within(drawer).getByText('Authentication'))
+    fireEvent.change(within(drawer).getByLabelText('Password'), {
       target: { value: 'local-secret' },
     })
     fireEvent.click(within(drawer).getByRole('button', { name: 'Save Connection' }))
 
     await waitFor(() => {
-      expect(storeSecretSpy).toHaveBeenCalled()
+      expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({ secrets: [{ slot: 'auth.secretRef', action: 'replace', value: 'local-secret' }] }))
     })
     await waitFor(() => {
       expect(screen.queryByLabelText('connection drawer')).not.toBeInTheDocument()

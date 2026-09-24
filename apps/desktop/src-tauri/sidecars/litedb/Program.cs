@@ -26,6 +26,26 @@ static object Dispatch(SidecarRequest envelope)
 {
     var operation = envelope.Operation!.Trim();
     var databasePath = envelope.DatabasePath!.Trim();
+    if (operation == "CreateDatabase")
+    {
+        if (envelope.ReadOnly) throw new SidecarException("litedb-read-only", "Database creation requires write access.");
+        using (new FileStream(databasePath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None)) { }
+        using var created = new LiteDatabase(new ConnectionString {
+            Filename = databasePath, Password = envelope.Password, Connection = ConnectionType.Direct
+        });
+        created.UserVersion = 1;
+        created.Checkpoint();
+        return new { created = true };
+    }
+    if (operation == "TestConnection")
+    {
+        if (!File.Exists(databasePath)) throw new SidecarException("litedb-file-missing", "LiteDB file does not exist.");
+        using var tested = new LiteDatabase(new ConnectionString {
+            Filename = databasePath, Password = envelope.Password, ReadOnly = true, Connection = ConnectionType.Direct
+        });
+        _ = tested.GetCollectionNames().ToArray();
+        return new { engineOpenValidated = true };
+    }
     var canSeedFixture = operation.Equals("SeedFixture", StringComparison.OrdinalIgnoreCase)
         && Environment.GetEnvironmentVariable("DATAPADPLUSPLUS_LITEDB_SIDECAR_ALLOW_FIXTURE_SEED") == "1";
 
@@ -1034,15 +1054,20 @@ static void ValidateEnvelope(SidecarRequest envelope)
         "DropIndex",
         "DropCollection",
         "BackupDatabase",
-        "RestoreDatabase"
+        "RestoreDatabase",
+        "CreateDatabase"
     };
 
     if (!readOperations.Contains(envelope.Operation!)
         && !mutationOperations.Contains(envelope.Operation!)
+        && envelope.Operation != "TestConnection"
         && !envelope.Operation.Equals("SeedFixture", StringComparison.OrdinalIgnoreCase))
     {
         throw new SidecarException("litedb-unsupported-operation", "LiteDB sidecar operation is not supported.");
     }
+
+    if (envelope.Operation == "TestConnection" && !envelope.ReadOnly)
+        throw new SidecarException("litedb-readonly-required", "Connection testing must be read-only.");
 
     if (!envelope.ReadOnly && readOperations.Contains(envelope.Operation!))
     {

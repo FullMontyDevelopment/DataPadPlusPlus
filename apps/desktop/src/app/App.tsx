@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import type { CSSProperties } from 'react'
 import type {
   ConnectionProfile,
+  ConnectionSecretMutation,
   DatastoreApiServerInstanceStatus,
   DatastoreApiServerResourceConfig,
   DatastoreApiServerStatus,
@@ -3142,22 +3143,16 @@ function DesktopWorkspace() {
   }
 
   const openConnectionDrawerFor = (connectionId: string) => {
-    setConnectionDraft(undefined)
+    const connection = snapshot.connections.find(item => item.id === connectionId)
+    if (!connection) return
+    setConnectionDraft(connection)
     setConnectionDraftParentId(undefined)
-    if (connectionId === snapshot?.ui.activeConnectionId) {
-      openConnectionDrawer()
-      return
-    }
-
-    void (async () => {
-      await actions.selectConnection(connectionId)
-      await actions.updateUiState({
+    void actions.updateUiState({
         activeActivity: 'library',
         activeSidebarPane: 'library',
         sidebarCollapsed: false,
         rightDrawer: 'connection',
-      })
-    })()
+    })
   }
 
   const requestDeleteConnection = (connectionId: string) => {
@@ -3312,11 +3307,14 @@ function DesktopWorkspace() {
   const saveConnectionProfile = async (
     profile: ConnectionProfile,
     secret: string | undefined,
+    mutations?: ConnectionSecretMutation[],
   ) => {
     let nextProfile = profile
+    let connectionRevision: number | undefined
 
     if (
       connectionDraft?.id === profile.id &&
+      !snapshot.connections.some(connection => connection.id === profile.id) &&
       profile.environmentIds.length === 0 &&
       snapshot.environments.length === 0
     ) {
@@ -3332,9 +3330,13 @@ function DesktopWorkspace() {
         environmentIds: [environment.id],
         updatedAt: new Date().toISOString(),
       }
+      if (mutations) {
+        const refreshed = await desktopClient.connectionEditorSnapshot()
+        connectionRevision = refreshed.snapshot.workspaceRevision ?? 0
+      }
     }
 
-    const saved = await actions.saveConnection(nextProfile, secret)
+    const saved = await actions.saveConnection(nextProfile, secret, mutations, connectionRevision)
     if (!saved) {
       return false
     }
@@ -4820,10 +4822,11 @@ function DesktopWorkspace() {
           ) : null}
         </div>
 
-        {workspaceWindowContext.role === 'main' && snapshot.ui.rightDrawer !== 'none' ? (
+        {workspaceWindowContext.role === 'main' && !snapshot.lockState.isLocked && snapshot.ui.rightDrawer !== 'none' ? (
           <Suspense fallback={null}>
             <RightDrawer
               key={[
+                workspaceSwitcherStatus?.activeWorkspaceId ?? '',
                 snapshot.ui.rightDrawer,
                 drawerConnection?.id ?? 'none',
               ].join('-')}
@@ -4832,6 +4835,8 @@ function DesktopWorkspace() {
               health={payload.health}
               theme={snapshot.preferences.theme}
               activeConnection={drawerConnection}
+              workspaceRevision={snapshot.workspaceRevision}
+              isNewConnection={!snapshot.connections.some(connection => connection.id === drawerConnection?.id)}
               environments={snapshot.environments}
               connectionTest={connectionTest}
               diagnostics={diagnostics}

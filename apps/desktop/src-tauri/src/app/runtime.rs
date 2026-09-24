@@ -8,6 +8,8 @@ pub mod app_logs;
 pub mod app_updates;
 mod app_updates_github;
 mod app_updates_settings;
+pub mod connection_editor;
+mod connection_secret_cleanup;
 mod connection_string_secrets;
 pub mod datastore_api_server;
 mod datastore_commands;

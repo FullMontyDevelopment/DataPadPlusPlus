@@ -3,6 +3,7 @@ import type { ComponentType, SVGProps } from 'react'
 import type {
   AppHealth,
   ConnectionProfile,
+  ConnectionSecretMutation,
   ConnectionTestResult,
   DiagnosticsReport,
   EnvironmentProfile,
@@ -17,6 +18,7 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { ConnectionsIcon } from './icons'
 import { ConnectionBlade } from './RightDrawer.connection-blade'
+import { ConnectionEditorDialog } from './ConnectionEditorDialog'
 import { DiagnosticsBlade } from './RightDrawer.diagnostics-blade'
 import { InspectionBlade } from './RightDrawer.inspection-blade'
 import { DrawerHeader } from './RightDrawer.primitives'
@@ -27,13 +29,15 @@ interface RightDrawerProps {
   health: AppHealth
   theme: WorkspaceSnapshot['preferences']['theme']
   activeConnection?: ConnectionProfile
+  workspaceRevision?: number
+  isNewConnection?: boolean
   environments: EnvironmentProfile[]
   connectionTest?: ConnectionTestResult
   diagnostics?: DiagnosticsReport
   explorerInspection?: ExplorerInspectResponse
   capabilities: ExecutionCapabilities
   onClose(): void
-  onSaveConnection(profile: ConnectionProfile, secret?: string): Promise<boolean>
+  onSaveConnection(profile: ConnectionProfile, secret?: string, mutations?: ConnectionSecretMutation[]): Promise<boolean>
   onTestConnection(
     profile: ConnectionProfile,
     environmentId: string,
@@ -55,6 +59,8 @@ export function RightDrawer({
   health,
   theme,
   activeConnection,
+  workspaceRevision = 0,
+  isNewConnection = false,
   environments,
   connectionTest,
   diagnostics,
@@ -122,6 +128,15 @@ export function RightDrawer({
   }, [])
 
   const drawerLabel = view === 'diagnostics' ? 'settings drawer' : `${view} drawer`
+
+  if (view === 'connection' && activeConnection) {
+    return <ConnectionEditorDialog
+      activeConnection={activeConnection} environments={environments}
+      workspaceRevision={workspaceRevision} isNew={isNewConnection}
+      onClose={onClose} onSaveConnection={onSaveConnection} onTestConnection={onTestConnection}
+      onPickLocalDatabaseFile={onPickLocalDatabaseFile} onCreateLocalDatabase={onCreateLocalDatabase}
+    />
+  }
 
   return (
     <aside

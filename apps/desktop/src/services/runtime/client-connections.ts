@@ -1,4 +1,4 @@
-import type { BootstrapPayload, ConnectionProfile, ConnectionTestRequest, ConnectionTestResult, EnvironmentProfile, SecretRef } from '@datapadplusplus/shared-types'
+import type { BootstrapPayload, ConnectionEditorSaveRequest, ConnectionSecretRevealRequest, ConnectionProfile, ConnectionTestRequest, ConnectionTestResult, EnvironmentProfile, SecretRef } from '@datapadplusplus/shared-types'
 import { resolveEnvironment } from '../../app/state/helpers'
 import {
   interpolateEnvironmentVariables,
@@ -22,6 +22,29 @@ import {
 import { validateEnvironmentContextId, validateRequiredId } from './datastores/common/request-validation-core'
 
 export const clientConnections = {
+  async connectionEditorSnapshot(): Promise<BootstrapPayload> {
+    return isTauriRuntime() ? invokeDesktop<BootstrapPayload>('bootstrap_app') : buildBrowserPayload(loadBrowserSnapshot())
+  },
+  async saveConnectionEditor(request: ConnectionEditorSaveRequest): Promise<BootstrapPayload> {
+    if (!isTauriRuntime()) {
+      if (request.secrets.length) throw new Error('Saving credentials requires the desktop application. Browser preview does not save connection secrets.')
+      const snapshot = loadBrowserSnapshot()
+      const previous = snapshot.connections.find(profile => profile.id === request.profile.id)
+      if ((snapshot.workspaceRevision ?? 0) !== request.workspaceRevision || previous?.updatedAt !== request.expectedUpdatedAt) {
+        throw new Error('The workspace or connection changed. Reopen the connection editor.')
+      }
+      const updated = upsertConnection(snapshot, validateConnectionProfile({ ...request.profile, updatedAt: new Date().toISOString() }))
+      saveBrowserSnapshot(updated)
+      return buildBrowserPayload(updated)
+    }
+    return invokeDesktop<BootstrapPayload>('save_connection_editor', { request })
+  },
+
+  async revealConnectionSecret(request: ConnectionSecretRevealRequest): Promise<{ value: string }> {
+    if (!isTauriRuntime()) throw new Error('Saved credentials are available only in the desktop application.')
+    return invokeDesktop<{ value: string }>('reveal_connection_secret', { request })
+  },
+
   async setActiveConnection(connectionId: string): Promise<BootstrapPayload> {
     validateRequiredId(connectionId, 'Connection id')
     if (isTauriRuntime()) {

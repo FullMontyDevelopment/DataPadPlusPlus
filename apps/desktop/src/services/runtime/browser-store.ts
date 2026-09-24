@@ -15,6 +15,7 @@ import type {
   WorkspaceSwitcherStatus,
   WorkspaceSwitchRequest,
 } from '@datapadplusplus/shared-types'
+import { CURRENT_WORKSPACE_SCHEMA_VERSION } from '@datapadplusplus/shared-types'
 import { createBlankBootstrapPayload, createBlankSnapshot, createBrowserPreviewHealth, createDiagnosticsReport } from '../../app/data/workspace-factory'
 import { sanitizeEnvironmentProfile } from '../../app/state/environment-variables'
 import { defaultRowLimitForConnection, editorLanguageForConnection, migrateWorkspaceSnapshot, resolveEnvironment } from '../../app/state/helpers'
@@ -52,7 +53,7 @@ export function loadBrowserSnapshot(): WorkspaceSnapshot {
   }
 
   try {
-    const migrated = migrateWorkspaceSnapshot(JSON.parse(stored) as WorkspaceSnapshot)
+    const migrated = migrateBrowserStoredSnapshot(stored, activeWorkspaceId)
     rememberBrowserConnectionStrings(migrated)
     const sanitized = sanitizeBrowserSnapshot(stripBrowserConnectionStrings(migrated))
     window.localStorage.setItem(
@@ -62,6 +63,7 @@ export function loadBrowserSnapshot(): WorkspaceSnapshot {
     if (activeWorkspaceId === DEFAULT_WORKSPACE_ID) {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized))
     }
+    saveBrowserWorkspaceRegistry(updateBrowserWorkspaceSummary(registry, activeWorkspaceId, sanitized))
     return restoreBrowserConnectionStrings(restoreBrowserResults(sanitized))
   } catch (error) {
     if (
@@ -71,11 +73,39 @@ export function loadBrowserSnapshot(): WorkspaceSnapshot {
     ) {
       throw error
     }
-    return createBlankBootstrapPayload().snapshot
+    // eslint-disable-next-line preserve-caught-error -- Storage/parser errors can contain private workspace values; do not forward them to diagnostics.
+    throw new Error('The stored workspace could not be loaded or upgraded. No blank workspace was substituted. Check browser storage availability before retrying.')
   }
 }
 
-
+function migrateBrowserStoredSnapshot(stored: string, workspaceId: string): WorkspaceSnapshot {
+  let original: WorkspaceSnapshot
+  try {
+    original = JSON.parse(stored) as WorkspaceSnapshot
+  } catch {
+    // JSON parse errors may quote private content from the source workspace.
+    throw new Error('The stored workspace is not valid JSON. No migration was saved.')
+  }
+  // Validate before writing recovery state or changing the registry.
+  const migrated = migrateWorkspaceSnapshot(original)
+  if ((original.schemaVersion ?? 0) < CURRENT_WORKSPACE_SCHEMA_VERSION) {
+    const key = workspaceSnapshotStorageKey(workspaceId) + '.schema-' +
+      (original.schemaVersion ?? 0) + '-to-' + CURRENT_WORKSPACE_SCHEMA_VERSION + '.recovery'
+    if (window.localStorage.getItem(key) === null) {
+      // Browser recovery must never introduce another persisted plaintext URI.
+      // Leave durable drafts/settings intact; only remove connection strings
+      // and sanitize environment credentials using the normal storage policy.
+      const recovery = stripBrowserConnectionStrings(original)
+      recovery.environments = recovery.environments.map(sanitizeEnvironmentProfile)
+      const serialized = JSON.stringify(recovery)
+      window.localStorage.setItem(key, serialized)
+      if (window.localStorage.getItem(key) !== serialized) {
+        throw new Error('Workspace migration recovery could not be verified.')
+      }
+    }
+  }
+  return migrated
+}
 
 export function saveBrowserSnapshot(snapshot: WorkspaceSnapshot) {
   if (typeof window !== 'undefined') {
@@ -86,6 +116,13 @@ export function saveBrowserSnapshot(snapshot: WorkspaceSnapshot) {
     const sanitized = sanitizeBrowserSnapshot(
       stripBrowserConnectionStrings(migrateWorkspaceSnapshot(stripTransientResults(snapshot))),
     )
+    const currentText = window.localStorage.getItem(workspaceSnapshotStorageKey(activeWorkspaceId))
+    const currentRevision = currentText
+      ? (JSON.parse(currentText) as WorkspaceSnapshot).workspaceRevision ?? 0
+      : 0
+    const revision = Math.max(currentRevision, snapshot.workspaceRevision ?? 0) + 1
+    if (!Number.isSafeInteger(revision)) throw new Error('Workspace revision is invalid.')
+    sanitized.workspaceRevision = revision
     window.localStorage.setItem(
       workspaceSnapshotStorageKey(activeWorkspaceId),
       JSON.stringify(sanitized),
@@ -96,6 +133,9 @@ export function saveBrowserSnapshot(snapshot: WorkspaceSnapshot) {
     saveBrowserWorkspaceRegistry(
       updateBrowserWorkspaceSummary(registry, activeWorkspaceId, sanitized),
     )
+    // Command callers return this same snapshot. Give browser responses the
+    // native runtime's ordering guarantee so delayed responses cannot reopen UI.
+    snapshot.workspaceRevision = revision
   }
 }
 
@@ -220,6 +260,8 @@ export function switchBrowserWorkspace(request: WorkspaceSwitchRequest): Workspa
   if (!workspace) {
     throw new Error('Workspace was not found.')
   }
+  const stored = window.localStorage.getItem(workspaceSnapshotStorageKey(workspace.id))
+  const migrated = stored ? migrateBrowserStoredSnapshot(stored, workspace.id) : createBlankSnapshot()
   const timestamp = new Date().toISOString()
   const nextRegistry: BrowserWorkspaceRegistry = {
     ...registry,
@@ -230,11 +272,8 @@ export function switchBrowserWorkspace(request: WorkspaceSwitchRequest): Workspa
   }
   saveBrowserWorkspaceRegistry(nextRegistry)
 
-  const stored = window.localStorage.getItem(workspaceSnapshotStorageKey(workspace.id))
   const snapshot = restoreBrowserConnectionStrings(
-    stored
-      ? sanitizeBrowserSnapshot(migrateWorkspaceSnapshot(JSON.parse(stored) as WorkspaceSnapshot))
-      : createBlankSnapshot(),
+    sanitizeBrowserSnapshot(migrated),
   )
   saveBrowserSnapshot(snapshot)
   return snapshot
@@ -415,11 +454,9 @@ function ensureBrowserWorkspaceRegistry(seedSnapshot?: WorkspaceSnapshot): Brows
   const legacyStored = window.localStorage.getItem(STORAGE_KEY)
   let snapshot = seedSnapshot ?? createBlankSnapshot()
   if (legacyStored) {
-    try {
-      snapshot = sanitizeBrowserSnapshot(migrateWorkspaceSnapshot(JSON.parse(legacyStored) as WorkspaceSnapshot))
-    } catch {
-      snapshot = seedSnapshot ?? createBlankSnapshot()
-    }
+    snapshot = sanitizeBrowserSnapshot(migrateBrowserStoredSnapshot(legacyStored, DEFAULT_WORKSPACE_ID))
+    rememberBrowserConnectionStrings(snapshot)
+    snapshot = stripBrowserConnectionStrings(snapshot)
   }
   const registry = defaultBrowserWorkspaceRegistry(snapshot)
   window.localStorage.setItem(

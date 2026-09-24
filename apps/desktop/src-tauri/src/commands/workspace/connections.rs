@@ -2,6 +2,36 @@ use super::*;
 use base64::Engine as _;
 
 #[tauri::command]
+pub fn reveal_connection_secret(
+    window: tauri::WebviewWindow,
+    state: State<'_, SharedAppState>,
+    request: crate::app::runtime::connection_editor::ConnectionSecretRevealRequest,
+) -> Result<crate::app::runtime::connection_editor::RevealedConnectionSecret, CommandError> {
+    if window.label() != "main" {
+        return Err(CommandError::new(
+            "connection-editor-window",
+            "Saved credentials can only be viewed in the main window.",
+        ));
+    }
+    lock_state(&state)?.reveal_connection_secret(request)
+}
+
+#[tauri::command]
+pub fn save_connection_editor(
+    window: tauri::WebviewWindow,
+    state: State<'_, SharedAppState>,
+    request: crate::app::runtime::connection_editor::ConnectionEditorSaveRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    if window.label() != "main" {
+        return Err(CommandError::new(
+            "connection-editor-window",
+            "Connections can only be edited in the main window.",
+        ));
+    }
+    lock_state(&state)?.save_connection_editor(request)
+}
+
+#[tauri::command]
 pub fn set_active_connection(
     state: State<'_, SharedAppState>,
     connection_id: String,
@@ -526,18 +556,14 @@ pub async fn create_local_database(
         ));
     }
 
-    let warnings = match request.engine.as_str() {
-        "sqlite" => {
-            create_sqlite_local_database(&path, &request.mode).await?;
-            Vec::new()
-        }
-        "duckdb" => {
-            create_duckdb_local_database(&path, &request.mode)?;
-            Vec::new()
-        }
-        "litedb" => create_litedb_local_database(&path)?,
-        _ => return Err(local_database_unsupported_error()),
-    };
+    create_local_database_atomically(
+        &path,
+        &request.engine,
+        &request.mode,
+        request.password.as_deref(),
+    )
+    .await?;
+    let warnings = Vec::new();
 
     Ok(LocalDatabaseCreateResult {
         engine: request.engine,

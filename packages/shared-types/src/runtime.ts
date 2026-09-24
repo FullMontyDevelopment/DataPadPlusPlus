@@ -1589,6 +1589,8 @@ export interface LocalDatabaseCreateRequest {
   mode: LocalDatabaseCreateMode
   connectionId?: string
   environmentId?: string
+  /** Write-only password for creating an encrypted LiteDB database. Never persisted. */
+  password?: string
 }
 
 export interface LocalDatabaseCreateResult {

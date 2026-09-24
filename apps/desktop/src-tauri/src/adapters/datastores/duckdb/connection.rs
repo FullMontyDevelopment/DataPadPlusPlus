@@ -10,7 +10,15 @@ pub(super) async fn test_duckdb_connection(
     connection: &ResolvedConnectionProfile,
 ) -> Result<ConnectionTestResult, CommandError> {
     let started = Instant::now();
-    let db = open_duckdb_connection(connection)?;
+    let path = validated_duckdb_database_path(connection)?;
+    let db = if path == ":memory:" || path.eq_ignore_ascii_case("memory") {
+        Connection::open_in_memory().map_err(duckdb_error)?
+    } else {
+        let config = duckdb::Config::default()
+            .access_mode(duckdb::AccessMode::ReadOnly)
+            .map_err(duckdb_error)?;
+        Connection::open_with_flags(&path, config).map_err(duckdb_error)?
+    };
     let version: String = db
         .query_row("select version()", [], |row| row.get(0))
         .map_err(duckdb_error)?;

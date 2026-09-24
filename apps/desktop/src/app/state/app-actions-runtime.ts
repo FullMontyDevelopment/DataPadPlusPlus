@@ -134,7 +134,7 @@ export function useRuntimeActions({
           source: 'manual-test',
           message: 'Testing connection',
         })
-        const trimmedSecret = typeof secret === 'string' ? secret.trim() : undefined
+        const trimmedSecret = typeof secret === 'string' ? secret : undefined
         const result = await desktopClient.testConnection({
           profile,
           environmentId,

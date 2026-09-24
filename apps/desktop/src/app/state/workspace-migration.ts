@@ -355,6 +355,7 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   migrateTabSaveTargets(next.tabs)
   migrateTabSaveTargets(next.closedTabs)
   migrateV11SnapshotToV12(next)
+  migrateV12SnapshotToV13(next)
   next.workspaceRevision ??= 0
   next.ui = normalizeUiState(next)
 
@@ -371,8 +372,15 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
 
 function migrateV11SnapshotToV12(snapshot: WorkspaceSnapshot) {
   if ((snapshot.schemaVersion ?? 0) <= CONSOLIDATED_LEGACY_WORKSPACE_SCHEMA_VERSION) {
-    snapshot.schemaVersion = CURRENT_WORKSPACE_SCHEMA_VERSION
+    snapshot.schemaVersion = 12
   }
+}
+
+function migrateV12SnapshotToV13(snapshot: WorkspaceSnapshot) {
+  if (snapshot.schemaVersion !== 12) return
+  // New native connection options are optional. Do not materialize defaults or
+  // alter opaque credential references when upgrading an existing profile.
+  snapshot.schemaVersion = 13
 }
 
 function assertSupportedWorkspaceSchemaVersion(version: unknown) {

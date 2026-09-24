@@ -484,7 +484,10 @@ pub(super) async fn test_sqlite_connection(
     connection: &ResolvedConnectionProfile,
 ) -> Result<ConnectionTestResult, CommandError> {
     let started = Instant::now();
-    let pool = sqlite_pool(connection).await?;
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(sqlite_connect_options(connection)?.create_if_missing(false))
+        .await?;
     let _: i64 = sqlx::query_scalar("select 1").fetch_one(&pool).await?;
     let table_count: i64 = sqlx::query_scalar(
         "select count(*) from sqlite_master where type in ('table', 'view') and name not like 'sqlite_%'",

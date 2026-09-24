@@ -9,6 +9,35 @@ vi.mock('@tauri-apps/api/core', () => ({
 }))
 
 describe('client connection command validation', () => {
+  it('sends credential changes through the transactional connection editor command', async () => {
+    window.__TAURI_INTERNALS__ = {}
+    invoke.mockResolvedValueOnce({})
+    const { clientConnections } = await import('../../../src/services/runtime/client-connections')
+    const request = {
+      profile: connectionProfile(), workspaceRevision: 7,
+      secrets: [{ slot: 'auth.secretRef', action: 'replace' as const, value: ' exact fixture value ' }],
+    }
+    await clientConnections.saveConnectionEditor(request)
+    expect(invoke).toHaveBeenCalledWith('save_connection_editor', { request })
+    expect(invoke).toHaveBeenCalledTimes(1)
+  })
+
+  it('reveals only a selected saved slot rather than accepting vault coordinates', async () => {
+    window.__TAURI_INTERNALS__ = {}
+    invoke.mockResolvedValueOnce({ value: 'fixture' })
+    const { clientConnections } = await import('../../../src/services/runtime/client-connections')
+    const request = { connectionId: 'fixture', expectedUpdatedAt: 'version', workspaceRevision: 9, slot: 'auth.secretRef', confirmed: true }
+    await clientConnections.revealConnectionSecret(request)
+    expect(invoke).toHaveBeenCalledWith('reveal_connection_secret', { request })
+  })
+
+  it('never reports browser preview file creation as successful', async () => {
+    const { clientExecution } = await import('../../../src/services/runtime/client-execution')
+    await expect(clientExecution.pickLocalDatabaseFile({ engine: 'sqlite', purpose: 'create' })).resolves.toEqual({ canceled: true })
+    await expect(clientExecution.createLocalDatabase({ engine: 'sqlite', path: 'fixture.sqlite', mode: 'empty' })).rejects.toThrow('requires the desktop application')
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
   afterEach(() => {
     invoke.mockReset()
     window.localStorage.clear()

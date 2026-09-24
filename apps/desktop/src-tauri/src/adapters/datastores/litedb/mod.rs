@@ -10,6 +10,7 @@ mod management;
 mod query;
 
 use catalog::*;
+pub(crate) use connection::create_litedb_database;
 use connection::test_litedb_connection;
 use diagnostics::collect_litedb_diagnostics;
 use editing::{execute_litedb_data_edit, plan_litedb_data_edit};

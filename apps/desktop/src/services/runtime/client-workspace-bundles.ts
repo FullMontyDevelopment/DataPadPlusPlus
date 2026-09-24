@@ -3,6 +3,7 @@ import type {
   WorkspaceBackupSummary,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
+import { CURRENT_WORKSPACE_SCHEMA_VERSION } from '@datapadplusplus/shared-types'
 import { getWorkspaceBundlePassphraseBlockReason } from '../../app/security/workspace-passphrase'
 import { decodeBase64, hashPassphrase } from './browser-store'
 import {
@@ -125,36 +126,7 @@ export async function decryptBrowserWorkspaceBundleV2(
   passphrase: string,
   bundle: ExportBundle,
 ): Promise<WorkspaceSnapshot> {
-  if (
-    bundle.formatVersion !== 2 ||
-    bundle.compression !== 'gzip' ||
-    bundle.kdf?.algorithm !== EXPORT_KDF ||
-    bundle.kdf.iterations !== EXPORT_KDF_V2_ITERATIONS ||
-    bundle.cipher?.algorithm !== 'aes-256-gcm' ||
-    bundle.includesSecrets ||
-    (bundle.secretCount ?? 0) !== 0
-  ) {
-    throw new Error('Workspace bundle uses unsupported security or compression settings.')
-  }
-
-  const salt = exactBytes(bundle.kdf.salt, 16, 'Workspace bundle salt is invalid.')
-  const nonce = exactBytes(bundle.cipher.nonce, 12, 'Workspace bundle nonce is invalid.')
-  const ciphertext = requiredBase64Bytes(
-    bundle.encryptedPayload,
-    'Workspace bundle ciphertext is invalid.',
-  )
-  const key = await deriveBrowserExportKey(passphrase, salt, bundle.kdf.iterations)
-  const compressed = await browserCrypto().subtle.decrypt(
-    {
-      name: 'AES-GCM',
-      iv: toArrayBuffer(nonce),
-      additionalData: workspaceBundleAuthenticatedMetadata(bundle),
-    },
-    key,
-    toArrayBuffer(ciphertext),
-  )
-  const plaintext = await gunzipBytes(new Uint8Array(compressed))
-  return parseBrowserWorkspacePayload(new TextDecoder().decode(plaintext))
+  return (await decryptBrowserWorkspaceBundleV2WithMetadata(passphrase, bundle)).snapshot
 }
 
 export async function decryptBrowserWorkspaceBundleV2WithMetadata(
@@ -190,7 +162,19 @@ export async function decryptBrowserWorkspaceBundleV2WithMetadata(
     toArrayBuffer(ciphertext),
   )
   const plaintext = await gunzipBytes(new Uint8Array(compressed))
-  return parseBrowserWorkspacePayloadWithMetadata(new TextDecoder().decode(plaintext))
+  const payload = await parseBrowserWorkspacePayloadWithMetadata(new TextDecoder().decode(plaintext))
+  const sourceVersion = payload.snapshot?.schemaVersion
+  if (!Number.isInteger(sourceVersion) || sourceVersion < 0) {
+    throw new Error('Workspace schema version is invalid.')
+  }
+  if (sourceVersion !== bundle.workspaceSchemaVersion) {
+    throw new Error('Workspace bundle schema metadata does not match its encrypted workspace payload.')
+  }
+  if (sourceVersion > CURRENT_WORKSPACE_SCHEMA_VERSION) {
+    throw new Error('This workspace was created by a newer DataPad++ version.')
+  }
+  // Compare the authenticated source version before a caller migrates it.
+  return payload
 }
 
 export interface BrowserWorkspaceBundleFileSelection {

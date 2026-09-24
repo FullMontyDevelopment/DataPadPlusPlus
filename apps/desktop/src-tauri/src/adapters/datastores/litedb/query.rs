@@ -430,7 +430,7 @@ pub(super) async fn execute_litedb_sidecar_operation(
         "engine": "litedb",
         "protocolVersion": 1,
         "databasePath": litedb_file_path(connection),
-        "password": connection.password.as_deref().filter(|value| !value.trim().is_empty()),
+        "password": connection.password.as_deref().filter(|value| !value.is_empty()),
         "operation": operation,
         "request": bridge_request,
         "rowLimit": row_limit,

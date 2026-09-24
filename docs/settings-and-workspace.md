@@ -7,13 +7,17 @@ The canonical user walkthrough is available in the [website documentation](https
 
 ## Workspace Versioning
 
-Workspace schema version 12 is the current synchronized frontend/backend contract. Three versions serve different purposes:
+Workspace schema version 13 is the current synchronized frontend/backend contract. Three versions serve different purposes:
 
 - `schemaVersion` identifies persisted workspace structure.
 - `workspaceRevision` orders cross-window state changes and rejects stale responses.
 - `formatVersion` identifies the encrypted export envelope.
 
 Missing schemas and supported legacy schemas are normalized through the compatibility path and then migrated sequentially. Migrations run against a cloned snapshot, validate before committing, and create recovery state first. A workspace created by a newer unsupported DataPad++ version is rejected without changing the file.
+
+The 12 → 13 step adds optional native connection settings without changing existing values, driver defaults, drafts, or vault references. Bundle format remains 2. An authenticated bundle's source schema must match its decrypted payload before migration.
+
+Desktop loading preserves a separate, content-addressed `workspace.json.schema-12-to-13-….recovery` file before upgrading; later saves do not replace it. If this copy cannot be written and verified, migration stops. Recovery copies contain workspace data and must be protected like the original workspace (historical pre-v12 originals may contain legacy credentials). Browser preview keeps a recovery snapshot in local storage with complete connection strings removed. Do not delete recovery state until you have verified the upgraded workspace and made an independent backup.
 
 Vault-writing migrations create new DataPad++-owned entries before durable persistence and remove superseded entries only after persistence succeeds. Failure removes newly created entries and preserves the original workspace.
 

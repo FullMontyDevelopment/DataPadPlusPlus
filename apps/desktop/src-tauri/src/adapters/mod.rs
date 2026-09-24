@@ -28,6 +28,7 @@ mod contract;
 mod count_execution;
 mod data_edit;
 mod datastores;
+pub(crate) use datastores::litedb::create_litedb_database;
 mod experience;
 mod registry;
 mod runtime;

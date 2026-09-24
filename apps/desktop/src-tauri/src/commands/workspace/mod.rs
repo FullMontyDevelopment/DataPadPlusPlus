@@ -762,24 +762,54 @@ fn create_duckdb_local_database(path: &Path, mode: &str) -> Result<(), CommandEr
     Ok(())
 }
 
-fn create_litedb_local_database(path: &Path) -> Result<Vec<String>, CommandError> {
-    if let Some(parent) = path
+/// Initialize in a private directory on the same filesystem, then publish without replacement.
+async fn create_local_database_atomically(
+    path: &Path,
+    engine: &str,
+    mode: &str,
+    password: Option<&str>,
+) -> Result<(), CommandError> {
+    if !path.is_absolute() || path.file_name().is_none() {
+        return Err(CommandError::new(
+            "local-database-path-invalid",
+            "Choose an absolute database filename in an existing folder.",
+        ));
+    }
+    if path.try_exists()? {
+        return Err(CommandError::new("local-database-exists", "That file already exists. Open it or choose another filename; existing files are never replaced."));
+    }
+    let parent = path
         .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    if !path.exists() {
-        std::fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(path)?;
-    }
-
-    Ok(vec![
-        "LiteDB file was prepared. The .NET LiteDB sidecar will initialize database pages when live file access is enabled.".into(),
-    ])
+        .filter(|parent| parent.is_dir())
+        .ok_or_else(|| {
+            CommandError::new(
+                "local-database-folder-missing",
+                "Choose an existing destination folder.",
+            )
+        })?;
+    let temporary_directory = parent.join(generate_id(".datapad-create"));
+    fs::create_dir(&temporary_directory)?;
+    let temporary = temporary_directory.join("database");
+    let result = async {
+        match engine {
+            "sqlite" => create_sqlite_local_database(&temporary, mode).await?,
+            "duckdb" => create_duckdb_local_database(&temporary, mode)?,
+            "litedb" => adapters::create_litedb_database(&temporary, password).await?,
+            _ => return Err(local_database_unsupported_error()),
+        }
+        fs::OpenOptions::new().write(true).open(&temporary)?.sync_all()?;
+        // Unlike rename, hard_link fails when the destination appears during initialization.
+        fs::hard_link(&temporary, path).map_err(|_| CommandError::new(
+            "local-database-publish-failed",
+            "The initialized database could not be published. The destination may already exist or the folder may not support safe creation. No existing file was replaced."))?;
+        Ok(())
+    }.await;
+    let _ = fs::remove_file(&temporary);
+    let _ = fs::remove_file(temporary_directory.join("database-wal"));
+    let _ = fs::remove_file(temporary_directory.join("database-shm"));
+    let _ = fs::remove_file(temporary_directory.join("database.wal"));
+    let _ = fs::remove_dir(&temporary_directory);
+    result
 }
 
 #[cfg(test)]

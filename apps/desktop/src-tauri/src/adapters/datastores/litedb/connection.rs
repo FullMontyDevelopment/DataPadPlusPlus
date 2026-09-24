@@ -10,40 +10,65 @@ pub(super) async fn test_litedb_connection(
 ) -> Result<ConnectionTestResult, CommandError> {
     let started = Instant::now();
     let path = litedb_file_path(connection);
-    let preflight = litedb_local_file_preflight(connection, false);
-    let mut warnings = vec![
-        "LiteDB is a .NET embedded document database; live file access is routed through a sidecar bridge in a later execution pass."
-            .into(),
-        "This adapter builds bridge requests, metadata, diagnostics, and guarded mutation plans without requiring ORM credentials."
-            .into(),
-    ];
-    if !path.is_empty() && !preflight["exists"].as_bool().unwrap_or(false) {
-        warnings.push(format!(
-            "LiteDB file `{path}` does not exist yet; create/open is operation-plan preview only in this phase."
+    let sidecar = litedb_sidecar_path(connection).ok_or_else(litedb_runtime_missing)?;
+    if !Path::new(&path).is_file() {
+        return Err(CommandError::new(
+            "litedb-file-missing",
+            "Choose an existing LiteDB database, or explicitly create a new database first.",
         ));
     }
-    if preflight["encryptionBoundary"]["passwordConfigured"]
-        .as_bool()
-        .unwrap_or(false)
-    {
-        warnings.push(
-            "LiteDB password material is configured and redacted; encrypted-file validation remains sidecar-gated."
-                .into(),
-        );
-    }
+    super::query::execute_litedb_sidecar_operation(
+        connection,
+        "TestConnection",
+        &json!({}),
+        1,
+        &sidecar,
+        true,
+    )
+    .await?;
 
     Ok(ConnectionTestResult {
         ok: true,
         engine: connection.engine.clone(),
-        message: format!(
-            "LiteDB adapter accepted {} as a bridge-contract profile.",
-            connection.name
-        ),
-        warnings,
+        message: "LiteDB opened the database and verified read access.".into(),
+        warnings: Vec::new(),
         resolved_host: connection.host.clone(),
         resolved_database: Some(path),
         duration_ms: Some(duration_ms(started)),
     })
+}
+
+fn litedb_runtime_missing() -> CommandError {
+    CommandError::new("litedb-runtime-missing", "The LiteDB runtime is unavailable. Configure a valid SidecarPath or DATAPADPLUSPLUS_LITEDB_SIDECAR_PATH. No database was created or modified.")
+}
+
+pub(crate) async fn create_litedb_database(
+    path: &Path,
+    password: Option<&str>,
+) -> Result<(), CommandError> {
+    let connection = ResolvedConnectionProfile {
+        engine: "litedb".into(),
+        password: password.map(str::to_string),
+        database: Some(path.to_string_lossy().into_owned()),
+        ..Default::default()
+    };
+    let sidecar = litedb_sidecar_path(&connection).ok_or_else(litedb_runtime_missing)?;
+    super::query::execute_litedb_sidecar_operation(
+        &connection,
+        "CreateDatabase",
+        &json!({}),
+        1,
+        &sidecar,
+        false,
+    )
+    .await?;
+    if !path.is_file() || path.metadata()?.len() == 0 {
+        return Err(CommandError::new(
+            "litedb-create-incomplete",
+            "The LiteDB runtime did not initialize a database. No destination file was published.",
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn litedb_local_file_preflight(
@@ -146,6 +171,11 @@ pub(crate) fn litedb_sidecar_path(connection: &ResolvedConnectionProfile) -> Opt
             )
         })
         .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            std::env::var("DATAPADPLUSPLUS_LITEDB_SIDECAR_PATH")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
 }
 
 pub(crate) fn litedb_connection_option(

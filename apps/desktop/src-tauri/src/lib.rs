@@ -602,6 +602,8 @@ pub fn run() {
             commands::workspace::update_workspace_search_settings,
             commands::workspace::update_datastore_tests_settings,
             commands::workspace::upsert_connection_profile,
+            commands::workspace::save_connection_editor,
+            commands::workspace::reveal_connection_secret,
             commands::workspace::upsert_environment_profile,
             commands::workspace::upsert_saved_work_item,
             commands::workspace::get_workspace_window_context,

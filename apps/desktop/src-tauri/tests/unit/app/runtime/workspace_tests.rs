@@ -85,12 +85,16 @@ fn workspace_schema_migration_advances_legacy_and_rejects_future_versions() {
         crate::persistence::SCHEMA_VERSION
     );
 
-    let mut legacy = blank_workspace_snapshot();
-    legacy.schema_version = 0;
-    assert_eq!(
-        migrate_snapshot(legacy).schema_version,
-        crate::persistence::SCHEMA_VERSION
-    );
+    for version in 0..=crate::persistence::SCHEMA_VERSION {
+        let mut legacy = blank_workspace_snapshot();
+        legacy.schema_version = version;
+        let migrated = migrate_snapshot(legacy);
+        assert_eq!(migrated.schema_version, crate::persistence::SCHEMA_VERSION);
+        assert_eq!(
+            serde_json::to_value(migrate_snapshot(migrated.clone())).unwrap(),
+            serde_json::to_value(migrated).unwrap(),
+        );
+    }
 
     let current = blank_workspace_snapshot();
     assert_eq!(
@@ -107,6 +111,7 @@ fn workspace_schema_migration_advances_legacy_and_rejects_future_versions() {
 #[test]
 fn workspace_migration_keeps_vault_backed_connection_string_mode() {
     let mut snapshot = blank_workspace_snapshot();
+    snapshot.schema_version = 12;
     let mut connection = ConnectionProfile {
         id: "conn-mongo-vault".into(),
         name: "MongoDB QA".into(),
@@ -122,9 +127,26 @@ fn workspace_migration_keeps_vault_backed_connection_string_mode() {
         account: "connection-string:conn-mongo-vault:ref".into(),
         label: "MongoDB QA connection string".into(),
     });
+    connection.mongodb_options = Some(crate::domain::models::MongoDbConnectionOptions {
+        app_name: Some("Existing application".into()),
+        query_timeout_ms: Some(4500),
+        ..Default::default()
+    });
+    let original = serde_json::to_value(&connection).unwrap();
     snapshot.connections.push(connection);
 
     let migrated = migrate_snapshot(snapshot);
+    assert_eq!(migrated.schema_version, 13);
+    assert_eq!(
+        serde_json::to_value(&migrated.connections[0]).unwrap(),
+        original
+    );
+    assert!(migrated.connections[0]
+        .mongodb_options
+        .as_ref()
+        .unwrap()
+        .retry_writes
+        .is_none());
 
     assert_eq!(
         migrated.connections[0].connection_mode.as_deref(),
@@ -212,6 +234,71 @@ fn workspace_bundle_authenticated_metadata_matches_webcrypto_field_order() {
         String::from_utf8(workspace_bundle_authenticated_metadata(&bundle).unwrap()).unwrap(),
         r#"{"format":"datapadplusplus-bundle","formatVersion":2,"workspaceSchemaVersion":8,"createdAt":"1","compression":"gzip","includesSecrets":false,"secretCount":0,"kdf":{"algorithm":"pbkdf2-sha256","iterations":600000,"salt":"salt"},"cipher":{"algorithm":"aes-256-gcm","nonce":"nonce"}}"#,
     );
+}
+
+#[test]
+fn authenticated_bundles_check_the_source_schema_before_migration() {
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+    for (source_version, envelope_version, expected_error) in [
+        (12, 12, None),
+        (13, 13, None),
+        (12, 13, Some("workspace-bundle-schema-mismatch")),
+        (14, 14, Some("workspace-bundle-newer-version")),
+    ] {
+        let mut snapshot = blank_workspace_snapshot();
+        snapshot.schema_version = source_version;
+        let payload = workspace_bundle_payload_with_integrity(snapshot, Vec::new()).unwrap();
+        let compressed =
+            super::workspace::gzip_workspace_payload(&serde_json::to_vec(&payload).unwrap())
+                .unwrap();
+        let salt = [3_u8; 16];
+        let nonce = [7_u8; 12];
+        let mut bundle = ExportBundle {
+            format: "datapadplusplus-bundle".into(),
+            version: 2,
+            format_version: Some(2),
+            workspace_schema_version: Some(envelope_version),
+            created_at: Some("migration-test".into()),
+            compression: Some("gzip".into()),
+            kdf: Some(WorkspaceBundleKdfMetadata {
+                algorithm: "pbkdf2-sha256".into(),
+                iterations: crate::security::EXPORT_KDF_V2_ITERATIONS,
+                salt: BASE64.encode(salt),
+            }),
+            cipher: Some(WorkspaceBundleCipherMetadata {
+                algorithm: "aes-256-gcm".into(),
+                nonce: BASE64.encode(nonce),
+            }),
+            encrypted_payload: String::new(),
+            includes_secrets: false,
+            secret_count: Some(0),
+        };
+        bundle.encrypted_payload = BASE64.encode(
+            crate::security::encrypt_export_payload_v2(
+                "correct horse",
+                &compressed,
+                &workspace_bundle_authenticated_metadata(&bundle).unwrap(),
+                &salt,
+                &nonce,
+                crate::security::EXPORT_KDF_V2_ITERATIONS,
+            )
+            .unwrap(),
+        );
+        let decoded = super::workspace::decode_workspace_export_bundle("correct horse", &bundle);
+        if let Some(code) = expected_error {
+            assert_eq!(
+                decoded.err().expect("invalid bundle is rejected").code,
+                code
+            );
+        } else {
+            let decoded = decoded.unwrap();
+            assert_eq!(decoded.snapshot.schema_version, source_version);
+            assert_eq!(
+                migrate_snapshot(decoded.snapshot).schema_version,
+                crate::persistence::SCHEMA_VERSION
+            );
+        }
+    }
 }
 
 #[test]

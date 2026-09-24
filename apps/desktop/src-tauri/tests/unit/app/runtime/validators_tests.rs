@@ -1,5 +1,48 @@
 use serde_json::json;
 
+#[test]
+fn mongodb_native_settings_reject_incompatible_combinations_but_not_opaque_strings() {
+    use crate::domain::models::MongoDbConnectionOptions;
+    let mut profile = connection_profile();
+    for options in [
+        MongoDbConnectionOptions {
+            direct_connection: Some(true),
+            connection_scheme: Some("mongodb+srv".into()),
+            ..Default::default()
+        },
+        MongoDbConnectionOptions {
+            min_pool_size: Some(10),
+            max_pool_size: Some(2),
+            ..Default::default()
+        },
+        MongoDbConnectionOptions {
+            read_preference: Some("invalid".into()),
+            ..Default::default()
+        },
+        MongoDbConnectionOptions {
+            tls: Some(false),
+            tls_ca_file: Some("/certs/ca.pem".into()),
+            ..Default::default()
+        },
+    ] {
+        profile.connection_mode = Some("native".into());
+        profile.mongodb_options = Some(options);
+        assert_eq!(
+            validate_connection_profile(&profile).unwrap_err().code,
+            "invalid-request"
+        );
+        profile.connection_mode = Some("connection-string".into());
+        validate_connection_profile(&profile).expect("opaque strings ignore native-only controls");
+    }
+    profile.connection_mode = Some("native".into());
+    profile.mongodb_options = Some(MongoDbConnectionOptions {
+        min_pool_size: Some(10),
+        max_pool_size: Some(0),
+        ..Default::default()
+    });
+    validate_connection_profile(&profile).expect("zero maximum means unlimited");
+}
+
 use super::*;
 use crate::domain::models::{
     CloseQueryTabsRequest, ConnectionProfile, CreateObjectViewTabRequest, DataEditChange,

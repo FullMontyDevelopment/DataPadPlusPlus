@@ -14,7 +14,8 @@ pub(super) fn build_mongodb_native_connection_string(
     let options = profile
         .mongodb_options
         .as_ref()
-        .map(|options| interpolate_mongodb_options(options, interpolate))?;
+        .map(|options| interpolate_mongodb_options(options, interpolate))
+        .unwrap_or_default();
     let scheme = mongodb_connection_scheme(&options);
     let host = interpolate(&profile.host).trim().to_string();
     if host.is_empty() {
@@ -44,7 +45,19 @@ pub(super) fn build_mongodb_native_connection_string(
     let path = database
         .map(|value| format!("/{}", percent_encode_uri_component(value)))
         .unwrap_or_else(|| "/".into());
-    let query = mongodb_connection_query(&options, database, username);
+    let mut query = mongodb_connection_query(&options, database, username);
+    if let Some(mechanism) = profile
+        .auth
+        .auth_mechanism
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        if !query.is_empty() {
+            query.push('&');
+        }
+        query.push_str("authMechanism=");
+        query.push_str(&percent_encode_uri_component(mechanism));
+    }
 
     Some(if query.is_empty() {
         format!("{scheme}://{credentials}{authority}{path}")
@@ -58,12 +71,12 @@ pub(super) fn interpolate_mongodb_options(
     interpolate: &impl Fn(&str) -> String,
 ) -> MongoDbConnectionOptions {
     MongoDbConnectionOptions {
-        connection_scheme: options.connection_scheme.clone(),
         auth_source: options.auth_source.as_deref().map(interpolate),
         app_name: options.app_name.as_deref().map(interpolate),
-        tls: options.tls,
         replica_set: options.replica_set.as_deref().map(interpolate),
-        query_timeout_ms: options.query_timeout_ms,
+        tls_ca_file: options.tls_ca_file.as_deref().map(interpolate),
+        tls_certificate_key_file: options.tls_certificate_key_file.as_deref().map(interpolate),
+        ..options.clone()
     }
 }
 
@@ -113,6 +126,42 @@ fn mongodb_connection_query(
         .filter(|value| !value.is_empty())
     {
         params.push(("replicaSet", replica_set.to_string()));
+    }
+
+    for (key, value) in [
+        ("connectTimeoutMS", options.connect_timeout_ms),
+        (
+            "serverSelectionTimeoutMS",
+            options.server_selection_timeout_ms,
+        ),
+        ("maxIdleTimeMS", options.max_idle_time_ms),
+        ("minPoolSize", options.min_pool_size.map(u64::from)),
+        ("maxPoolSize", options.max_pool_size.map(u64::from)),
+    ] {
+        if let Some(value) = value {
+            params.push((key, value.to_string()));
+        }
+    }
+    for (key, value) in [
+        ("directConnection", options.direct_connection),
+        ("retryReads", options.retry_reads),
+        ("retryWrites", options.retry_writes),
+    ] {
+        if let Some(value) = value {
+            params.push((key, value.to_string()));
+        }
+    }
+    for (key, value) in [
+        ("readPreference", options.read_preference.as_deref()),
+        ("tlsCAFile", options.tls_ca_file.as_deref()),
+        (
+            "tlsCertificateKeyFile",
+            options.tls_certificate_key_file.as_deref(),
+        ),
+    ] {
+        if let Some(value) = value.filter(|value| !value.is_empty()) {
+            params.push((key, value.to_string()));
+        }
     }
 
     params

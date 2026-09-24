@@ -1,6 +1,21 @@
 use super::*;
 
 #[test]
+fn postgres_dsn_escapes_credentials_and_database_without_changing_values() {
+    let connection = ResolvedConnectionProfile {
+        host: "localhost".into(),
+        engine: "postgresql".into(),
+        username: Some("user@tenant".into()),
+        password: Some("p:/?# ü".into()),
+        database: Some("db/name".into()),
+        ..Default::default()
+    };
+    let dsn = postgres_dsn(&connection);
+    assert!(dsn.contains("user%40tenant:p%3A%2F%3F%23%20%C3%BC@"));
+    assert!(dsn.contains("/db%2Fname"));
+}
+
+#[test]
 fn postgres_dsn_applies_native_profile_options() {
     let dsn = postgres_dsn(&ResolvedConnectionProfile {
         id: "conn-postgres".into(),

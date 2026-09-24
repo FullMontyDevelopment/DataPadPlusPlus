@@ -10,6 +10,7 @@ import type {
   AppUpdateDownloadEvent,
   AppUpdateSettings,
   ConnectionProfile,
+  ConnectionSecretMutation,
   ConnectionTestResult,
   CreateObjectViewTabRequest,
   CreateScopedQueryTabRequest,
@@ -294,7 +295,7 @@ export interface Actions {
   selectEnvironment(tabId: string, environmentId: string): Promise<void>
   createConnection(): Promise<void>
   deleteConnection(connectionId: string): Promise<void>
-  saveConnection(profile: ConnectionProfile, secret?: string): Promise<boolean>
+  saveConnection(profile: ConnectionProfile, secret?: string, mutations?: ConnectionSecretMutation[], revision?: number): Promise<boolean>
   createEnvironment(): Promise<void>
   saveEnvironment(profile: EnvironmentProfile, secretDrafts?: Record<string, string>): Promise<boolean>
   deleteEnvironment(environmentId: string): Promise<void>

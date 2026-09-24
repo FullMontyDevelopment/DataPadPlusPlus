@@ -59,7 +59,73 @@ pub(in crate::app::runtime) fn validate_connection_profile(
     if let Some(connection_string) = profile.connection_string.as_deref() {
         validate_opaque_connection_string(connection_string)?;
     }
+    if profile.engine == "mongodb"
+        && profile.connection_mode.as_deref() != Some("connection-string")
+        && profile.connection_string.is_none()
+    {
+        validate_mongodb_native_options(profile)?;
+    }
 
+    Ok(())
+}
+
+fn validate_mongodb_native_options(profile: &ConnectionProfile) -> Result<(), CommandError> {
+    let Some(options) = profile.mongodb_options.as_ref() else {
+        return Ok(());
+    };
+    if options.direct_connection == Some(true)
+        && (options.connection_scheme.as_deref() == Some("mongodb+srv")
+            || profile.host.contains(','))
+    {
+        return Err(invalid_request(
+            "Direct connection requires one standard MongoDB host, without SRV discovery.",
+        ));
+    }
+    if let (Some(min), Some(max)) = (options.min_pool_size, options.max_pool_size) {
+        if max != 0 && min > max {
+            return Err(invalid_request(
+                "Minimum pool size cannot exceed the maximum pool size.",
+            ));
+        }
+    }
+    if let Some(value) = options.read_preference.as_deref() {
+        if ![
+            "primary",
+            "primaryPreferred",
+            "secondary",
+            "secondaryPreferred",
+            "nearest",
+        ]
+        .contains(&value)
+        {
+            return Err(invalid_request(
+                "Choose a supported MongoDB read preference.",
+            ));
+        }
+    }
+    if options.tls == Some(false)
+        && (options
+            .tls_ca_file
+            .as_ref()
+            .is_some_and(|value| !value.is_empty())
+            || options
+                .tls_certificate_key_file
+                .as_ref()
+                .is_some_and(|value| !value.is_empty()))
+    {
+        return Err(invalid_request(
+            "Enable TLS or remove the certificate file paths.",
+        ));
+    }
+    for (value, label) in [
+        (options.tls_ca_file.as_deref(), "CA certificate path"),
+        (
+            options.tls_certificate_key_file.as_deref(),
+            "Client certificate path",
+        ),
+    ] {
+        validate_optional_text(value, label, MAX_SCOPE_LENGTH)?;
+    }
     Ok(())
 }
 

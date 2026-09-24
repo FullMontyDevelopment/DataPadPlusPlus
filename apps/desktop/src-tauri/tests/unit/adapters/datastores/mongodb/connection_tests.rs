@@ -1,6 +1,48 @@
 use super::*;
 
 #[test]
+fn mongodb_execution_uri_preserves_native_options_and_ignores_only_display_metadata() {
+    let original = "mongodb://u:p%40ss@host1,host2/db?3t.uriVersion=3&authSource=admin&3t.connection.name=My+App&readPreferenceTags=region%3Aeu&readPreferenceTags=&tls=true";
+    assert_eq!(mongodb_execution_uri(original).unwrap(), "mongodb://u:p%40ss@host1,host2/db?authSource=admin&readPreferenceTags=region%3Aeu&readPreferenceTags=&tls=true");
+    assert!(original.contains("3t.connection.name"));
+    assert_eq!(
+        mongodb_execution_uri("mongodb://localhost/?3t%2EuriVersion=3").unwrap(),
+        "mongodb://localhost/"
+    );
+}
+
+#[test]
+fn mongodb_vendor_security_options_are_not_silently_discarded() {
+    for name in ["3t.ssh", "3t.sslTlsVersion", "3t.unknown"] {
+        let error = mongodb_execution_uri(&format!("mongodb://localhost/?{name}=private-value"))
+            .unwrap_err();
+        assert!(!error.message.contains("private-value"));
+    }
+}
+
+#[test]
+fn mongodb_explicit_driver_timeouts_are_preserved() {
+    tauri::async_runtime::block_on(async {
+        let mut options = ClientOptions::parse(
+            "mongodb://localhost/?connectTimeoutMS=4321&serverSelectionTimeoutMS=8765",
+        )
+        .await
+        .unwrap();
+        options
+            .connect_timeout
+            .get_or_insert(DEFAULT_MONGODB_CONNECT_TIMEOUT);
+        options
+            .server_selection_timeout
+            .get_or_insert(DEFAULT_MONGODB_SERVER_SELECTION_TIMEOUT);
+        assert_eq!(options.connect_timeout, Some(Duration::from_millis(4321)));
+        assert_eq!(
+            options.server_selection_timeout,
+            Some(Duration::from_millis(8765))
+        );
+    });
+}
+
+#[test]
 fn mongodb_uri_uses_admin_auth_source_for_database_connections() {
     let connection = resolved_connection(Some("catalog"));
 

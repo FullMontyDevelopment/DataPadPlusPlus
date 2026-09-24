@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CURRENT_WORKSPACE_SCHEMA_VERSION } from '@datapadplusplus/shared-types'
 import { clientWorkspace } from '../../../src/services/runtime/client-workspace'
 import {
   createBrowserWorkspaceBundleV2,
@@ -10,7 +11,7 @@ import {
   createBrowserWorkspaceBundlePayloadText,
   parseBrowserWorkspacePayloadWithMetadata,
 } from '../../../src/services/runtime/client-workspace-integrity'
-import { loadBrowserSnapshot, saveBrowserSnapshot } from '../../../src/services/runtime/browser-store'
+import { importBrowserWorkspace, loadBrowserSnapshot, saveBrowserSnapshot } from '../../../src/services/runtime/browser-store'
 
 const invoke = vi.fn()
 
@@ -19,6 +20,21 @@ vi.mock('@tauri-apps/api/core', () => ({
 }))
 
 describe('client workspace import validation', () => {
+  it.runIf(globalThis.crypto?.subtle && typeof CompressionStream !== 'undefined')(
+    'imports authenticated schema-12 bundles and rejects envelope/payload schema mismatches',
+    async () => {
+      const snapshot = loadBrowserSnapshot()
+      snapshot.schemaVersion = 12
+      const payload = await createBrowserWorkspaceBundlePayloadText(snapshot)
+      const bundle = await createBrowserWorkspaceBundleV2('correct horse', payload, 12)
+      await expect(decryptBrowserWorkspaceBundleV2('correct horse', bundle)).resolves.toMatchObject({ schemaVersion: 12 })
+      expect(importBrowserWorkspace(await decryptBrowserWorkspaceBundleV2('correct horse', bundle), 'Legacy import', true)).toMatchObject({
+        snapshot: { schemaVersion: CURRENT_WORKSPACE_SCHEMA_VERSION },
+      })
+      const mismatch = await createBrowserWorkspaceBundleV2('correct horse', payload, CURRENT_WORKSPACE_SCHEMA_VERSION)
+      await expect(decryptBrowserWorkspaceBundleV2('correct horse', mismatch)).rejects.toThrow('schema metadata does not match')
+    }, 45_000,
+  )
   afterEach(() => {
     invoke.mockReset()
     window.localStorage.clear()

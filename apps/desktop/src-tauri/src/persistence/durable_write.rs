@@ -19,6 +19,59 @@ const REPLACE_RETRY_DELAYS: [Duration; 3] = [
 ];
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+/// A schema recovery copy is independent of the rolling .bak and is never overwritten.
+/// The source hash makes retries idempotent and preserves distinct legacy revisions.
+pub(super) fn preserve_migration_source(
+    path: &Path,
+    content: &[u8],
+    source_version: u32,
+    target_version: u32,
+) -> Result<(), CommandError> {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(content)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let recovery = path.with_extension(format!(
+        "json.schema-{source_version}-to-{target_version}-{}.recovery",
+        &digest[..16]
+    ));
+    let blocked = || {
+        CommandError::new(
+        "workspace-migration-recovery",
+        "DataPad++ could not preserve the original workspace before upgrading it. No migration was saved. Check available disk space and workspace-folder permissions, then retry.",
+    )
+    };
+    let mut options = OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = match options.open(&recovery) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            return if fs::read(&recovery).map_err(|_| blocked())? == content {
+                Ok(())
+            } else {
+                Err(blocked())
+            };
+        }
+        Err(_) => return Err(blocked()),
+    };
+    let mut cleanup = TemporaryFile::new(recovery.clone());
+    let result = file.write_all(content).and_then(|_| file.sync_all());
+    drop(file);
+    result.map_err(|_| blocked())?;
+    if fs::read(&recovery).map_err(|_| blocked())? != content {
+        return Err(blocked());
+    }
+    cleanup.disarm();
+    sync_parent_directory(path.parent());
+    Ok(())
+}
+
 pub(super) fn write_json(path: &Path, content: &[u8]) -> Result<(), CommandError> {
     validate_json(content)?;
     let parent = path

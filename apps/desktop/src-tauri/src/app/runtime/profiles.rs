@@ -66,10 +66,8 @@ impl ConnectionStringSecretChanges {
         }
     }
 
-    pub(super) fn retire_superseded(&self) {
-        for secret_ref in &self.retired {
-            let _ = security::delete_secret_value(secret_ref);
-        }
+    pub(super) fn retire_superseded(&self, state: &ManagedAppState) {
+        state.retire_connection_secrets(&self.retired);
     }
 
     pub(super) fn is_empty(&self) -> bool {
@@ -180,7 +178,7 @@ impl ManagedAppState {
             secret_changes.rollback_created();
             return Err(error);
         }
-        secret_changes.retire_superseded();
+        secret_changes.retire_superseded(self);
         Ok(self.bootstrap_payload())
     }
 
@@ -264,7 +262,9 @@ impl ManagedAppState {
             self.snapshot = previous_snapshot;
             return Err(error);
         }
-        delete_connection_string_refs(&deleted);
+        if let Ok(references) = super::workspace_bundle::modeled_connection_secret_refs(&deleted) {
+            self.retire_connection_secrets(&references.into_values().collect::<Vec<_>>());
+        }
         Ok(self.bootstrap_payload())
     }
 
@@ -480,13 +480,12 @@ impl ManagedAppState {
         let resolved_environment =
             resolve_environment_for_execution(&self.snapshot.environments, environment_id);
         let interpolate = |value: &str| interpolate_value(value, &resolved_environment.variables);
-        let password = inline_secret
-            .filter(|secret| !secret.trim().is_empty())
-            .map(str::to_string)
-            .or_else(|| match &profile.auth.secret_ref {
-                Some(secret_ref) => security::resolve_secret_value(secret_ref).ok(),
-                None => None,
-            });
+        let password = match inline_secret.filter(|secret| !secret.is_empty()) {
+            Some(secret) => Some(secret.to_string()),
+            None => profile.auth.secret_ref.as_ref().map(security::resolve_secret_value).transpose()
+                .map_err(|_| CommandError::new("connection-credential-unavailable",
+                    format!("The saved credential for {} ({}) is unavailable. Replace it in connection settings.", profile.name, profile.engine)))?,
+        };
 
         let resolved_database = profile.database.as_deref().map(interpolate);
         let resolved_username = profile.auth.username.as_deref().map(interpolate);
@@ -772,15 +771,6 @@ fn collect_replaced_connection_string_refs(
         {
             changes.retired.push(binding.secret_ref.clone());
         }
-    }
-}
-
-fn delete_connection_string_refs(profile: &ConnectionProfile) {
-    if let Some(secret_ref) = &profile.auth.connection_string_secret_ref {
-        let _ = security::delete_secret_value(secret_ref);
-    }
-    for binding in &profile.auth.connection_string_secret_bindings {
-        let _ = security::delete_secret_value(&binding.secret_ref);
     }
 }
 

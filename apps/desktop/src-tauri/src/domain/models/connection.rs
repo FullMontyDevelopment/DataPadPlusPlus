@@ -578,6 +578,17 @@ pub struct MongoDbConnectionOptions {
     pub tls: Option<bool>,
     pub replica_set: Option<String>,
     pub query_timeout_ms: Option<u64>,
+    pub connect_timeout_ms: Option<u64>,
+    pub server_selection_timeout_ms: Option<u64>,
+    pub direct_connection: Option<bool>,
+    pub retry_reads: Option<bool>,
+    pub retry_writes: Option<bool>,
+    pub read_preference: Option<String>,
+    pub min_pool_size: Option<u32>,
+    pub max_pool_size: Option<u32>,
+    pub max_idle_time_ms: Option<u64>,
+    pub tls_ca_file: Option<String>,
+    pub tls_certificate_key_file: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -614,7 +625,7 @@ pub struct ConnectionProfile {
     pub postgres_options: Option<PostgresConnectionOptions>,
     #[serde(default)]
     pub mysql_options: Option<MySqlConnectionOptions>,
-    #[serde(default)]
+    #[serde(default, rename = "sqlServerOptions", alias = "sqlserverOptions")]
     pub sqlserver_options: Option<SqlServerConnectionOptions>,
     #[serde(default)]
     pub oracle_options: Option<OracleConnectionOptions>,
@@ -638,7 +649,7 @@ pub struct ConnectionProfile {
     pub updated_at: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ResolvedConnectionProfile {
     pub id: String,
     pub name: String,
@@ -770,6 +781,7 @@ pub struct LocalDatabaseCreateRequest {
     pub mode: String,
     pub connection_id: Option<String>,
     pub environment_id: Option<String>,
+    pub password: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

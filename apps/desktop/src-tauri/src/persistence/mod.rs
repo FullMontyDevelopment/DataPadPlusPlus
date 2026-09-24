@@ -122,7 +122,10 @@ pub fn load_snapshot(app: &AppHandle) -> Result<Option<WorkspaceSnapshot>, Comma
 fn read_snapshot_with_backup(path: &Path) -> Result<Option<WorkspaceSnapshot>, CommandError> {
     let content = fs::read_to_string(path)?;
     match parse_workspace_snapshot(&content) {
-        Ok(snapshot) => Ok(Some(snapshot)),
+        Ok(snapshot) => {
+            preserve_pre_migration_snapshot(path, &content, snapshot.schema_version)?;
+            Ok(Some(snapshot))
+        }
         Err(primary_error)
             if primary_error.code != "workspace-schema-version-invalid"
                 && primary_error.code != "workspace-newer-version" =>
@@ -134,10 +137,22 @@ fn read_snapshot_with_backup(path: &Path) -> Result<Option<WorkspaceSnapshot>, C
 
             let backup_content = fs::read_to_string(backup_path)?;
             let snapshot = parse_workspace_snapshot(&backup_content)?;
+            preserve_pre_migration_snapshot(path, &backup_content, snapshot.schema_version)?;
             Ok(Some(snapshot))
         }
         Err(error) => Err(error),
     }
+}
+
+fn preserve_pre_migration_snapshot(
+    path: &Path,
+    content: &str,
+    version: u32,
+) -> Result<(), CommandError> {
+    if version >= SCHEMA_VERSION {
+        return Ok(());
+    }
+    durable_write::preserve_migration_source(path, content.as_bytes(), version, SCHEMA_VERSION)
 }
 
 fn parse_workspace_snapshot(content: &str) -> Result<WorkspaceSnapshot, CommandError> {
@@ -190,6 +205,53 @@ pub fn workspace_switcher_status(
 ) -> Result<WorkspaceSwitcherStatus, CommandError> {
     let registry = ensure_workspace_registry(app, snapshot)?;
     Ok(status_response(registry))
+}
+
+/// Credential cleanup must inspect other workspaces without switching, migrating,
+/// repairing, or writing them. An unreadable inventory means cleanup must stop.
+pub(crate) fn visit_inactive_workspace_snapshots(
+    app: &AppHandle,
+    mut visit: impl FnMut(WorkspaceSnapshot) -> Result<(), CommandError>,
+) -> Result<(), CommandError> {
+    let path = workspace_registry_path(app);
+    if !path.try_exists()? {
+        return Ok(());
+    }
+    let registry: WorkspaceSwitcherStatus =
+        serde_json::from_str(&read_secret_inventory_file(&path)?)?;
+    if !registry
+        .workspaces
+        .iter()
+        .any(|item| item.id == registry.active_workspace_id)
+    {
+        return Err(CommandError::new(
+            "secret-inventory-incomplete",
+            "Workspace credential inventory is incomplete.",
+        ));
+    }
+    for workspace in registry.workspaces {
+        if workspace.id != registry.active_workspace_id {
+            let content = read_secret_inventory_file(&workspace_snapshot_path(app, &workspace.id))?;
+            visit(parse_workspace_snapshot(&content)?)?;
+        }
+    }
+    Ok(())
+}
+
+fn read_secret_inventory_file(path: &Path) -> Result<String, CommandError> {
+    use std::io::Read;
+    const MAX_BYTES: u64 = 50 * 1024 * 1024;
+    let mut content = String::new();
+    fs::File::open(path)?
+        .take(MAX_BYTES + 1)
+        .read_to_string(&mut content)?;
+    if content.len() as u64 > MAX_BYTES {
+        return Err(CommandError::new(
+            "secret-inventory-too-large",
+            "Workspace credential inventory exceeds the safe read limit.",
+        ));
+    }
+    Ok(content)
 }
 
 pub fn set_workspace_switcher_enabled(
@@ -316,6 +378,31 @@ pub fn switch_workspace_profile(
     }
     save_workspace_registry(app, &registry)?;
     Ok(snapshot)
+}
+
+/// Rollback must change registry selection only. The normal switch path saves
+/// the current snapshot first and would overwrite the failed destination.
+pub fn restore_workspace_profile_selection(
+    app: &AppHandle,
+    workspace_id: &str,
+) -> Result<(), CommandError> {
+    restore_workspace_selection_file(&workspace_registry_path(app), workspace_id)
+}
+
+fn restore_workspace_selection_file(path: &Path, workspace_id: &str) -> Result<(), CommandError> {
+    let mut registry: WorkspaceSwitcherStatus = serde_json::from_str(&fs::read_to_string(path)?)?;
+    if !registry
+        .workspaces
+        .iter()
+        .any(|workspace| workspace.id == workspace_id)
+    {
+        return Err(CommandError::new(
+            "workspace-not-found",
+            "The previous workspace was not found. Restart DataPad++ before continuing.",
+        ));
+    }
+    registry.active_workspace_id = workspace_id.into();
+    durable_write::write_json(path, &serde_json::to_vec_pretty(&registry)?)
 }
 
 fn write_snapshot_file(path: &Path, snapshot: &WorkspaceSnapshot) -> Result<(), CommandError> {

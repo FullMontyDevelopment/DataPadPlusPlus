@@ -82,7 +82,7 @@ impl ManagedAppState {
             secret_changes.rollback_created();
             return Err(error);
         }
-        secret_changes.retire_superseded();
+        secret_changes.retire_superseded(&managed);
         Ok(managed)
     }
 
@@ -204,7 +204,7 @@ impl ManagedAppState {
             self.snapshot = previous_snapshot;
             return Err(error);
         }
-        secret_changes.retire_superseded();
+        secret_changes.retire_superseded(self);
         let _ = self.app.emit(
             "datapad://workspace-changed",
             serde_json::json!({ "revision": self.snapshot.workspace_revision }),
@@ -270,7 +270,7 @@ impl ManagedAppState {
                 secret_changes.rollback_created();
                 return Err(error);
             }
-            secret_changes.retire_superseded();
+            secret_changes.retire_superseded(self);
         }
         let mut sanitized = sanitize_snapshot(&self.snapshot, include_secrets);
         sanitized
@@ -510,7 +510,7 @@ impl ManagedAppState {
                 return Err(error);
             }
             self.emit_workspace_context_changed();
-            secret_changes.retire_superseded();
+            secret_changes.retire_superseded(self);
             return Ok(self.take_bootstrap_payload());
         } else {
             self.snapshot = next_snapshot;
@@ -523,7 +523,7 @@ impl ManagedAppState {
             return Err(error);
         }
         self.emit_workspace_context_changed();
-        secret_changes.retire_superseded();
+        secret_changes.retire_superseded(self);
         Ok(self.take_bootstrap_payload())
     }
 
@@ -626,26 +626,21 @@ impl ManagedAppState {
             Ok(changes) => changes,
             Err(error) => {
                 self.snapshot = previous_snapshot.clone();
-                let _ = persistence::switch_workspace_profile(
+                persistence::restore_workspace_profile_selection(
                     &self.app,
-                    &sanitize_snapshot(&self.snapshot, true),
                     &previous_workspace_id,
-                );
+                )?;
                 return Err(error);
             }
         };
         if let Err(error) = self.persist() {
             secret_changes.rollback_created();
             self.snapshot = previous_snapshot;
-            let _ = persistence::switch_workspace_profile(
-                &self.app,
-                &sanitize_snapshot(&self.snapshot, true),
-                &previous_workspace_id,
-            );
+            persistence::restore_workspace_profile_selection(&self.app, &previous_workspace_id)?;
             return Err(error);
         }
         self.emit_workspace_context_changed();
-        secret_changes.retire_superseded();
+        secret_changes.retire_superseded(self);
         Ok(self.bootstrap_payload())
     }
 }
@@ -674,7 +669,7 @@ fn normalize_workspace_profile_id(value: &str) -> Result<String, CommandError> {
     Ok(trimmed.into())
 }
 
-fn decode_workspace_export_bundle(
+pub(super) fn decode_workspace_export_bundle(
     passphrase: &str,
     bundle: &ExportBundle,
 ) -> Result<WorkspaceBundlePayload, CommandError> {
@@ -1073,13 +1068,22 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
 
     snapshot.ui = normalize_ui_state(&snapshot);
     migrate_v11_snapshot_to_v12(&mut snapshot);
+    migrate_v12_snapshot_to_v13(&mut snapshot);
 
     snapshot
 }
 
 fn migrate_v11_snapshot_to_v12(snapshot: &mut WorkspaceSnapshot) {
     if snapshot.schema_version <= persistence::CONSOLIDATED_LEGACY_SCHEMA_VERSION {
-        snapshot.schema_version = persistence::SCHEMA_VERSION;
+        snapshot.schema_version = 12;
+    }
+}
+
+fn migrate_v12_snapshot_to_v13(snapshot: &mut WorkspaceSnapshot) {
+    if snapshot.schema_version == 12 {
+        // Additive native options retain driver defaults by remaining absent.
+        // Credential references and existing connection settings are unchanged.
+        snapshot.schema_version = 13;
     }
 }
 

@@ -1,4 +1,30 @@
 use super::*;
+
+#[test]
+fn atomic_database_creation_initializes_and_publishes_sqlite() {
+    tauri::async_runtime::block_on(async {
+        let path = test_local_path("atomic-sqlite", "sqlite");
+        create_local_database_atomically(&path, "sqlite", "starter", None)
+            .await
+            .unwrap();
+        assert!(std::fs::metadata(&path).unwrap().len() > 0);
+        let pool = SqlitePoolOptions::new()
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&path)
+                    .create_if_missing(false),
+            )
+            .await
+            .unwrap();
+        let count: i64 = sqlx::query_scalar("select count(*) from accounts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 2);
+        pool.close().await;
+        std::fs::remove_file(path).unwrap();
+    });
+}
 use crate::domain::models::QueryTabState;
 
 #[test]
@@ -165,12 +191,18 @@ fn duckdb_database_creation_supports_starter_table() {
 }
 
 #[test]
-fn litedb_database_creation_prepares_local_file() {
-    let path = test_local_path("litedb-empty", "db");
-    let warnings = create_litedb_local_database(&path).unwrap();
-    let metadata = std::fs::metadata(&path).unwrap();
-    let _ = std::fs::remove_file(path);
-
-    assert!(metadata.is_file());
-    assert_eq!(warnings.len(), 1);
+fn local_database_creation_never_replaces_existing_files() {
+    tauri::async_runtime::block_on(async {
+        let path = test_local_path("existing-database", "sqlite");
+        std::fs::write(&path, b"existing user data").unwrap();
+        for engine in ["sqlite", "duckdb", "litedb"] {
+            assert!(
+                create_local_database_atomically(&path, engine, "empty", None)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), b"existing user data");
+        }
+        std::fs::remove_file(path).unwrap();
+    });
 }

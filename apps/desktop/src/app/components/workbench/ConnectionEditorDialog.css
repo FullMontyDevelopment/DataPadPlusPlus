@@ -1,0 +1,70 @@
+.connection-editor-overlay { padding: 20px; }
+.workbench-dialog.connection-editor-dialog { --connection-input-bg: color-mix(in srgb, var(--input-bg) 65%, var(--panel-bg-alt)); --connection-input-border: color-mix(in srgb, var(--text) 55%, var(--connection-input-bg)); width: min(820px, 100%); max-width: 100%; max-height: calc(100dvh - 40px); display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+:root[data-theme='solarized-light'] .connection-editor-dialog { --connection-input-border: color-mix(in srgb, var(--text) 85%, var(--connection-input-bg)); }
+.connection-editor-dialog header, .connection-editor-dialog footer { display: flex; align-items: center; gap: 12px; padding: 16px 20px; flex: 0 0 auto; }
+.connection-editor-dialog header { justify-content: space-between; border-bottom: 1px solid var(--border); }
+.connection-editor-dialog h2 { margin: 4px 0 0; font-size: 18px; }
+.connection-editor-dialog h3 { margin: 0 0 14px; font-size: 13px; }
+.connection-editor-dialog small { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.connection-editor-body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 20px; }
+.connection-editor-body fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.connection-editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; }
+.connection-editor-field, .connection-secret { display: flex; flex-direction: column; gap: 7px; min-width: 0; font-size: 12px; }
+.connection-editor-datastore { grid-column: 1 / -1; }
+.connection-editor-dialog input:not([type=checkbox]), .connection-editor-dialog select { width: 100%; min-width: 0; box-sizing: border-box; min-height: 32px; padding: 6px 8px; }
+.connection-editor-dialog input:not([type=checkbox]), .connection-editor-dialog select, .connection-editor-dialog textarea { background: var(--connection-input-bg); color: var(--text); border: 1px solid var(--connection-input-border); border-radius: 2px; font: inherit; font-size: 12px; }
+.connection-editor-dialog input:not(:disabled):hover, .connection-editor-dialog select:not(:disabled):hover, .connection-editor-dialog textarea:not(:disabled):hover { border-color: var(--text); }
+.connection-editor-dialog input[type=checkbox] { accent-color: var(--accent); }
+.connection-editor-dialog input::placeholder, .connection-editor-dialog textarea::placeholder { color: var(--muted); }
+.connection-editor-dialog input:focus-visible, .connection-editor-dialog select:focus-visible, .connection-editor-dialog textarea:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); outline-offset: 1px; }
+.connection-editor-dialog button { font: inherit; font-size: 12px; padding: 6px 10px; border: 1px solid var(--border); background: var(--panel-bg-alt); color: var(--text); }
+.connection-editor-dialog button:not(:disabled):hover { border-color: var(--accent); color: var(--heading); }
+.connection-editor-dialog button:disabled { opacity: .5; cursor: not-allowed; }
+.connection-editor-dialog button.drawer-button--primary { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, var(--panel-bg)); color: var(--heading); }
+.connection-editor-dialog button:focus-visible, .connection-editor-dialog summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.connection-editor-dialog details { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 20px; }
+.connection-editor-dialog summary { cursor: pointer; font-size: 12px; font-weight: 600; padding: 4px 0; }
+.connection-editor-dialog details[open] > .connection-editor-grid { padding-top: 16px; }
+.connection-editor-method { margin-top: 24px; }
+.connection-editor-method h3 { margin-bottom: 10px; }
+.connection-method-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: var(--panel-bg-alt); border: 1px solid var(--border); }
+.connection-editor-dialog .connection-method-tabs button { flex: 1 1 160px; min-height: 36px; padding: 8px 12px; border-color: transparent; background: transparent; white-space: normal; overflow-wrap: anywhere; }
+.connection-editor-dialog .connection-method-tabs button[aria-selected=true] { background: color-mix(in srgb, var(--accent) 16%, var(--panel-bg)); border-color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); color: var(--heading); font-weight: 600; }
+.connection-editor-dialog .connection-method-tabs button:focus-visible { outline-offset: -3px; }
+.connection-method-panel { padding-top: 18px; }
+.connection-secret-input { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.connection-secret-input > input, .connection-secret-input > textarea { flex: 1; min-width: 0; }
+.connection-secret-input > button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 5px; min-height: 32px; }
+.connection-secret-input svg { width: 14px; height: 14px; }
+.connection-secret textarea { width: 100%; resize: vertical; box-sizing: border-box; padding: 8px; font-family: monospace; }
+.connection-secret-masked { -webkit-text-security: disc; }
+.connection-editor-flags { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 20px; font-size: 12px; }
+.connection-editor-inline, .connection-secret-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.connection-editor-inline input, .connection-editor-inline span { flex: 1; min-width: 120px; overflow-wrap: anywhere; }
+.connection-secret-actions { gap: 6px; }
+.connection-secret-actions small { flex: 1 1 160px; }
+.connection-secret-actions button { font-size: 11px; padding: 3px 6px; }
+.connection-secret-confirm { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px; margin-top: 10px; border: 1px solid var(--border); font-size: 12px; }
+.connection-secret-confirm span { flex-basis: 100%; }
+.connection-editor-limitations ul { padding-left: 20px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.connection-editor-dialog footer { border-top: 1px solid var(--border); flex-wrap: wrap; }
+.connection-editor-dialog footer > span { flex: 1; }
+.connection-local-flow > [role=group] { display: flex; gap: 8px; margin-bottom: 14px; }
+.connection-local-flow button[aria-pressed=true] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.connection-local-flow p { font-size: 12px; line-height: 1.6; }
+.connection-editor-test, .connection-editor-body > .form-error { margin: 16px 0 0; font-size: 12px; overflow-wrap: anywhere; }
+.connection-discard-overlay { z-index: 31; padding: 16px; }
+.workbench-dialog.connection-discard-dialog { width: min(440px, 100%); max-height: calc(100dvh - 32px); box-sizing: border-box; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0, 0, 0, .32); }
+.connection-discard-dialog h2 { flex: 0 0 auto; font-size: 18px; font-weight: 600; margin-bottom: 12px; }
+.connection-discard-message { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.connection-discard-message p { color: var(--text); font-size: 13px; }
+.connection-discard-message p + p { margin-top: 10px; }
+.connection-discard-dialog .workbench-dialog-actions { flex: 0 0 auto; flex-wrap: wrap; }
+.connection-discard-dialog button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 600px) {
+  .connection-editor-overlay { padding: 8px; }
+  .workbench-dialog.connection-editor-dialog { max-height: calc(100dvh - 16px); }
+  .connection-editor-grid { grid-template-columns: minmax(0, 1fr); }
+  .connection-editor-body { padding: 16px; }
+  .connection-editor-dialog footer > span { display: none; }
+}

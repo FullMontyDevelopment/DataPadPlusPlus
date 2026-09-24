@@ -825,6 +825,17 @@ export interface MongoDbConnectionOptions {
   tls?: boolean
   replicaSet?: string
   queryTimeoutMs?: number
+  connectTimeoutMs?: number
+  serverSelectionTimeoutMs?: number
+  directConnection?: boolean
+  retryReads?: boolean
+  retryWrites?: boolean
+  readPreference?: 'primary' | 'primaryPreferred' | 'secondary' | 'secondaryPreferred' | 'nearest'
+  minPoolSize?: number
+  maxPoolSize?: number
+  maxIdleTimeMs?: number
+  tlsCaFile?: string
+  tlsCertificateKeyFile?: string
 }
 
 export interface ConnectionProfile {

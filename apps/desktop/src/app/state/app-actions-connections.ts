@@ -101,9 +101,30 @@ export function useConnectionActions({
   )
 
   const saveConnection = useCallback<Actions['saveConnection']>(
-    async (profile, secret) => {
+    async (profile, secret, mutations, revision) => {
       try {
         ensureWorkspaceUnlocked(state.payload)
+        if (mutations) {
+          if (!state.payload) throw new Error('Workspace is not ready.')
+          const saved = state.payload.snapshot.connections.find(item => item.id === profile.id)
+          const savedPayload = await desktopClient.saveConnectionEditor({
+            profile,
+            expectedUpdatedAt: saved ? profile.updatedAt : undefined,
+            workspaceRevision: revision ?? state.payload.snapshot.workspaceRevision ?? 0,
+            secrets: mutations,
+          })
+          // Publish the saved profile and closed editor together. Publishing
+          // the intermediate payload remounts a new connection as an edit form
+          // before the close response arrives.
+          try {
+            applyPayload(await desktopClient.updateUiState({ rightDrawer: 'none' }))
+          } catch (error) {
+            // Saving succeeded even if updating the presentation failed.
+            applyPayload(savedPayload)
+            handleError(error)
+          }
+          return true
+        }
         let nextProfile = profile
 
         const secretValue = typeof secret === 'string' ? secret : undefined

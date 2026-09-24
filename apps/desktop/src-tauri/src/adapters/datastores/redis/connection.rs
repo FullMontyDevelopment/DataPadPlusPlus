@@ -173,6 +173,17 @@ async fn redis_sentinel_master_uri(
         ));
     };
 
+    let sentinel_password = options
+        .sentinel_password_secret_ref
+        .as_ref()
+        .map(crate::security::resolve_secret_value)
+        .transpose()
+        .map_err(|_| {
+            CommandError::new(
+                "redis-sentinel-credential-unavailable",
+                "The saved Sentinel credential is unavailable. Replace it in connection settings.",
+            )
+        })?;
     let sentinel_uri = redis_uri_from_parts(
         if options.use_sentinel_tls.unwrap_or(false) {
             "rediss"
@@ -182,7 +193,7 @@ async fn redis_sentinel_master_uri(
         sentinel_host,
         None,
         options.sentinel_username.as_deref(),
-        None,
+        sentinel_password.as_deref(),
         options.allow_invalid_certificates.unwrap_or(false)
             || options.allow_invalid_hostnames.unwrap_or(false),
         options.resp_version.as_deref(),

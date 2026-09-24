@@ -6,6 +6,46 @@ namespace DataPadPlusPlus.LiteDbSidecar.Tests;
 
 public sealed class LiteDbSidecarTests
 {
+    [Theory]
+    [InlineData(null)]
+    [InlineData("exact password ; Unicode Ω")]
+    public async Task Create_initializes_a_real_database_and_never_overwrites(string? password)
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var databasePath = Path.Combine(root, "created.db");
+            object Request(string operation, bool readOnly) => new {
+                engine = "litedb", protocolVersion = 1, databasePath, password,
+                operation, request = new { }, rowLimit = 1, readOnly
+            };
+            using var created = await InvokeAsync(Request("CreateDatabase", false));
+            Assert.True(created.RootElement.GetProperty("ok").GetBoolean(), created.RootElement.GetRawText());
+            Assert.True(new FileInfo(databasePath).Length > 0);
+            var before = await File.ReadAllBytesAsync(databasePath);
+            using var duplicate = await InvokeAsync(Request("CreateDatabase", false));
+            Assert.False(duplicate.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(before, await File.ReadAllBytesAsync(databasePath));
+            using var tested = await InvokeAsync(Request("TestConnection", true));
+            Assert.True(tested.RootElement.GetProperty("ok").GetBoolean(), tested.RootElement.GetRawText());
+            Assert.Equal(before, await File.ReadAllBytesAsync(databasePath));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Test_does_not_create_a_missing_database()
+    {
+        var root = CreateTemporaryDirectory();
+        try {
+            var databasePath = Path.Combine(root, "missing.db");
+            using var tested = await InvokeAsync(Envelope(databasePath, "TestConnection", true, new { }));
+            Assert.False(tested.RootElement.GetProperty("ok").GetBoolean());
+            Assert.False(File.Exists(databasePath));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     [Fact]
     public async Task Protocol_validation_returns_typed_sanitized_errors()
     {
