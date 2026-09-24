@@ -47,12 +47,15 @@ A complete connection string is stored as one opaque operating-system vault valu
 
 - Workspace persistence contains only the DataPad++-owned vault reference.
 - Leaving the secret-style field blank while editing preserves the stored value.
-- Entering a new value atomically replaces it.
-- The backend resolves it only for connection testing or execution and applies environment interpolation in memory.
+- Entering a new value stages a replacement; **Save Connection** commits it with the profile. There is no separate credential-save button.
+- **Reveal…** and **Reveal saved value** explicitly disclose the stored value in the unlocked connection dialog. It is read-only and hides after 30 seconds or window blur. This is not master-password reauthentication; choose **Hide** to enter a replacement.
+- Connection testing and execution resolve the value in the backend and interpolate environment variables in memory. Explicit reveal and secret-inclusive encrypted exports are separate, user-authorized disclosure paths.
 - Deleting or changing connection mode removes superseded references after persistence succeeds.
-- Browser preview stores connection strings in memory only.
+- Browser preview cannot save or reveal OS-vault credentials through the connection editor; it never persists plaintext connection strings to local storage.
 
 Legacy plaintext or component-bound connection strings migrate into a fresh full-string vault entry. Errors identify the affected connection name and datastore without displaying the value.
+
+See [Connection editor](connection-editor.md) for method tabs, local-file creation, transactional saving, and the centered discard confirmation. Canceling a draft does not save its credentials or delete an already-created database file.
 
 ## Export Dialog
 

@@ -90,6 +90,15 @@ async function capture(path) {
 }
 
 async function closeDrawer() {
+  const editorClose = await $('button[aria-label="Close connection editor"]')
+  if (await editorClose.isExisting()) {
+    await editorClose.click()
+    const confirmation = await $('[role="alertdialog"]')
+    if (await confirmation.isExisting()) {
+      await confirmation.$('button=Discard changes').click()
+    }
+    await settle()
+  }
   const close = await $('button[aria-label="Close drawer"]')
   if (await close.isExisting()) {
     await close.click()
@@ -130,7 +139,7 @@ async function openConnectionForm(label) {
   await option.scrollIntoView({ block: 'center' })
   await option.click()
   await browser.execute(() => {
-    const scroll = document.querySelector('.drawer-scroll')
+    const scroll = document.querySelector('.connection-editor-body')
     if (scroll instanceof HTMLElement) scroll.scrollTop = 0
   })
   await settle()
@@ -205,7 +214,7 @@ describe('Microsoft Learn documentation screenshots', () => {
       await openConnectionForm(label)
       await populateConnectionForm(engine, name)
       await browser.execute(() => {
-        const scroll = document.querySelector('.drawer-scroll')
+        const scroll = document.querySelector('.connection-editor-body')
         if (scroll instanceof HTMLElement) scroll.scrollTop = 0
       })
       await settle()

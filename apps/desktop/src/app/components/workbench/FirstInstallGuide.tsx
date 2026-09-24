@@ -68,7 +68,7 @@ const GUIDE_STEPS: GuideStep[] = [
   {
     id: 'connection',
     title: 'Create a connection',
-    body: 'Open a new unsaved connection draft. You can choose a datastore, connection mode, environment, and safety flags before saving.',
+    body: 'Open a new connection dialog. Choose a datastore and Connection method tab, then set its environment and read-only posture before saving.',
     anchor: 'library-add-connection',
     placement: 'right',
     actionLabel: 'New Connection',
@@ -76,7 +76,7 @@ const GUIDE_STEPS: GuideStep[] = [
   {
     id: 'save',
     title: 'Test and save',
-    body: 'The drawer lets you test credentials with the selected environment, then save only when the profile is ready.',
+    body: 'Expand Authentication, TLS & certificates, or Advanced as needed. Test when available, then Save Connection to save the profile and credentials together. Cancel offers Keep editing or Discard changes for an unsaved draft.',
     anchor: 'connection-drawer',
     placement: 'left',
     actionLabel: 'Open Connection Panel',
@@ -792,11 +792,11 @@ function stepBlockingReason(stepId: GuideStepId, state: GuideRuntimeState) {
     case 'folder':
       return 'Create a folder to keep the tour moving.'
     case 'connection':
-      return 'Open the connection drawer to continue.'
+      return 'Open the connection dialog to continue.'
     case 'save':
       return state.connectionPanelOpen || state.connectionDrawerOpen
         ? 'Save the connection when it is ready. Testing is optional.'
-        : 'The connection panel will open here so you can test and save.'
+        : 'The connection dialog will open here so you can test and save.'
     case 'explorer':
       return state.firstConnectionId
         ? 'Explorer is opening for the saved connection.'

@@ -64,6 +64,23 @@ describe('docs content', () => {
       const articleSlug = navigationSurfaceArticle[surface]
       expect(getDocBySlug(articleSlug)?.slug, `${surface} -> ${articleSlug}`).toBe(articleSlug)
     }
+    expect(navigationSurfaceArticle['connection dialog']).toBe('connections')
+  })
+
+  it('documents current connection methods, credential saving, and safe cancellation', () => {
+    const article = getDocBySlug('connections')!
+    expect(article.sections.map(section => section.id)).toEqual(expect.arrayContaining([
+      'saved-credentials', 'local-databases', 'mongodb-connection-strings', 'canceling-edits', 'connection-troubleshooting',
+    ]))
+    const text = JSON.stringify(article.sections)
+    for (const instruction of [
+      'Connection method tab', 'Save Connection', 'Reveal…', 'Reveal saved value', '30 seconds',
+      'does not ask for a master password', 'Leave the field blank to keep it',
+      'Create Database and Save Connection', 'Existing files are never replaced',
+      'Keep editing', 'Discard changes', 'scroll position', 'secondary credential',
+      'Browser preview cannot save or reveal', 'not currently bundled',
+    ]) expect(text).toContain(instruction)
+    expect(JSON.stringify(docArticles)).not.toMatch(/connection drawer|Schema 12 is the current/i)
   })
 
   it('publishes a screenshot-backed feature guide for every user-facing plugin', () => {

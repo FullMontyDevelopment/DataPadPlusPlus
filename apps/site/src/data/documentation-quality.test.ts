@@ -8,6 +8,7 @@ import { screenshotSlots } from './screenshots'
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../')
 const refreshedRepositoryDocs = [
+  'docs/connection-editor.md',
   'docs/features.md',
   'docs/settings-and-workspace.md',
   'docs/oracle.md',
@@ -50,6 +51,18 @@ describe('documentation quality', () => {
     const knownCategories = new Set<string>(docCategories)
     expect(docArticles.every((article) => knownCategories.has(article.category))).toBe(true)
     expect(docArticles.filter((article) => article.featured)).toHaveLength(6)
+  })
+
+  it('keeps workspace guides synchronized with the authoritative schema version', () => {
+    const source = readFileSync(join(repositoryRoot, 'packages/shared-types/src/workspace-schema.ts'), 'utf8')
+    const version = source.match(/CURRENT_WORKSPACE_SCHEMA_VERSION\s*=\s*(\d+)/)?.[1]
+    expect(version).toBeDefined()
+    for (const slug of ['workspace-import-export', 'settings-workspace-backups']) {
+      const article = docArticles.find(candidate => candidate.slug === slug)
+      expect(JSON.stringify(article).toLowerCase(), slug).toContain(`schema ${version}`)
+    }
+    const reference = readFileSync(join(repositoryRoot, 'docs/settings-and-workspace.md'), 'utf8')
+    expect(reference).toContain(`Workspace schema version ${version} is the current`)
   })
 
   it('keeps committed screenshot paths valid', () => {

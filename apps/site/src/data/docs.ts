@@ -22,6 +22,7 @@ type LegacyDocArticle = {
   relatedGuides?: string[]
   appliesTo?: DatastoreEngineId[]
   featured?: boolean
+  sections?: DocSection[]
 }
 
 export type DocCalloutTone = 'note' | 'tip' | 'important' | 'warning'
@@ -121,37 +122,99 @@ const legacyDocArticles: LegacyDocArticle[] = [
   },
   {
     slug: 'connections',
-    title: 'Create A Connection',
-    description: 'Build, test, save, and organize datastore connection profiles.',
+    title: 'Create And Edit Connections',
+    description: 'Choose a connection method, open or create a local database, manage saved credentials, and leave an edit safely.',
     category: 'Connections, environments, and secrets',
-    readingTime: '8 min',
+    readingTime: '10 min',
     screenshots: ['connection-wizard', 'explorer-tree'],
     status: 'Live',
-    relatedGuides: ['environments', 'workspace-import-export', 'safety-model'],
+    relatedGuides: ['connection-health', 'environments', 'workspace-import-export', 'safety-model'],
     steps: [
       {
-        title: 'Choose New Connection',
-        body: 'Start from the Library or connection surface and choose the datastore type that matches the system you want to inspect.',
+        title: 'Open the connection dialog',
+        body: 'Choose Create connection, the highlighted database-plus button at the far right of the Library toolbar. To edit an existing profile, open its connection settings. Editing a profile does not change the selected query tab.',
       },
       {
-        title: 'Enter native connection details',
-        body: 'Fill in host, port, database, file path, credential mode, or cloud profile fields for the adapter. A complete connection string is treated as one opaque secret and stored unchanged behind an operating-system vault reference.',
+        title: 'Choose a Connection method tab',
+        body: 'Select the datastore, then choose Connection fields, Connection string, Local database file, or a cloud/endpoint method where supported. Use Left/Right or Home/End to navigate the tabs. Switching methods retains the unsaved draft; Runtime support and limitations explains adapter restrictions.',
       },
       {
-        title: 'Name the profile clearly',
-        body: 'Use a name that includes the system and purpose, such as PostgreSQL Local, Redis QA, or MongoDB Reporting Readonly.',
+        title: 'Fill in General settings',
+        body: 'Use a clear Name, select an Environment, and enter the endpoint or file details for that method. Enable Read-only connection for initial exploration. Changing an existing profile does not change its datastore type.',
       },
       {
-        title: 'Set safety options',
-        body: 'Enable read-only mode or attach a low-risk environment when you are exploring a live system for the first time.',
+        title: 'Expand only the options you need',
+        body: 'Authentication, TLS & certificates, and Advanced are collapsible sections shown where applicable. Type passwords directly into their fields; paste a complete string under Connection string. Leave optional settings at Driver default unless your server requires them.',
       },
       {
-        title: 'Test before saving',
-        body: 'Run the connection test, review warnings or disabled reasons, then save only when the profile represents the target accurately. Connections start each session without a health badge; status appears only after a test or real datastore operation supplies evidence.',
+        title: 'Test, then save the connection',
+        body: 'Choose Test connection when available and review its result. Testing is optional and does not save the profile. Save Connection saves the profile and all credential changes together; there is no separate password-save button. New local databases use Create Database and Save Connection instead.',
       },
       {
         title: 'Organize in the Library',
         body: 'Place the connection in a folder that carries the right environment inheritance for related saved work.',
+      },
+    ],
+    notes: [
+      'Connections begin each session without a health badge. A manual test or real datastore operation supplies the evidence for a status; startup does not test every saved connection.',
+      'Browser preview cannot save or reveal OS-vault credentials or create local database files. Use the desktop application for these tasks.',
+    ],
+    sections: [
+      {
+        id: 'saved-credentials',
+        title: 'View, replace, or remove a saved credential',
+        blocks: [
+          { type: 'paragraph', text: 'A fixed mask indicates a saved value, not an empty password. Leave the field blank to keep it. The whole connection string is an opaque OS-vault secret, stored exactly as entered; workspace files contain only a reference.' },
+          { type: 'procedure', steps: [
+            { title: 'Reveal deliberately', body: 'Choose Reveal… beside a saved value, then Reveal saved value. Anyone viewing your screen can see it. The read-only value hides after 30 seconds or when the window loses focus; Hide conceals it immediately. Closing the editor, switching workspace, or locking also clears the reveal.' },
+            { title: 'Replace or undo', body: 'Choose Hide before entering a replacement. Type the new value and choose Save Connection. The eye icon shows or hides an unsaved value; Undo change abandons a pending change. Clearing a replacement keeps the original saved credential.' },
+            { title: 'Remove explicitly', body: 'For supported password fields, choose Remove and then Save Connection. Blank input alone never deletes a saved credential. A connection-string profile still requires a complete string, so that field has no Remove action.' },
+          ] },
+          { type: 'callout', tone: 'important', title: 'Reveal is not master-password reauthentication', body: 'The application must be unlocked and you must confirm disclosure. The current reveal flow does not ask for a master password. Do not reveal credentials while screen sharing.' },
+        ],
+      },
+      {
+        id: 'local-databases',
+        title: 'Open or create a local database',
+        blocks: [
+          { type: 'procedure', steps: [
+            { title: 'Select Local database file', body: 'SQLite, DuckDB, and LiteDB offer this method. Choose Open existing database and Browse… to select an existing file, or Create new database for a separate new file.' },
+            { title: 'Choose the new file', body: 'Choose folder… and enter Filename without its displayed extension. Selecting the folder creates nothing. SQLite and DuckDB can Include example tables and data; leave that option off for an empty database.' },
+            { title: 'Create once, then connect', body: 'Choose Create Database and Save Connection. Existing files are never replaced. Test connection is unavailable until the new database exists. If file creation succeeds but saving the profile fails, retry Save Connection; the file is not created again.' },
+          ] },
+          { type: 'callout', tone: 'warning', title: 'LiteDB requires its runtime', body: 'LiteDB creation requires a configured LiteDB sidecar; it is not currently bundled. For a new encrypted file, enter its password explicitly. When creating a different file from an encrypted profile, use Remove for an unencrypted new file. Once created, its password is fixed while profile saving is retried.' },
+          { type: 'paragraph', text: 'Canceling after a file was created does not delete it. The discard confirmation warns that the created database file will remain on disk.' },
+        ],
+      },
+      {
+        id: 'mongodb-connection-strings',
+        title: 'Use a MongoDB connection string from another application',
+        blocks: [
+          { type: 'paragraph', text: 'Paste the entire URI into Complete connection string. DataPad++ preserves the saved string unchanged. During connection attempts only, it removes recognized Studio 3T display metadata such as 3t.connection.name and reports a warning.' },
+          { type: 'paragraph', text: 'This is not a blanket ignore of third-party parameters. Unrecognized Studio 3T options are rejected. SSH, TLS, authentication, and routing must use supported native options; do not remove security settings merely to make a test pass.' },
+        ],
+      },
+      {
+        id: 'canceling-edits',
+        title: 'Cancel without losing the wrong changes',
+        blocks: [
+          { type: 'paragraph', text: 'Cancel, the close button, or Escape closes an unchanged editor immediately. With unsaved changes, a centered Discard connection changes? dialog appears above the dimmed editor, with both choices visible even in a small window.' },
+          { type: 'list', items: [
+            'Keep editing is focused by default. It returns to the same draft and scroll position; Escape does the same while the confirmation is open.',
+            'Discard changes closes the editor without saving the profile or pending credentials. It does not delete an already-created local database file.',
+            'Tab and Shift+Tab stay within the confirmation. Clicking the dimmed background does not discard anything. Cancel and close are disabled while a save or test is working.',
+          ] },
+        ],
+      },
+      {
+        id: 'connection-troubleshooting',
+        title: 'Connection editor troubleshooting',
+        blocks: [{ type: 'table', columns: ['Symptom', 'What to do'], rows: [
+          ['Test connection is disabled', 'A new local file must be created first. Pending secondary credential changes or removals must be saved before testing; read the button tooltip.'],
+          ['The saved password appears blank or masked', 'Blank keeps the stored value. Use Reveal… and confirm to inspect it, or type a replacement and Save Connection.'],
+          ['The saved value cannot be revealed', 'Reopen the editor to refresh its workspace/profile context. If the vault credential is unavailable, enter a replacement.'],
+          ['Saving fails', 'The draft remains available. Review the application error and retry deliberately. A created local file is retained; retrying saves only the profile.'],
+        ] }],
       },
     ],
   },
@@ -907,7 +970,7 @@ const legacyDocArticles: LegacyDocArticle[] = [
       },
       {
         title: 'Review schema, counts, and secrets',
-        body: 'The review shows format, workspace schema, encrypted/decrypted sizes, object counts, warnings, and whether secret material is available. Schema 12 is the current synchronized workspace contract.',
+        body: 'The review shows format, workspace schema, encrypted/decrypted sizes, object counts, warnings, and whether secret material is available. Schema 13 is the current synchronized workspace contract; supported older schemas migrate, and newer unsupported schemas are rejected. Bundle format remains 2.',
       },
       {
         title: 'Name and commit the workspace',
@@ -1185,13 +1248,6 @@ const legacyDocArticles: LegacyDocArticle[] = [
   },
 ]
 
-function stableId(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-}
-
 function upgradeLegacyArticle(article: LegacyDocArticle): DocArticle {
   const procedureSteps = article.steps.map((step, index) => ({
     ...step,
@@ -1243,6 +1299,7 @@ function upgradeLegacyArticle(article: LegacyDocArticle): DocArticle {
               },
             ],
       },
+      ...(article.sections ?? []),
       {
         id: 'safety-boundaries',
         title: 'Safety boundaries',
@@ -1669,14 +1726,15 @@ const newTaskGuides: DocArticle[] = [
       { title: 'Choose a sidebar', body: 'Use the activity rail to open Library, Explorer, or Tests. Library owns saved connections, environments, folders, scripts, and reusable work; Explorer follows the active datastore; Tests opens visual datastore suites.' },
       { title: 'Open a workspace tab', body: 'Open query, explorer, metrics, object-view, test-suite, environment, settings, API Server, MCP Server, Workspace Search, or Security Checks tabs. Each tab retains its own target and state.' },
       { title: 'Use the query toolbar', body: 'Review Run, Cancel, Explain, query mode, connection context, and document-action controls. Controls appear only when the active tab and datastore can support them.' },
-      { title: 'Arrange supporting surfaces', body: 'Open Results, Messages, History, or Details and dock the panel at the bottom or right. Use connection, inspection, and diagnostics drawers for focused tasks.' },
+      { title: 'Arrange supporting surfaces', body: 'Open Results, Messages, History, or Details and dock the panel at the bottom or right. Connection settings open in a dialog; inspection and diagnostics use drawers.' },
       { title: 'Read the status bar', body: 'Open updates, API/MCP servers, security checks, transfers, messages, panel visibility, or Settings from their status-bar entry points.' },
     ],
     referenceRows: [
       ['Library sidebar', 'Connections, environments, folders, scripts, saved queries, and recently used work.'],
       ['Explorer sidebar', 'Native database, schema, table, collection, index, bucket, metric, or graph objects for the active connection.'],
       ['Tests sidebar', 'Owned suites, cases, steps, variables, assertions, and adapter-backed preflight runs.'],
-      ['Right drawers', 'Connection editing, object inspection, and connection/query diagnostics without leaving the active tab.'],
+      ['Connection dialog', 'Create or edit a profile with method tabs, grouped options, and an explicit discard confirmation.'],
+      ['Right drawers', 'Object inspection and connection/query diagnostics without leaving the active tab.'],
       ['Status bar', 'Updates, servers, security, transfers, messages, panels, and Settings entry points.'],
     ],
     keywords: ['navigation', 'Library', 'Explorer', 'Tests', 'status bar', 'tabs', 'drawers', 'panels'],
@@ -1689,7 +1747,7 @@ const newTaskGuides: DocArticle[] = [
     category: 'Getting started',
     screenshots: ['connection-wizard', 'sql-query-results'],
     steps: [
-      { title: 'Add and test a connection', body: 'In Library, choose Add connection, select your datastore, enter its host or file and authentication details, keep Read only enabled, and choose Test connection.' },
+      { title: 'Add and test a connection', body: 'In Library, choose Create connection, select your datastore and Connection method tab, enter endpoint or file details, and enable Read-only connection. Test connection when available, then Save Connection. Credentials save with the profile. To create a new local file, use Create Database and Save Connection instead.' },
       { title: 'Open a query from Explorer', body: 'Expand the connection, choose a database/schema/container/index/bucket/graph scope, and open a new query so the tab inherits that context.' },
       { title: 'Run a bounded read', body: 'Enter a read-only query with a row or document limit, then choose Run or press Ctrl/Cmd+Enter. Choose Cancel if the request is no longer useful.' },
       { title: 'Inspect the run', body: 'Review Results, Messages, History, and Details. Use Explain or Ctrl/Cmd+Shift+E only when the selected query mode and datastore expose a safe plan.' },
@@ -1713,7 +1771,7 @@ const newTaskGuides: DocArticle[] = [
     steps: [
       { title: 'Manage tabs', body: 'Save, rename, drag to reorder, or close a tab. Press Ctrl/Cmd+Shift+T to reopen the most recently closed tab.' },
       { title: 'Choose a panel', body: 'Open Results, Messages, History, or Details. Press Ctrl/Cmd+J to show or hide the panel and choose bottom or right docking.' },
-      { title: 'Open a drawer', body: 'Use the connection drawer for profile context, inspection for the selected object or cell, and diagnostics for connection and execution evidence.' },
+      { title: 'Open a dialog or drawer', body: 'Connection editing uses a centered dialog with method tabs. Inspection and Diagnostics remain drawers for selected objects, cells, and connection or execution evidence.' },
       { title: 'Use multiple windows', body: 'When experimental multi-window support is enabled, detach a tab to another window. The windows share the workspace and backend while each tab keeps its own context.' },
       { title: 'Recover layout', body: 'If a surface is lost, use Workspace Search, the status bar, or Settings to reopen it; reopen a closed tab before recreating work.' },
     ],
@@ -1731,8 +1789,8 @@ const newTaskGuides: DocArticle[] = [
     category: 'Connections, environments, and secrets',
     screenshots: ['connection-wizard', 'search-diagnostics'],
     steps: [
-      { title: 'Open the connection drawer', body: 'Select a Library connection and open Connection. Confirm engine, endpoint, environment, scope, credential source, TLS mode, and read-only posture.' },
-      { title: 'Test without saving secrets', body: 'Choose Test connection. The result separates transport/authentication failures from permission and capability warnings.' },
+      { title: 'Open the connection dialog', body: 'Open the saved profile settings from Library. Confirm datastore, Connection method, endpoint, environment, scope, credentials, TLS, and Read-only connection. Expand Authentication, TLS & certificates, or Advanced only as needed.' },
+      { title: 'Test the draft when available', body: 'Choose Test connection; testing does not save the profile or credentials. New local files must be created first, and pending secondary credential changes or removals must be saved before testing. Read the disabled-button tooltip. Results distinguish transport/authentication failures from permission and capability warnings.' },
       { title: 'Open diagnostics', body: 'Use the Diagnostics drawer to inspect timing, endpoint and adapter evidence, server metadata, and safe suggested actions.' },
       { title: 'Refresh the Explorer', body: 'After a successful test, refresh the relevant branch. Empty branches usually mean scope or metadata permission problems, not a successful empty database.' },
       { title: 'Escalate safely', body: 'Copy redacted diagnostics only. Never include tokens, passwords, personal file paths, or full production connection strings in an issue.' },
@@ -1860,14 +1918,15 @@ export const docNavigationGroups: DocNavigationGroup[] = [
 export const documentedNavigationSurfaces = [
   'Library sidebar', 'Explorer sidebar', 'Tests sidebar', 'query tab', 'explorer tab', 'metrics tab', 'object-view tab', 'test-suite tab', 'environment tab', 'settings tab', 'API Server tab', 'MCP Server tab', 'Workspace Search tab', 'Security Checks tab',
   'Run control', 'Cancel control', 'Explain control', 'query-mode control', 'connection-context control', 'document-action control', 'Results panel', 'Messages panel', 'History panel', 'Details panel', 'bottom docking', 'right docking',
-  'connection drawer', 'inspection drawer', 'diagnostics drawer', 'tab save', 'tab rename', 'tab reorder', 'tab close', 'tab reopen', 'multi-window', 'updates status', 'API server status', 'MCP server status', 'security checks status', 'transfers status', 'messages status', 'panel visibility status', 'settings status',
+  'connection dialog', 'inspection drawer', 'diagnostics drawer', 'tab save', 'tab rename', 'tab reorder', 'tab close', 'tab reopen', 'multi-window', 'updates status', 'API server status', 'MCP server status', 'security checks status', 'transfers status', 'messages status', 'panel visibility status', 'settings status',
   'Appearance settings', 'Workspace + Backups settings', 'Updates settings', 'Security settings', 'Plugins settings', 'Shortcuts settings', 'Logs settings', 'About settings',
 ] as const
 
 export const navigationSurfaceArticle = Object.fromEntries(
   documentedNavigationSurfaces.map((surface) => {
     const normalized = surface.toLowerCase()
-    const slug = normalized.includes('settings') || ['updates status', 'panel visibility status'].includes(normalized)
+    const slug = normalized === 'connection dialog' ? 'connections'
+      : normalized.includes('settings') || ['updates status', 'panel visibility status'].includes(normalized)
       ? 'appearance-shortcuts-logs'
       : normalized.includes('drawer') || normalized.includes('metrics') || normalized.includes('object-view')
         ? 'metrics-and-inspection'

@@ -112,6 +112,9 @@ describe('FirstInstallGuide save step', () => {
     )
 
     expect(await screen.findByRole('dialog', { name: 'Test and save' })).toBeInTheDocument()
+    expect(screen.getByText(/Save Connection to save the profile and credentials together/)).toBeInTheDocument()
+    expect(screen.getByText(/Keep editing or Discard changes/)).toBeInTheDocument()
+    expect(screen.queryByText(/The drawer lets you test/)).not.toBeInTheDocument()
 
     rerender(
       <FirstInstallGuide

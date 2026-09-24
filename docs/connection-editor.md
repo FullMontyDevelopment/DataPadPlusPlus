@@ -1,6 +1,29 @@
 # Connection editor implementation
 
+The [connection how-to](https://datapad-plus-plus.org/docs/connections) is the canonical user guide. This reference describes the implementation and its current limits.
+
+> [!CAUTION]
+> DataPad++ is pre-release software and should not be used for production workloads. Begin with disposable, local, or read-only systems and keep independent backups.
+
 The connection editor opens as a responsive dialog. Connection methods are visible tabs with arrow-key navigation; switching methods preserves the unsaved draft. General settings remain visible; Authentication, TLS & certificates, and Advanced settings are collapsible. Inputs use defined, theme-aware borders. Existing connection edits do not change the selected query tab.
+
+## Connection methods and saving
+
+Use the highlighted **Create connection** database-plus action at the far right of the Library toolbar. The selected datastore determines the available tabs: **Connection fields**, **Connection string**, **Local database file**, and supported cloud/endpoint methods. Left/Right, Home, and End navigate the tabs. An existing profile's datastore type is not editable.
+
+Enter the name, environment, target, and read-only posture under General, then expand only the optional sections needed. Unset optional controls retain driver defaults. The catalogue's **Runtime support and limitations** section describes unavailable runtime behavior; a displayed option is not evidence that every deployment has been live-validated.
+
+**Test connection** does not save the profile or credential drafts. It is disabled for an uncreated local database and for pending secondary credential changes or credential removals. Save those changes before testing. **Save Connection** persists the profile and credential mutations together. Failed saves retain the draft for a deliberate retry.
+
+## Canceling and discarding
+
+**Cancel**, the header close button, and Escape close an unchanged editor. If the draft changed, they open a centered **Discard connection changes?** alert dialog above a dimmed, inert editor. The confirmation is outside the scrollable form, so it cannot be hidden below its inputs.
+
+- **Keep editing** is focused by default. It preserves the draft and scroll position and restores focus to the originating control.
+- Escape within the confirmation also keeps editing; Tab and Shift+Tab remain inside the confirmation.
+- **Discard changes** closes without saving the profile or pending credentials. Clicking the backdrop does not discard.
+- If a local file was already created but profile saving failed, the confirmation explains that the file remains on disk. Discard does not delete it.
+- Cancel and close are disabled while saving or testing. Small viewports scroll the message while keeping both decisions available.
 
 ## Credentials
 
@@ -10,7 +33,7 @@ Type directly into a password or secret field, then use **Save Connection** to s
 
 Replacing or deleting a profile retires old DataPad++ vault entries only after checking references in the active and every registered inactive workspace. Shared credentials remain available to copied profiles. Unreadable or newer workspaces defer cleanup; a sanitized diagnostic records the deferral without exposing names, paths, or values.
 
-Browser preview cannot access the OS vault or create local database files. Browser session-only credential editing remains follow-up work.
+Browser preview cannot save or reveal OS-vault credentials or create local database files. It rejects connection-editor saves containing credential mutations; this is not a working session-only password-save flow. Secret drafts must never be written to local storage. Browser session-only credential editing remains follow-up work.
 
 ## Local files
 
@@ -44,7 +67,7 @@ Still required before the entire plan is complete:
 - Broader transactional vault failure/rollback coverage and saved-secret validation on each OS.
 - Live fixture matrix, native-window accessibility checks on each OS, and packaging checks.
 
-The deterministic frontend, repository quality, sidecar, and native suites have been exercised. The connection dialog has also been checked in an isolated headless Windows browser at desktop and narrow widths, including scrolling and Escape dismissal. This does not replace OS-vault or cross-platform live validation.
+The deterministic frontend, repository quality, sidecar, and native suites have been exercised. The connection dialog has also been checked in an isolated headless Windows browser at desktop, narrow, and short viewport sizes, including scrolling, discard-confirmation visibility, keyboard focus containment, and Escape recovery. This does not replace OS-vault or cross-platform live validation.
 
 These changes are implementation work in progress; passing unit tests does not establish full native/cloud compatibility.
 

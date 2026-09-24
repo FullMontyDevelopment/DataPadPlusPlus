@@ -1,4 +1,5 @@
 import type { ScreenshotId } from './screenshots'
+import { CONNECTION_EDITOR_CATALOG } from '@datapadplusplus/shared-types'
 import { declaredDatastoreEngines, type DatastoreEngineId } from './datastore-engines'
 
 export { declaredDatastoreEngines, type DatastoreEngineId } from './datastore-engines'
@@ -286,8 +287,8 @@ const datastoreDocsBase: DatastoreDocBase[] = [
       'SQLite is treated as a local-file workbench with file posture, PRAGMA health, integrity checks, guarded VACUUM INTO, and table import/export.',
     bestFor: ['Local database files', 'Embedded app data', 'Portable data inspection'],
     connections: [
-      'Choose SQLite and select a local database file, read-only posture, attached database behavior, and timeout or locking expectations.',
-      'Check file existence, write permissions, read-only state, and lock warnings before saving the profile.',
+      'Choose SQLite → Local database file. Open existing database uses Browse…; Create new database asks for a folder and filename, with optional example tables and data.',
+      'Create Database and Save Connection creates the file only when you save and never overwrites an existing file. Test connection checks an existing file without creating a missing one. Review read-only posture, permissions, and locking before saving.',
     ],
     explorer: [
       'Browse attached databases, schemas, tables, views, columns, indexes, triggers, generated columns, virtual tables, and PRAGMA health panels.',
@@ -393,7 +394,8 @@ const datastoreDocsBase: DatastoreDocBase[] = [
       'MongoDB uses a document-first workbench with collection builders, aggregation helpers, explain dashboards, diagnostics, and guarded document edits.',
     bestFor: ['Document collections', 'Aggregation workflows', 'Schema and index inspection'],
     connections: [
-      'Choose MongoDB and configure URI or native host fields, database discovery, TLS/read preference metadata, auth source, and read-only posture.',
+      'Choose MongoDB, then Connection fields or Connection string. Authentication, TLS & certificates, and Advanced group native options; SRV uses DNS discovery rather than an explicit port. Keep Read-only connection enabled while exploring.',
+      'Complete connection strings save unchanged as one vault secret with Save Connection. Recognized Studio 3T display parameters are ignored only during connection attempts, with a warning; unsupported security, SSH, or routing parameters are not silently discarded.',
       'Test connectivity and confirm Atlas, replica, shard, TLS, and permission warnings before saving long-lived profiles.',
     ],
     explorer: [
@@ -533,12 +535,13 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'litedb',
     title: 'LiteDB',
     family: 'Document and NoSQL',
-    maturity: 'Available with the bundled LiteDB service',
+    maturity: 'Available with a configured LiteDB sidecar',
     summary:
       'LiteDB is documented as a local document-file workflow with collection metadata, index and file storage panels, sidecar boundaries, and guarded local management.',
     bestFor: ['Local document files', 'Embedded .NET data', 'Sidecar-backed validation'],
     connections: [
-      'Choose LiteDB and select the local file, encryption posture, optional sidecar path, read-only mode, timeout, and lock-boundary expectations.',
+      'Choose LiteDB → Local database file, then Open existing database or Create new database. Creation requires a configured LiteDB sidecar, which is not currently bundled. Existing connection strings can carry SidecarPath; local creation uses the runtime sidecar configuration.',
+      'Enter a new file password explicitly for encryption, then Create Database and Save Connection. When creating a different file from an encrypted profile, Remove selects an unencrypted new file. Existing files are never overwritten; existing-file tests open read-only.',
     ],
     explorer: [
       'Browse collections, inferred schema previews, indexes, file storage, storage health, local-file preflight state, encryption posture, lock-boundary posture, and settings.',
@@ -787,7 +790,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
       'DuckDB is a local-file analytics workbench with local read SQL, EXPLAIN/profile rendering, extension posture, CSV import/export, and backup-folder execution.',
     bestFor: ['Local analytics files', 'CSV and embedded OLAP', 'EXPLAIN/profile review'],
     connections: [
-      'Choose DuckDB and configure local database file or in-memory profile, read-only mode, extension posture, file-source boundaries, timeout, and row limits.',
+      'Choose DuckDB → Local database file. Open existing database selects a file; Create new database chooses a folder and filename, optionally with example tables and data. Create Database and Save Connection never overwrites an existing file.',
       'Check database-file preflight, writable posture, lock boundaries, and JSON/Parquet extension gates before enabling file workflows.',
     ],
     explorer: [
@@ -818,7 +821,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'snowflake',
     title: 'Snowflake',
     family: 'Warehouse and analytical',
-    maturity: 'Available for InfluxDB 1.x queries and line-protocol transfers',
+    maturity: 'Preview for local/proxy query endpoints',
     summary:
       'Snowflake is documented as a SQL-first warehouse workflow with account/project posture, query history, credits, warehouses, stages, shares, and clone/copy previews.',
     bestFor: ['Cloud warehouse review', 'Credit and warehouse posture', 'Query history analysis'],
@@ -1163,8 +1166,10 @@ const sampleQueries: Record<DatastoreEngineId, { language: string; query: string
   janusgraph: { language: 'text', query: "g.V().hasLabel('product').limit(25).valueMap('name', 'category')", expected: 'A bounded Gremlin traversal result.' },
 }
 
-const fileEngines = new Set<DatastoreEngineId>(['sqlite', 'duckdb', 'litedb'])
-const cloudEngines = new Set<DatastoreEngineId>(['dynamodb', 'cosmosdb', 'neptune', 'snowflake', 'bigquery'])
+const connectionMethodLabels = {
+  native: 'Connection fields', 'connection-string': 'Connection string', 'local-file': 'Local database file',
+  'cloud-sdk': 'Cloud / endpoint settings', 'cloud-iam': 'Cloud identity',
+}
 
 function scopeField(doc: DatastoreDocBase) {
   if (doc.family === 'Document and NoSQL') return 'Database / container'
@@ -1177,44 +1182,29 @@ function scopeField(doc: DatastoreDocBase) {
 }
 
 function connectionFields(doc: DatastoreDocBase): DatastoreConnectionField[] {
-  if (fileEngines.has(doc.engine)) {
-    const examplePath = doc.engine === 'sqlite'
-      ? 'C:/data/application.db'
-      : doc.engine === 'duckdb'
-        ? 'C:/data/analytics.duckdb'
-        : 'C:/data/archive.litedb'
-    return [
-      { name: 'File path', required: true, description: `Path to a ${doc.title} database file you are authorized to open.`, example: examplePath },
-      { name: 'Mode', required: true, description: 'Open read-only for the first connection; enable writes only when the task requires them.', example: 'Read only' },
-      { name: 'Encryption / secret', required: false, description: 'Optional local database secret when the selected engine supports it.', example: 'Stored in the OS secret store' },
-    ]
-  }
-
-  if (doc.engine === 'bigquery') {
-    return [
-      { name: 'Project ID', required: true, description: 'Google Cloud project used for jobs and billing.', example: 'my-analytics-project' },
-      { name: 'Dataset', required: false, description: 'Default dataset for browsing and unqualified names.', example: 'analytics' },
-      { name: 'Credentials', required: true, description: 'Application Default Credentials or an authorized service-account secret.', example: 'Application Default Credentials' },
-      { name: 'Location', required: false, description: 'Dataset and job location.', example: 'US' },
-    ]
-  }
-
-  if (doc.engine === 'dynamodb') {
-    return [
-      { name: 'Region', required: true, description: 'AWS region that contains your table.', example: 'us-east-1' },
-      { name: 'Endpoint', required: false, description: 'Optional endpoint override. Leave blank to use the selected AWS region.', example: 'Leave blank for AWS' },
-      { name: 'Access key', required: true, description: 'Access key for a least-privileged identity, stored outside the workspace.', example: 'Stored secret' },
-      { name: 'Secret key', required: true, description: 'Secret key stored in the operating-system secret store.', example: 'Stored secret' },
-    ]
-  }
-
-  return [
-    { name: cloudEngines.has(doc.engine) ? 'Endpoint / account' : 'Server', required: true, description: `Host, service URL, or account identifier for your ${doc.title} deployment.`, example: cloudEngines.has(doc.engine) ? `${doc.title} account or service URL` : 'db.example.internal' },
-    { name: 'Port', required: !cloudEngines.has(doc.engine), description: 'Native service port when the connection mode uses TCP.', example: 'Engine default' },
-    { name: scopeField(doc), required: false, description: `Initial ${scopeField(doc).toLowerCase()} scope used by Explorer and new query tabs.`, example: 'demo' },
-    { name: 'Username / identity', required: false, description: 'Authorized, least-privileged identity for the selected datastore.', example: 'datapad_reader' },
-    { name: 'Secret / TLS', required: false, description: 'Secret-store reference and transport-security settings; never commit raw credentials.', example: 'OS secret store + TLS verify' },
+  const capability = CONNECTION_EDITOR_CATALOG[doc.engine]
+  const fields: DatastoreConnectionField[] = [
+    { name: 'Name', required: true, description: 'A clear profile name, without credentials.', example: `${doc.title} development` },
+    { name: 'Connection method', required: true, description: 'Choose a supported tab. The fields below apply only to the selected method and deployment.', example: capability.methods.map(method => connectionMethodLabels[method]).join(' / ') },
+    { name: 'Environment', required: false, description: 'Attach the intended variable and safety context.', example: 'Local development' },
+    { name: 'Read-only connection', required: false, description: 'Enable for initial exploration. This does not make pre-release software safe for production workloads.', example: 'Enabled' },
   ]
+  if (capability.local) fields.push({ name: 'Database file', required: true, description: 'Open an existing file, or choose a folder and filename under Create new database. Creation occurs only on final save.', example: `example.${capability.local.extension}` })
+  else fields.push(
+    { name: 'Host / Port', required: false, description: 'Endpoint for a fields-based connection. Follow the selected deployment and runtime limitations; MongoDB SRV does not use an explicit port.', example: 'localhost / engine default' },
+    { name: 'Database / default scope', required: false, description: 'Initial scope for browsing, where supported.', example: 'catalog' },
+  )
+  if (capability.methods.includes('connection-string')) fields.push({ name: 'Complete connection string', required: true, description: 'Required in Connection string mode only. Saved unchanged as one vault secret with Save Connection. Blank keeps an existing stored value.', example: 'Paste your complete provider string; do not share it' })
+  if (capability.credentials) {
+    if (capability.username !== false && !capability.local) fields.push({ name: 'Username', required: false, description: 'Authentication identity for the selected method.', example: 'catalog_reader' })
+    fields.push({ name: capability.credentialLabel ?? 'Password', required: false, description: 'Required only when the chosen authentication needs it. Save Connection stores changes; blank preserves an existing value, and Reveal… explicitly discloses it.', example: 'Stored in the desktop OS vault' })
+  }
+  fields.push(...capability.fields.map(field => ({
+    name: field.label, required: false,
+    description: `${({ general: 'General', authentication: 'Authentication', tls: 'TLS & certificates', advanced: 'Advanced' })[field.section]}. ${field.help ?? 'Optional, depending on the method and server. Review runtime limitations before overriding the driver default.'}`,
+    example: field.kind === 'secret' ? 'Saved with the connection' : field.values?.join(' / ') ?? field.defaultDescription,
+  })))
+  return fields
 }
 
 function capabilityRows(doc: DatastoreDocBase): DatastoreCapabilityRow[] {
@@ -1230,9 +1220,17 @@ function capabilityRows(doc: DatastoreDocBase): DatastoreCapabilityRow[] {
 }
 
 function enrichDatastoreDoc(doc: DatastoreDocBase): DatastoreDoc {
+  const connection = CONNECTION_EDITOR_CATALOG[doc.engine]
   const sample = sampleQueries[doc.engine]
   return {
     ...doc,
+    connections: [
+      `Connection method tabs: ${connection.methods.map(method => connectionMethodLabels[method]).join(', ')}. Expand optional Authentication, TLS & certificates, and Advanced sections where available; Save Connection saves credential changes with the profile.`,
+      ...(connection.status === 'local-only'
+        ? ['The current query connection runtime supports local or restricted endpoints only, not full managed-cloud connectivity. A cloud transfer capability does not establish cloud query support.']
+        : doc.connections),
+      ...connection.limitations,
+    ],
     importExport: transferDocumentation(doc.engine),
     prerequisites: [
       'Install the current DataPad++ desktop pre-release on Windows, macOS, or Linux.',
@@ -1242,9 +1240,9 @@ function enrichDatastoreDoc(doc: DatastoreDocBase): DatastoreDoc {
     platforms: ['Windows desktop', 'macOS desktop', 'Linux desktop'],
     connectionFields: connectionFields(doc),
     quickstart: [
-      `Open Library, choose Add connection, and select ${doc.title}.`,
-      'Complete the connection fields, keep Read only enabled, then choose Test connection and review the returned capability warnings.',
-      `Save the profile and open its native ${doc.title} Explorer.`,
+      `Open Library, choose Create connection, and select ${doc.title} and a supported Connection method tab.`,
+      'Complete the applicable fields and enable Read-only connection. Test connection when available; new local files and pending secondary credential changes must be saved first. Review runtime limitations and warnings.',
+      `Use Save Connection, or Create Database and Save Connection for a new local file, then open the ${doc.title} Explorer where supported.`,
       `Select the ${scopeField(doc).toLowerCase()} scope that should be attached to the new tab.`,
       'Open a query tab, paste the bounded read-only sample below, and choose Run or press Ctrl/Cmd+Enter.',
       'Inspect Results, Messages, History, and Details; dock the panel on the bottom or right as needed.',

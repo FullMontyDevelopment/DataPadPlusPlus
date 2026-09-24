@@ -13,6 +13,7 @@ import { datastoreGroups } from './product'
 import { datastoreTransferManifest } from '../../../desktop/src/services/runtime/datastore-transfer-manifests'
 import { transferSupportMatrix } from './transfer-docs'
 import { screenshotSlots } from './screenshots'
+import { CONNECTION_EDITOR_CATALOG } from '@datapadplusplus/shared-types'
 
 const requiredSections: Array<
   keyof Pick<
@@ -29,6 +30,33 @@ const requiredSections: Array<
 > = ['connections', 'explorer', 'queryModes', 'resultViews', 'adminFeatures', 'diagnostics', 'importExport', 'safety']
 
 describe('datastore documentation', () => {
+  it('uses the connection catalogue for every method, optional field, and runtime limitation', () => {
+    for (const doc of datastoreDocs) {
+      const capability = CONNECTION_EDITOR_CATALOG[doc.engine]
+      const fieldNames = doc.connectionFields.map(field => field.name)
+      expect(fieldNames, doc.engine).toEqual(expect.arrayContaining(capability.fields.map(field => field.label)))
+      expect(doc.connections, doc.engine).toEqual(expect.arrayContaining(capability.limitations))
+      expect(doc.connectionFields.some(field => field.name === 'Complete connection string'), doc.engine)
+        .toBe(capability.methods.includes('connection-string'))
+      expect(doc.connectionFields.some(field => field.name === 'Database file'), doc.engine).toBe(Boolean(capability.local))
+      if (capability.status === 'local-only') {
+        expect(doc.connections.join(' '), doc.engine).toContain('not full managed-cloud connectivity')
+        expect(doc.connections.join(' '), doc.engine).not.toMatch(/Application Default Credentials|configure.+assume-role/i)
+      }
+    }
+  })
+
+  it('explains the current local-file and MongoDB connection boundaries', () => {
+    for (const engine of ['sqlite', 'duckdb', 'litedb']) {
+      const guide = getDatastoreDocBySlug(engine)!
+      expect(guide.connections.join(' ')).toContain('Create new database')
+      expect(guide.connections.join(' ')).toContain('Open existing database')
+    }
+    expect(getDatastoreDocBySlug('litedb')!.connections.join(' ')).toContain('not currently bundled')
+    expect(getDatastoreDocBySlug('mongodb')!.connections.join(' ')).toContain('Studio 3T')
+    expect(getDatastoreDocBySlug('mongodb')!.connections.join(' ')).toContain('unchanged')
+  })
+
   it('has one docs page for every declared datastore engine', () => {
     const documentedEngines = datastoreDocs.map((doc) => doc.engine).sort()
     const declaredEngines = [...declaredDatastoreEngines].sort()

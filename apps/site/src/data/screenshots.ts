@@ -60,8 +60,8 @@ const commonScreenshotDefinitions: Record<CommonScreenshotId, ScreenshotDefiniti
   },
   'connection-wizard': {
     id: 'connection-wizard',
-    title: 'Connection wizard',
-    caption: 'Connection profile fields, read-only settings, and test result.',
+    title: 'Connection editor',
+    caption: 'Connection method tabs, grouped options, and saved-credential controls in the current connection dialog.',
     image: '/screenshots/connection-wizard.png',
   },
   'library-environments': {
@@ -285,7 +285,7 @@ const datastoreScreenshotSlots = Object.fromEntries(
       {
         id: `datastore-${engine}-connection`,
         title: `${label} connection setup`,
-        caption: `The native ${label} connection form with illustrative, non-secret values, platform notes, and connection-test feedback.`,
+        caption: `The ${label} connection dialog with supported method tabs and illustrative, non-secret settings. Expand optional sections and review runtime limitations before saving.`,
         image: `/screenshots/datastores/${engine}-connection.png`,
         captureCase: `datastore:${engine}:connection`,
       },

@@ -9,12 +9,16 @@ DataPad++ is pre-release software that can hold credentials and issue live datas
 
 - Store secret values in the operating-system credential vault and persist only DataPad++-owned references.
 - Treat a complete connection string as one opaque secret. Do not parse, normalize, deconstruct, reconstruct, or log it.
-- Resolve secrets only in the privileged backend for testing or execution, then interpolate environments in memory.
+- Resolve connection secrets in the privileged backend for testing or execution, then interpolate environments in memory. Explicit saved-secret reveal and secret-inclusive encrypted export are separate authorized disclosure paths.
 - Leave secret drafts out of workspace JSON, browser storage, diagnostics, errors, process arguments, generated client configuration, and secret-free exports.
-- Browser preview keeps secrets in memory only.
+- Browser preview never persists plaintext credential drafts and cannot save or reveal OS-vault credentials through the connection editor.
 - Clear plaintext buffers and form drafts as soon as practical after save, test, transfer, import, export, or close.
 
 Editing a connection with a blank secret field preserves the existing value. Replacing, changing mode, or deleting a connection updates vault references transactionally. Migration errors identify the connection name and datastore without exposing the connection string.
+
+The [connection editor](../connection-editor.md) saves typed credential mutations with the profile; no per-field vault save is required. A placeholder mask indicates an existing reference, not the stored value. **Reveal…** requires an unlocked application and explicit disclosure confirmation, but **does not reauthenticate with a master password**. Revealed plaintext is read-only, hides after 30 seconds or window blur, and is cleared on editor/context changes or lock. Do not reveal while screen sharing.
+
+Discarding an unsaved connection edit does not commit pending credential changes. An already-created local database file remains on disk, with that boundary disclosed in the discard confirmation.
 
 ## Connection Health
 

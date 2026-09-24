@@ -16,12 +16,16 @@ The [website documentation](https://datapad-plus-plus.org/docs) is the canonical
 
 ## Connections And Secrets
 
+- Create/edit uses a responsive dialog with datastore-supported Connection method tabs and collapsible Authentication, TLS & certificates, and Advanced sections. See the [connection editor reference](connection-editor.md) and [user guide](https://datapad-plus-plus.org/docs/connections).
+- **Save Connection** saves the profile and credential drafts together. Saved credentials show a placeholder mask; **Reveal…** requests explicit disclosure in the unlocked application, without master-password reauthentication, and hides after 30 seconds or window blur.
+- Canceling an unsaved edit opens a centered **Keep editing** / **Discard changes** confirmation. Keep editing and Escape preserve the draft and scroll position.
+- SQLite, DuckDB, and configured LiteDB runtimes separate **Open existing database** from **Create new database**. New files are created only on final save and never overwrite existing files.
 - Connection health starts neutral each session. A badge appears only after a manual test or real datastore operation produces evidence.
 - Health is scoped to a connection and environment. Connectivity, authentication, TLS, DNS, credential, and timeout failures can mark a target unhealthy; query syntax or rendering errors do not.
 - Native connection fields store modeled credentials in the operating-system credential vault.
 - A complete connection string is treated as one opaque secret. DataPad++ does not split or reconstruct it; persistence contains only its vault reference.
 - Environment interpolation occurs in memory when the backend resolves a connection for testing or execution.
-- Browser preview keeps secrets in memory only and requires them again after reload.
+- Browser preview cannot save/reveal OS-vault credentials or create local database files. Connection-editor credential saves require desktop; drafts never belong in local storage.
 
 ## Explorer And IntelliSense
 

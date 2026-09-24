@@ -38,7 +38,7 @@ The application layer coordinates:
 - workspace bundle file export/import, encrypted integrity verification, and auto-backup preferences
 - API Server and MCP Server plugin preferences, profile selection, token metadata, setup previews, local status, metrics, and logs
 
-Opening a query tab is intentionally a pure editor action. Selecting a connection should not create a tab or open the connection drawer; connection editing is explicit.
+Opening a query tab is intentionally a pure editor action. Selecting a connection should not create a tab or open the connection dialog; connection editing is explicit and preserves the selected query tab. See [Connection editor](../connection-editor.md).
 
 ### Domain Layer
 
