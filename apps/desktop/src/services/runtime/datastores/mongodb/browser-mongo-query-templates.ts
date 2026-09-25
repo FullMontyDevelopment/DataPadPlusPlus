@@ -1,6 +1,7 @@
 import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import {
   documentFindTemplate,
+  normalizeMongoInspectionNodeId,
   mongoCommandTemplate,
   parseMongoCollectionAdminScope,
   parseMongoDatabaseScope,
@@ -8,6 +9,7 @@ import {
 } from './browser-mongo-helpers'
 
 export function mongoInspectQueryTemplate(connection: ConnectionProfile, nodeId: string) {
+  nodeId = normalizeMongoInspectionNodeId(nodeId)
   const database = connection.database?.trim()
   const inspectFallback = () => JSON.stringify({ operation: 'inspect', target: nodeId }, null, 2)
 

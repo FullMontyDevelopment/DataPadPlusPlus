@@ -237,12 +237,27 @@ export function mongoOperationRequest(request: OperationPlanRequest) {
     }, null, 2)
   }
 
+  if (request.operationId.endsWith('user.update') || request.operationId.endsWith('role.update')) {
+    const options = Object.fromEntries(
+      ['roles', 'privileges', 'customData', 'mechanisms', 'authenticationRestrictions']
+        .filter(key => parameters[key] !== undefined).map(key => [key, parameters[key]]),
+    )
+    return JSON.stringify({
+      database,
+      [request.operationId.endsWith('user.update') ? 'updateUser' : 'updateRole']: name,
+      ...options,
+      ...(parameters.password !== undefined ? { pwd: '<environment secret>' } : {}),
+    }, null, 2)
+  }
+
   if (request.operationId.endsWith('user.create')) {
     return JSON.stringify({
       database,
       createUser: name,
-      pwd: parameters.password ?? '<secret>',
+      ...(parameters.password !== undefined ? { pwd: '<environment secret>' } : {}),
       roles: parameters.roles ?? [],
+      ...Object.fromEntries(['customData', 'mechanisms', 'authenticationRestrictions']
+        .filter(key => parameters[key] !== undefined).map(key => [key, parameters[key]])),
     }, null, 2)
   }
 
@@ -259,6 +274,7 @@ export function mongoOperationRequest(request: OperationPlanRequest) {
       createRole: name,
       privileges: parameters.privileges ?? [],
       roles: parameters.roles ?? [],
+      ...(parameters.authenticationRestrictions !== undefined ? { authenticationRestrictions: parameters.authenticationRestrictions } : {}),
     }, null, 2)
   }
 
@@ -277,6 +293,10 @@ export function mongoOperationRequest(request: OperationPlanRequest) {
 }
 
 export function mongoManagementRefreshScopes(request: OperationPlanRequest) {
+  if (/^mongodb\.(user|role)\.(create|update|drop)$/.test(request.operationId)) {
+    const database = stringParameter(request.parameters?.database)
+    return database ? [`users:${database}`, `roles:${database}`] : []
+  }
   if (!isMongoManagementOperation(request.operationId)) {
     return []
   }

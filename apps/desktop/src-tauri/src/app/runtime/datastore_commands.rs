@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use zeroize::Zeroize;
 
 use super::validators::{
     validate_adapter_diagnostics_request, validate_data_edit_execution_request,
@@ -222,6 +223,11 @@ impl ManagedAppState {
         let environment = self.environment_by_id(&request.environment_id)?;
         let (resolved, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
+        mongodb_principal_password(
+            &request.operation_id,
+            request.parameters.as_ref(),
+            &resolved_environment,
+        )?;
         let parameters = request.parameters.as_ref().map(|items| {
             items
                 .iter()
@@ -330,7 +336,34 @@ impl ManagedAppState {
             }
         }
 
-        let mut response = adapters::execute_operation(&resolved, &request).await?;
+        if let Some(password) = mongodb_principal_password(
+            &request.operation_id,
+            request.parameters.as_ref(),
+            &resolved_environment,
+        )? {
+            request
+                .parameters
+                .as_mut()
+                .expect("password parameter exists")
+                .insert(
+                    "password".into(),
+                    serde_json::Value::String(password.to_owned()),
+                );
+        }
+        let result = adapters::execute_operation(&resolved, &request).await;
+        if matches!(
+            request.operation_id.as_str(),
+            "mongodb.user.create" | "mongodb.user.update"
+        ) {
+            if let Some(serde_json::Value::String(password)) = request
+                .parameters
+                .as_mut()
+                .and_then(|p| p.get_mut("password"))
+            {
+                password.zeroize();
+            }
+        }
+        let mut response = result?;
         merge_environment_plan_into_operation_response(&mut response, plan);
         Ok(redact_operation_response_for_environment(
             response,
@@ -496,6 +529,43 @@ impl ManagedAppState {
         })
     }
 }
+
+// Accept only an exact secret-variable reference from the frontend. Never
+// interpolate the command wholesale or put a resolved password in its preview.
+fn mongodb_principal_password<'a>(
+    operation_id: &str,
+    parameters: Option<&std::collections::HashMap<String, serde_json::Value>>,
+    environment: &'a crate::domain::models::ResolvedEnvironment,
+) -> Result<Option<&'a str>, CommandError> {
+    if !matches!(operation_id, "mongodb.user.create" | "mongodb.user.update") {
+        return Ok(None);
+    }
+    let Some(value) = parameters.and_then(|p| p.get("password")) else {
+        return Ok(None);
+    };
+    let key = value
+        .as_str()
+        .and_then(|s| s.strip_prefix("{{"))
+        .and_then(|s| s.strip_suffix("}}"))
+        .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+    let Some(key) = key else {
+        return Err(CommandError::new("mongodb-password-variable",
+            "Choose an environment secret variable such as {{MONGO_USER_PASSWORD}}; plaintext passwords are not accepted here."));
+    };
+    if !environment.sensitive_keys.iter().any(|s| s == key) {
+        return Err(CommandError::new(
+            "mongodb-password-variable",
+            "The selected password variable must be stored as a secret in this environment.",
+        ));
+    }
+    environment.variables.get(key).filter(|value| !value.is_empty())
+        .map(|s| Some(s.as_str())).ok_or_else(|| CommandError::new("mongodb-password-variable",
+            "The selected password secret could not be resolved. Check the environment and credential vault."))
+}
+
+#[cfg(test)]
+#[path = "../../../tests/unit/app/runtime/mongodb_principal_password_tests.rs"]
+mod mongodb_principal_password_tests;
 
 fn can_auto_confirm_redis_single_key_delete(
     connection: &crate::domain::models::ResolvedConnectionProfile,

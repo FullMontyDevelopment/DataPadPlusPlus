@@ -1,10 +1,78 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { MongoSecurityView } from '../../../../../../src/app/components/workbench/datastores/mongodb/MongoSecurityView'
 import { getMongoObjectViewDescriptor } from '../../../../../../src/app/components/workbench/datastores/mongodb/MongoObjectViewDescriptors'
 
 describe('MongoSecurityView', () => {
-  it('plans Mongo user create and drop operations without exposing raw role JSON', () => {
+  it('edits the selected user in its owning database and preserves all roles without resetting the password', async () => {
+    const onPlanOperation = vi.fn()
+    render(<MongoSecurityView kind="user" descriptor={getMongoObjectViewDescriptor('user')}
+      payload={{ database: 'catalog', users: [{ user: 'alice', db: 'admin',
+        roles: [{ role: 'read', db: 'catalog' }, { role: 'readWrite', db: 'audit' }] }] }}
+      onPlanOperation={onPlanOperation} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit user alice' }))
+    expect(screen.getByLabelText('Username')).toBeDisabled()
+    expect(screen.getAllByLabelText('Assigned role')).toHaveLength(2)
+    fireEvent.change(screen.getAllByLabelText('Assigned role')[0], { target: { value: 'readWrite' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review user changes' }))
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.user.update', objectName: 'alice',
+      parameters: { database: 'admin', name: 'alice', roles: [{ role: 'readWrite', db: 'catalog' }, { role: 'readWrite', db: 'audit' }] },
+    }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Review user changes' })).toBeEnabled())
+    expect(screen.getAllByLabelText('Assigned role')[0]).toHaveValue('readWrite')
+  })
+
+  it('edits custom-role privileges, accepts no inherited roles and blocks malformed JSON', async () => {
+    const onPlanOperation = vi.fn()
+    render(<MongoSecurityView kind="role" descriptor={getMongoObjectViewDescriptor('role')}
+      payload={{ database: 'catalog', roles: [{ role: 'analyst', roles: [], privileges: [
+        { resource: { db: 'catalog', collection: '' }, actions: ['find'] },
+      ] }] }} onPlanOperation={onPlanOperation} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit role analyst' }))
+    expect((screen.getByLabelText('Privileges (JSON)') as HTMLTextAreaElement).value).toContain('"find"')
+    fireEvent.change(screen.getByLabelText('Privileges (JSON)'), { target: { value: '[invalid' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review role changes' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Privileges must be valid JSON.')
+    expect(onPlanOperation).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('Privileges (JSON)'), { target: { value: '[]' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review role changes' }))
+    expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: 'mongodb.role.update', parameters: { database: 'catalog', name: 'analyst', roles: [], privileges: [] },
+    }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Review role changes' })).toBeEnabled())
+  })
+
+  it('keeps built-in roles visible but disables edit and removal', () => {
+    render(<MongoSecurityView kind="roles" descriptor={getMongoObjectViewDescriptor('roles')}
+      payload={{ database: 'admin', roles: [{ role: 'root', db: 'admin', isBuiltin: true }] }} onPlanOperation={vi.fn()} />)
+    expect(screen.getByText('root (built-in)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit role root' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Drop role root' })).toBeDisabled()
+  })
+
+  it('disables management while inventory loading failed instead of suggesting an empty editable list', () => {
+    render(<MongoSecurityView kind="users" descriptor={getMongoObjectViewDescriptor('users')}
+      payload={{ database: 'admin', warning: 'Permission denied', users: [] }} onPlanOperation={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'New user' })).toBeDisabled()
+  })
+
+  it('retains edit drafts after an operation fails and can cancel without another request', async () => {
+    const onPlanOperation = vi.fn().mockRejectedValue(new Error('permission denied'))
+    render(<MongoSecurityView kind="users" descriptor={getMongoObjectViewDescriptor('users')}
+      payload={{ database: 'admin', users: [{ user: 'alice', roles: [] }] }} onPlanOperation={onPlanOperation} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit user alice' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add role assignment' }))
+    fireEvent.change(screen.getByLabelText('Assigned role'), { target: { value: 'read' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review user changes' }))
+    await screen.findByRole('alert')
+    expect(screen.getByLabelText('Assigned role')).toHaveValue('read')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByLabelText('Username')).not.toBeInTheDocument()
+    expect(onPlanOperation).toHaveBeenCalledTimes(1)
+  })
+
+  it('plans Mongo user create and drop operations without exposing raw role JSON', async () => {
     const onPlanOperation = vi.fn()
 
     render(
@@ -37,6 +105,7 @@ describe('MongoSecurityView', () => {
       }),
     }))
 
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Drop user reporting' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'Drop user reporting' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.user.drop',

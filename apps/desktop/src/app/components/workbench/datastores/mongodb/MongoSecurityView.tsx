@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import type { MongoObjectViewDescriptor } from './MongoObjectViewDescriptors'
-import { CloseIcon, PlusIcon, TrashIcon } from '../../icons'
+import { PlusIcon, RenameIcon, TrashIcon } from '../../icons'
 import { PurposeEmptyState } from '../../ObjectViewPrimitives'
 import {
   asMongoRecord,
@@ -9,13 +9,7 @@ import {
   type JsonRecord,
 } from './MongoOperationalView.helpers'
 import { MongoContextStrip, MongoResourceSection } from './MongoOperationalViewPrimitives'
-
-type MongoOperationPlanner = (request: {
-  objectName?: string
-  operationId: string
-  parameters?: Record<string, unknown>
-  title: string
-}) => void
+import { MongoPrincipalEditor, type MongoPrincipalPlanner } from './MongoPrincipalEditor'
 
 export function MongoSecurityView({
   kind,
@@ -26,7 +20,7 @@ export function MongoSecurityView({
   kind: string
   descriptor: MongoObjectViewDescriptor
   payload: JsonRecord
-  onPlanOperation?: MongoOperationPlanner
+  onPlanOperation?: MongoPrincipalPlanner
 }) {
   if (kind === 'permissions') {
     return <MongoPermissionsView descriptor={descriptor} payload={payload} />
@@ -35,7 +29,7 @@ export function MongoSecurityView({
   return (
     <MongoPrincipalManagementView
       descriptor={descriptor}
-      isRoleView={kind === 'roles'}
+      isRoleView={kind === 'roles' || kind === 'role'}
       payload={payload}
       onPlanOperation={onPlanOperation}
     />
@@ -103,230 +97,72 @@ function MongoPermissionsView({
 }
 
 function MongoPrincipalManagementView({
-  descriptor,
-  isRoleView,
-  payload,
-  onPlanOperation,
+  descriptor, isRoleView, payload, onPlanOperation,
 }: {
   descriptor: MongoObjectViewDescriptor
   isRoleView: boolean
   payload: JsonRecord
-  onPlanOperation?: MongoOperationPlanner
+  onPlanOperation?: MongoPrincipalPlanner
 }) {
-  const users = mongoRecordArray(payload.users)
-  const roles = mongoRecordArray(payload.roles)
   const database = mongoString(payload.database)
-  const records = isRoleView ? roles : users
-  const rows = isRoleView
-    ? roles.map((role) => [
-        mongoString(role.role ?? role.name),
-        securityReferencesText(role.roles ?? role.inheritedRoles),
-        privilegesText(role.privileges),
-      ])
-    : users.map((user) => [
-        mongoString(user.user ?? user.name),
-        securityReferencesText(user.roles),
-        userDetailsText(user),
-      ])
-  const roleReferenceCount = records.reduce((count, record) =>
-    count + mongoRecordArray(isRoleView ? record.roles ?? record.inheritedRoles : record.roles).length, 0)
-  const privilegeCount = records.reduce((count, record) =>
-    count + mongoRecordArray(record.privileges ?? record.inheritedPrivileges).length, 0)
-  const [principalName, setPrincipalName] = useState('')
-  const [passwordVariable, setPasswordVariable] = useState('')
-  const [assignedRole, setAssignedRole] = useState('readWrite')
-  const [assignedRoleDatabase, setAssignedRoleDatabase] = useState(database || 'admin')
-  const [privilegeDatabase, setPrivilegeDatabase] = useState(database || 'admin')
-  const [privilegeCollection, setPrivilegeCollection] = useState('')
-  const [privilegeActions, setPrivilegeActions] = useState('find, insert, update')
-  const [showCreateForm, setShowCreateForm] = useState(false)
-  const [validationError, setValidationError] = useState('')
+  const records = mongoRecordArray(isRoleView ? payload.roles : payload.users)
+  const [editor, setEditor] = useState<{ principal?: JsonRecord; key: number }>()
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
+  const noun = isRoleView ? 'role' : 'user'
+  const blocked = !onPlanOperation || !database || Boolean(payload.warning) || pending
+  const review: MongoPrincipalPlanner = async request => {
+    if (blocked) return
+    setPending(true)
+    setError('')
+    try { await onPlanOperation?.(request) } catch {
+      setError('The operation could not be completed. Review the application error and refresh before retrying.')
+    } finally { setPending(false) }
+  }
 
-  const reviewCreate = useCallback(() => {
-    const name = principalName.trim()
-    if (!name) {
-      setValidationError(isRoleView ? 'Role name is required.' : 'Username is required.')
-      return
-    }
-    const role = assignedRole.trim()
-    const roleDb = assignedRoleDatabase.trim() || database || 'admin'
-    if (!role) {
-      setValidationError('Assigned role is required.')
-      return
-    }
-    const passwordToken = passwordVariable.trim()
-    if (!isRoleView && passwordToken && !isVariableToken(passwordToken)) {
-      setValidationError('Use an environment secret variable such as {{MONGO_USER_PASSWORD}}.')
-      return
-    }
-    const roleAssignments = [{ role, db: roleDb }]
-    const actions = privilegeActions.split(',').map((action) => action.trim()).filter(Boolean)
-    const privileges = isRoleView && actions.length
-      ? [{
-          resource: {
-            db: privilegeDatabase.trim() || database || '',
-            collection: privilegeCollection.trim(),
-          },
-          actions,
-        }]
-      : []
-    setValidationError('')
-    setShowCreateForm(false)
-    onPlanOperation?.({
-      title: `${isRoleView ? 'Create role' : 'Create user'} ${name}`,
-      operationId: isRoleView ? 'mongodb.role.create' : 'mongodb.user.create',
-      objectName: name,
-      parameters: {
-        database,
-        name,
-        ...(!isRoleView && passwordToken ? { password: passwordToken } : {}),
-        roles: roleAssignments,
-        privileges,
-      },
-    })
-  }, [
-    assignedRole,
-    assignedRoleDatabase,
-    database,
-    isRoleView,
-    onPlanOperation,
-    passwordVariable,
-    principalName,
-    privilegeActions,
-    privilegeCollection,
-    privilegeDatabase,
-  ])
-  const reviewDrop = useCallback((name: string) => {
-    onPlanOperation?.({
-      title: `${isRoleView ? 'Drop role' : 'Drop user'} ${name}`,
-      operationId: isRoleView ? 'mongodb.role.drop' : 'mongodb.user.drop',
-      objectName: name,
-      parameters: { database, name },
-    })
-  }, [database, isRoleView, onPlanOperation])
-
-  return (
-    <div className="object-view-section">
-      <MongoContextStrip
-        eyebrow={isRoleView ? 'Database roles' : 'Database users'}
-        title={database || 'MongoDB'}
-        detail={`${rows.length} ${isRoleView ? 'role' : 'user'}${rows.length === 1 ? '' : 's'} returned`}
-        metrics={[
-          { label: isRoleView ? 'Roles' : 'Users', value: rows.length },
-          { label: 'Role references', value: roleReferenceCount },
-          ...(isRoleView ? [{ label: 'Privileges', value: privilegeCount }] : []),
-        ]}
-      />
-      <MongoResourceSection
-        eyebrow="Security inventory"
-        title={isRoleView ? 'Role inventory' : 'User inventory'}
-        description={isRoleView
-          ? 'Roles and their inherited access for this database.'
-          : 'Users visible to the connected identity.'}
-        actions={(
-          <button
-            type="button"
-            className="drawer-button"
-            disabled={!onPlanOperation}
-            aria-expanded={showCreateForm}
-            onClick={() => {
-              setValidationError('')
-              setShowCreateForm((current) => !current)
-            }}
-          >
-            {showCreateForm ? <CloseIcon className="panel-inline-icon" /> : <PlusIcon className="panel-inline-icon" />}
-            {showCreateForm ? 'Close' : isRoleView ? 'New role' : 'New user'}
-          </button>
-        )}
-      >
-        {showCreateForm ? (
-          <div className="mongo-inline-editor">
-            <div className="object-view-form-grid">
-              <label className="object-view-field">
-                <span>{isRoleView ? 'Role name' : 'Username'}</span>
-                <input value={principalName} onChange={(event) => setPrincipalName(event.target.value)} />
-              </label>
-              <label className="object-view-field">
-                <span>{isRoleView ? 'Inherited role' : 'Assigned role'}</span>
-                <input value={assignedRole} onChange={(event) => setAssignedRole(event.target.value)} />
-              </label>
-              <label className="object-view-field">
-                <span>Role database</span>
-                <input value={assignedRoleDatabase} onChange={(event) => setAssignedRoleDatabase(event.target.value)} />
-              </label>
-              {!isRoleView ? (
-                <label className="object-view-field">
-                  <span>Password variable</span>
-                  <input
-                    value={passwordVariable}
-                    onChange={(event) => setPasswordVariable(event.target.value)}
-                    placeholder="{{MONGO_USER_PASSWORD}}"
-                  />
-                </label>
-              ) : (
-                <>
-                  <label className="object-view-field">
-                    <span>Privilege database</span>
-                    <input value={privilegeDatabase} onChange={(event) => setPrivilegeDatabase(event.target.value)} />
-                  </label>
-                  <label className="object-view-field">
-                    <span>Privilege collection</span>
-                    <input value={privilegeCollection} onChange={(event) => setPrivilegeCollection(event.target.value)} />
-                  </label>
-                  <label className="object-view-field">
-                    <span>Actions</span>
-                    <input value={privilegeActions} onChange={(event) => setPrivilegeActions(event.target.value)} />
-                  </label>
-                </>
-              )}
-            </div>
-            {validationError ? <p className="object-view-status is-error">{validationError}</p> : null}
-            <div className="object-view-button-row">
-              <button type="button" className="drawer-button drawer-button--primary" onClick={reviewCreate}>
-                Review {isRoleView ? 'role' : 'user'} creation
+  return <div className="object-view-section">
+    <MongoContextStrip eyebrow={isRoleView ? 'Database roles' : 'Database users'} title={database || 'MongoDB'}
+      detail={`${records.length} ${noun}${records.length === 1 ? '' : 's'} returned`}
+      metrics={[{ label: isRoleView ? 'Roles' : 'Users', value: records.length }]} />
+    <MongoResourceSection eyebrow="Security inventory" title={isRoleView ? 'Role inventory' : 'User inventory'}
+      description="Native MongoDB administration. Changes require server privileges and confirmation; built-in roles are read-only. Atlas security is managed through its control plane."
+      actions={<button type="button" className="drawer-button" disabled={blocked} onClick={() => setEditor(current => ({ key: (current?.key ?? 0) + 1 }))}>
+        <PlusIcon className="panel-inline-icon" />New {noun}
+      </button>}>
+      {editor && onPlanOperation ? <MongoPrincipalEditor key={editor.key} database={database} isRole={isRoleView}
+        principal={editor.principal} onReview={review} onCancel={() => setEditor(undefined)} /> : null}
+      {error ? <p role="alert" className="object-view-status is-error">{error}</p> : null}
+      {records.length ? <div className="object-view-table-wrap"><table className="object-view-table">
+        <thead><tr>{[isRoleView ? 'Role' : 'User', 'Database', isRoleView ? 'Inherited roles' : 'Roles', isRoleView ? 'Privileges' : 'Details', 'Actions']
+          .map(column => <th key={column}>{column}</th>)}</tr></thead>
+        <tbody>{records.map(record => {
+          const name = mongoString(record[isRoleView ? 'role' : 'user'] ?? record.name)
+          const owner = mongoString(record.db) || database
+          const builtin = record.isBuiltin === true
+          const disabled = blocked || builtin || !name
+          const reason = builtin ? 'Built-in MongoDB roles are read-only.' : undefined
+          return <tr key={`${owner}:${name}`}>
+            <td>{name}{builtin ? ' (built-in)' : ''}</td><td>{owner}</td>
+            <td>{securityReferencesText(record.roles)}</td>
+            <td>{isRoleView ? privilegesText(record.privileges) : userDetailsText(record)}</td>
+            <td><div className="object-view-button-row">
+              <button type="button" className="object-view-icon-action" aria-label={`Edit ${noun} ${name}`}
+                disabled={disabled} title={reason ?? `Edit ${noun}`}
+                onClick={() => setEditor(current => ({ principal: record, key: (current?.key ?? 0) + 1 }))}>
+                <RenameIcon className="toolbar-icon" />
               </button>
-            </div>
-          </div>
-        ) : null}
-        {rows.length ? (
-          <div className="object-view-table-wrap">
-            <table className="object-view-table">
-              <thead>
-                <tr>
-                  {(isRoleView
-                    ? ['Role', 'Inherited roles', 'Privileges', 'Actions']
-                    : ['User', 'Roles', 'Details', 'Actions'])
-                    .map((column) => <th key={column}>{column}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const name = row[0] ?? ''
-                  return (
-                    <tr key={row.join('|')}>
-                      {row.map((cell, index) => <td key={`${name}:${index}`}>{cell}</td>)}
-                      <td>
-                        <button
-                          type="button"
-                          className="object-view-icon-action is-danger"
-                          aria-label={isRoleView ? `Drop role ${name}` : `Drop user ${name}`}
-                          disabled={!onPlanOperation || !name}
-                          title={isRoleView ? 'Review role removal' : 'Review user removal'}
-                          onClick={() => reviewDrop(name)}
-                        >
-                          <TrashIcon className="toolbar-icon" />
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : <PurposeEmptyState descriptor={descriptor} />}
-      </MongoResourceSection>
-    </div>
-  )
+              <button type="button" className="object-view-icon-action is-danger" aria-label={`Drop ${noun} ${name}`}
+                disabled={disabled} title={reason ?? `Review ${noun} removal`}
+                onClick={() => void review({ title: `Drop ${noun} ${name}`, operationId: `mongodb.${noun}.drop`,
+                  objectName: name, parameters: { database: owner, name } })}>
+                <TrashIcon className="toolbar-icon" />
+              </button>
+            </div></td>
+          </tr>
+        })}</tbody>
+      </table></div> : <PurposeEmptyState descriptor={descriptor} />}
+    </MongoResourceSection>
+  </div>
 }
 
 function permissionRows(user: JsonRecord, database: string, collection: string): string[][] {
@@ -405,8 +241,4 @@ function userDetailsText(user: JsonRecord) {
   const mechanisms = Array.isArray(user.mechanisms) ? user.mechanisms.map(String).filter(Boolean) : []
   const privileges = privilegesText(user.privileges ?? user.inheritedPrivileges)
   return [...mechanisms, ...(privileges === 'None' ? [] : [privileges])].join('; ') || 'No additional details'
-}
-
-function isVariableToken(value: string) {
-  return /^\{\{[A-Z][A-Z0-9_]*\}\}$/.test(value)
 }

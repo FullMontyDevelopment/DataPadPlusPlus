@@ -7901,6 +7901,28 @@ button:disabled:hover {
   background: var(--panel-bg-alt);
 }
 
+.mongo-principal-fields {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+
+.mongo-principal-fields textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+  font-family: var(--font-mono);
+}
+
+.mongo-principal-role-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
 .mongo-validation-summary,
 .mongo-capability-note,
 .mongo-inline-warning {

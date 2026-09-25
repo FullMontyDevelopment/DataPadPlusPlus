@@ -249,7 +249,7 @@ export function MongoObjectViewWorkspace({
 
       <div className="object-view-body">
         {renderMongoObjectView(kind, descriptor, payload, onOpenQuery, queryTarget, {
-          onPlanOperation: planMongoOperation,
+          onPlanOperation: connection.readOnly ? undefined : planMongoOperation,
           onUploadDocument: uploadMongoDocument,
           onOpenToolView: openMongoToolView,
         })}
@@ -261,7 +261,8 @@ export function MongoObjectViewWorkspace({
 }
 
 function isMongoManagementOperation(operationId: string) {
-  return operationId === 'mongodb.database.create' ||
+  return /^mongodb\.(user|role)\.(create|update|drop)$/.test(operationId) ||
+    operationId === 'mongodb.database.create' ||
     operationId === 'mongodb.database.drop' ||
     operationId === 'mongodb.collection.create' ||
     operationId === 'mongodb.collection.drop' ||
@@ -280,7 +281,7 @@ function renderMongoObjectView(
   onOpenQuery: (target: ScopedQueryTarget) => void,
   queryTarget?: ScopedQueryTarget,
   actions?: {
-    onPlanOperation: MongoOperationPlanner
+    onPlanOperation?: MongoOperationPlanner
     onUploadDocument(document: JsonRecord): Promise<void>
     onOpenToolView?(toolKind: 'insert-document' | 'create-index', label: string): void
   },
@@ -348,7 +349,7 @@ function renderMongoObjectView(
     return <MongoStatisticsView descriptor={descriptor} payload={payload} />
   }
 
-  if (kind === 'permissions' || kind === 'users' || kind === 'roles') {
+  if (kind === 'permissions' || kind === 'users' || kind === 'roles' || kind === 'user' || kind === 'role') {
     return <MongoSecurityView kind={kind} descriptor={descriptor} payload={payload} onPlanOperation={actions?.onPlanOperation} />
   }
 

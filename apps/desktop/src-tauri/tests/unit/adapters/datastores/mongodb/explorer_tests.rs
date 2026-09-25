@@ -9,6 +9,33 @@ use crate::domain::models::ResolvedConnectionProfile;
 use mongodb::bson::{doc, spec::BinarySubtype, Binary};
 
 #[test]
+fn mongodb_section_inspection_routes_match_expansion_and_legacy_tabs() {
+    let connection = resolved_connection(Some("catalog"));
+    for node in mongodb_database_children(&connection, "admin") {
+        if let Some(scope) = node.scope {
+            assert_eq!(node.id, scope);
+            assert_eq!(
+                super::normalize_mongodb_inspection_id(&format!("admin:{}", node.kind)),
+                scope
+            );
+            assert_eq!(super::normalize_mongodb_inspection_id(&scope), scope);
+        }
+    }
+    assert_eq!(
+        super::normalize_mongodb_inspection_id("user:admin:read:eu"),
+        "user:admin:read:eu"
+    );
+    assert_eq!(
+        super::normalize_mongodb_inspection_id("user:admin:roles"),
+        "user:admin:roles"
+    );
+    assert_eq!(
+        super::normalize_mongodb_inspection_id("collection:catalog:users"),
+        "collection:catalog:users"
+    );
+}
+
+#[test]
 fn mongodb_root_nodes_separate_user_and_system_databases() {
     let connection = resolved_connection(None);
     let nodes = mongodb_root_database_nodes(

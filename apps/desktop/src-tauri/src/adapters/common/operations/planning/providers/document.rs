@@ -282,11 +282,37 @@ pub(super) fn document_operation_request(
         .unwrap_or_else(|_| "{}".into());
     }
 
+    if operation_id.ends_with("user.update") || operation_id.ends_with("role.update") {
+        let user = operation_id.ends_with("user.update");
+        let mut command = serde_json::Map::from_iter([
+            ("database".into(), serde_json::json!(database)),
+            (
+                if user { "updateUser" } else { "updateRole" }.into(),
+                serde_json::json!(principal_name),
+            ),
+        ]);
+        for key in [
+            "roles",
+            "privileges",
+            "customData",
+            "mechanisms",
+            "authenticationRestrictions",
+        ] {
+            if let Some(value) = parameter(key) {
+                command.insert(key.into(), value.clone());
+            }
+        }
+        if parameter("password").is_some() {
+            command.insert("pwd".into(), serde_json::json!("<environment secret>"));
+        }
+        return serde_json::to_string_pretty(&command).unwrap_or_else(|_| "{}".into());
+    }
+
     if operation_id.ends_with("user.create") {
         return serde_json::to_string_pretty(&serde_json::json!({
             "database": database,
             "createUser": principal_name,
-            "pwd": parameter("password").cloned().unwrap_or_else(|| serde_json::json!("<secret>")),
+            "pwd": "<environment secret>",
             "roles": parameter("roles").cloned().unwrap_or_else(|| serde_json::json!([]))
         }))
         .unwrap_or_else(|_| "{}".into());

@@ -40,6 +40,7 @@ The [website documentation](https://datapad-plus-plus.org/docs) is the canonical
 - SQL-family tabs provide a raw editor, metadata-aware completion, bounded execution, query plans, and target scope appropriate to the engine.
 - Database/schema selectors carry session scope outside the SQL text where the datastore supports it; generated queries do not need a user-authored `USE` statement.
 - MongoDB supports find, aggregation, raw JSON, and guarded script workflows.
+- MongoDB database users and custom roles support guarded create, edit and removal; built-in roles stay read-only. See [MongoDB Administration](mongodb-administration.md) for secret-variable passwords, scope and deployment limitations.
 - Redis and Valkey provide a key browser plus a read-oriented command console.
 - Search, graph, time-series, analytical, cloud, document, and wide-column engines use their native query language or bounded protocol workflow.
 - Visual query builders share strict inputs for strings, finite numbers, booleans, dates, UUID/GUID values, MongoDB ObjectIds, JSON, and multi-value operators.

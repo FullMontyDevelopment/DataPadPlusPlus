@@ -206,6 +206,70 @@ pub(super) async fn inspect_mongodb_explorer_node(
     connection: &ResolvedConnectionProfile,
     request: &ExplorerInspectRequest,
 ) -> Result<ExplorerInspectResponse, CommandError> {
+    let mut scoped_request = request.clone();
+    scoped_request.node_id = normalize_mongodb_inspection_id(&request.node_id);
+    let mut response = inspect_mongodb_scoped_node(connection, &scoped_request).await?;
+    response.node_id = request.node_id.clone();
+    Ok(response)
+}
+
+// Earlier desktop builds reversed database-section IDs; browser previews did not.
+// Keep saved object tabs working while using scope-shaped IDs for new tree nodes.
+fn normalize_mongodb_inspection_id(node_id: &str) -> String {
+    const SECTIONS: &[&str] = &[
+        "collections",
+        "views",
+        "time-series-collections",
+        "capped-collections",
+        "gridfs",
+        "search-indexes",
+        "vector-indexes",
+        "users",
+        "roles",
+        "database-statistics",
+    ];
+    if let Some((prefix, _)) = node_id.split_once(':') {
+        if SECTIONS.contains(&prefix)
+            || [
+                "database",
+                "user",
+                "role",
+                "collection",
+                "documents",
+                "index",
+                "indexes",
+                "schema-preview",
+                "insert-document",
+                "create-index",
+                "collection-statistics",
+                "collection-permissions",
+                "collection-scripts",
+                "validation-rules",
+                "view-pipeline",
+                "view",
+                "gridfs-buckets",
+                "gridfs-bucket",
+                "gridfs-files",
+                "gridfs-chunks",
+                "collection-admin",
+            ]
+            .contains(&prefix)
+        {
+            return node_id.into();
+        }
+    }
+    if let Some((database, section)) = node_id.rsplit_once(':') {
+        if SECTIONS.contains(&section) {
+            return format!("{section}:{database}");
+        }
+    }
+    node_id.into()
+}
+
+async fn inspect_mongodb_scoped_node(
+    connection: &ResolvedConnectionProfile,
+    request: &ExplorerInspectRequest,
+) -> Result<ExplorerInspectResponse, CommandError> {
     let client = mongodb_client(connection).await?;
     let fallback_database = mongodb_database_name(connection);
     let node_id = request.node_id.as_str();
@@ -232,6 +296,23 @@ pub(super) async fn inspect_mongodb_explorer_node(
 
     if let Some(response) = inspect_gridfs_node(&client, request, &fallback_database).await {
         return Ok(response);
+    }
+
+    if let Some(database_name) = node_id
+        .strip_prefix("search-indexes:")
+        .or_else(|| node_id.strip_prefix("vector-indexes:"))
+    {
+        return Ok(ExplorerInspectResponse {
+            node_id: request.node_id.clone(),
+            summary: "Search/vector index management depends on the connected MongoDB deployment."
+                .into(),
+            query_template: None,
+            payload: Some(json!({
+                "database": database_name,
+                "indexes": [],
+                "warning": "This database-wide view does not load Atlas Search/vector indexes. Use the deployment's supported collection-level $listSearchIndexes command or Atlas administration."
+            })),
+        });
     }
 
     if let Some(rest) = node_id.strip_prefix("schema-preview:") {
@@ -576,7 +657,16 @@ pub(super) async fn inspect_mongodb_explorer_node(
         .await);
     }
 
-    if let Some(database_name) = node_id.strip_prefix("database:") {
+    if let Some(database_name) = [
+        "database:",
+        "collections:",
+        "views:",
+        "time-series-collections:",
+        "capped-collections:",
+    ]
+    .iter()
+    .find_map(|prefix| node_id.strip_prefix(prefix))
+    {
         let database = client.database(database_name);
         let infos = list_collection_infos(&database).await?;
         let stats = database
@@ -1276,7 +1366,7 @@ fn mongodb_section_node(
     detail: &str,
 ) -> ExplorerNode {
     ExplorerNode {
-        id: format!("{database_name}:{scope_prefix}"),
+        id: format!("{scope_prefix}:{database_name}"),
         family: "document".into(),
         label: label.into(),
         kind: scope_prefix.into(),
@@ -1355,7 +1445,10 @@ async fn list_role_nodes(
     database_name: &str,
     limit: usize,
 ) -> Vec<ExplorerNode> {
-    match database.run_command(doc! { "rolesInfo": 1 }).await {
+    match database
+        .run_command(doc! { "rolesInfo": 1, "showBuiltinRoles": true })
+        .await
+    {
         Ok(response) => response
             .get_array("roles")
             .map(|roles| {
@@ -1407,9 +1500,9 @@ async fn inspect_users_or_roles(
     users: bool,
 ) -> ExplorerInspectResponse {
     let command = if users {
-        doc! { "usersInfo": 1 }
+        doc! { "usersInfo": 1, "showCredentials": false }
     } else {
-        doc! { "rolesInfo": 1 }
+        doc! { "rolesInfo": 1, "showPrivileges": true, "showBuiltinRoles": true }
     };
     let label = if users { "users" } else { "roles" };
     let query_command = command.clone();
@@ -1449,14 +1542,17 @@ async fn inspect_mongodb_principal(
     let identity_key = if user { "user" } else { "role" };
     let result_key = if user { "users" } else { "roles" };
     let command_key = if user { "usersInfo" } else { "rolesInfo" };
-    let command = doc! {
+    let mut command = doc! {
         (command_key): {
             (identity_key): principal_name,
             "db": database_name,
         },
         "showPrivileges": true,
-        "showCredentials": false,
+        "showAuthenticationRestrictions": true,
     };
+    if user {
+        command.insert("showCredentials", false);
+    }
     let query_command = command.clone();
 
     match database.run_command(command).await {
@@ -1521,6 +1617,10 @@ fn mongodb_principal_payload(principal: &Document, identity_key: &str) -> Value 
     json!({
         (identity_key): principal.get_str(identity_key).unwrap_or_default(),
         "db": principal.get_str("db").unwrap_or_default(),
+        "isBuiltin": principal.get_bool("isBuiltin").unwrap_or(false),
+        "mechanisms": array_payload("mechanisms"),
+        "customData": principal.get_document("customData").ok().map(mongodb_document_to_json),
+        "authenticationRestrictions": array_payload("authenticationRestrictions"),
         "roles": array_payload("roles"),
         "inheritedRoles": array_payload("inheritedRoles"),
         "privileges": array_payload("privileges"),

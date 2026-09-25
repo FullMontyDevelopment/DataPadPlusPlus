@@ -62,6 +62,12 @@ fn mongodb_operation_manifest_exposes_native_management_previews() {
     );
     for operation_id in [
         "mongodb.database.create",
+        "mongodb.user.create",
+        "mongodb.user.update",
+        "mongodb.user.drop",
+        "mongodb.role.create",
+        "mongodb.role.update",
+        "mongodb.role.drop",
         "mongodb.database.drop",
         "mongodb.collection.create",
         "mongodb.collection.drop",

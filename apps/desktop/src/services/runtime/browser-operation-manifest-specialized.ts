@@ -141,8 +141,10 @@ function buildMongoOperationManifests(
   if (connection.engine === 'mongodb' && capabilities.has('supports_user_role_browser')) {
     operations.push(
       mongoUserRoleOperation(connection, 'mongodb.user.create', 'Create User', 'user', 'write'),
+      mongoUserRoleOperation(connection, 'mongodb.user.update', 'Edit User', 'user', 'write'),
       mongoUserRoleOperation(connection, 'mongodb.user.drop', 'Drop User', 'user', 'destructive'),
       mongoUserRoleOperation(connection, 'mongodb.role.create', 'Create Role', 'role', 'write'),
+      mongoUserRoleOperation(connection, 'mongodb.role.update', 'Edit Role', 'role', 'write'),
       mongoUserRoleOperation(connection, 'mongodb.role.drop', 'Drop Role', 'role', 'destructive'),
     )
   }
@@ -195,7 +197,7 @@ function mongoUserRoleOperation(
     description: `Preview ${label.toLowerCase()} for MongoDB database security.`,
     requiresConfirmation: true,
     executionSupport: 'plan-only',
-    disabledReason: 'MongoDB user and role management is guarded and preview-only in this milestone.',
+    disabledReason: 'MongoDB user and role execution requires the desktop adapter and server administration privileges.',
     previewOnly: true,
   }
 }

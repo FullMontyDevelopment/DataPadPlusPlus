@@ -11,7 +11,7 @@ export function ObjectViewWorkspace(props: ObjectViewWorkspaceProps) {
           <div className="object-view-warning">Refresh to load current data.</div>
         </div>
       ) : null}
-      <ProviderWorkspace {...props} />
+      <ProviderWorkspace key={`${props.connection.id}:${props.environment.id}:${props.tab.id}`} {...props} />
     </>
   )
 }

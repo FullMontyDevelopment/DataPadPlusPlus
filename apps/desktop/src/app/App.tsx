@@ -2984,9 +2984,8 @@ function DesktopWorkspace() {
     ? snapshot.tabs.find((tab) => tab.id === pendingSaveTabId)
     : undefined
   const drawerConnection =
-    snapshot.ui.rightDrawer === 'connection' && connectionDraft
-      ? connectionDraft
-      : activeConnection
+    connectionDraft ??
+    snapshot.connections.find(connection => connection.id === snapshot.ui.activeConnectionId)
   const drawerConnectionHealth =
     drawerConnection && activeEnvironment
       ? getConnectionHealth(drawerConnection.id, activeEnvironment.id)
@@ -3130,9 +3129,10 @@ function DesktopWorkspace() {
   }
 
   const openConnectionDrawer = () => {
-    setConnectionDraft(undefined)
+    // Capture this invocation's target; an open tab must never retarget the editor.
+    setConnectionDraft(activeConnection)
     setConnectionDraftParentId(undefined)
-    if (snapshot?.ui.activeConnectionId) {
+    if (activeConnection) {
       void actions.updateUiState({
         activeActivity: 'library',
         activeSidebarPane: 'library',

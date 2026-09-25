@@ -140,7 +140,7 @@ pub(super) fn extend_mongodb(
     }
 
     if manifest.engine == "mongodb" && manifest_has(manifest, "supports_user_role_browser") {
-        operations.extend([
+        let mut principals = vec![
             operation_manifest(
                 manifest,
                 "user.create",
@@ -149,7 +149,18 @@ pub(super) fn extend_mongodb(
                 "write",
                 &["supports_user_role_browser"],
                 &["diff", "raw"],
-                "Preview creating a MongoDB database user with assigned roles.",
+                "Create a MongoDB database user with assigned roles after confirmation.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "user.update",
+                "Edit User",
+                "user",
+                "write",
+                &["supports_user_role_browser"],
+                &["diff", "raw"],
+                "Update selected user properties; role assignments replace the existing list.",
                 true,
             ),
             operation_manifest(
@@ -160,7 +171,7 @@ pub(super) fn extend_mongodb(
                 "destructive",
                 &["supports_user_role_browser"],
                 &["diff", "raw"],
-                "Preview dropping a MongoDB database user.",
+                "Drop a MongoDB database user after confirmation.",
                 true,
             ),
             operation_manifest(
@@ -171,7 +182,18 @@ pub(super) fn extend_mongodb(
                 "write",
                 &["supports_user_role_browser"],
                 &["diff", "raw"],
-                "Preview creating a MongoDB role with privileges and inherited roles.",
+                "Create a MongoDB role with privileges and inherited roles after confirmation.",
+                true,
+            ),
+            operation_manifest(
+                manifest,
+                "role.update",
+                "Edit Role",
+                "role",
+                "write",
+                &["supports_user_role_browser"],
+                &["diff", "raw"],
+                "Update a custom role's privileges and inheritance after confirmation.",
                 true,
             ),
             operation_manifest(
@@ -182,10 +204,16 @@ pub(super) fn extend_mongodb(
                 "destructive",
                 &["supports_user_role_browser"],
                 &["diff", "raw"],
-                "Preview dropping a MongoDB database role.",
+                "Drop a custom MongoDB role after confirmation.",
                 true,
             ),
-        ]);
+        ];
+        for operation in &mut principals {
+            operation.execution_support = "live".into();
+            operation.disabled_reason = None;
+            operation.preview_only = Some(false);
+        }
+        operations.extend(principals);
     }
 
     if manifest.engine == "mongodb" && manifest_has(manifest, "supports_import_export") {

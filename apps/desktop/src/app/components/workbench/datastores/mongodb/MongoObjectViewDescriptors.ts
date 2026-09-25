@@ -229,7 +229,7 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     menuLabel: 'Manage Users',
     title: 'Users',
     purpose: 'Review database users, assigned roles, authentication details, and user management changes.',
-    primaryActions: ['Review users', 'Create user', 'Drop user'],
+    primaryActions: ['Review users', 'Create user', 'Edit user', 'Drop user'],
     emptyTitle: 'No users were returned',
     emptyDescription: 'The connected user may not have usersInfo privileges, or this database has no user records available to this login.',
   },
@@ -238,7 +238,7 @@ const DESCRIPTORS: Record<string, MongoObjectViewDescriptor> = {
     menuLabel: 'Manage Roles',
     title: 'Roles',
     purpose: 'Review role inheritance, privileges, and role management changes.',
-    primaryActions: ['Review roles', 'Create role', 'Drop role'],
+    primaryActions: ['Review roles', 'Create role', 'Edit role', 'Drop role'],
     emptyTitle: 'No roles were returned',
     emptyDescription: 'The connected user may not have rolesInfo privileges, or this database has no role records available to this login.',
   },
@@ -256,6 +256,8 @@ const DEFAULT_DESCRIPTOR: MongoObjectViewDescriptor = {
 
 const LEGACY_KIND_ALIASES: Record<string, string> = {
   'sample-results': 'view-results',
+  user: 'users',
+  role: 'roles',
 }
 
 function normalizeMongoDescriptorKind(kind: string) {
@@ -294,7 +296,7 @@ export function mongoScopedQueryMenuLabel(kind: string | undefined): string {
   return 'Open Query'
 }
 
-export const MONGO_OBJECT_VIEW_KINDS = Object.freeze(Object.keys(DESCRIPTORS))
+export const MONGO_OBJECT_VIEW_KINDS = Object.freeze([...Object.keys(DESCRIPTORS), 'user', 'role'])
 
 export const MONGO_QUERYABLE_OBJECT_KINDS = Object.freeze([
   'collection',

@@ -15,6 +15,7 @@ mod import_export;
 mod management;
 mod metadata;
 mod paging;
+mod principals;
 mod query;
 mod script;
 mod script_cancellation;
@@ -37,6 +38,47 @@ pub(crate) struct MongoDbAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for MongoDbAdapter {
+    async fn plan_operation(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        operation_id: &str,
+        object_name: Option<&str>,
+        parameters: Option<&BTreeMap<String, Value>>,
+    ) -> Result<OperationPlan, CommandError> {
+        let mut plan = default_operation_plan(
+            connection,
+            &self.manifest(),
+            operation_id,
+            object_name,
+            parameters,
+        );
+        if principals::is_principal_operation(operation_id) {
+            let (database, mut command) = principals::principal_command(
+                operation_id,
+                object_name,
+                &parameters.cloned().unwrap_or_default(),
+            )?;
+            let command_name = command.keys().next().cloned().unwrap_or_default();
+            let name = command
+                .get_str(&command_name)
+                .unwrap_or_default()
+                .to_owned();
+            if command.contains_key("pwd") {
+                command.insert("pwd", "<environment secret>");
+            }
+            command.insert("database", &database);
+            plan.generated_request = serde_json::to_string_pretty(&command).map_err(|_| {
+                CommandError::new(
+                    "mongodb-principal-preview",
+                    "Unable to prepare the MongoDB management review.",
+                )
+            })?;
+            plan.summary = format!("{command_name} for {name} in database {database}.");
+            plan.warnings.push("Role and privilege arrays replace the complete previous list. Native user/role commands may be unavailable on managed services such as Atlas.".into());
+        }
+        Ok(plan)
+    }
+
     fn supports_standard_live_operations(&self) -> bool {
         true
     }
@@ -50,6 +92,12 @@ impl DatastoreAdapter for MongoDbAdapter {
         messages: Vec<String>,
         warnings: Vec<String>,
     ) -> Result<OperationExecutionResponse, CommandError> {
+        if principals::is_principal_operation(&request.operation_id) {
+            return principals::execute_principal_operation(
+                connection, request, operation, plan, messages, warnings,
+            )
+            .await;
+        }
         if matches!(
             request.operation_id.as_str(),
             "mongodb.collection.export" | "mongodb.collection.import"

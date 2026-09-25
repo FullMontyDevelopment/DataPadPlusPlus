@@ -148,7 +148,7 @@ fn mongodb_user_create_can_use_secret_variable_password_source() {
 
     assert_eq!(value["database"], "catalog");
     assert_eq!(value["createUser"], "reporting");
-    assert_eq!(value["pwd"], "{{MONGO_USER_PASSWORD}}");
+    assert_eq!(value["pwd"], "<environment secret>");
     assert_eq!(value["roles"][0]["role"], "read");
 }
 

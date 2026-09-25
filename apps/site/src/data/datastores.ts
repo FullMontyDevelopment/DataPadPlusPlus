@@ -411,6 +411,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     ],
     adminFeatures: [
       'Review index management, validation views, GridFS tools, schema previews, document insert/upload workflows, users, roles, and guarded bulk-write previews.',
+      'On supported self-managed MongoDB servers, create, edit and delete database users and custom roles through confirmed native commands. Assign multiple roles, edit privileges and advanced authentication options; built-in roles stay read-only. Browser preview is plan-only, and Atlas security requires its control plane.',
     ],
     diagnostics: [
       'Review explain dashboards, profiler data, current operations, replica posture, shard posture, index usage, database statistics, and performance payloads.',

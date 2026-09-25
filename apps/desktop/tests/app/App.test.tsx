@@ -490,6 +490,27 @@ describe('App', () => {
     expect(screen.getByLabelText('Query editor')).toHaveValue('select 2;')
   })
 
+  it('restores the connection editor from its selected connection, not the active query tab', async () => {
+    const snapshot = createBlankBootstrapPayload().snapshot
+    snapshot.environments = [testEnvironment('env-local', 'Local')]
+    snapshot.connections = [startupConnection('query-connection', 'Query database'), startupConnection('edited-connection', 'Edited database')]
+    snapshot.tabs = [{
+      id: 'query-tab', title: 'Still open.sql', connectionId: 'query-connection', environmentId: 'env-local',
+      family: 'sql', language: 'sql', editorLabel: 'SQL editor', queryText: 'select 1;',
+      status: 'idle', dirty: false, history: [],
+    }]
+    snapshot.ui.activeTabId = 'query-tab'
+    snapshot.ui.activeConnectionId = 'edited-connection'
+    snapshot.ui.activeEnvironmentId = 'env-local'
+    snapshot.ui.rightDrawer = 'connection'
+    snapshot.preferences.firstInstallGuide = { status: 'skipped', updatedAt: '2026-09-25T00:00:00Z' }
+    saveBrowserSnapshot(snapshot)
+    render(<App />)
+    const drawer = await screen.findByLabelText('connection drawer')
+    expect(within(drawer).getByLabelText('Name')).toHaveValue('Edited database')
+    expect(screen.getByRole('tab', { name: /Still open/ })).toHaveAttribute('aria-selected', 'true')
+  })
+
   it('opens Updates settings from the pre-release status indicator', async () => {
     const payload = createBlankBootstrapPayload()
     payload.health.runtime = 'tauri'
@@ -1077,6 +1098,25 @@ describe('App', () => {
         name: 'Save Connection',
       }),
     ).toBeInTheDocument()
+  })
+
+  it('edits the Explorer connection without adopting the open query tab connection', async () => {
+    render(<App />)
+    await createFirstConnection()
+    const createDrawer = await openConnectionDraft()
+    fireEvent.change(within(createDrawer).getByLabelText('Name'), { target: { value: 'Reporting connection' } })
+    await saveConnectionDraft(createDrawer, { createQueryTab: false })
+    fireEvent.click(screen.getByRole('tab', { name: /Query 1/i }))
+
+    fireEvent.contextMenu(getConnectionRow('Reporting connection'))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit connection Reporting connection' }))
+    const editDrawer = await screen.findByLabelText('connection drawer')
+    expect(within(editDrawer).getByLabelText('Name')).toHaveValue('Reporting connection')
+    fireEvent.change(within(editDrawer).getByLabelText('Name'), { target: { value: 'Reporting renamed' } })
+    await saveConnectionDraft(editDrawer, { createQueryTab: false })
+    expect(getConnectionRow('PostgreSQL connection')).toBeInTheDocument()
+    expect(getConnectionRow('Reporting renamed')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Query 1/i })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('creates a query from the connection context menu without opening connection details', async () => {

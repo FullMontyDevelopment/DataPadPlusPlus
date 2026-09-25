@@ -6,6 +6,17 @@ import { mongoInspectPayload } from '../../../../../src/services/runtime/datasto
 import { mongoInspectQueryTemplate } from '../../../../../src/services/runtime/datastores/mongodb/browser-mongo-query-templates'
 
 describe('browser Mongo explorer slice', () => {
+  it('inspects legacy desktop section IDs in their own database, not the connection default', () => {
+    const connection = mongoConnection('catalog')
+    for (const kind of ['users', 'roles', 'database-statistics', 'gridfs']) {
+      expect(mongoInspectPayload(connection, `admin:${kind}`))
+        .toEqual(mongoInspectPayload(connection, `${kind}:admin`))
+      expect(mongoInspectQueryTemplate(connection, `admin:${kind}`))
+        .toEqual(mongoInspectQueryTemplate(connection, `${kind}:admin`))
+    }
+    expect(mongoInspectPayload(connection, 'admin:users')).toMatchObject({ database: 'admin' })
+    expect(mongoInspectPayload(connection, 'user:admin:roles')).toMatchObject({ users: [expect.objectContaining({ user: 'roles' })] })
+  })
   it('renders native database roots without forcing a selected database', () => {
     const connection = mongoConnection(undefined)
 

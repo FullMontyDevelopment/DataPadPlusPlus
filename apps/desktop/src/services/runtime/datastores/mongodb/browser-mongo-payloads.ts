@@ -1,11 +1,13 @@
 import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import {
   parseMongoCollectionAdminScope,
+  normalizeMongoInspectionNodeId,
   parseMongoDatabaseScope,
   parseMongoObjectScopeStrict,
 } from './browser-mongo-helpers'
 
 export function mongoInspectPayload(connection: ConnectionProfile, nodeId: string) {
+  nodeId = normalizeMongoInspectionNodeId(nodeId)
   const database = connection.database?.trim()
 
   if (nodeId === 'databases' || nodeId === 'mongodb-databases') {

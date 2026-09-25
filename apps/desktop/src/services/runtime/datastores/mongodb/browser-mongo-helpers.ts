@@ -1,5 +1,21 @@
 import type { ExplorerNode } from '@datapadplusplus/shared-types'
 
+export function normalizeMongoInspectionNodeId(nodeId: string) {
+  const sections = ['collections', 'views', 'time-series-collections', 'capped-collections',
+    'gridfs', 'search-indexes', 'vector-indexes', 'users', 'roles', 'database-statistics']
+  const prefix = nodeId.split(':')[0] ?? ''
+  if (sections.includes(prefix) || ['database', 'user', 'role', 'collection', 'documents',
+    'index', 'indexes', 'schema-preview', 'insert-document', 'create-index',
+    'collection-statistics', 'collection-permissions', 'collection-scripts', 'validation-rules',
+    'view-pipeline', 'view', 'gridfs-buckets', 'gridfs-bucket', 'gridfs-files', 'gridfs-chunks',
+    'collection-admin'].includes(prefix)) return nodeId
+  const separator = nodeId.lastIndexOf(':')
+  const section = nodeId.slice(separator + 1)
+  return separator > 0 && sections.includes(section)
+    ? `${section}:${nodeId.slice(0, separator)}`
+    : nodeId
+}
+
 interface MongoObjectScope {
   databaseName?: string
   objectName: string

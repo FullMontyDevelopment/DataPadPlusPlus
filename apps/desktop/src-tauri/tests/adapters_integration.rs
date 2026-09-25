@@ -21,6 +21,9 @@ use serde_json::json;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::Executor;
 
+#[path = "support/mongodb_principals.rs"]
+mod mongodb_principals;
+
 fn fixtures_enabled() -> bool {
     env::var("DATAPADPLUSPLUS_FIXTURE_RUN").unwrap_or_default() == "1"
 }
@@ -3178,6 +3181,7 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         connection.port.unwrap_or(27017)
     );
     let client = mongodb::Client::with_uri_str(mongo_uri).await?;
+    mongodb_principals::validate_principals(&connection, &client).await?;
     let imported_document = client
         .database(database)
         .collection::<mongodb::bson::Document>(&import_collection)

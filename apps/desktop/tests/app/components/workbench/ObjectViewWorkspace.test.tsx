@@ -877,7 +877,7 @@ describe('ObjectViewWorkspace', () => {
     expect(screen.getByText(/usersInfo privileges/i)).toBeInTheDocument()
   })
 
-  it('previews Mongo user management operations from the users view', () => {
+  it('previews Mongo user management operations from the users view', async () => {
     const onPlanOperation = vi.fn(async (): Promise<OperationPlanResponse> => operationPlanResponse('mongodb.user.create'))
 
     render(
@@ -927,6 +927,7 @@ describe('ObjectViewWorkspace', () => {
       }),
     }))
 
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Drop user reporting' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'Drop user reporting' }))
     expect(onPlanOperation).toHaveBeenCalledWith(expect.objectContaining({
       operationId: 'mongodb.user.drop',

@@ -852,6 +852,14 @@ const legacyDocArticles: LegacyDocArticle[] = [
         title: 'Use guarded document edits',
         body: 'Document edits and script mutations share read-only checks and environment confirmations. The script sandbox cannot access files, processes, packages, or arbitrary networks, and cancellation aborts any open transaction.',
       },
+      {
+        title: 'Manage database users and roles',
+        body: 'Expand the owning database, including System Databases → admin, then open Manage Users or Manage Roles. Use New user/New role, the edit pencil or delete action. Assign multiple roles with their database, and edit native privilege JSON for custom roles. Review and confirm changes; complete role and privilege arrays replace their previous lists. Built-in roles stay read-only.',
+      },
+      {
+        title: 'Keep administration credentials and targets safe',
+        body: 'Use an environment secret variable such as {{MONGO_USER_PASSWORD}} for a new or replacement password. Leave it blank on edits to preserve the existing password. Advanced options are optional and blank fields stay unchanged. The owning database is explicit, failed or canceled reviews retain the draft, and switching tabs cannot transfer it to a different target. Desktop server privileges are required; browser preview is plan-only and Atlas user/role administration uses its control plane.',
+      },
     ],
   },
   {
