@@ -657,12 +657,9 @@ static object ImportCollection(LiteDatabase db, SidecarRequest envelope)
         throw new SidecarException("litedb-import-source-missing", "LiteDB import source file does not exist.");
     }
 
+    // A source file can contain multiple documents, whitespace and expanded
+    // Extended JSON. LiteDB enforces each document's encoded BSON size.
     var sourceInfo = new FileInfo(sourcePath);
-    if (sourceInfo.Length > 16 * 1024 * 1024)
-    {
-        throw new SidecarException("litedb-import-source-too-large", "LiteDB import source exceeds the 16 MiB sidecar safety limit.");
-    }
-
     var format = OptionalString(envelope.Request, "format")?.ToLowerInvariant() ?? FormatFromPath(sourcePath);
     if (!IsDocumentFileFormat(format))
     {
@@ -1380,7 +1377,8 @@ static BsonDocument[] ReadDocumentsFromPath(string sourcePath, string format, in
             .ToArray();
     }
 
-    using var document = JsonDocument.Parse(File.ReadAllText(sourcePath));
+    using var source = File.OpenRead(sourcePath);
+    using var document = JsonDocument.Parse(source);
     if (document.RootElement.ValueKind == JsonValueKind.Array)
     {
         return document.RootElement

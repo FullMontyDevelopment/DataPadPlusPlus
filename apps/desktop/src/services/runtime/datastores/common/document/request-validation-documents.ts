@@ -1,6 +1,5 @@
 import type { DocumentNodeChildrenRequest } from '@datapadplusplus/shared-types'
 import {
-  assertJsonSize,
   MAX_OBJECT_NAME_LENGTH,
   validateEnvironmentContextId,
   validateOptionalText,
@@ -19,7 +18,7 @@ export function validateDocumentNodeChildrenRequest(
   validateOptionalText(request.database, 'Database name', MAX_OBJECT_NAME_LENGTH)
   validateDocumentPath(request.path, request.mode)
   validateQueryText(request.queryText ?? '{}', 'Query text')
-  assertJsonSize(request.documentId, 'Document id')
+  // MongoDB identities may themselves be large BSON values.
   return request
 }
 

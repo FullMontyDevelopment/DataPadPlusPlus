@@ -6,6 +6,32 @@ import {
 } from '../../../../../src/app/components/workbench/results/document-edit-validation'
 
 describe('document edit validation', () => {
+  it.each(['mongodb', 'litedb'] as const)('does not measure %s BSON as JSON text', (adapterStrategy) => {
+    const document = { _id: 1, escaped: '\u0001'.repeat(3 * 1024 * 1024) }
+    expect(new TextEncoder().encode(JSON.stringify(document)).length).toBeGreaterThan(16 * 1024 * 1024)
+    expect(rawDocumentValidationErrors({
+      beforeDocument: { _id: 1 }, nextDocument: document, protectedPaths: [['_id']],
+      metadata: { adapterStrategy, protectedPaths: [['_id']], maxDocumentBytes: 16 * 1024 * 1024 },
+    })).toEqual([])
+  })
+
+  it('still checks JSON datastore limits using UTF-8 bytes, not character count', () => {
+    const document = { id: 'one', content: 'Ω'.repeat(1024 * 1024) }
+    expect(rawDocumentValidationErrors({
+      beforeDocument: { id: 'one' }, nextDocument: document, protectedPaths: [['id']],
+      metadata: { adapterStrategy: 'cosmosdb', protectedPaths: [['id']], maxDocumentBytes: 2 * 1024 * 1024 },
+    })).toEqual([expect.stringContaining('configured limit')])
+  })
+
+  it.each(['mongodb', 'litedb'] as const)('validates large %s binary values without a regex stack overflow', (adapterStrategy) => {
+    const base64 = 'AAAA'.repeat(512 * 1024)
+    const document = { _id: 1, data: { $binary: adapterStrategy === 'mongodb' ? { base64, subType: '00' } : base64 } }
+    expect(rawDocumentValidationErrors({
+      beforeDocument: { _id: 1 }, nextDocument: document, protectedPaths: [['_id']],
+      metadata: { adapterStrategy, protectedPaths: [['_id']], maxDocumentBytes: 16 * 1024 * 1024 },
+    })).toEqual([])
+  })
+
   it.each(['', 'profile.name', '$internal', '__proto__'])(
     'rejects unsafe field name %j',
     (fieldName) => {

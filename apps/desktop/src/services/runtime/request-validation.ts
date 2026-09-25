@@ -257,7 +257,8 @@ export function validateDataEditPlanRequest(request: DataEditPlanRequest): DataE
   validateOptionalText(request.target?.table, 'Table name', MAX_OBJECT_NAME_LENGTH)
   validateOptionalText(request.target?.collection, 'Collection name', MAX_OBJECT_NAME_LENGTH)
   validateOptionalText(request.target?.key, 'Key name', MAX_OBJECT_NAME_LENGTH)
-  assertJsonSize(request.target, 'Data edit target')
+  // Targets include complete concurrency baselines, not just command metadata.
+  // Datastore values are sized by the native adapter/driver after encoding.
   if (request.changes.length > MAX_DATA_EDIT_CHANGES) {
     throw new Error(`Data edits may include at most ${MAX_DATA_EDIT_CHANGES} changes.`)
   }
@@ -266,7 +267,6 @@ export function validateDataEditPlanRequest(request: DataEditPlanRequest): DataE
     validateOptionalText(change.newName, 'Data edit new field name', MAX_OBJECT_NAME_LENGTH)
     validateOptionalText(change.valueType, 'Data edit value type', 80)
     validatePath(change.path ?? [], 'Data edit change path')
-    assertJsonSize(change, 'Data edit change')
   }
   return request
 }

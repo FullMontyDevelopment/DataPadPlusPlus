@@ -3,6 +3,73 @@ use mongodb::bson::oid::ObjectId;
 
 use super::*;
 
+#[test]
+fn mongodb_large_extended_json_is_measured_after_bson_encoding() {
+    let original = doc! {
+        "_id": "product-1",
+        "binary": mongodb::bson::Binary {
+            subtype: BinarySubtype::Generic,
+            bytes: vec![42; 12 * 1024 * 1024 + 3],
+        },
+    };
+    let value = mongodb_edit_document_to_json(&original);
+    assert!(serde_json::to_vec(&value).unwrap().len() > 16 * 1024 * 1024);
+    assert!(mongodb::bson::to_vec(&original).unwrap().len() < 16 * 1024 * 1024);
+    let request = request(
+        "insert-document",
+        vec![DataEditChange {
+            value: Some(value),
+            ..Default::default()
+        }],
+    );
+    assert_eq!(mongodb_insert_document(&request).unwrap(), original);
+    assert_eq!(
+        mongodb_replacement_document(&request, &json!("product-1")).unwrap(),
+        original
+    );
+}
+
+#[test]
+fn mongodb_document_size_boundary_includes_generated_id_and_is_content_free() {
+    const MAX: usize = 16 * 1024 * 1024;
+    for generated_id in [false, true] {
+        let mut document = doc! { "payload": "" };
+        if !generated_id {
+            document.insert("_id", "product-1");
+        }
+        let overhead =
+            mongodb::bson::to_vec(&document).unwrap().len() + if generated_id { 17 } else { 0 };
+        document.insert("payload", "x".repeat(MAX - overhead));
+        validate_mongodb_document_size(&document, generated_id).expect("exactly 16 MiB");
+        document.insert("payload", "x".repeat(MAX - overhead + 1));
+        let error = validate_mongodb_document_size(&document, generated_id).unwrap_err();
+        assert_eq!(error.code, "mongodb-document-too-large");
+        assert!(error.message.contains("16777217 BSON bytes"));
+        assert!(!error.message.contains("xxxx"));
+    }
+}
+
+#[test]
+fn mongodb_native_size_rejection_applies_to_insert_and_replacement() {
+    let request = request(
+        "insert-document",
+        vec![DataEditChange {
+            value: Some(json!({ "_id": "product-1", "payload": "x".repeat(16 * 1024 * 1024) })),
+            ..Default::default()
+        }],
+    );
+    assert_eq!(
+        mongodb_insert_document(&request).unwrap_err().code,
+        "mongodb-document-too-large"
+    );
+    assert_eq!(
+        mongodb_replacement_document(&request, &json!("product-1"))
+            .unwrap_err()
+            .code,
+        "mongodb-document-too-large"
+    );
+}
+
 fn request(edit_kind: &str, changes: Vec<DataEditChange>) -> DataEditExecutionRequest {
     DataEditExecutionRequest {
         connection_id: "conn-mongodb".into(),

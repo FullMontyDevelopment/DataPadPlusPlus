@@ -841,6 +841,7 @@ export interface DocumentEditMetadata {
   partitionKeyPaths?: string[][]
   shardKeyPaths?: string[][]
   concurrencyTokenField?: string
+  /** Native document bytes: BSON for MongoDB/LiteDB, UTF-8 JSON for Cosmos DB. */
   maxDocumentBytes?: number
   unavailableReason?: string
 }

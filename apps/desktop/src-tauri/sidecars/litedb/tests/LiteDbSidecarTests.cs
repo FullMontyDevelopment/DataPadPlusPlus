@@ -6,6 +6,34 @@ namespace DataPadPlusPlus.LiteDbSidecar.Tests;
 
 public sealed class LiteDbSidecarTests
 {
+    [Fact]
+    public async Task Large_json_import_and_guarded_edit_use_native_document_limits()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var databasePath = Path.Combine(root, "large.db");
+            var sourcePath = Path.Combine(root, "large.json");
+            var payload = new string('\u0001', 3 * 1024 * 1024);
+            var original = new { _id = 1, payload };
+            await File.WriteAllTextAsync(sourcePath, JsonSerializer.Serialize(original));
+            Assert.True(new FileInfo(sourcePath).Length > 16 * 1024 * 1024);
+            await SeedAsync(databasePath);
+            using var imported = await InvokeAsync(Envelope(databasePath, "ImportCollection", false,
+                new { collection = "items", sourcePath, format = "json", mode = "insert" }));
+            Assert.True(imported.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(1, imported.RootElement.GetProperty("response").GetProperty("importedCount").GetInt32());
+
+            using var updated = await InvokeAsync(MutationRequest(databasePath,
+                new { _id = 1, payload, enabled = true }, original, "enabled"));
+            Assert.True(updated.RootElement.GetProperty("ok").GetBoolean());
+            var after = updated.RootElement.GetProperty("response").GetProperty("afterDocument");
+            Assert.Equal(payload, after.GetProperty("payload").GetString());
+            Assert.True(after.GetProperty("enabled").GetBoolean());
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("exact password ; Unicode Ω")]

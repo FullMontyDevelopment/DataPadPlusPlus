@@ -3,7 +3,6 @@ import type { ChangeEvent, DragEvent } from 'react'
 import { MongoResourceSection } from './MongoOperationalViewPrimitives'
 
 type JsonRecord = Record<string, unknown>
-const MAX_DOCUMENT_FILE_BYTES = 16 * 1024 * 1024
 
 interface MongoDocumentInsertPanelProps {
   collection: string
@@ -67,11 +66,8 @@ export function MongoDocumentInsertPanel({
       return
     }
 
-    if (file.size > MAX_DOCUMENT_FILE_BYTES) {
-      setStatus('JSON file is larger than MongoDB document limits.')
-      return
-    }
-
+    // Source-file whitespace and Extended JSON are not BSON document bytes.
+    // Validate the encoded document in the native adapter, not the file size.
     void file.text()
       .then((text) => loadJsonText(text, file.name))
       .catch(() => setStatus(`Could not read ${file.name}.`))

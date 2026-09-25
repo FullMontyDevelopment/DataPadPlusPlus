@@ -140,7 +140,7 @@ pub(in crate::app::runtime) fn validate_document_node_children_request(
             ));
         }
     }
-    assert_json_size(&request.document_id, "Document id")?;
+    // A document identity is datastore data, not size-bounded command metadata.
     Ok(())
 }
 

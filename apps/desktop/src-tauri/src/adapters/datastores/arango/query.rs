@@ -183,7 +183,6 @@ async fn arango_editable_document_payload(
             "protectedPaths": protected,
             "shardKeyPaths": shard_paths,
             "concurrencyTokenField": "_rev",
-            "maxDocumentBytes": 32 * 1024 * 1024,
             "unavailableReason": unavailable_reason,
         }
     })

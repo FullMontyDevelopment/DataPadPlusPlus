@@ -21,6 +21,8 @@ use serde_json::json;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::Executor;
 
+#[path = "support/mongodb_large_documents.rs"]
+mod mongodb_large_documents;
 #[path = "support/mongodb_principals.rs"]
 mod mongodb_principals;
 
@@ -3181,6 +3183,7 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         connection.port.unwrap_or(27017)
     );
     let client = mongodb::Client::with_uri_str(mongo_uri).await?;
+    mongodb_large_documents::validate_large_documents(&connection, &client).await?;
     mongodb_principals::validate_principals(&connection, &client).await?;
     let imported_document = client
         .database(database)
@@ -3215,6 +3218,7 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     typed_collection
         .insert_one(mongodb::bson::doc! {
             "_id": lazy_id,
+            "largePayload": "Ω".repeat(256 * 1024),
             "largeInteger": i64::MAX,
             "nativeInt32": mongodb::bson::Bson::Int32(1),
             "nativeInt64": mongodb::bson::Bson::Int64(1),
@@ -3297,6 +3301,7 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
     let baseline = adapters::fetch_document_node_children(&connection, &full_request)
         .await?
         .value;
+    assert!(serde_json::to_vec(&baseline)?.len() > 64 * 1024);
     assert_eq!(
         baseline["largeInteger"],
         json!({"$numberLong": i64::MAX.to_string()})
@@ -3347,6 +3352,7 @@ async fn mongodb_adapter_fixture_roundtrip() -> Result<(), CommandError> {
         .await?
         .unwrap();
     assert_eq!(before.get("inventory"), after.get("inventory"));
+    assert_eq!(before.get("largePayload"), after.get("largePayload"));
     assert_eq!(before.get("deep"), after.get("deep"));
     for field in ["largeInteger", "nativeDate", "nativeUuid", "nativeBinary"] {
         assert_eq!(

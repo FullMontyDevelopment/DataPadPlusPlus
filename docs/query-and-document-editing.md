@@ -55,3 +55,14 @@ Typed editors preserve datastore-native wrappers. MongoDB/LiteDB Extended JSON d
 - summarized, lazy, truncated, or unsupported data is hydrated losslessly before editing or rejected.
 
 Server responses provide authoritative before/after documents so Cosmos `_etag` and ArangoDB `_rev` remain current.
+
+## Large Documents And Values
+
+Document uploads, field edits, replacements, and complete concurrency baselines do not use the small command-metadata size budget. This also applies to the shared SQL row, key-value, DynamoDB, and search-result edit requests. Identity checks, confirmations, read-only restrictions, and concurrency protection still apply.
+
+- MongoDB's limit is **16 MiB of encoded BSON**, including an automatically generated `_id`, not 16 MiB of JSON source text. Uploads and replacements are checked after native conversion; field updates remain subject to server validation. See [MongoDB document limits](https://www.mongodb.com/docs/manual/core/document/).
+- LiteDB also measures the [encoded BSON document](https://www.litedb.org/docs/bsondocument/). JSON uploads can be larger because of whitespace, escaping, Base64, or multiple documents in a collection import. File length is not used as a per-document limit.
+- Cosmos DB NoSQL retains its [2 MB UTF-8 JSON item limit](https://learn.microsoft.com/en-us/azure/cosmos-db/concepts-limits). Unicode characters can occupy multiple bytes.
+- ArangoDB does not receive an invented 32 MiB document limit from DataPad++; the connected server enforces its own request and storage constraints.
+
+Datastore-native document, item, row, command, and request limits still apply. The editor does not truncate a value to make it fit, weaken a concurrency check, or retry a rejected write automatically. A native rejection leaves the draft available for correction.

@@ -371,7 +371,9 @@ pub(super) fn mongodb_insert_document(
         ));
     }
 
-    mongodb_json_to_document(value, "document", "mongodb-insert-bson")
+    let document = mongodb_json_to_document(value, "document", "mongodb-insert-bson")?;
+    validate_mongodb_document_size(&document, true)?;
+    Ok(document)
 }
 
 pub(super) fn mongodb_replacement_document(
@@ -416,7 +418,32 @@ pub(super) fn mongodb_replacement_document(
         document.insert("_id", target_id);
     }
 
+    validate_mongodb_document_size(&document, false)?;
     Ok(document)
+}
+
+fn validate_mongodb_document_size(
+    document: &Document,
+    generated_id: bool,
+) -> Result<(), CommandError> {
+    const MAX_BSON_DOCUMENT_BYTES: usize = 16 * 1024 * 1024;
+    // insert_one generates an ObjectId when _id is absent: type byte, "_id"
+    // cstring and twelve ObjectId bytes. Account for it without changing input.
+    let id_bytes = if generated_id && !document.contains_key("_id") {
+        17
+    } else {
+        0
+    };
+    let bytes = mongodb::bson::to_vec(document)?.len() + id_bytes;
+    if bytes > MAX_BSON_DOCUMENT_BYTES {
+        return Err(CommandError::new(
+            "mongodb-document-too-large",
+            format!(
+                "The encoded MongoDB document is {bytes} BSON bytes; MongoDB allows at most {MAX_BSON_DOCUMENT_BYTES} bytes (16 MiB), including _id."
+            ),
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn mongodb_update_document(

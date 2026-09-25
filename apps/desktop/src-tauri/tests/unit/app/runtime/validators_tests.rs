@@ -232,6 +232,45 @@ fn validators_reject_oversized_data_edit_requests() {
 }
 
 #[test]
+fn datastore_values_and_concurrency_baselines_are_not_metadata_sized() {
+    for kind in [
+        "insert-document",
+        "update-document",
+        "set-field",
+        "add-field",
+        "put-item",
+        "index-document",
+        "set-key-value",
+        "update-row",
+    ] {
+        let mut plan = data_edit_request_with_changes(1, kind);
+        let document = json!({ "_id": "user-1", "payload": "Ω".repeat(100 * 1024) });
+        plan.target.expected_document = Some(document.clone());
+        plan.changes[0].value = Some(document.clone());
+        validate_data_edit_plan_request(&plan).expect("large data is not command metadata");
+        let execution = crate::domain::models::DataEditExecutionRequest {
+            connection_id: plan.connection_id,
+            environment_id: plan.environment_id,
+            edit_kind: plan.edit_kind,
+            target: plan.target,
+            changes: plan.changes,
+            confirmation_text: None,
+        };
+        validate_data_edit_execution_request(&execution).expect("same policy at execution");
+        assert_eq!(execution.target.expected_document, Some(document));
+    }
+}
+
+#[test]
+fn tiny_edits_retain_large_complete_concurrency_baselines() {
+    let mut request = data_edit_request_with_changes(1, "set-field");
+    let document = json!({ "_id": "user-1", "payload": "x".repeat(12 * 1024 * 1024) });
+    request.target.expected_document = Some(document.clone());
+    validate_data_edit_plan_request(&request).expect("large full baseline");
+    assert_eq!(request.target.expected_document, Some(document));
+}
+
+#[test]
 fn validators_reject_unrecognized_data_edit_kinds() {
     let request = data_edit_request_with_changes(0, "drop-everything");
     let error = validate_data_edit_plan_request(&request).unwrap_err();

@@ -275,7 +275,8 @@ fn validate_data_edit_shape(
         MAX_OBJECT_NAME_LENGTH,
     )?;
     validate_optional_text(target.key.as_deref(), "Key name", MAX_OBJECT_NAME_LENGTH)?;
-    assert_json_size(target, "Data edit target")?;
+    // Targets contain full concurrency baselines. The metadata JSON budget must
+    // not cap datastore values; native adapters/drivers enforce encoded limits.
     if changes.len() > MAX_DATA_EDIT_CHANGES {
         return Err(invalid_request(format!(
             "Data edits may include at most {MAX_DATA_EDIT_CHANGES} changes."
@@ -297,7 +298,6 @@ fn validate_data_edit_shape(
             change.path.as_deref().unwrap_or(&[]),
             "Data edit change path",
         )?;
-        assert_json_size(change, "Data edit change")?;
     }
     Ok(())
 }

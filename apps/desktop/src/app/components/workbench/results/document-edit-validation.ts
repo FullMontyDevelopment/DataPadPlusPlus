@@ -101,7 +101,9 @@ export function rawDocumentValidationErrors({
     }
   }
 
-  if (metadata?.maxDocumentBytes) {
+  // Extended JSON can be much larger than its BSON representation (binary,
+  // escaped strings, numeric wrappers). Native drivers enforce BSON limits.
+  if (metadata?.maxDocumentBytes && metadata.adapterStrategy !== 'mongodb' && metadata.adapterStrategy !== 'litedb') {
     const bytes = new TextEncoder().encode(JSON.stringify(nextDocument)).byteLength
     if (bytes > metadata.maxDocumentBytes) {
       errors.push(
