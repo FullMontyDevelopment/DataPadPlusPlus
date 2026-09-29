@@ -54,7 +54,16 @@ describe('ConnectionContextMenu', () => {
     expect(onTestConnection).toHaveBeenCalledWith('conn-metrics')
   })
 
-  it('does not offer connection duplication', () => {
+  it('duplicates the menu connection and closes the menu when supported', () => {
+    const onDuplicateConnection = vi.fn()
+    const onClose = vi.fn()
+    renderMenu({ onDuplicateConnection, onClose })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate connection Metrics DB' }))
+    expect(onDuplicateConnection).toHaveBeenCalledExactlyOnceWith('conn-metrics')
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('does not offer duplication without a handler', () => {
     renderMenu()
 
     expect(screen.queryByRole('menuitem', { name: /Duplicate connection/i }))

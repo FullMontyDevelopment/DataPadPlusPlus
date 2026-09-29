@@ -20,6 +20,7 @@ import {
 import { builderStateWithCompiledQueryText } from '../../../../controllers/query-builder-routing'
 
 interface DynamoDbKeyConditionBuilderProps {
+  showFetchSize?: boolean
   tab: QueryTabState
   builderState: DynamoDbKeyConditionBuilderState
   tableOptions?: string[]
@@ -57,6 +58,7 @@ export function DynamoDbKeyConditionBuilder({
   tableOptions = [],
   onBuilderStateChange,
   theme,
+  showFetchSize = true,
 }: DynamoDbKeyConditionBuilderProps) {
   const draft = builderState
   const resolvedTableOptions = uniqueValues([draft.table, ...tableOptions])
@@ -94,7 +96,7 @@ export function DynamoDbKeyConditionBuilder({
             onChange={(event) => updateDraft({ indexName: event.target.value })}
           />
         </label>
-        <label className="query-builder-field">
+        {showFetchSize ? <label className="query-builder-field">
           <span>Limit</span>
           <input
             aria-label="Limit"
@@ -103,7 +105,7 @@ export function DynamoDbKeyConditionBuilder({
             value={draft.limit ?? 20}
             onChange={(event) => updateDraft({ limit: numberValue(event.target.value, 20) })}
           />
-        </label>
+        </label> : null}
         <label className="query-builder-toggle query-builder-toggle--inline">
           <input
             type="checkbox"

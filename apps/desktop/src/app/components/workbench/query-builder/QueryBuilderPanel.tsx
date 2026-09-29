@@ -78,6 +78,7 @@ interface QueryBuilderPanelProps {
   redisRefreshSignal?: number
   executionLocked?: boolean
   theme?: string
+  executionControlsInToolbar?: boolean
 }
 
 export function QueryBuilderPanel({
@@ -95,6 +96,7 @@ export function QueryBuilderPanel({
   redisRefreshSignal = 0,
   executionLocked = false,
   theme = 'dark',
+  executionControlsInToolbar = false,
 }: QueryBuilderPanelProps) {
   const resolvedBuilderState = builderState ?? tab.builderState
   const locked = executionLocked || Boolean(tab.activeExecution) || tab.status === 'queued'
@@ -103,7 +105,7 @@ export function QueryBuilderPanel({
     ? compileQueryBuilderState(resolvedBuilderState, connection, tab)
     : undefined
   const builderInvalid = compilation?.ok === false
-  const countControl = resolvedBuilderState ? (
+  const countControl = resolvedBuilderState && !executionControlsInToolbar ? (
     <QueryBuilderCountButton
       activeExecution={locked || builderInvalid}
       builderState={resolvedBuilderState}
@@ -121,6 +123,7 @@ export function QueryBuilderPanel({
         tab={tab}
         builderState={resolvedBuilderState}
         countControl={countControl}
+        showFetchSize={!executionControlsInToolbar}
         onBuilderStateChange={safeBuilderStateChange}
         theme={theme}
       />
@@ -135,6 +138,7 @@ export function QueryBuilderPanel({
         tab={tab}
         builderState={resolvedBuilderState}
         countControl={countControl}
+        showFetchSize={!executionControlsInToolbar}
         onBuilderStateChange={safeBuilderStateChange}
       />
     )
@@ -143,6 +147,7 @@ export function QueryBuilderPanel({
   if (!panel && connection && isSqlSelectBuilderState(resolvedBuilderState)) {
     panel = (
       <SqlSelectBuilder
+        showFetchSize={!executionControlsInToolbar}
         key={tab.id}
         connection={connection}
         tab={tab}
@@ -157,6 +162,7 @@ export function QueryBuilderPanel({
   if (!panel && isCosmosSqlBuilderState(resolvedBuilderState)) {
     panel = (
       <CosmosSqlBuilder
+        showFetchSize={!executionControlsInToolbar}
         key={tab.id}
         tab={tab}
         builderState={resolvedBuilderState}
@@ -171,6 +177,7 @@ export function QueryBuilderPanel({
   if (!panel && isDynamoDbKeyConditionBuilderState(resolvedBuilderState)) {
     panel = (
       <DynamoDbKeyConditionBuilder
+        showFetchSize={!executionControlsInToolbar}
         key={tab.id}
         tab={tab}
         builderState={resolvedBuilderState}
@@ -184,6 +191,7 @@ export function QueryBuilderPanel({
   if (!panel && isCqlPartitionBuilderState(resolvedBuilderState)) {
     panel = (
       <CqlPartitionBuilder
+        showFetchSize={!executionControlsInToolbar}
         key={tab.id}
         tab={tab}
         builderState={resolvedBuilderState}
@@ -197,6 +205,7 @@ export function QueryBuilderPanel({
   if (!panel && isSearchDslBuilderState(resolvedBuilderState)) {
     panel = (
       <SearchDslBuilder
+        showFetchSize={!executionControlsInToolbar}
         key={tab.id}
         tab={tab}
         builderState={resolvedBuilderState}
@@ -237,7 +246,7 @@ export function QueryBuilderPanel({
     >
       <fieldset className="query-builder-execution-fieldset" disabled={locked}>
         {panel}
-        {!countIsInsideBuilder ? (
+        {!countIsInsideBuilder && !executionControlsInToolbar ? (
           <QueryBuilderCountFooter
             activeExecution={locked || builderInvalid}
             builderState={resolvedBuilderState}
@@ -255,6 +264,7 @@ function MongoFindBuilder({
   tab,
   builderState,
   countControl,
+  showFetchSize,
   onBuilderStateChange,
   theme,
 }: {
@@ -262,6 +272,7 @@ function MongoFindBuilder({
   tab: QueryTabState
   builderState: MongoFindBuilderState
   countControl?: ReactNode
+  showFetchSize: boolean
   onBuilderStateChange?(tabId: string, builderState: QueryBuilderState): void
   theme: string
 }) {
@@ -425,7 +436,7 @@ function MongoFindBuilder({
       onDragLeave={handleBuilderDragLeave}
       onDropCapture={handleBuilderDrop}
     >
-      <div className="mongo-query-builder-controls">
+      {showFetchSize ? <div className="mongo-query-builder-controls">
         <label className="query-builder-field query-builder-field--number">
           <span>Fetch size</span>
           <input
@@ -437,7 +448,7 @@ function MongoFindBuilder({
           />
         </label>
         {countControl}
-      </div>
+      </div> : null}
 
       <MongoFilterBuilderSection
         activeFilterGroupId={filterGroupIdFromDropZone(activeDropZone)}

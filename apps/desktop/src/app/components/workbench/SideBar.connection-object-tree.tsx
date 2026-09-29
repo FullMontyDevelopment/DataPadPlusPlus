@@ -909,43 +909,45 @@ function ConnectionObjectTreeNode({
         <span className="tree-item-content">
           <strong>{node.label}</strong>
         </span>
-        {scopedChildCount ? (
-          <span className="datastore-explorer-count">
-            {scopedChildCount}{scopeResponse?.pageInfo?.hasMore ? '+' : ''}
-          </span>
-        ) : null}
-        {branchLoading ? (
-          <span
-            className="connection-metadata-spinner"
-            role="status"
-            aria-label={`Loading metadata for ${node.label}`}
-            title="Loading metadata"
-          />
-        ) : null}
-        {queryable ? (
-          <button
-            type="button"
-            className="tree-item-action-hint"
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              onOpenQuery(node)
-            }}
-          >
-            Query
-          </button>
-        ) : null}
-        {hasObjectMenu ? (
-          <button
-            type="button"
-            className="tree-item-action-menu"
-            aria-label={`Object actions for ${node.label}`}
-            title={`Object actions for ${node.label}`}
-            onClick={(event) => openObjectMenuFromButton(event, node, nodeKey, onContextMenu)}
-          >
-            <MoreIcon className="tree-icon" />
-          </button>
-        ) : null}
+        <span className="connection-object-item-actions">
+          {scopedChildCount ? (
+            <span className="datastore-explorer-count">
+              {scopedChildCount}{scopeResponse?.pageInfo?.hasMore ? '+' : ''}
+            </span>
+          ) : null}
+          {branchLoading ? (
+            <span
+              className="connection-metadata-spinner"
+              role="status"
+              aria-label={`Loading metadata for ${node.label}`}
+              title="Loading metadata"
+            />
+          ) : null}
+          {queryable ? (
+            <button
+              type="button"
+              className="tree-item-action-hint"
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                onOpenQuery(node)
+              }}
+            >
+              Query
+            </button>
+          ) : null}
+          {hasObjectMenu ? (
+            <button
+              type="button"
+              className="tree-item-action-menu"
+              aria-label={`Object actions for ${node.label}`}
+              title={`Object actions for ${node.label}`}
+              onClick={(event) => openObjectMenuFromButton(event, node, nodeKey, onContextMenu)}
+            >
+              <MoreIcon className="tree-icon" />
+            </button>
+          ) : null}
+        </span>
       </div>
 
       {expanded

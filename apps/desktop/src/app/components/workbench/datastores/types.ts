@@ -48,6 +48,7 @@ export interface DatastoreExplorerWorkspaceProps {
   scopes: Record<string, ExplorerResponse>
   relationshipMap?: {
     status: 'idle' | 'loading' | 'ready'
+    request?: StructureRequest
     structure?: StructureResponse
     error?: string
     onRefresh(options?: Partial<StructureRequest>): void

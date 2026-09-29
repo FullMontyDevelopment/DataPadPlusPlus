@@ -33,6 +33,7 @@ import {
 } from '../../../controllers/query-builder-routing'
 
 interface CosmosSqlBuilderProps {
+  showFetchSize?: boolean
   tab: QueryTabState
   builderState: CosmosSqlBuilderState
   containerOptions?: string[]
@@ -81,6 +82,7 @@ export function CosmosSqlBuilder({
   onBuilderStateChange,
   onUseInQueryEditor,
   theme,
+  showFetchSize = true,
 }: CosmosSqlBuilderProps) {
   const draft = builderState
   const rootRef = useRef<HTMLElement>(null)
@@ -201,7 +203,7 @@ export function CosmosSqlBuilder({
             onChange={(event) => updateDraft({ offset: wholeNumber(event.target.value, 0, 0) })}
           />
         </label>
-        <label className="query-builder-field query-builder-field--number">
+        {showFetchSize ? <label className="query-builder-field query-builder-field--number">
           <span>Limit</span>
           <input
             aria-label="Limit"
@@ -210,7 +212,7 @@ export function CosmosSqlBuilder({
             value={draft.limit ?? 50}
             onChange={(event) => updateDraft({ limit: wholeNumber(event.target.value, 50, 1) })}
           />
-        </label>
+        </label> : null}
       </div>
 
       <div className="cosmos-builder-routing" aria-label="Cosmos DB partition routing">

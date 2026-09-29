@@ -14,6 +14,7 @@ import type {
 import { createId, editorLabelForConnection, languageForConnection } from '../../app/state/helpers'
 import { cloneSnapshot } from './browser-store'
 import {
+  connectionLibraryNodeId,
   defaultLibraryFolderForConnection,
   effectiveConnectionEnvironmentId,
   ensureConnectionLibraryNodes,
@@ -150,14 +151,30 @@ export function duplicateLibraryNode(
   if (!source) {
     throw new Error('Library item was not found.')
   }
-  if (source.kind === 'connection' || source.kind === 'folder') {
-    throw new Error('Connections and folders cannot be duplicated.')
+  if (source.kind === 'folder') {
+    throw new Error('Folders cannot be duplicated.')
   }
   const timestamp = new Date().toISOString()
   const name = nextLibraryCopyName(next.libraryNodes, source)
+  let connectionId = source.connectionId
+  if (source.kind === 'connection') {
+    const connection = next.connections.find(item => item.id === source.connectionId)
+    if (!connection) throw new Error('The connection to duplicate was not found.')
+    connectionId = createId('connection')
+    // Copy settings and opaque references only. Credential replacement is
+    // copy-on-write; this action never needs to reveal a vault value.
+    next.connections.push({
+      ...structuredClone(connection),
+      id: connectionId,
+      name,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    })
+  }
   next.libraryNodes.push({
     ...source,
-    id: createId('library-item'),
+    id: source.kind === 'connection' ? connectionLibraryNodeId(connectionId!) : createId('library-item'),
+    connectionId,
     name,
     createdAt: timestamp,
     updatedAt: timestamp,

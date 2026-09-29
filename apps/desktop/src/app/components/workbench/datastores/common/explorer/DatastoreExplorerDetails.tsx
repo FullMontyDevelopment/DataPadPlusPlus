@@ -4,9 +4,12 @@ import type {
   ExplorerNode,
   ExplorerResponse,
 } from '@datapadplusplus/shared-types'
+import { ExternalLink } from 'lucide-react'
 import { ExplorerNodeIcon } from '../../../SideBar.node-icons'
 import {
   ExplorerIcon,
+  ChevronRightIcon,
+  QueryIcon,
   ObjectSecurityIcon,
   WarningIcon,
 } from '../../../icons'
@@ -19,6 +22,25 @@ import { DatastoreExplorerStructuredValue } from './DatastoreExplorerStructuredV
 
 const MAX_TABLE_ROWS = 100
 const MAX_COLUMNS = 8
+const TECHNICAL_KEYS = new Set(['nodeId', 'engine', 'scope', 'connectionId', 'environmentId'])
+
+export function DatastoreExplorerActions({ node, provider, onOpenQuery, onOpenObjectView }: {
+  node: ExplorerNode
+  provider: DatastoreExplorerDetailProvider
+  onOpenQuery(): void
+  onOpenObjectView(): void
+}) {
+  if (provider.mode === 'state') return null
+  const supportsQuery = Boolean(node.queryTemplate) || isQueryableKind(node.kind)
+  return <div className="datastore-explorer-detail-actions" role="group" aria-label={`${node.label} actions`}>
+    {supportsQuery ? <button type="button" className="drawer-button drawer-button--primary" onClick={onOpenQuery}>
+      <QueryIcon /> Open query
+    </button> : null}
+    <button type="button" className="drawer-button" onClick={onOpenObjectView} title={`Open ${node.label} in a dedicated tab`}>
+      <ExternalLink aria-hidden="true" /> Open in tab
+    </button>
+  </div>
+}
 
 export function DatastoreExplorerDetails({
   connection,
@@ -48,7 +70,11 @@ export function DatastoreExplorerDetails({
   const inspected = inspection?.nodeId === node.id ? inspection : undefined
   const payload = asRecord(inspected?.payload)
   const warnings = metadataWarnings(payload)
-  const scalarEntries = metadataScalars(payload)
+  const allScalarEntries = metadataScalars(payload)
+  const scalarEntries = allScalarEntries.filter(([key]) => !TECHNICAL_KEYS.has(key))
+  const technicalEntries = Object.entries({ nodeId: node.id, scope: node.scope || 'Current connection', engine: connection.engine,
+    ...Object.fromEntries(allScalarEntries.filter(([key]) => TECHNICAL_KEYS.has(key))),
+  })
   const sections = metadataSections(payload)
   const supportsQuery = Boolean(node.queryTemplate) || isQueryableKind(node.kind)
   const showInspection =
@@ -64,26 +90,12 @@ export function DatastoreExplorerDetails({
 
   return (
     <div className="datastore-explorer-detail-content">
-      <div className="datastore-explorer-detail-actions">
-        {supportsQuery ? (
-          <button type="button" className="drawer-button drawer-button--primary" onClick={onOpenQuery}>
-            Open query
-          </button>
-        ) : null}
-        {provider.mode !== 'state' ? (
-          <button type="button" className="drawer-button" onClick={onOpenObjectView}>
-            Open full view
-          </button>
-        ) : null}
-      </div>
-
       {warnings.length ? (
         <section className="datastore-explorer-section is-warning">
           <header>
             <WarningIcon />
             <div>
               <h3>Attention</h3>
-              <p>Availability and safety information returned by the datastore.</p>
             </div>
           </header>
           <ul className="datastore-explorer-message-list">
@@ -92,23 +104,14 @@ export function DatastoreExplorerDetails({
         </section>
       ) : null}
 
-      <section className="datastore-explorer-section">
+      {error ? <PurposeState title="Some metadata could not be refreshed" detail={error} tone="error" /> : null}
+
+      {scalarEntries.length ? <section className="datastore-explorer-section">
         <header>
-          <ExplorerNodeIcon connection={connection} kind={node.kind} />
           <div>
-            <h3>Overview</h3>
-            <p>{provider.description || node.detail || `Selected ${provider.label.toLowerCase()}.`}</p>
+            <h3>Properties</h3>
           </div>
         </header>
-        <dl className="datastore-explorer-metrics">
-          <div><dt>Type</dt><dd>{humanize(node.kind)}</dd></div>
-          <div><dt>Scope</dt><dd>{node.scope || 'Current connection'}</dd></div>
-          {scopeResponse ? <div><dt>Loaded</dt><dd>{scopeResponse.nodes.length}</dd></div> : null}
-          {scopeResponse?.pageInfo?.knownTotal !== undefined ? (
-            <div><dt>Available</dt><dd>{scopeResponse.pageInfo.knownTotal}</dd></div>
-          ) : null}
-        </dl>
-        {scalarEntries.length ? (
           <dl className="datastore-explorer-facts">
             {scalarEntries.map(([key, value]) => (
               <div key={key}>
@@ -117,8 +120,7 @@ export function DatastoreExplorerDetails({
               </div>
             ))}
           </dl>
-        ) : null}
-      </section>
+      </section> : null}
 
       {showScope ? (
         <ScopeInventory
@@ -138,7 +140,7 @@ export function DatastoreExplorerDetails({
           <MetadataSection key={section.key} section={section} />
         ))
       ) : null}
-      {showInspection && !loading && inspected && !sections.length && !scalarEntries.length ? (
+      {showInspection && !showScope && !loading && inspected && !sections.length && !scalarEntries.length ? (
         <PurposeState
           title="No additional metadata returned"
           detail={inspected.summary || 'This object is available, but the connected account returned no further details.'}
@@ -148,7 +150,7 @@ export function DatastoreExplorerDetails({
         <PurposeState
           title={`Open ${provider.label}`}
           detail={node.detail || 'Use the primary action to open the datastore-native working surface.'}
-          actionLabel={supportsQuery ? 'Open query' : 'Open full view'}
+          actionLabel={supportsQuery ? 'Open query' : 'Open in tab'}
           onAction={supportsQuery ? onOpenQuery : onOpenObjectView}
         />
       ) : null}
@@ -159,6 +161,15 @@ export function DatastoreExplorerDetails({
           tone={node.kind === 'permission' || node.kind === 'unavailable' ? 'warning' : 'neutral'}
         />
       ) : null}
+      <details className="datastore-explorer-technical" key={node.id}>
+        <summary>Technical details</summary>
+        <dl className="datastore-explorer-facts">
+          {technicalEntries.map(([key, value]) => <div key={key}>
+            <dt>{key === 'nodeId' ? 'Node ID' : humanize(key)}</dt>
+            <dd><DatastoreExplorerStructuredValue value={value} /></dd>
+          </div>)}
+        </dl>
+      </details>
     </div>
   )
 }
@@ -177,13 +188,17 @@ function ScopeInventory({
   onSelectNode(node: ExplorerNode): void
 }) {
   return (
-    <section className="datastore-explorer-section">
+    <section className="datastore-explorer-section" aria-label="Objects in this location">
       <header>
-        <ExplorerIcon />
         <div>
-          <h3>Inventory</h3>
-          <p>Objects loaded for this scope.</p>
+          <h3>Objects</h3>
         </div>
+        {response ? <span className="datastore-explorer-list-count">
+          {response.pageInfo?.knownTotal !== undefined && response.pageInfo.knownTotal > response.nodes.length
+            ? `${response.nodes.length} of ${response.pageInfo.knownTotal} loaded`
+            : `${response.nodes.length} loaded`}
+          {response.pageInfo?.hasMore && response.pageInfo.knownTotal === undefined ? ' · more available' : ''}
+        </span> : null}
       </header>
       {loading && !response ? <p className="datastore-explorer-empty">Loading objects…</p> : null}
       {!loading && response && response.nodes.length === 0 ? (
@@ -193,13 +208,16 @@ function ScopeInventory({
         <ul className="datastore-explorer-inventory">
           {response.nodes.map((child) => (
             <li key={child.id}>
-              <button type="button" onClick={() => onSelectNode(child)}>
+              <button type="button" onClick={() => onSelectNode(child)} title={child.detail}>
                 <ExplorerNodeIcon connection={connection} kind={child.kind} />
                 <span>
                   <strong>{child.label}</strong>
-                  <small>{child.detail || humanize(child.kind)}</small>
+                  {child.detail && child.detail !== child.label ? <small>{child.detail}</small> : null}
                 </span>
-                <span>{humanize(child.kind)}</span>
+                {humanize(child.kind).toLowerCase() !== child.label.toLowerCase()
+                  ? <span className="datastore-explorer-inventory-kind">{humanize(child.kind)}</span>
+                  : <span />}
+                <ChevronRightIcon />
               </button>
             </li>
           ))}
@@ -209,9 +227,11 @@ function ScopeInventory({
         <button
           type="button"
           className="datastore-explorer-section-action"
+          disabled={loading}
+          aria-busy={loading}
           onClick={() => onLoadMore(response.pageInfo!.nextCursor!)}
         >
-          Load more
+          {loading ? 'Loading…' : 'Load more'}
         </button>
       ) : null}
     </section>
@@ -232,7 +252,6 @@ function MetadataSection({ section }: { section: NormalizedSection }) {
   return (
     <section className="datastore-explorer-section">
       <header>
-        <ExplorerIcon />
         <div>
           <h3>{section.label}</h3>
           <p>{sectionPurpose(section.key)}</p>

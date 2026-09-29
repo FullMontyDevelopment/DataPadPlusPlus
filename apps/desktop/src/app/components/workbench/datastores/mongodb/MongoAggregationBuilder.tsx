@@ -33,6 +33,7 @@ const STAGE_OPTIONS = [
 ]
 
 interface MongoAggregationBuilderProps {
+  showFetchSize?: boolean
   connection?: ConnectionProfile
   tab: QueryTabState
   builderState: MongoAggregationBuilderState
@@ -46,6 +47,7 @@ export function MongoAggregationBuilder({
   builderState,
   countControl,
   onBuilderStateChange,
+  showFetchSize = true,
 }: MongoAggregationBuilderProps) {
   const draft = builderState
   const scope = mongoQueryScopeForTab({
@@ -124,7 +126,7 @@ export function MongoAggregationBuilder({
 
   return (
     <section className="query-builder-panel" aria-label="MongoDB aggregation builder">
-      <div className="mongo-query-builder-controls">
+      {showFetchSize ? <div className="mongo-query-builder-controls">
         <label className="query-builder-field query-builder-field--number">
           <span>Fetch size</span>
           <input
@@ -136,7 +138,7 @@ export function MongoAggregationBuilder({
           />
         </label>
         {countControl}
-      </div>
+      </div> : null}
 
       <BuilderSection
         actionLabel="Add Stage"

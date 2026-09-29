@@ -17,6 +17,7 @@ import { queryBuilderValueTypeLabel } from './query-value-codec'
 import { builderStateWithCompiledQueryText } from '../../../controllers/query-builder-routing'
 
 interface CqlPartitionBuilderProps {
+  showFetchSize?: boolean
   tab: QueryTabState
   builderState: CqlPartitionBuilderState
   tableOptions?: string[]
@@ -41,6 +42,7 @@ export function CqlPartitionBuilder({
   tableOptions = [],
   onBuilderStateChange,
   theme,
+  showFetchSize = true,
 }: CqlPartitionBuilderProps) {
   const draft = builderState
   const tableOptionsList = uniqueValues([draft.table, ...tableOptions])
@@ -73,7 +75,7 @@ export function CqlPartitionBuilder({
             {tableOptionsList.map((table) => <option key={table} value={table} />)}
           </datalist>
         </label>
-        <label className="query-builder-field">
+        {showFetchSize ? <label className="query-builder-field">
           <span>Limit</span>
           <input
             aria-label="Limit"
@@ -82,7 +84,7 @@ export function CqlPartitionBuilder({
             value={draft.limit ?? 20}
             onChange={(event) => updateDraft({ limit: numberValue(event.target.value, 20) })}
           />
-        </label>
+        </label> : null}
         <label className="query-builder-toggle query-builder-toggle--inline">
           <input
             type="checkbox"

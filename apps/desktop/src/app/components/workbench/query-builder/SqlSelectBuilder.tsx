@@ -19,6 +19,7 @@ import {
 import { builderStateWithCompiledQueryText } from '../../../controllers/query-builder-routing'
 
 interface SqlSelectBuilderProps {
+  showFetchSize?: boolean
   connection: ConnectionProfile
   tab: QueryTabState
   builderState: SqlSelectBuilderState
@@ -67,6 +68,7 @@ export function SqlSelectBuilder({
   tableOptions = [],
   onBuilderStateChange,
   theme,
+  showFetchSize = true,
 }: SqlSelectBuilderProps) {
   const draft = builderState
   const resolvedTableOptions = uniqueValues([draft.table, ...tableOptions])
@@ -103,7 +105,7 @@ export function SqlSelectBuilder({
             ))}
           </datalist>
         </label>
-        <label className="query-builder-field">
+        {showFetchSize ? <label className="query-builder-field">
           <span>Limit</span>
           <input
             aria-label="Limit"
@@ -112,7 +114,7 @@ export function SqlSelectBuilder({
             value={draft.limit ?? 20}
             onChange={(event) => updateDraft({ limit: numberValue(event.target.value, 20) })}
           />
-        </label>
+        </label> : null}
       </div>
 
       <BuilderSection

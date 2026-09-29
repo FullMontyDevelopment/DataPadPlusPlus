@@ -7,6 +7,66 @@ import { ConnectionObjectTree } from '../../../../src/app/components/workbench/S
 import { explorerFolderOrderKey } from '../../../../src/app/components/workbench/SideBar.connection-object-tree-order'
 
 describe('ConnectionObjectTree', () => {
+  it.each([
+    [mongoConnection(), 'documents', 'Documents', 'documents:catalog.orders'],
+    [mongoConnection(), 'aggregations', 'Aggregations', 'aggregations:catalog.orders'],
+    [postgresConnection(), 'table', 'orders', 'table:public.orders'],
+  ])('groups optional controls in one grid cell for $1 rows', (connection, kind, label, scope) => {
+    const onOpenScopedQuery = vi.fn()
+    const node: ConnectionTreeNode = {
+      id: scope,
+      label,
+      kind,
+      scope,
+      queryable: true,
+      children: [{ id: 'child', label: 'Child', kind: 'field' }],
+    }
+    const props = {
+      connection,
+      nodes: [node],
+      onOpenScopedQuery,
+      explorerScopes: {
+        [scope]: {
+          connectionId: connection.id,
+          environmentId: connection.environmentIds[0],
+          scope,
+          summary: 'Loaded metadata.',
+          capabilities: {} as never,
+          nodes: [],
+          pageInfo: { knownTotal: 8, returnedCount: 8, hasMore: false },
+        },
+      },
+    }
+    const { rerender } = render(<ConnectionObjectTree {...props} />)
+    const row = screen.getByText(label).closest('[role="treeitem"]')!
+    const assertOneControlCell = (loading: boolean) => {
+      // A hidden menu button used to auto-flow onto a second grid row.
+      expect(row.children).toHaveLength(4)
+      const actions = row.lastElementChild as HTMLElement
+      expect(actions).toHaveClass('connection-object-item-actions')
+      expect(within(actions).getByText('8')).toBeInTheDocument()
+      expect(within(actions).getByRole('button', { name: 'Query' })).toBeInTheDocument()
+      expect(within(actions).getByRole('button', { name: `Object actions for ${label}` })).toBeInTheDocument()
+      expect(within(actions).queryByRole('status', { name: `Loading metadata for ${label}` }) !== null).toBe(loading)
+    }
+    assertOneControlCell(false)
+
+    rerender(<ConnectionObjectTree {...props} isExplorerScopeLoading={() => true} />)
+    assertOneControlCell(true)
+    rerender(<ConnectionObjectTree {...props} />)
+    assertOneControlCell(false)
+
+    fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'Query' }))
+    expect(onOpenScopedQuery).toHaveBeenCalledExactlyOnceWith(
+      connection.id,
+      expect.objectContaining({ kind, label, scope }),
+    )
+    expect(row).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(within(row as HTMLElement).getByRole('button', { name: `Object actions for ${label}` }))
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    expect(row).toHaveAttribute('aria-expanded', 'false')
+  })
+
   it('prefills a datastore test suite from an eligible Explorer object action', () => {
     const onCreateTestSuite = vi.fn()
     render(

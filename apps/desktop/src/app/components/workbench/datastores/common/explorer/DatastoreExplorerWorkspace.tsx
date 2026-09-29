@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   ExplorerNode,
   ScopedQueryTarget,
@@ -12,15 +12,14 @@ import {
   RefreshIcon,
   SearchIcon,
 } from '../../../icons'
-import { ExplorerNodeIcon } from '../../../SideBar.node-icons'
 import { SqlRelationshipExplorerWorkspace } from '../../../SqlRelationshipExplorerWorkspace'
 import type { DatastoreExplorerWorkspaceProps } from '../../types'
 import type { DatastoreExplorerProvider } from './DatastoreExplorerProvider.types'
 import { DatastoreExplorerNavigator } from './DatastoreExplorerNavigator'
-import { DatastoreExplorerDetails } from './DatastoreExplorerDetails'
+import { DatastoreExplorerActions, DatastoreExplorerDetails } from './DatastoreExplorerDetails'
+import { ExplorerSelectionHeader, ExplorerWorkspaceHeader } from './ExplorerChrome'
 import {
   explorerScopeResponse,
-  humanize,
 } from './DatastoreExplorerProvider.model'
 
 export function DatastoreExplorerWorkspace({
@@ -42,6 +41,36 @@ export function DatastoreExplorerWorkspace({
   const [filter, setFilter] = useState('')
   const [selectedNode, setSelectedNode] = useState<ExplorerNode>()
   const [mode, setMode] = useState<'browser' | 'relationships'>('browser')
+  const relationshipLoadRef = useRef<string | undefined>(undefined)
+  const relationshipRequestIsCurrent =
+    relationshipMap?.request?.connectionId === connection.id &&
+    relationshipMap.request.environmentId === environment.id &&
+    relationshipMap.request.mode === 'relationships' &&
+    !relationshipMap.request.scope
+  const relationshipStructure =
+    relationshipRequestIsCurrent &&
+    relationshipMap?.structure?.connectionId === connection.id &&
+    relationshipMap.structure.environmentId === environment.id
+      ? relationshipMap.structure
+      : undefined
+  const relationshipError = relationshipRequestIsCurrent ? relationshipMap?.error : undefined
+  const relationshipLoading = relationshipRequestIsCurrent && relationshipMap?.status === 'loading'
+
+  useEffect(() => {
+    if (mode !== 'relationships' || !provider.supportsRelationshipMap || !relationshipMap) {
+      relationshipLoadRef.current = undefined
+      return
+    }
+    if (relationshipStructure || relationshipLoading || relationshipError) {
+      relationshipLoadRef.current = undefined
+      return
+    }
+    const key = JSON.stringify([connection.id, environment.id])
+    if (relationshipLoadRef.current === key) return
+    relationshipLoadRef.current = key
+    // Completion metadata and another connection's cached structure are not a relationship map.
+    relationshipMap.onRefresh({ mode: 'relationships', maxNodes: 320, maxEdges: 1000, depth: 1 })
+  }, [connection.id, environment.id, mode, provider.supportsRelationshipMap, relationshipError, relationshipLoading, relationshipMap, relationshipStructure])
   const detailProvider = selectedNode
     ? provider.detailProviderForNode(selectedNode)
     : undefined
@@ -75,9 +104,6 @@ export function DatastoreExplorerWorkspace({
 
   const openRelationshipMap = () => {
     setMode('relationships')
-    if (!relationshipMap?.structure && relationshipMap?.status !== 'loading') {
-      relationshipMap?.onRefresh()
-    }
   }
 
   if (mode === 'relationships' && provider.supportsRelationshipMap && relationshipMap) {
@@ -91,9 +117,9 @@ export function DatastoreExplorerWorkspace({
         <SqlRelationshipExplorerWorkspace
           activeConnection={connection}
           activeEnvironment={environment}
-          status={relationshipMap.status}
-          structure={relationshipMap.structure}
-          error={relationshipMap.error}
+          status={relationshipLoading || (!relationshipStructure && !relationshipError) ? 'loading' : 'ready'}
+          structure={relationshipStructure}
+          error={relationshipError}
           onRefresh={relationshipMap.onRefresh}
           onInspectNode={(node) => onInspectNode(structureNodeToExplorerNode(node))}
           onOpenQuery={(node, queryText) => onOpenQuery({
@@ -115,13 +141,7 @@ export function DatastoreExplorerWorkspace({
       aria-label={`${provider.label} Explorer`}
       data-tour-id="explorer-metadata"
     >
-      <header className="datastore-explorer-toolbar">
-        <div>
-          <span className="eyebrow">{provider.label} Explorer</span>
-          <h1>{connection.name}</h1>
-          <p>{environment.label} · Metadata loads as objects are expanded or selected.</p>
-        </div>
-        <div className="datastore-explorer-toolbar-actions">
+      <ExplorerWorkspaceHeader connection={connection} environment={environment} label={provider.label}>
           {provider.supportsRelationshipMap ? (
             <button type="button" className="drawer-button" onClick={openRelationshipMap}>
               <ObjectRelationshipIcon /> Relationship map
@@ -137,8 +157,7 @@ export function DatastoreExplorerWorkspace({
             <RefreshIcon className={isScopeLoading(undefined) ? 'is-spinning' : undefined} />
             {isScopeLoading(undefined) ? 'Refreshing…' : 'Refresh'}
           </button>
-        </div>
-      </header>
+      </ExplorerWorkspaceHeader>
 
       <div className={`datastore-explorer-layout${selectedNode ? ' has-selection' : ''}`}>
         <aside className="datastore-explorer-tree-panel" aria-label={`${provider.label} objects`}>
@@ -147,7 +166,8 @@ export function DatastoreExplorerWorkspace({
             <span className="sr-only">Search {provider.label} metadata</span>
             <input
               type="search"
-              placeholder="Search databases and objects"
+              placeholder="Filter loaded objects"
+              title="Filter objects already loaded in Explorer. Expand a branch to load more."
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
             />
@@ -181,16 +201,14 @@ export function DatastoreExplorerWorkspace({
               >
                 <ArrowLeftIcon /> Back to navigator
               </button>
-              <section className="datastore-explorer-context-card">
-                <span className="datastore-explorer-selection-icon">
-                  <ExplorerNodeIcon connection={connection} kind={selectedNode.kind} />
-                </span>
-                <div>
-                  <span className="eyebrow">{humanize(selectedNode.kind)}</span>
-                  <h2>{selectedNode.label}</h2>
-                  <p>{[...(selectedNode.path ?? []), selectedNode.label].join(' / ')}</p>
-                </div>
-              </section>
+              <ExplorerSelectionHeader
+                connection={connection}
+                node={selectedNode}
+                description={detailProvider.description || selectedNode.detail}
+                actions={<DatastoreExplorerActions node={selectedNode} provider={detailProvider}
+                  onOpenQuery={() => onOpenQuery(openQuery(selectedNode))}
+                  onOpenObjectView={() => onOpenObjectView(selectedNode)} />}
+              />
               <DatastoreExplorerDetails
                 connection={connection}
                 node={selectedNode}
@@ -218,11 +236,8 @@ export function DatastoreExplorerWorkspace({
           ) : (
             <div className="datastore-explorer-welcome">
               <ExplorerIcon />
-              <h2>Select a database or object</h2>
-              <p>
-                Browse {provider.label} metadata, health, security, and diagnostics
-                without exposing raw provider payloads.
-              </p>
+              <h2>Explore {provider.label}</h2>
+              <p>Select an object in the navigator to see its details and available actions.</p>
             </div>
           )}
         </main>

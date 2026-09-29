@@ -45,6 +45,12 @@ Creation initializes a temporary file on the destination filesystem and publishe
 
 When creating a different LiteDB file from a saved encrypted profile, explicitly choose a new password or remove it for an unencrypted file. After creation, the password is fixed while profile saving is retried so the saved connection cannot accidentally use a different password from the created file.
 
+## Duplicate a connection
+
+Right-click a saved connection in the Explorer/Library and choose **Duplicate connection**. The copy appears in the same folder as **Copy of …** (numbered when necessary). Its datastore options, environment assignments, read-only setting, and secure credential references are retained. Edit the copy to change its name or settings; the original connection and active query tab are unchanged.
+
+This duplicates only the saved connection profile—not database contents, local database files, or saved queries. Both profiles initially point to the same datastore. Credentials remain in the OS vault; replacing a credential on either profile creates a new reference, and deleting one profile retains credentials still used by the other.
+
 ## Native runtime fixes
 
 - MongoDB preserves explicit driver timeouts and passes the selected authentication mechanism. Optional native controls cover connection/server-selection timeouts, retryable reads/writes, direct connection, read preference, pool limits, idle timeout, and TLS certificate file paths. Incompatible direct/SRV, pool, and TLS combinations are rejected; omitted controls keep driver defaults.

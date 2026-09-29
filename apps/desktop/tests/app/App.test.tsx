@@ -998,6 +998,28 @@ describe('App', () => {
     expect(screen.getAllByText('PostgreSQL connection').length).toBeGreaterThan(0)
   })
 
+  it('loads relationship metadata on first opening and renders it without a manual refresh', async () => {
+    const loadStructure = vi.spyOn(desktopClient, 'loadStructureMap').mockImplementation(async (request) => ({
+      connectionId: request.connectionId,
+      environmentId: request.environmentId,
+      engine: 'postgresql',
+      summary: 'Loaded relationships',
+      groups: [], edges: [],
+      nodes: [{ id: 'public.relationship_accounts', label: 'relationship_accounts', kind: 'table', family: 'sql', schema: 'public', fields: [] }],
+    }))
+    render(<App />)
+    await createFirstConnection()
+    await openExplorerFromConnection()
+    fireEvent.click(await screen.findByRole('button', { name: 'Relationship map' }))
+    expect(await screen.findByRole('img', { name: 'SQL table relationship diagram' })).toBeInTheDocument()
+    expect(loadStructure).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ mode: 'relationships', limit: 320 }))
+    expect(within(screen.getByLabelText('Table catalog')).getByText('relationship_accounts')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Explorer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Relationship map' }))
+    expect(screen.getByRole('img', { name: 'SQL table relationship diagram' })).toBeInTheDocument()
+    expect(loadStructure).toHaveBeenCalledOnce()
+  })
+
   it('opens Explorer when a connection row is double-clicked', async () => {
     render(<App />)
 
@@ -1117,6 +1139,30 @@ describe('App', () => {
     expect(getConnectionRow('PostgreSQL connection')).toBeInTheDocument()
     expect(getConnectionRow('Reporting renamed')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /Query 1/i })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('duplicates the right-clicked connection without changing the open query or original profile', async () => {
+    render(<App />)
+    await createFirstConnection()
+    const drawer = await openConnectionDraft()
+    fireEvent.change(within(drawer).getByLabelText('Name'), { target: { value: 'Reporting connection' } })
+    await saveConnectionDraft(drawer, { createQueryTab: false })
+    fireEvent.click(screen.getByRole('tab', { name: /Query 1/i }))
+    const before = loadBrowserSnapshot()
+
+    for (const name of ['Copy of Reporting connection', 'Copy of Reporting connection (2)']) {
+      fireEvent.contextMenu(getConnectionRow('Reporting connection'))
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate connection Reporting connection' }))
+      await waitFor(() => expect(getConnectionRow(name)).toBeInTheDocument())
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    }
+    const after = loadBrowserSnapshot()
+    expect(after.connections).toHaveLength(before.connections.length + 2)
+    expect(after.connections.slice(0, before.connections.length)).toEqual(before.connections)
+    expect(after.tabs).toEqual(before.tabs)
+    expect(after.ui.activeTabId).toBe(before.ui.activeTabId)
+    expect(screen.getByRole('tab', { name: /Query 1/i })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByLabelText('connection drawer')).not.toBeInTheDocument()
   })
 
   it('creates a query from the connection context menu without opening connection details', async () => {
@@ -1618,7 +1664,7 @@ describe('App', () => {
     await waitFor(() => expect(panel).toHaveStyle({ height: '284px' }))
   }, 15000)
 
-  it('creates, stores a secret for, and deletes connections without offering duplication', async () => {
+  it('creates, stores a secret for, and deletes connections with duplication available in the menu', async () => {
     const saveSpy = vi.spyOn(desktopClient, 'saveConnectionEditor').mockImplementation(async request => desktopClient.upsertConnection(request.profile))
     render(<App />)
 
@@ -1646,7 +1692,7 @@ describe('App', () => {
       screen.queryByRole('menuitem', {
         name: 'Duplicate connection PostgreSQL connection',
       }),
-    ).not.toBeInTheDocument()
+    ).toBeInTheDocument()
     fireEvent.click(
       await screen.findByRole('menuitem', {
         name: 'Delete connection PostgreSQL connection',
@@ -2442,6 +2488,11 @@ describe('App', () => {
     await createCatalogMongoWithBuilderTab()
 
     const builder = screen.getByLabelText('MongoDB query builder')
+    const toolbar = screen.getByLabelText('Editor toolbar')
+    expect(within(builder).queryByLabelText('Fetch size')).not.toBeInTheDocument()
+    expect(within(builder).queryByRole('button', { name: 'Count' })).not.toBeInTheDocument()
+    expect(within(toolbar).getByRole('button', { name: 'Count' })).toBeEnabled()
+    fireEvent.change(within(toolbar).getByLabelText('Fetch size'), { target: { value: '37' } })
     const addFilterButton = within(builder).getAllByRole('button', { name: 'Add Filter' })[0] as HTMLElement
 
     fireEvent.click(addFilterButton)
@@ -2467,6 +2518,7 @@ describe('App', () => {
       const latestExecution = executeSpy.mock.calls.at(-1)?.[0]
       expect(latestExecution?.queryText).toContain('"status"')
       expect(latestExecution?.queryText).toContain('"open"')
+      expect(JSON.parse(latestExecution?.queryText ?? '{}').limit).toBe(37)
     })
     expect(updateBuilderSpy).not.toHaveBeenCalled()
   })
@@ -2576,7 +2628,8 @@ describe('App', () => {
     fireEvent.change(within(builder).getByLabelText('Offset'), {
       target: { value: '10' },
     })
-    fireEvent.change(within(builder).getByLabelText('Limit'), {
+    expect(within(builder).queryByLabelText('Limit')).not.toBeInTheDocument()
+    fireEvent.change(within(screen.getByLabelText('Editor toolbar')).getByLabelText('Fetch size'), {
       target: { value: '20' },
     })
 
@@ -2610,6 +2663,8 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Raw' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Query Editor' }))
+    expect(screen.queryByLabelText('Fetch size')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Count' })).not.toBeInTheDocument()
     expect(await screen.findByLabelText('Query editor')).toHaveValue(
       'SELECT VALUE c.id FROM c WHERE c.status = @status',
     )

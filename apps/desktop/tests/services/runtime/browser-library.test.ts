@@ -3,7 +3,7 @@ import type {
   QueryTabState,
   WorkspaceSnapshot,
 } from '@datapadplusplus/shared-types'
-import { CURRENT_WORKSPACE_SCHEMA_VERSION } from '@datapadplusplus/shared-types'
+import { CURRENT_WORKSPACE_SCHEMA_VERSION, DATASTORE_ENGINES, datastoreBacklogByEngine } from '@datapadplusplus/shared-types'
 import { describe, expect, it } from 'vitest'
 import {
   duplicateLibraryNode,
@@ -13,7 +13,8 @@ import {
   saveQueryTabToLocalFile,
   setLibraryNodeEnvironment,
 } from '../../../src/services/runtime/browser-library'
-import { connectionLibraryNodeId } from '../../../src/services/runtime/library-connection-helpers'
+import { connectionLibraryNodeId, ensureConnectionLibraryNodes } from '../../../src/services/runtime/library-connection-helpers'
+import { deleteConnection, upsertConnection } from '../../../src/services/runtime/browser-connections'
 
 describe('browser Library runtime', () => {
   it('duplicates queries beside the source with collision-safe names', () => {
@@ -49,7 +50,65 @@ describe('browser Library runtime', () => {
     expect(next.tabs).toEqual(snapshot.tabs)
   })
 
-  it('rejects duplication for connections and folders', () => {
+  it.each(DATASTORE_ENGINES)('duplicates %s settings without copying data or changing the active tab', engine => {
+    const snapshot = workspaceSnapshot()
+    const source = snapshot.connections[0]!
+    source.engine = engine
+    source.family = datastoreBacklogByEngine(engine)!.family
+    source.readOnly = true
+    source.favorite = true
+    source.tags = ['team']
+    source.notes = 'Connection notes'
+    source.connectionMode = 'connection-string'
+    source.auth = {
+      username: 'tester',
+      secretRef: { id: 'password', provider: 'desktop-secret-store', service: 'DataPadPlusPlus', account: 'password-account', label: 'Password' },
+      connectionStringSecretRef: { id: 'uri', provider: 'desktop-secret-store', service: 'DataPadPlusPlus', account: 'uri-account', label: 'URI' },
+    }
+    ensureConnectionLibraryNodes(snapshot)
+    const nodeId = connectionLibraryNodeId(source.id)
+    const sourceNode = snapshot.libraryNodes.find(node => node.id === nodeId)!
+    sourceNode.parentId = 'folder-team'
+    sourceNode.environmentId = 'environment-1'
+    const original = structuredClone(snapshot)
+
+    const next = duplicateLibraryNode(snapshot, { nodeId })
+    const copy = next.connections.at(-1)!
+    expect(copy.id).not.toBe(source.id)
+    expect(copy).toEqual({ ...source, id: copy.id, name: `Copy of ${source.name}`, createdAt: copy.createdAt, updatedAt: copy.updatedAt })
+    expect(next.libraryNodes.at(-1)).toMatchObject({
+      id: connectionLibraryNodeId(copy.id), kind: 'connection', connectionId: copy.id,
+      name: copy.name, parentId: sourceNode.parentId, environmentId: sourceNode.environmentId,
+    })
+    expect(next.libraryNodes).toHaveLength(snapshot.libraryNodes.length + 1)
+    expect(next.tabs).toEqual(snapshot.tabs)
+    expect(next.ui).toEqual(snapshot.ui)
+    expect(snapshot).toEqual(original)
+
+    copy.auth.username = 'different-user'
+    copy.environmentIds.push('different-environment')
+    expect(next.connections[0]).toEqual(source)
+    const edited = upsertConnection(next, { ...copy, name: 'Renamed copy' })
+    const deleted = deleteConnection(edited, copy.id)
+    expect(deleted.connections).toEqual(snapshot.connections)
+    expect(deleted.connections[0]?.auth).toEqual(source.auth)
+  })
+
+  it('numbers repeated connection copies and rejects missing profiles without changing state', () => {
+    const snapshot = workspaceSnapshot()
+    ensureConnectionLibraryNodes(snapshot)
+    const nodeId = connectionLibraryNodeId('connection-1')
+    const next = duplicateLibraryNode(duplicateLibraryNode(snapshot, { nodeId }), { nodeId })
+    expect(next.connections.map(item => item.name)).toEqual([
+      'Fixture PostgreSQL', 'Copy of Fixture PostgreSQL', 'Copy of Fixture PostgreSQL (2)',
+    ])
+    snapshot.connections = []
+    const original = structuredClone(snapshot)
+    expect(() => duplicateLibraryNode(snapshot, { nodeId })).toThrow(/connection.*not found/i)
+    expect(snapshot).toEqual(original)
+  })
+
+  it('rejects duplication for folders', () => {
     const snapshot = workspaceSnapshot()
     snapshot.libraryNodes.push({
       id: 'folder-queries',
@@ -61,7 +120,7 @@ describe('browser Library runtime', () => {
     })
 
     expect(() => duplicateLibraryNode(snapshot, { nodeId: 'folder-queries' })).toThrow(
-      /connections and folders/i,
+      /folders/i,
     )
   })
 

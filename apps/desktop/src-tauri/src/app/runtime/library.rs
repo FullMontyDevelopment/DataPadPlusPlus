@@ -546,36 +546,12 @@ impl ManagedAppState {
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
         validate_library_id(&request.node_id, "Library node id")?;
-        let source = self
-            .snapshot
-            .library_nodes
-            .iter()
-            .find(|node| node.id == request.node_id)
-            .cloned()
-            .ok_or_else(|| {
-                CommandError::new("library-node-missing", "Library item was not found.")
-            })?;
-        if !is_library_item_kind(&source.kind) {
-            return Err(CommandError::new(
-                "library-duplicate-unsupported",
-                "Connections and folders cannot be duplicated.",
-            ));
+        let previous = self.snapshot.clone();
+        duplicate_library_node_in_snapshot(&mut self.snapshot, &request.node_id)?;
+        if let Err(error) = self.persist() {
+            self.snapshot = previous;
+            return Err(error);
         }
-        let name = next_library_copy_name(&self.snapshot.library_nodes, &source);
-        let timestamp = timestamp_now();
-        let mut duplicate = LibraryNode {
-            id: generate_id("library-item"),
-            name: name.clone(),
-            created_at: timestamp.clone(),
-            updated_at: timestamp.clone(),
-            last_opened_at: None,
-            snapshot_result_id: None,
-            ..source
-        };
-        refresh_duplicated_test_suite_identity(&mut duplicate);
-        self.snapshot.library_nodes.push(duplicate);
-        self.snapshot.updated_at = timestamp;
-        self.persist()?;
         Ok(self.bootstrap_payload())
     }
 
@@ -1054,6 +1030,62 @@ fn required_test_suite_library_binding(
     }
 
     Ok((environment_id, scoped_target))
+}
+
+fn duplicate_library_node_in_snapshot(
+    snapshot: &mut WorkspaceSnapshot,
+    node_id: &str,
+) -> Result<(), CommandError> {
+    let source = snapshot
+        .library_nodes
+        .iter()
+        .find(|node| node.id == node_id)
+        .cloned()
+        .ok_or_else(|| CommandError::new("library-node-missing", "Library item was not found."))?;
+    if source.kind != "connection" && !is_library_item_kind(&source.kind) {
+        return Err(CommandError::new(
+            "library-duplicate-unsupported",
+            "Folders cannot be duplicated.",
+        ));
+    }
+    let name = next_library_copy_name(&snapshot.library_nodes, &source);
+    let timestamp = timestamp_now();
+    let mut duplicate = LibraryNode {
+        id: generate_id("library-item"),
+        name: name.clone(),
+        created_at: timestamp.clone(),
+        updated_at: timestamp.clone(),
+        last_opened_at: None,
+        snapshot_result_id: None,
+        ..source
+    };
+    if duplicate.kind == "connection" {
+        let mut connection = snapshot
+            .connections
+            .iter()
+            .find(|profile| Some(&profile.id) == duplicate.connection_id.as_ref())
+            .cloned()
+            .ok_or_else(|| {
+                CommandError::new(
+                    "connection-missing",
+                    "The connection to duplicate was not found.",
+                )
+            })?;
+        connection.id = generate_id("connection");
+        connection.name = name;
+        connection.created_at = timestamp.clone();
+        connection.updated_at = timestamp.clone();
+        // Opaque vault references can be shared: editor saves create fresh
+        // references and cleanup retains every still-referenced credential.
+        // Never resolve secrets or duplicate the underlying database here.
+        duplicate.id = connection_library_node_id(&connection.id);
+        duplicate.connection_id = Some(connection.id.clone());
+        snapshot.connections.push(connection);
+    }
+    refresh_duplicated_test_suite_identity(&mut duplicate);
+    snapshot.library_nodes.push(duplicate);
+    snapshot.updated_at = timestamp;
+    Ok(())
 }
 
 fn next_library_copy_name(nodes: &[LibraryNode], source: &LibraryNode) -> String {

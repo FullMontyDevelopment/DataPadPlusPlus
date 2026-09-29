@@ -24,7 +24,7 @@ fn library_request_helpers_normalize_empty_ids_tags_and_supported_kinds() {
 }
 
 #[test]
-fn every_saved_library_item_can_be_duplicated_but_connections_and_folders_cannot() {
+fn saved_library_item_kinds_exclude_connection_profiles_and_folders() {
     for kind in [
         "query",
         "script",
@@ -36,7 +36,7 @@ fn every_saved_library_item_can_be_duplicated_but_connections_and_folders_cannot
         "bookmark",
         "note",
     ] {
-        assert!(is_library_item_kind(kind), "{kind} should be duplicable");
+        assert!(is_library_item_kind(kind), "{kind} should be a saved item");
     }
 
     assert!(!is_library_item_kind("connection"));

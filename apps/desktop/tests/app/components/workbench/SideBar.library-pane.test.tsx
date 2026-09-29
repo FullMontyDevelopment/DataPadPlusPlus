@@ -118,7 +118,7 @@ describe('LibraryPane', () => {
     expect(screen.queryByText('Hidden suite')).not.toBeInTheDocument()
   })
 
-  it('offers duplication for test suites while keeping connection duplication unavailable', () => {
+  it('offers duplication for test suites and the clicked connection', () => {
     const onDuplicateNode = vi.fn()
     const suiteNode: LibraryNode = {
       id: 'suite-copy',
@@ -153,6 +153,8 @@ describe('LibraryPane', () => {
 
     renderLibraryPane(vi.fn(), {
       datastoreTestsEnabled: true,
+      activeConnectionId: 'another-connection',
+      connections: [mongoConnection()],
       libraryNodes: [
         suiteNode,
         connectionNode(
@@ -169,8 +171,11 @@ describe('LibraryPane', () => {
     expect(onDuplicateNode).toHaveBeenCalledWith('suite-copy')
 
     fireEvent.click(screen.getByRole('button', { name: 'Open actions for MongoDB local' }))
-    expect(screen.queryByRole('menuitem', { name: /Duplicate connection/i }))
-      .not.toBeInTheDocument()
+    const duplicate = screen.getByRole('menuitem', { name: 'Duplicate connection MongoDB local' })
+    expect(duplicate.querySelector('svg')).toBeInTheDocument()
+    fireEvent.click(duplicate)
+    expect(onDuplicateNode).toHaveBeenLastCalledWith('library-connection-mongodb')
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
   it('reveals, selects, and scrolls a deeply nested active query into view', () => {

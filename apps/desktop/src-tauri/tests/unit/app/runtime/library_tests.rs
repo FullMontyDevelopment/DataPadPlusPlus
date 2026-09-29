@@ -108,6 +108,121 @@ fn library_copy_names_are_scoped_to_the_immediate_parent() {
 }
 
 #[test]
+fn duplicate_connection_preserves_settings_and_vault_refs_but_not_queries_or_selection() {
+    let mut snapshot = super::super::blank_workspace_snapshot();
+    let secret = json!({
+        "id": "fixture-vault-reference", "provider": "desktop-secret-store",
+        "service": "DataPadPlusPlus", "account": "fixture-account", "label": "Credential"
+    });
+    let mut profile =
+        serde_json::to_value(crate::domain::models::ConnectionProfile::default()).unwrap();
+    profile["id"] = json!("source");
+    profile["name"] = json!("Local database");
+    profile["engine"] = json!("mongodb");
+    profile["family"] = json!("document");
+    profile["environmentIds"] = json!(["env-dev", "env-qa"]);
+    profile["tags"] = json!(["team"]);
+    profile["readOnly"] = json!(true);
+    profile["favorite"] = json!(true);
+    profile["connectionMode"] = json!("connection-string");
+    profile["auth"]["secretRef"] = secret.clone();
+    profile["auth"]["connectionStringSecretRef"] = secret;
+    profile["mongodbOptions"] = json!({ "replicaSet": "fixture", "tls": true, "maxPoolSize": 20 });
+    snapshot
+        .connections
+        .push(serde_json::from_value(profile).unwrap());
+    ensure_connection_library_nodes(&mut snapshot);
+    let node_id = connection_library_node_id("source");
+    let node = snapshot
+        .library_nodes
+        .iter_mut()
+        .find(|node| node.id == node_id)
+        .unwrap();
+    node.parent_id = Some("folder-team".into());
+    node.environment_id = Some("env-qa".into());
+    snapshot.library_nodes.push(LibraryNode {
+        id: "saved-query".into(),
+        kind: "query".into(),
+        parent_id: Some(node_id.clone()),
+        connection_id: Some("source".into()),
+        query_text: Some("fixture query".into()),
+        ..Default::default()
+    });
+    let before = snapshot.clone();
+
+    duplicate_library_node_in_snapshot(&mut snapshot, &node_id).unwrap();
+
+    let copy = snapshot.connections.last().unwrap();
+    assert_ne!(copy.id, "source");
+    let mut expected = serde_json::to_value(&before.connections[0]).unwrap();
+    expected["id"] = json!(copy.id);
+    expected["name"] = json!("Copy of Local database");
+    expected["createdAt"] = json!(copy.created_at);
+    expected["updatedAt"] = json!(copy.updated_at);
+    assert_eq!(serde_json::to_value(copy).unwrap(), expected);
+    assert_eq!(
+        serde_json::to_value(&snapshot.connections[0]).unwrap(),
+        serde_json::to_value(&before.connections[0]).unwrap()
+    );
+    let node = snapshot.library_nodes.last().unwrap();
+    assert_eq!(node.id, connection_library_node_id(&copy.id));
+    assert_eq!(node.connection_id.as_deref(), Some(copy.id.as_str()));
+    assert_eq!(node.parent_id.as_deref(), Some("folder-team"));
+    assert_eq!(node.environment_id.as_deref(), Some("env-qa"));
+    assert_eq!(snapshot.library_nodes.len(), before.library_nodes.len() + 1);
+    assert_eq!(
+        serde_json::to_value(&snapshot.tabs).unwrap(),
+        serde_json::to_value(&before.tabs).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&snapshot.ui).unwrap(),
+        serde_json::to_value(&before.ui).unwrap()
+    );
+
+    duplicate_library_node_in_snapshot(&mut snapshot, &node_id).unwrap();
+    assert_eq!(
+        snapshot.connections.last().unwrap().name,
+        "Copy of Local database (2)"
+    );
+    assert_ne!(snapshot.connections[1].id, snapshot.connections[2].id);
+}
+
+#[test]
+fn duplicate_connection_missing_profile_leaves_snapshot_unchanged() {
+    let mut snapshot = super::super::blank_workspace_snapshot();
+    snapshot.library_nodes.push(LibraryNode {
+        id: "dangling".into(),
+        kind: "connection".into(),
+        connection_id: Some("missing".into()),
+        ..Default::default()
+    });
+    let before = serde_json::to_value(&snapshot).unwrap();
+    assert_eq!(
+        duplicate_library_node_in_snapshot(&mut snapshot, "dangling")
+            .unwrap_err()
+            .code,
+        "connection-missing"
+    );
+    assert_eq!(serde_json::to_value(&snapshot).unwrap(), before);
+    assert!(duplicate_library_node_in_snapshot(&mut snapshot, "unknown").is_err());
+    assert_eq!(serde_json::to_value(&snapshot).unwrap(), before);
+}
+
+#[test]
+fn duplicate_folder_remains_unsupported() {
+    let mut snapshot = super::super::blank_workspace_snapshot();
+    snapshot.library_nodes.push(test_node("folder", None, None));
+    let before = serde_json::to_value(&snapshot).unwrap();
+    assert_eq!(
+        duplicate_library_node_in_snapshot(&mut snapshot, "folder")
+            .unwrap_err()
+            .code,
+        "library-duplicate-unsupported"
+    );
+    assert_eq!(serde_json::to_value(&snapshot).unwrap(), before);
+}
+
+#[test]
 fn duplicated_test_suites_receive_an_independent_identity_and_copy_name() {
     let mut node = test_node("suite-copy", Some("tests"), None);
     node.kind = "test-suite".into();

@@ -1,15 +1,101 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
+import { StrictMode } from 'react'
 import type {
   ConnectionProfile,
   EnvironmentProfile,
   ExplorerInspectResponse,
   ExplorerNode,
   ExplorerResponse,
+  StructureRequest,
+  StructureResponse,
 } from '@datapadplusplus/shared-types'
 import { describe, expect, it, vi } from 'vitest'
 import { workbenchSliceForEngine } from '../../../../../../../src/app/components/workbench/datastores/registry'
 
 describe('datastore-native Explorer workspace', () => {
+  const request: StructureRequest = {
+    connectionId: 'connection-postgres', environmentId: 'environment-local', mode: 'relationships',
+  }
+  const structure: StructureResponse = {
+    connectionId: request.connectionId, environmentId: request.environmentId, engine: 'postgresql',
+    summary: 'Relationships', groups: [], edges: [],
+    nodes: [{ id: 'accounts', label: 'accounts', kind: 'table', family: 'sql', fields: [] }],
+  }
+
+  it.each(['missing', 'other connection', 'other environment', 'completion', 'scoped', 'unrelated loading'])(
+    'loads relationships on first opening with %s metadata without requiring Refresh', (scenario) => {
+      const onRefresh = vi.fn()
+      const props = explorerProps(vi.fn(), vi.fn())
+      const staleRequest = scenario === 'missing' ? undefined : {
+        ...request,
+        ...(scenario === 'other connection' || scenario === 'unrelated loading' ? { connectionId: 'other' } : {}),
+        ...(scenario === 'other environment' ? { environmentId: 'other' } : {}),
+        ...(scenario === 'completion' ? { mode: 'completion' as const } : {}),
+        ...(scenario === 'scoped' ? { scope: 'schema:audit' } : {}),
+      }
+      const ExplorerWorkspace = workbenchSliceForEngine('postgresql').explorer.Workspace
+      const relationshipMap = {
+        request: staleRequest, structure: scenario === 'missing' ? undefined : { ...structure, nodes: [] },
+        status: scenario === 'unrelated loading' ? 'loading' as const : 'ready' as const, onRefresh,
+      }
+      const view = render(<StrictMode><ExplorerWorkspace {...props} relationshipMap={relationshipMap} /></StrictMode>)
+      expect(onRefresh).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: 'Relationship map' }))
+      expect(onRefresh).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ mode: 'relationships', maxNodes: 320 }))
+      expect(screen.getByRole('heading', { name: 'Loading relationships...' })).toBeInTheDocument()
+      expect(screen.queryByText('No structure objects found')).not.toBeInTheDocument()
+      view.rerender(<StrictMode><ExplorerWorkspace {...props} relationshipMap={{ ...relationshipMap }} /></StrictMode>)
+      expect(onRefresh).toHaveBeenCalledOnce()
+      view.rerender(<StrictMode><ExplorerWorkspace {...props} relationshipMap={{ request, structure, status: 'ready', onRefresh }} /></StrictMode>)
+      expect(screen.getByRole('img', { name: 'SQL table relationship diagram' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Back to Explorer' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Relationship map' }))
+      expect(onRefresh).toHaveBeenCalledOnce()
+    },
+  )
+
+  it('waits for an in-flight relationship request and does not reload an empty successful result', () => {
+    const props = explorerProps(vi.fn(), vi.fn())
+    const onRefresh = vi.fn()
+    const ExplorerWorkspace = workbenchSliceForEngine('postgresql').explorer.Workspace
+    const view = render(<ExplorerWorkspace {...props} relationshipMap={{ request, status: 'loading', onRefresh }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Relationship map' }))
+    expect(onRefresh).not.toHaveBeenCalled()
+    expect(screen.getByTitle('Refresh relationship metadata')).toBeDisabled()
+    view.rerender(<ExplorerWorkspace {...props} relationshipMap={{ request, structure: { ...structure, nodes: [] }, status: 'ready', onRefresh }} />)
+    expect(screen.getByText('No structure objects found')).toBeInTheDocument()
+    expect(onRefresh).not.toHaveBeenCalled()
+  })
+
+  it('keeps a failed initial load retryable without an automatic retry loop', () => {
+    const props = explorerProps(vi.fn(), vi.fn())
+    const onRefresh = vi.fn()
+    const ExplorerWorkspace = workbenchSliceForEngine('sqlite').explorer.Workspace
+    const view = render(<ExplorerWorkspace {...props} relationshipMap={{ status: 'idle', onRefresh }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Relationship map' }))
+    view.rerender(<ExplorerWorkspace {...props} relationshipMap={{ request, status: 'ready', error: 'Metadata unavailable', onRefresh }} />)
+    expect(screen.getByText('Metadata unavailable')).toBeInTheDocument()
+    expect(onRefresh).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByTitle('Refresh relationship metadata'))
+    expect(onRefresh).toHaveBeenCalledTimes(2)
+  })
+
+  it('reloads on environment changes and never displays a late previous-environment response', () => {
+    const props = explorerProps(vi.fn(), vi.fn())
+    const onRefresh = vi.fn()
+    const ExplorerWorkspace = workbenchSliceForEngine('postgresql').explorer.Workspace
+    const relationshipMap = { request, structure, status: 'ready' as const, onRefresh }
+    const view = render(<ExplorerWorkspace {...props} relationshipMap={relationshipMap} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Relationship map' }))
+    expect(screen.getByRole('img', { name: 'SQL table relationship diagram' })).toBeInTheDocument()
+    view.rerender(<ExplorerWorkspace {...props} environment={{ ...props.environment, id: 'other' }} relationshipMap={relationshipMap} />)
+    expect(onRefresh).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('img', { name: 'SQL table relationship diagram' })).not.toBeInTheDocument()
+    view.rerender(<ExplorerWorkspace {...props} environment={{ ...props.environment, id: 'other' }} relationshipMap={{ ...relationshipMap, request: { ...request, environmentId: 'other' } }} />)
+    expect(screen.queryByText('accounts')).not.toBeInTheDocument()
+    expect(onRefresh).toHaveBeenCalledOnce()
+  })
+
   it('renders hierarchy, scoped inventory, and typed inspection without raw payload output', () => {
     const onInspectNode = vi.fn()
     const onLoadScope = vi.fn()
@@ -25,8 +111,8 @@ describe('datastore-native Explorer workspace', () => {
 
     expect(onInspectNode).toHaveBeenCalledWith(expect.objectContaining({ id: 'schema:public' }))
     expect(onLoadScope).not.toHaveBeenCalledWith('schema:public')
-    expect(screen.getByRole('heading', { name: 'Overview' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Inventory' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Selected object' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Objects' })).toBeInTheDocument()
     const inventory = view.container.querySelector('.datastore-explorer-inventory')!
     expect(within(inventory).getByRole('button', { name: /products/i })).toBeInTheDocument()
     expect(within(treePanel).getByText('products')).toBeInTheDocument()
@@ -34,7 +120,7 @@ describe('datastore-native Explorer workspace', () => {
     fireEvent.click(publicNode)
 
     expect(within(treePanel).queryByText('products')).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Overview' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Selected object' })).toBeInTheDocument()
     expect(publicNode.closest('[role="treeitem"]')).toHaveAttribute('aria-selected', 'true')
 
     view.rerender(
@@ -45,6 +131,7 @@ describe('datastore-native Explorer workspace', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'Columns' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Properties' })).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument()
     expect(screen.getByText('uuid')).toBeInTheDocument()
     expect(view.container.querySelector('pre')).toBeNull()

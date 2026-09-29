@@ -44,6 +44,7 @@ import {
 import { DatastoreQueryEditor } from './components/workbench/datastores/DatastoreQueryEditor'
 import { EditorTabs } from './components/workbench/EditorTabs'
 import { EditorToolbar } from './components/workbench/EditorToolbar'
+import { QueryBuilderExecutionControls } from './components/workbench/query-builder/QueryBuilderExecutionControls'
 import { FirstInstallGuide } from './components/workbench/FirstInstallGuide'
 import { comparableEnvironment } from './components/workbench/EnvironmentWorkspace.helpers'
 import { useReviewConfirmation } from './components/workbench/use-review-confirmation'
@@ -4314,6 +4315,7 @@ function DesktopWorkspace() {
                     scopes={activeExplorerCacheEntry?.scopes ?? {}}
                     relationshipMap={{
                       status: structureStatus,
+                      request: structureRequest,
                       structure,
                       error: structureError,
                       onRefresh: (options) =>
@@ -4456,6 +4458,17 @@ function DesktopWorkspace() {
                 ) : activeConnection && activeEnvironment && activeTab ? (
                   <>
                     <EditorToolbar
+                      queryExecutionControls={activeQueryWindowMode === 'builder' && activeBuilderState ? (
+                        <QueryBuilderExecutionControls
+                          key={activeTab.id}
+                          connection={activeConnection}
+                          tab={activeTab}
+                          builderState={activeBuilderState}
+                          executionLocked={activeExecutionLocked}
+                          onBuilderStateChange={persistBuilderState}
+                          onCount={countQueryBuilderResults}
+                        />
+                      ) : undefined}
                       executionStatus={activeExecutionStatus}
                       executionLocked={activeExecutionLocked}
                       capabilities={runtimeCapabilities}
@@ -4624,6 +4637,7 @@ function DesktopWorkspace() {
                         {hasBuilderQuery && activeQueryWindowMode === 'builder' ? (
                           <Suspense fallback={<QueryBuilderPaneFallback />}>
                             <QueryBuilderPanel
+                              executionControlsInToolbar
                               connection={activeConnection}
                               tab={activeTab}
                               builderState={activeBuilderState}

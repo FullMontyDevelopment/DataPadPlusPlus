@@ -24,6 +24,7 @@ import {
   ChevronRightIcon,
   CollapseAllIcon,
   CollapseSidebarIcon,
+  CopyIcon,
   CreateFolderIcon,
   DatabaseIcon,
   EnvironmentsIcon,
@@ -1402,19 +1403,24 @@ export function LibraryPane({
               <span>Open</span>
             </button>
           ) : null}
-          {contextMenu.node.kind !== 'folder' && contextMenu.node.kind !== 'connection' ? (
+          {contextMenu.node.kind !== 'folder' ? (
             <button
               type="button"
               className="connection-context-menu-item"
               role="menuitem"
-              aria-label={`Duplicate ${contextMenu.node.name}`}
+              aria-label={contextMenu.node.kind === 'connection'
+                ? `Duplicate connection ${contextMenu.node.name}`
+                : `Duplicate ${contextMenu.node.name}`}
+              title={contextMenu.node.kind === 'connection'
+                ? 'Copy connection settings, not the database or saved queries.'
+                : undefined}
               onClick={() => {
                 onDuplicateNode(contextMenu.node.id)
                 setContextMenu(undefined)
               }}
             >
-              <PlusIcon className="connection-context-menu-icon" />
-              <span>Duplicate</span>
+              <CopyIcon className="connection-context-menu-icon" />
+              <span>{contextMenu.node.kind === 'connection' ? 'Duplicate connection' : 'Duplicate'}</span>
             </button>
           ) : null}
           <button

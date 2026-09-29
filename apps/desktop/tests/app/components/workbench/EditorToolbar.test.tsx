@@ -96,6 +96,9 @@ describe('EditorToolbar', () => {
 
     const cancelButton = screen.getByRole('button', { name: 'Cancel query' })
     expect(cancelButton).not.toBeDisabled()
+    expect(cancelButton).toHaveClass('toolbar-action--cancel')
+    expect(cancelButton).toHaveTextContent('Cancel')
+    expect(cancelButton.querySelector('svg.lucide-circle-stop')).toBeInTheDocument()
     fireEvent.click(cancelButton)
     expect(onCancel).toHaveBeenCalledOnce()
   })
@@ -180,6 +183,8 @@ describe('EditorToolbar', () => {
     )
 
     expect(screen.queryByRole('button', { name: 'Show results panel' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel query' })).toBeDisabled()
+    expect(screen.queryByRole('group', { name: 'Query result controls' })).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Dock results to right' }),
     ).not.toBeInTheDocument()

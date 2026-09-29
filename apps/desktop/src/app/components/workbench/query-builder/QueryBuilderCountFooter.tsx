@@ -8,6 +8,7 @@ interface QueryBuilderCountFooterProps {
   builderState: QueryBuilderState
   onCount?(tabId: string, builderState: QueryBuilderState): Promise<void>
   tabId: string
+  appearance?: 'builder' | 'toolbar'
 }
 
 export function QueryBuilderCountFooter({
@@ -33,6 +34,7 @@ export function QueryBuilderCountButton({
   builderState,
   onCount,
   tabId,
+  appearance = 'builder',
 }: QueryBuilderCountFooterProps) {
   const [counting, setCounting] = useState(false)
   const disabled = counting || activeExecution || !onCount || !canCountQueryBuilderState(builderState)
@@ -52,9 +54,10 @@ export function QueryBuilderCountButton({
   return (
     <button
       type="button"
-      className="query-builder-count-button"
+      className={appearance === 'toolbar' ? 'toolbar-icon-action toolbar-action--count' : 'query-builder-count-button'}
       disabled={disabled}
       aria-busy={counting}
+      aria-label={counting ? 'Counting...' : 'Count'}
       title="Count all records matching the current builder filters"
       onClick={() => void runCount()}
     >
@@ -63,7 +66,7 @@ export function QueryBuilderCountButton({
       ) : (
         <Calculator size={14} aria-hidden="true" />
       )}
-      <span>{counting ? 'Counting...' : 'Count'}</span>
+      {appearance !== 'toolbar' && <span>{counting ? 'Counting...' : 'Count'}</span>}
     </button>
   )
 }

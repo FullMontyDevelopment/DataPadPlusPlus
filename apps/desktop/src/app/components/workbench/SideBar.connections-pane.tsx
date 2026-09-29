@@ -52,6 +52,7 @@ export function ConnectionsPane({
   onSidebarSectionExpandedChange,
   onCreateConnection,
   onDeleteConnection,
+  onDuplicateConnection,
   onOpenConnectionExplorer,
   onOpenConnectionMetrics,
   onOpenConnectionDrawer,
@@ -79,6 +80,7 @@ export function ConnectionsPane({
   onSidebarSectionExpandedChange(sectionId: string, expanded: boolean): void
   onCreateConnection(): void
   onDeleteConnection(connectionId: string): void
+  onDuplicateConnection?(connectionId: string): void
   onOpenConnectionDrawer(connectionId: string): void
   onLoadExplorerScope(connectionId: string, scope?: string): void
   onOpenConnectionExplorer(connectionId: string): void
@@ -308,6 +310,7 @@ export function ConnectionsPane({
           onClose={() => setContextMenu(undefined)}
           onCreateTab={onCreateTab}
           onDeleteConnection={onDeleteConnection}
+          onDuplicateConnection={onDuplicateConnection}
           onOpenConnectionDrawer={onOpenConnectionDrawer}
           onOpenConnectionExplorer={onOpenConnectionExplorer}
           onOpenConnectionMetrics={onOpenConnectionMetrics}

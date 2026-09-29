@@ -1,6 +1,7 @@
 import type { AdapterManifest, ConnectionProfile } from '@datapadplusplus/shared-types'
 import { datastoreBacklogByEngine } from '@datapadplusplus/shared-types'
 import {
+  CopyIcon,
   ExplorerIcon,
   MetricsIcon,
   PlayIcon,
@@ -24,6 +25,7 @@ export function ConnectionContextMenu({
   onClose,
   onCreateTab,
   onDeleteConnection,
+  onDuplicateConnection,
   onOpenConnectionDrawer,
   onOpenConnectionExplorer,
   onOpenConnectionMetrics,
@@ -35,6 +37,7 @@ export function ConnectionContextMenu({
   onClose(): void
   onCreateTab(connectionId?: string): void
   onDeleteConnection(connectionId: string): void
+  onDuplicateConnection?(connectionId: string): void
   onOpenConnectionDrawer(connectionId: string): void
   onOpenConnectionExplorer(connectionId: string): void
   onOpenConnectionMetrics(connectionId: string): void
@@ -112,6 +115,19 @@ export function ConnectionContextMenu({
         <RenameIcon className="connection-context-menu-icon" />
         <span>Edit connection</span>
       </button>
+      {onDuplicateConnection ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="connection-context-menu-item"
+          aria-label={`Duplicate connection ${connection.name}`}
+          title="Copy connection settings, not the database or saved queries."
+          onClick={() => runAndClose(() => onDuplicateConnection(connection.id))}
+        >
+          <CopyIcon className="connection-context-menu-icon" />
+          <span>Duplicate connection</span>
+        </button>
+      ) : null}
       <div className="connection-context-menu-separator" role="separator" />
       <button
         type="button"

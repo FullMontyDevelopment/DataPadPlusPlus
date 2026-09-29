@@ -3,6 +3,7 @@ import type {
   QueryBuilderState,
   QueryViewMode,
 } from '@datapadplusplus/shared-types'
+import type { ReactNode } from 'react'
 import {
   ExplainIcon,
   ConsoleIcon,
@@ -43,6 +44,7 @@ interface EditorToolbarProps {
   showScriptingGuideToggle?: boolean
   scriptingGuideVisible?: boolean
   onToggleScriptingGuide?(): void
+  queryExecutionControls?: ReactNode
 }
 
 export function EditorToolbar({
@@ -71,6 +73,7 @@ export function EditorToolbar({
   showScriptingGuideToggle = false,
   scriptingGuideVisible = false,
   onToggleScriptingGuide = noop,
+  queryExecutionControls,
 }: EditorToolbarProps) {
   const queryWindowModeButtonLabels: Record<
     QueryViewMode,
@@ -119,7 +122,7 @@ export function EditorToolbar({
 
         <button
           type="button"
-          className="toolbar-icon-action"
+          className="toolbar-action toolbar-action--cancel"
           aria-label="Cancel query"
           title={
             canCancelExecution
@@ -130,6 +133,7 @@ export function EditorToolbar({
           onClick={onCancel}
         >
           <StopIcon className="toolbar-icon" />
+          <span>Cancel</span>
         </button>
 
         <button
@@ -149,6 +153,8 @@ export function EditorToolbar({
           <ExplainIcon className="toolbar-icon" />
         </button>
       </div>
+
+      {queryExecutionControls}
 
       {canToggleBuilderView ? (
         <div className="toolbar-group toolbar-group--query-layout" aria-label="Query window mode">

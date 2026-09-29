@@ -22,6 +22,7 @@ import {
 import { builderStateWithCompiledQueryText } from '../../../../../controllers/query-builder-routing'
 
 interface SearchDslBuilderProps {
+  showFetchSize?: boolean
   tab: QueryTabState
   builderState: SearchDslBuilderState
   indexOptions?: string[]
@@ -52,6 +53,7 @@ export function SearchDslBuilder({
   indexOptions = [],
   onBuilderStateChange,
   theme,
+  showFetchSize = true,
 }: SearchDslBuilderProps) {
   const draft = builderState
   const resolvedIndexOptions = uniqueValues([draft.index, ...indexOptions])
@@ -86,7 +88,7 @@ export function SearchDslBuilder({
             {QUERY_MODES.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
           </select>
         </label>
-        <label className="query-builder-field">
+        {showFetchSize ? <label className="query-builder-field">
           <span>Size</span>
           <input
             aria-label="Size"
@@ -95,7 +97,7 @@ export function SearchDslBuilder({
             value={draft.size ?? 20}
             onChange={(event) => updateDraft({ size: numberValue(event.target.value, 20) })}
           />
-        </label>
+        </label> : null}
       </div>
 
       {draft.queryMode !== 'match-all' ? (

@@ -7,7 +7,7 @@ import {
   RefreshIcon,
   SearchIcon,
 } from '../../icons'
-import { ExplorerNodeIcon } from '../../SideBar.node-icons'
+import { ExplorerSelectionHeader, ExplorerWorkspaceHeader } from '../common/explorer/ExplorerChrome'
 import { explorerScopeKey } from '../../../../state/app-state-reducer-helpers'
 import { mongoExplorerDetailProvider } from './MongoExplorerDetailRegistry'
 import type { MongoExplorerDetailActionId } from './MongoExplorerDetail.types'
@@ -97,13 +97,8 @@ export function MongoExplorerWorkspace({
     : false
 
   return (
-    <section className="mongo-explorer-workspace" aria-label="MongoDB Explorer">
-      <header className="mongo-explorer-toolbar">
-        <div>
-          <span className="eyebrow">MongoDB Explorer</span>
-          <h2>{connection.name}</h2>
-          <p>{environment.label} · Metadata loads as objects are expanded or selected.</p>
-        </div>
+    <section className="mongo-explorer-workspace datastore-explorer-workspace" aria-label="MongoDB Explorer">
+      <ExplorerWorkspaceHeader connection={connection} environment={environment} label="MongoDB">
         <button
           type="button"
           className={`drawer-button mongo-explorer-refresh-button${
@@ -118,16 +113,17 @@ export function MongoExplorerWorkspace({
           <RefreshIcon />
           {isScopeLoading(undefined) ? 'Refreshing…' : 'Refresh'}
         </button>
-      </header>
+      </ExplorerWorkspaceHeader>
 
-      <div className={`mongo-explorer-layout${selectedNode ? ' has-selection' : ''}`}>
-        <aside className="mongo-explorer-tree-panel" aria-label="MongoDB databases and objects">
-          <label className="mongo-explorer-search">
+      <div className={`mongo-explorer-layout datastore-explorer-layout${selectedNode ? ' has-selection' : ''}`}>
+        <aside className="mongo-explorer-tree-panel datastore-explorer-tree-panel" aria-label="MongoDB databases and objects">
+          <label className="mongo-explorer-search datastore-explorer-search">
             <SearchIcon />
             <span className="sr-only">Search MongoDB metadata</span>
             <input
               type="search"
-              placeholder="Search databases and objects"
+              placeholder="Filter loaded objects"
+              title="Filter objects already loaded in Explorer. Expand a branch to load more."
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
             />
@@ -135,7 +131,7 @@ export function MongoExplorerWorkspace({
           {error && !Object.keys(scopes).length ? (
             <div className="mongo-explorer-workspace-error">{error}</div>
           ) : null}
-          <div className="mongo-explorer-tree-scroll">
+          <div className="mongo-explorer-tree-scroll datastore-explorer-tree-scroll">
             <MongoExplorerNavigator
               connection={connection}
               scopes={scopes}
@@ -149,33 +145,25 @@ export function MongoExplorerWorkspace({
           </div>
         </aside>
 
-        <main className="mongo-explorer-detail-panel" aria-live="polite">
+        <main className="mongo-explorer-detail-panel datastore-explorer-detail-panel" aria-live="polite">
           {selectedNode && selectedProvider && DetailComponent ? (
             <>
               <button
                 type="button"
-                className="mongo-explorer-detail-back"
+                className="mongo-explorer-detail-back datastore-explorer-detail-back"
                 onClick={() => setSelectedNode(undefined)}
               >
                 <ArrowLeftIcon /> Back to navigator
               </button>
-              <section className="mongo-explorer-context-card" aria-label="Selected MongoDB object">
-                <header className="mongo-explorer-selection-heading">
-                  <span className="mongo-explorer-selection-icon">
-                    <ExplorerNodeIcon connection={connection} kind={selectedNode.kind} />
-                  </span>
-                  <div>
-                    <span className="eyebrow">{humanizeKind(selectedNode.kind)}</span>
-                    <h2>{selectedNode.label}</h2>
-                    <p>{mongoNodeBreadcrumb(selectedNode)}</p>
-                  </div>
-                </header>
-                <MongoDetailActions
+              <ExplorerSelectionHeader
+                connection={connection} node={selectedNode} description={selectedNode.detail}
+                className="mongo-explorer-context-card" label="Selected MongoDB object"
+                actions={<MongoDetailActions
                   actions={selectedProvider.actions ?? []}
                   node={selectedNode}
                   onRunAction={runAction}
-                />
-              </section>
+                />}
+              />
               <DetailComponent
                 connection={connection}
                 node={selectedNode}
@@ -196,11 +184,8 @@ export function MongoExplorerWorkspace({
           ) : (
             <div className="mongo-explorer-welcome">
               <ExplorerIcon />
-              <h2>Select a database or object</h2>
-              <p>
-                Browse collections, indexes, validation, permissions, statistics, and
-                bounded samples without leaving Explorer.
-              </p>
+              <h2>Explore MongoDB</h2>
+              <p>Select an object in the navigator to see its details and available actions.</p>
             </div>
           )}
         </main>
@@ -254,17 +239,4 @@ function mongoObjectNode(node: ExplorerNode, kind: string, label: string): Explo
     kind,
     scope: `${kind}:${databaseName}:${objectName}`,
   }
-}
-
-function mongoNodeBreadcrumb(node: ExplorerNode) {
-  const parts = [...(node.path ?? []), node.label].filter(
-    (part, index, items) => part && items.indexOf(part) === index,
-  )
-  return parts.join(' / ') || node.detail
-}
-
-function humanizeKind(kind: string) {
-  return kind
-    .replace(/-/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
