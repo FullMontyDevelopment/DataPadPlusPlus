@@ -67,6 +67,43 @@ async function menu(field: string | undefined, action: string) {
 }
 
 describe('efficiency-mode document editing', () => {
+  it.each(['Copy Value', 'Copy Document JSON'])('loads the selected complete document before %s', async action => {
+    const clipboard = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: clipboard } })
+    const { fetch } = setup()
+    await expand()
+    await menu(undefined, action)
+    await waitFor(() => expect(clipboard).toHaveBeenCalledWith(JSON.stringify(full, null, 2)))
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ documentId: 'one', path: [], mode: 'full-value' }))
+    expect(screen.getByRole('button', { name: 'Expand two' })).toBeInTheDocument()
+  })
+
+  it('copies a selected lazy subtree without fetching unrelated fields', async () => {
+    const clipboard = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: clipboard } })
+    const fetch = vi.fn(async (request: DocumentNodeChildrenRequest) => hydrated(request, full.nested))
+    setup({ onFetchDocumentNodeChildren: fetch })
+    await expand()
+    await menu('nested', 'Copy Value')
+    await waitFor(() => expect(clipboard).toHaveBeenCalledWith(JSON.stringify(full.nested, null, 2)))
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ path: ['nested'], mode: 'full-value' }))
+  })
+
+  it.each(['failure', 'refresh', 'scope', 'lock', 'unmount', 'incomplete'])('never changes the clipboard after %s during copy hydration', async reason => {
+    const clipboard = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: clipboard } })
+    const pending = deferred<DocumentNodeChildrenResponse | undefined>()
+    const { props, rerender, unmount } = setup({ onFetchDocumentNodeChildren: () => pending.promise })
+    await expand()
+    await menu(undefined, 'Copy Value')
+    if (reason === 'refresh') rerender(<DocumentResultsView {...props} documents={[preview()]} />)
+    if (reason === 'scope') rerender(<DocumentResultsView {...props} collection="other" />)
+    if (reason === 'lock') rerender(<DocumentResultsView {...props} executionLocked />)
+    if (reason === 'unmount') unmount()
+    await act(async () => pending.resolve(reason === 'failure' ? undefined : { tabId: 'tab', documentId: 'one', path: [], value: reason === 'incomplete' ? preview() : full, notices: [] }))
+    expect(clipboard).not.toHaveBeenCalled()
+  })
+
   it('loads only the selected root before inline editing and reuses authoritative evidence for repeated edits', async () => {
     const { fetch, execute } = setup()
     await expand()

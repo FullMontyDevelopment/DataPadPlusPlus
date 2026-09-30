@@ -461,6 +461,66 @@ pub(super) fn effective_connection_environment_id(
         .unwrap_or_else(|| "env-dev".into())
 }
 
+pub(super) fn validate_tab_environment_context(
+    snapshot: &WorkspaceSnapshot,
+    tab: &QueryTabState,
+    connection_id: &str,
+    environment_id: &str,
+) -> Result<(), CommandError> {
+    if tab.connection_id != connection_id || tab.environment_id != environment_id {
+        return Err(CommandError::new(
+            "query-context-changed",
+            "The tab connection or environment changed. Review its context before retrying.",
+        ));
+    }
+    if tab.tab_kind.as_deref().is_some_and(|kind| kind != "query") {
+        return Ok(());
+    }
+    let item_id = tab
+        .save_target
+        .as_ref()
+        .filter(|target| target.kind == "library")
+        .and_then(|target| target.library_item_id.as_deref())
+        .or(tab.saved_query_id.as_deref());
+    let connection_assignments: Vec<_> = snapshot
+        .library_nodes
+        .iter()
+        .filter(|node| {
+            node.kind == "connection" && node.connection_id.as_deref() == Some(connection_id)
+        })
+        .filter_map(|node| {
+            effective_library_environment_id_for_nodes(&snapshot.library_nodes, &node.id)
+        })
+        .collect();
+    let assigned = item_id
+        .and_then(|id| effective_library_environment_id_for_nodes(&snapshot.library_nodes, id))
+        .or_else(|| {
+            connection_assignments
+                .iter()
+                .find(|id| id.as_str() == environment_id)
+                .or(connection_assignments.first())
+                .cloned()
+        })
+        .or_else(|| {
+            snapshot
+                .connections
+                .iter()
+                .find(|connection| connection.id == connection_id)
+                .filter(|connection| connection.environment_ids.len() == 1)
+                .and_then(|connection| connection.environment_ids.first().cloned())
+        });
+    if let Some(expected) = assigned.filter(|expected| expected != environment_id) {
+        let label = snapshot
+            .environments
+            .iter()
+            .find(|item| item.id == expected)
+            .map(|item| item.label.as_str())
+            .unwrap_or(&expected);
+        return Err(CommandError::new("query-environment-mismatch", format!("This tab's Library context is assigned to {label}. Select the assigned environment before running.")));
+    }
+    Ok(())
+}
+
 impl ManagedAppState {
     pub fn create_library_folder(
         &mut self,
@@ -882,8 +942,9 @@ impl ManagedAppState {
             .as_ref()
             .map(|(environment_id, _)| environment_id.clone())
             .or_else(|| self.effective_library_environment_id(&item.id))
-            .or_else(|| connection.environment_ids.first().cloned())
-            .unwrap_or_else(|| self.snapshot.ui.active_environment_id.clone());
+            .unwrap_or_else(|| {
+                effective_connection_environment_id(&self.snapshot, &connection.id, None)
+            });
         if test_suite_binding.is_some() {
             self.environment_by_id(&environment_id)?;
             if !connection

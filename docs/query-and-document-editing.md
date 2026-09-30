@@ -31,6 +31,20 @@ Each group owns its `AND` or `OR` join and compiles with explicit parentheses/AS
 
 Supported SQL tabs store database/catalog and schema selection in tab scope. The runtime applies supported session/database routing, and generated builder SQL contains only the query. Engines without a safe session-level mechanism keep qualification or connection-level database behavior.
 
+## Environment Context
+
+Queries opened from Explorer inherit the environment of the selected tree, not another active query. Reopening the same object only reuses a tab in the same environment. Saved queries retain their explicitly assigned Library environment, including inherited folder assignments.
+
+If an existing query tab conflicts with its assigned Library environment, DataPad++ blocks execution and displays a **Use [environment]** action. Review the warning before applying it. This preserves the draft and does not run the query automatically. The native runtime also validates the tab's connection and environment before execution.
+
+## Copying Result Values
+
+**Copy Value** and **Copy Document JSON** copy datastore values, not internal preview nodes. With MongoDB efficiency mode enabled, copying an incomplete field or document loads the selected value in full first; other documents remain lazy. **Copy result** completes the displayed documents before writing the clipboard. These reads obtain the current datastore value, not a historical snapshot of the original query.
+
+Failed, incomplete, or stale reads leave the clipboard unchanged. BSON Extended JSON wrappers and datastore field names are preserved; DataPad++ does not remove fields merely because their names resemble internal names. Internal lazy, truncated, or unsupported representations are rejected instead of copied. A truncated key-value preview must be opened with **View Value** before copying.
+
+JSON, table, and raw views cannot be generated from incomplete document previews. Use the Document copy actions or rerun with efficiency mode off to obtain those views.
+
 ## Shared Document Editing
 
 MongoDB, Cosmos DB NoSQL, LiteDB, and ArangoDB use the shared Document results editor where the adapter provides complete mutation identity.

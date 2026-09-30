@@ -10,9 +10,39 @@ import {
   effectiveConnectionEnvironmentId,
   effectiveConnectionEnvironmentIds,
   ensureConnectionLibraryNodes,
+  tabEnvironmentConflict,
 } from '../../../src/services/runtime/library-connection-helpers'
+import { createQueryTabForConnection } from '../../../src/services/runtime/browser-tabs'
 
 describe('Library connection helpers', () => {
+  it('blocks mismatched inherited context but respects saved-query overrides and multi-environment rows', () => {
+    const snapshot = createBlankBootstrapPayload().snapshot
+    const uat = { ...createEnvironmentProfile(), id: 'uat', label: 'UAT' }
+    const prod = { ...uat, id: 'prod', label: 'PROD' }
+    snapshot.environments = [prod, uat]
+    const connection = createConnectionProfile('prod')
+    snapshot.connections = [connection]
+    snapshot.ui.activeEnvironmentId = 'prod'
+    ensureConnectionLibraryNodes(snapshot)
+    const node = snapshot.libraryNodes[0]!
+    node.environmentId = 'uat'
+    const tab = createQueryTabForConnection(snapshot, connection, false)
+    expect(tab.environmentId).toBe('uat')
+    tab.environmentId = 'prod'
+    expect(tabEnvironmentConflict(snapshot, tab)).toMatchObject({ environmentId: 'uat', label: 'UAT' })
+    snapshot.libraryNodes.push({ ...node, id: 'saved-query', kind: 'query', environmentId: 'prod' })
+    tab.savedQueryId = 'saved-query'
+    expect(tabEnvironmentConflict(snapshot, tab)).toBeUndefined()
+    tab.savedQueryId = undefined
+    snapshot.libraryNodes.push({ ...node, id: 'second-connection-row', environmentId: 'prod' })
+    expect(tabEnvironmentConflict(snapshot, tab)).toBeUndefined()
+    snapshot.libraryNodes = []
+    expect(tabEnvironmentConflict(snapshot, tab)).toBeUndefined()
+    connection.environmentIds = ['uat']
+    expect(tabEnvironmentConflict(snapshot, tab)).toMatchObject({ environmentId: 'uat' })
+    connection.environmentIds = ['uat', 'prod']
+    expect(tabEnvironmentConflict(snapshot, tab)).toBeUndefined()
+  })
   it('does not invent a default folder for fresh or root-level connections', () => {
     const snapshot = createBlankBootstrapPayload().snapshot
     const connection = createConnectionProfile('')

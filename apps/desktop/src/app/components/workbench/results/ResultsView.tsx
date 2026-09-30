@@ -23,8 +23,8 @@ import { resultEditQueryText } from '../../../result-edit-context'
 import { ResultPayloadView } from './ResultPayloadView'
 import { ResultExportDialog } from './ResultExportDialog'
 import { TestRunResultsView } from './TestRunResultsView'
-import { copyText, payloadToText } from './payload-export'
-import { payloadToTextInBackground } from './payload-export-background'
+import { copyText } from './payload-export'
+import { prepareResultClipboardPayload, resultPayloadToClipboardText } from './result-copy'
 import { formatDurationClock } from './result-runtime'
 
 interface ResultsViewProps {
@@ -87,6 +87,13 @@ export function ResultsView({
   const [operationMessage, setOperationMessage] = useState('')
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const acknowledgedRenderRef = useRef('')
+  const [copying, setCopying] = useState(false)
+  const copyInFlight = useRef(false)
+  const copyGeneration = useRef(0)
+  useEffect(() => {
+    copyGeneration.current += 1
+    return () => { copyGeneration.current += 1 }
+  }, [payload, result, activeTab?.id, activeTab?.connectionId, activeTab?.environmentId, documentResetToken, executionLocked])
   const activeTabId = activeTab?.id
   const activeExecutionId = activeTab?.activeExecution?.executionId
   const activeExecutionPhase = activeTab?.activeExecution?.phase
@@ -204,22 +211,28 @@ export function ResultsView({
   ) : undefined
 
   const copyResult = async () => {
-    if (!payload) {
+    if (!payload || copyInFlight.current || executionLocked) {
       return
     }
-
+    const generation = copyGeneration.current
+    copyInFlight.current = true
+    setCopying(true)
+    setOperationMessage('Preparing complete result for copying…')
     try {
-      const format = payload.renderer === 'raw' || payload.renderer === 'resp'
-        ? 'txt'
-        : 'json'
-      await copyText(
-        payload.renderer === 'document'
-          ? await payloadToTextInBackground(payload, format)
-          : payloadToText(payload),
-      )
+      const complete = await prepareResultClipboardPayload(payload, activeTab ? {
+        tabId: activeTab.id, connectionId: activeTab.connectionId, environmentId: activeTab.environmentId,
+        queryText: resultEditQueryText(activeTab, result),
+      } : undefined, onFetchDocumentNodeChildren)
+      if (generation !== copyGeneration.current) return
+      await copyText(resultPayloadToClipboardText(complete))
       setOperationMessage('Result copied to clipboard.')
     } catch {
-      setOperationMessage('Unable to copy result to clipboard.')
+      if (generation === copyGeneration.current) {
+        setOperationMessage('Unable to load and copy the complete result. Try View Value or rerun without efficiency mode. Nothing was copied.')
+      }
+    } finally {
+      copyInFlight.current = false
+      setCopying(false)
     }
   }
 
@@ -266,7 +279,7 @@ export function ResultsView({
             type="button"
             className="bottom-panel-icon-button"
             aria-label="Copy result"
-            disabled={!payload}
+            disabled={!payload || copying || executionLocked}
             title="Copy the current result to the clipboard."
             onClick={() => void copyResult()}
           >

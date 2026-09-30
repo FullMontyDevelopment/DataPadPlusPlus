@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ConnectionProfile } from '@datapadplusplus/shared-types'
 import { createSeedSnapshot } from '../../fixtures/seed-workspace'
+import { ensureConnectionLibraryNodes } from '../../../src/services/runtime/library-connection-helpers'
 import {
   createExplorerTabInSnapshot,
   createEnvironmentTabInSnapshot,
@@ -19,6 +20,26 @@ import {
 } from '../../../src/services/runtime/browser-settings-tab'
 
 describe('browser tab runtime', () => {
+  it('opens and reuses scoped queries only within the selected environment', () => {
+    const snapshot = createSeedSnapshot()
+    const connection = snapshot.connections.find(item => item.id === 'conn-catalog')!
+    snapshot.environments.push({ ...snapshot.environments[0]!, id: 'env-uat', label: 'UAT' })
+    snapshot.ui.activeEnvironmentId = 'env-prod'
+    connection.environmentIds = ['env-prod', 'env-uat']
+    ensureConnectionLibraryNodes(snapshot)
+    const node = snapshot.libraryNodes.find(item => item.connectionId === connection.id && item.kind === 'connection')!
+    node.environmentId = 'env-uat'
+    const target = { kind: 'collection', label: 'items', path: ['catalog', 'Collections'], scope: 'collection:catalog:items', preferredBuilder: 'mongo-find' as const }
+    const opened = createScopedQueryTabInSnapshot(snapshot, { connectionId: connection.id, target })
+    const uatId = opened.ui.activeTabId
+    expect(opened.tabs.find(tab => tab.id === uatId)?.environmentId).toBe('env-uat')
+    const prod = createScopedQueryTabInSnapshot(opened, { connectionId: connection.id, target, environmentId: 'env-prod' })
+    expect(prod.ui.activeTabId).not.toBe(uatId)
+    expect(prod.tabs.find(tab => tab.id === prod.ui.activeTabId)?.environmentId).toBe('env-prod')
+    const uatAgain = createScopedQueryTabInSnapshot(prod, { connectionId: connection.id, target })
+    expect(uatAgain.ui.activeTabId).toBe(uatId)
+    expect(uatAgain.tabs).toHaveLength(opened.tabs.length + 1)
+  })
   it('closes an eligible batch atomically while preserving locked and missing outcomes', () => {
     const snapshot = createSeedSnapshot()
     snapshot.ui.activeTabId = 'tab-mongo-catalog'
@@ -402,6 +423,7 @@ describe('browser tab runtime', () => {
 
     const reopened = createScopedQueryTabInSnapshot(snapshot, {
       connectionId: 'conn-catalog',
+      environmentId: legacyTab.environmentId,
       target: {
         kind: 'collection',
         label: 'products',

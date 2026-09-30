@@ -43,6 +43,12 @@ impl ManagedAppState {
             .iter()
             .position(|item| item.id == request.tab_id)
             .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
+        super::library::validate_tab_environment_context(
+            &self.snapshot,
+            &self.snapshot.tabs[tab_index],
+            &request.connection_id,
+            &request.environment_id,
+        )?;
         let profile = self.connection_by_id(&request.connection_id)?;
         let environment = self.environment_by_id(&request.environment_id)?;
         let (mut resolved_connection, resolved_environment, _) =
@@ -290,6 +296,11 @@ impl ManagedAppState {
     ) -> Result<ResultPageResponse, CommandError> {
         self.ensure_unlocked()?;
         validate_result_page_request(&mut request)?;
+        self.validate_result_context(
+            &request.tab_id,
+            &request.connection_id,
+            &request.environment_id,
+        )?;
         let profile = self.connection_by_id(&request.connection_id)?;
         let (mut resolved, resolved_environment, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
@@ -316,10 +327,37 @@ impl ManagedAppState {
     ) -> Result<DocumentNodeChildrenResponse, CommandError> {
         self.ensure_unlocked()?;
         validate_document_node_children_request(&request)?;
+        self.validate_result_context(
+            &request.tab_id,
+            &request.connection_id,
+            &request.environment_id,
+        )?;
         let profile = self.connection_by_id(&request.connection_id)?;
         let (resolved, _, _) =
             self.resolve_connection_profile(&profile, &request.environment_id)?;
         adapters::fetch_document_node_children(&resolved, &request).await
+    }
+
+    fn validate_result_context(
+        &self,
+        tab_id: &str,
+        connection_id: &str,
+        environment_id: &str,
+    ) -> Result<(), CommandError> {
+        let tab = self
+            .snapshot
+            .tabs
+            .iter()
+            .find(|tab| tab.id == tab_id)
+            .ok_or_else(|| {
+                CommandError::new("tab-missing", "The result tab is no longer available.")
+            })?;
+        super::library::validate_tab_environment_context(
+            &self.snapshot,
+            tab,
+            connection_id,
+            environment_id,
+        )
     }
 }
 

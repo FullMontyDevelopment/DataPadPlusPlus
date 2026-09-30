@@ -134,7 +134,7 @@ interface LibraryPaneProps {
   onCreateApiServer?(): void
   onAddNodeToApiServer?(connectionId: string, node: ExplorerNode): void
   onOpenObjectView?(connectionId: string, node: ExplorerNode): void
-  onOpenScopedQuery?(connectionId: string, target: ScopedQueryTarget): void
+  onOpenScopedQuery?(connectionId: string, target: ScopedQueryTarget, environmentId?: string): void
   onOpenApiServer?(serverId?: string): void
   onOpenWorkspaceSearch?(): void
   onStartApiServer?(serverId: string): void
@@ -1751,7 +1751,7 @@ function LibraryTreeItem({
   onCreateApiServerFromNode?(connectionId: string, node: ExplorerNode): void
   onAddNodeToApiServer?(connectionId: string, node: ExplorerNode): void
   onOpenObjectView(connectionId: string, node: ExplorerNode): void
-  onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
+  onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget, environmentId?: string): void
   onOpenLibraryItem(nodeId: string): void
   onOpenTestSuiteCase(libraryItemId: string, caseId: string): void
   datastoreTestsEnabled: boolean

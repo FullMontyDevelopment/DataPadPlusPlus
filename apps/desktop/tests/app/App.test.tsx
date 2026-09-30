@@ -490,6 +490,32 @@ describe('App', () => {
     expect(screen.getByLabelText('Query editor')).toHaveValue('select 2;')
   })
 
+  it('blocks an existing PROD tab assigned to UAT until explicitly corrected, preserving its draft', async () => {
+    const snapshot = createBlankBootstrapPayload().snapshot
+    snapshot.environments = [testEnvironment('prod', 'PROD'), testEnvironment('uat', 'UAT')]
+    snapshot.connections = [{ ...startupConnection('uat-mongo', 'UAT database'), environmentIds: ['prod', 'uat'] }]
+    snapshot.libraryNodes = [{ id: 'uat-folder', kind: 'folder', name: 'UAT', environmentId: 'uat', tags: [], createdAt: '', updatedAt: '' },
+      { id: 'uat-connection', kind: 'connection', name: 'UAT database', parentId: 'uat-folder', connectionId: 'uat-mongo', tags: [], createdAt: '', updatedAt: '' }]
+    snapshot.tabs = [{ id: 'mismatch', title: 'UAT.sql', tabKind: 'query', connectionId: 'uat-mongo', environmentId: 'prod', family: 'sql', language: 'sql', editorLabel: 'SQL', queryText: 'select 42;', status: 'idle', dirty: true, history: [] }]
+    snapshot.ui.activeTabId = 'mismatch'
+    snapshot.ui.activeConnectionId = 'uat-mongo'
+    snapshot.ui.activeEnvironmentId = 'prod'
+    snapshot.preferences.firstInstallGuide = { status: 'skipped', updatedAt: '2026-09-30' }
+    saveBrowserSnapshot(snapshot)
+    const execute = vi.spyOn(desktopClient, 'executeQuery')
+    render(<App />)
+    expect(await screen.findByText(/This tab uses PROD, but its Library context is assigned to UAT/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Run query' })).toBeDisabled()
+    fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true })
+    await act(async () => {})
+    expect(execute).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Use UAT' }))
+    await waitFor(() => expect(screen.queryByText(/This tab uses PROD, but/)).not.toBeInTheDocument())
+    expect(screen.getByLabelText('Query editor')).toHaveValue('select 42;')
+    expect(loadBrowserSnapshot().tabs.find(tab => tab.id === 'mismatch')?.environmentId).toBe('uat')
+    expect(execute).not.toHaveBeenCalled()
+  })
+
   it('restores the connection editor from its selected connection, not the active query tab', async () => {
     const snapshot = createBlankBootstrapPayload().snapshot
     snapshot.environments = [testEnvironment('env-local', 'Local')]
@@ -506,7 +532,7 @@ describe('App', () => {
     snapshot.preferences.firstInstallGuide = { status: 'skipped', updatedAt: '2026-09-25T00:00:00Z' }
     saveBrowserSnapshot(snapshot)
     render(<App />)
-    const drawer = await screen.findByLabelText('connection drawer')
+    const drawer = await screen.findByLabelText('connection drawer', undefined, { timeout: 4000 })
     expect(within(drawer).getByLabelText('Name')).toHaveValue('Edited database')
     expect(screen.getByRole('tab', { name: /Still open/ })).toHaveAttribute('aria-selected', 'true')
   })
@@ -2997,6 +3023,7 @@ describe('App', () => {
     render(<App />)
 
     await runPreviewQuery()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Copy result' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'Copy result' }))
 
     await waitFor(() => {

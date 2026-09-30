@@ -40,6 +40,7 @@ import {
   createDocumentTreeIndex,
   createDocumentTreeIndexCooperative,
   isDocumentLazyNode,
+  documentRowId,
   rowAtDocumentRowId,
   type DocumentGridRow,
   type DocumentTreeIndex,
@@ -60,6 +61,7 @@ import {
 } from './document-grid-search'
 import { documentCountText } from './document-results-summary'
 import { copyText } from './payload-export'
+import { resultValueToClipboardText } from './result-copy'
 import { useDataEditConfirmation } from './use-data-edit-confirmation'
 import { useDocumentLazyHydration } from './use-document-lazy-hydration'
 import { useDocumentEditPreparation } from './use-document-edit-preparation'
@@ -333,7 +335,7 @@ export function DocumentResultsView({
       }
       expandAllAbortRef.current?.abort()
     }
-  }, [])
+  }, [documents, documentResetToken, tabId, database, collection, editContext?.connectionId, editContext?.environmentId, executionLocked])
 
   useEffect(() => {
     if (!documentResetToken || handledResetTokenRef.current === documentResetToken) {
@@ -687,19 +689,30 @@ export function DocumentResultsView({
     setExpandedRows(new Set())
   }
 
-  const copyValue = async (value: unknown) => {
-    await copyText(typeof value === 'string' ? value : JSON.stringify(value, null, 2))
-    setCopyMessage('Copied value.')
+  const copyValue = async (row: DocumentGridRow) => {
+    try {
+      let value = row.value
+      if (containsUnavailableValue(value)) {
+        setCopyMessage('Loading complete value for copying…')
+        const response = await hydrateLazyRow(row, 'full-value')
+        if (!response) return
+        value = response.value
+      }
+      await copyText(resultValueToClipboardText(value))
+      setCopyMessage('Copied value.')
+    } catch (error) {
+      setCopyMessage(dataEditErrorMessage(error, 'Unable to copy this value. Nothing was copied.'))
+    }
   }
 
-  const scheduleCopyValue = (value: unknown) => {
+  const scheduleCopyValue = (row: DocumentGridRow) => {
     if (copyTimer.current !== undefined) {
       window.clearTimeout(copyTimer.current)
     }
 
     copyTimer.current = window.setTimeout(() => {
       copyTimer.current = undefined
-      void copyValue(value)
+      void copyValue(row)
     }, 180)
   }
 
@@ -711,8 +724,7 @@ export function DocumentResultsView({
   }
 
   const copyDocument = async (row: DocumentGridRow) => {
-    await copyText(JSON.stringify(draftDocuments[row.documentIndex], null, 2))
-    setCopyMessage('Copied document JSON.')
+    await copyValue({ ...row, id: documentRowId(row.documentIndex, []), path: [], value: draftDocuments[row.documentIndex] })
   }
 
   const updateRowValue = (
@@ -859,7 +871,7 @@ export function DocumentResultsView({
       return
     }
 
-    if (containsUnavailableValue(row.value) && efficiencyModeEnabled) {
+    if (containsUnavailableValue(row.value)) {
       void hydrateLazyRow(row, 'full-value').then((response) => {
         if (!response) return
         setInspectorMode(mode)
@@ -1051,6 +1063,7 @@ export function DocumentResultsView({
             row={inspectorRow}
             theme={theme}
             onChangeType={changeRowType}
+            onCopyDocument={() => copyDocument(inspectorRow)}
             onBeginRawEdit={async (row) => {
               const prepared = await prepareEdit(row)
               if (!prepared) return false
@@ -1088,7 +1101,7 @@ export function DocumentResultsView({
           }}
           onCopyDocument={() => void copyDocument(activeContextMenu.row)}
           onCopyPath={() => void copyText(activeContextMenu.row.fieldPath || '$')}
-          onCopyValue={() => void copyValue(activeContextMenu.row.value)}
+          onCopyValue={() => void copyValue(activeContextMenu.row)}
           onDelete={() => {
             void prepareEdit(activeContextMenu.row).then((row) => { if (row) setPendingFieldDelete({ source: documents, row }) })
             setContextMenu(undefined)

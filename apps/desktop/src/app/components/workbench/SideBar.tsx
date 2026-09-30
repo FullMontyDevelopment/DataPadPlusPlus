@@ -68,7 +68,7 @@ interface SideBarProps {
   onCreateApiServerFromNode?(connectionId: string, node: ExplorerNode): void
   onCreateApiServer?(): void
   onAddNodeToApiServer?(connectionId: string, node: ExplorerNode): void
-  onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
+  onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget, environmentId?: string): void
   onCreateTab(connectionId?: string): void
   onOpenApiServer(serverId?: string): void
   onOpenWorkspaceSearch(): void
@@ -327,7 +327,7 @@ export function SideBar({
           onRefreshExplorer={onRefreshExplorer}
           onInspectExplorerNode={onInspectExplorerNode}
           onSelectExplorerNode={onSelectExplorerNode}
-          onOpenScopedQuery={(target) => onOpenScopedQuery(activeConnectionId, target)}
+          onOpenScopedQuery={(target) => onOpenScopedQuery(activeConnectionId, target, activeEnvironmentId)}
         />
       ) : null}
 

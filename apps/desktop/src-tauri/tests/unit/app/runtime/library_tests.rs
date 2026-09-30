@@ -2,6 +2,51 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn query_execution_checks_tab_identity_and_library_environment_without_retargeting() {
+    let mut snapshot = super::super::blank_workspace_snapshot();
+    snapshot.library_nodes = vec![
+        test_node("uat", None, Some("env-uat")),
+        connection_node("connection-mongo", Some("uat")),
+    ];
+    let connection_id = snapshot.library_nodes[1].connection_id.clone().unwrap();
+    let mut tab = QueryTabState {
+        connection_id: connection_id.clone(),
+        environment_id: "env-prod".into(),
+        ..Default::default()
+    };
+    assert_eq!(
+        validate_tab_environment_context(&snapshot, &tab, &connection_id, "env-prod")
+            .unwrap_err()
+            .code,
+        "query-environment-mismatch"
+    );
+    assert_eq!(tab.environment_id, "env-prod");
+    tab.environment_id = "env-uat".into();
+    assert!(validate_tab_environment_context(&snapshot, &tab, &connection_id, "env-uat").is_ok());
+    assert_eq!(
+        validate_tab_environment_context(&snapshot, &tab, &connection_id, "env-prod")
+            .unwrap_err()
+            .code,
+        "query-context-changed"
+    );
+    assert!(
+        validate_tab_environment_context(&snapshot, &tab, "wrong-connection", "env-uat").is_err()
+    );
+    snapshot
+        .library_nodes
+        .push(test_node("saved", None, Some("env-prod")));
+    tab.saved_query_id = Some("saved".into());
+    tab.environment_id = "env-prod".into();
+    assert!(validate_tab_environment_context(&snapshot, &tab, &connection_id, "env-prod").is_ok());
+    tab.saved_query_id = None;
+    let mut other = connection_node("other-row", None);
+    other.connection_id = Some(connection_id.clone());
+    other.environment_id = Some("env-prod".into());
+    snapshot.library_nodes.push(other);
+    assert!(validate_tab_environment_context(&snapshot, &tab, &connection_id, "env-prod").is_ok());
+}
+
+#[test]
 fn effective_library_environment_uses_closest_parent_assignment() {
     let nodes = vec![
         test_node("top", None, Some("env-a")),

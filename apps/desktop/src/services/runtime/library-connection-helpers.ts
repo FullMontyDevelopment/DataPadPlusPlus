@@ -1,4 +1,4 @@
-import type { ConnectionProfile, LibraryNode, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
+import type { ConnectionProfile, LibraryNode, QueryTabState, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 
 export function connectionLibraryNodeId(connectionId: string) {
   return `library-connection-${connectionId}`
@@ -135,7 +135,7 @@ export function effectiveConnectionEnvironmentIds(
   return environmentIds
 }
 
-function effectiveEnvironmentFromNode(nodes: LibraryNode[], nodeId: string) {
+export function effectiveEnvironmentFromNode(nodes: LibraryNode[], nodeId: string) {
   let currentId: string | undefined = nodeId
   const visited = new Set<string>()
 
@@ -155,6 +155,26 @@ function effectiveEnvironmentFromNode(nodes: LibraryNode[], nodeId: string) {
   }
 
   return undefined
+}
+
+export function tabEnvironmentConflict(snapshot: WorkspaceSnapshot, tab: QueryTabState) {
+  if (tab.tabKind && tab.tabKind !== 'query') return undefined
+  const itemId = tab.saveTarget?.kind === 'library' ? tab.saveTarget.libraryItemId : tab.savedQueryId
+  const assignedConnections = libraryNodesForConnection(snapshot.libraryNodes, tab.connectionId)
+    .map(node => effectiveEnvironmentFromNode(snapshot.libraryNodes, node.id))
+    .filter((id): id is string => Boolean(id))
+  const profileEnvironments = snapshot.connections.find(connection => connection.id === tab.connectionId)?.environmentIds ?? []
+  const assignedId = (itemId ? effectiveEnvironmentFromNode(snapshot.libraryNodes, itemId) : undefined)
+    ?? (assignedConnections.includes(tab.environmentId) ? tab.environmentId : assignedConnections[0])
+    ?? (profileEnvironments.length === 1 ? profileEnvironments[0] : undefined)
+  if (!assignedId || assignedId === tab.environmentId) return undefined
+  const expected = snapshot.environments.find(item => item.id === assignedId)
+  const current = snapshot.environments.find(item => item.id === tab.environmentId)
+  return {
+    environmentId: assignedId,
+    label: expected?.label ?? assignedId,
+    message: `This tab uses ${current?.label ?? tab.environmentId}, but its Library context is assigned to ${expected?.label ?? assignedId}. Select the assigned environment before running.`,
+  }
 }
 
 function environmentExists(snapshot: WorkspaceSnapshot, environmentId: string) {

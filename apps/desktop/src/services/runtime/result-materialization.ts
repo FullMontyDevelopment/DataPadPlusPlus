@@ -4,6 +4,7 @@ import type {
   ResultRenderer,
   SingleResultPayload,
 } from '@datapadplusplus/shared-types'
+import { containsUnavailableValue } from '../../app/components/workbench/results/document-edit-validation'
 
 interface CanonicalResultSource {
   context?: Extract<ResultPayload, { renderer: 'batch' }>
@@ -24,6 +25,8 @@ export function projectDeferredResultPayload(
     return undefined
   }
   const value = canonicalSourceValue(source.payload)
+  // Do not stringify internal preview nodes into copyable JSON/raw/table cells.
+  if (containsUnavailableValue(value)) return undefined
 
   if (renderer === 'json') {
     return {

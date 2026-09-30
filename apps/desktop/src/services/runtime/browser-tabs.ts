@@ -294,6 +294,7 @@ export function createScopedQueryTabInSnapshot(
   const existingScopedTab = next.tabs.find(
     (tab) =>
       tab.connectionId === request.connectionId &&
+      tab.environmentId === effectiveConnectionEnvironmentId(next, connection, request.environmentId) &&
       (tab.scopedTarget
         ? scopedTargetsMatch(tab.scopedTarget, request.target)
         : tab.title === legacyTitle),

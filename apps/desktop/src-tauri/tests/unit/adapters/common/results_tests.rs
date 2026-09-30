@@ -1,6 +1,36 @@
 use super::*;
 
 #[test]
+fn lazy_previews_never_become_copyable_raw_json_or_table_values() {
+    let mut result = build_result(ResultEnvelopeInput {
+        engine: "mongodb",
+        summary: "fixture".into(),
+        default_renderer: "document",
+        renderer_modes: vec!["document", "json", "table", "raw"],
+        payloads: vec![payload_document(
+            json!([{ "_id": 1, "nested": { "__datapadLazyNode": true } }]),
+        )],
+        notices: vec![],
+        duration_ms: 1,
+        row_limit: Some(100),
+        truncated: false,
+        explain_payload: None,
+    });
+    for renderer in ["json", "table", "raw"] {
+        assert_eq!(
+            materialize_result_renderer(&result, renderer)
+                .unwrap_err()
+                .code,
+            "result-value-incomplete"
+        );
+    }
+    result.payloads = vec![payload_document(
+        json!([{ "_id": 1, "__datapadCustomerField": "original" }]),
+    )];
+    assert!(materialize_result_renderer(&result, "table").is_ok());
+}
+
+#[test]
 fn bounded_items_returns_visible_items_and_truncation_signal() {
     let bounded = bounded_items(0..101, 100);
 

@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { assertCompleteCopyValue } from './result-copy'
+import { sameDocumentIdentity } from './use-document-edit-preparation'
 import type { Dispatch, SetStateAction } from 'react'
 import type {
   DocumentNodeChildrenRequest,
@@ -125,6 +127,12 @@ export function useDocumentLazyHydration({
         queryText: editContext.queryText,
       })
       validateResponse(response, tabId, documentId, row.path)
+      if (mode === 'full-value') assertCompleteCopyValue(response.value)
+      if (mode === 'full-value' && row.path.length === 0 &&
+          (!response.value || typeof response.value !== 'object' || Array.isArray(response.value) ||
+          !sameDocumentIdentity((response.value as Record<string, unknown>)._id, documentId))) {
+        throw new Error('The loaded document does not match this result. Nothing was copied.')
+      }
       if (
         generationRef.current === sourceGeneration &&
         (documentGenerations.current.get(row.documentIndex) ?? 0) === documentGeneration &&

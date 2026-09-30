@@ -6,6 +6,7 @@ import {
   type DocumentValueType,
 } from './document-grid-model'
 import { copyText } from './payload-export'
+import { assertCompleteCopyValue } from './result-copy'
 
 const TYPE_OPTIONS: DocumentValueType[] = ['string', 'number', 'boolean', 'null', 'object', 'array']
 
@@ -20,6 +21,7 @@ interface DocumentFieldInspectorProps {
   onChangeType(row: DocumentGridRow, nextType: DocumentValueType): void
   onBeginRawEdit?(row: DocumentGridRow): Promise<boolean>
   onClose(): void
+  onCopyDocument?(): Promise<void>
   onSaveRaw(row: DocumentGridRow, value: unknown): void
   onValidateRaw(row: DocumentGridRow, value: unknown): string[]
 }
@@ -35,6 +37,7 @@ export function DocumentFieldInspector({
   onChangeType,
   onBeginRawEdit,
   onClose,
+  onCopyDocument,
   onSaveRaw,
   onValidateRaw,
 }: DocumentFieldInspectorProps) {
@@ -72,8 +75,14 @@ export function DocumentFieldInspector({
   }, [initialMode, row.id])
 
   const copy = async (label: string, text: string) => {
-    await copyText(text)
-    setCopyStatus(`${label} copied.`)
+    try {
+      if (label === 'Document JSON') assertCompleteCopyValue(document)
+      if (label === 'Raw JSON') assertCompleteCopyValue(row.value)
+      await copyText(text)
+      setCopyStatus(`${label} copied.`)
+    } catch {
+      setCopyStatus('Unable to copy a complete value. Load the document fully and retry. Nothing was copied.')
+    }
   }
 
   const validate = () => {
@@ -197,7 +206,7 @@ export function DocumentFieldInspector({
         )}
         <button type="button" className="drawer-button" onClick={() => void copy('Path', fieldPath)}>Copy Path</button>
         <button type="button" className="drawer-button" onClick={() => void copy('Raw JSON', mode === 'edit' ? draft : formattedValue)}>Copy Raw JSON</button>
-        <button type="button" className="drawer-button" onClick={() => void copy('Document JSON', formatRawJson(document, true))}>Copy Document JSON</button>
+        <button type="button" className="drawer-button" onClick={() => void (onCopyDocument ? onCopyDocument() : copy('Document JSON', formatRawJson(document, true)))}>Copy Document JSON</button>
         {copyStatus ? <span>{copyStatus}</span> : null}
       </div>
     </aside>

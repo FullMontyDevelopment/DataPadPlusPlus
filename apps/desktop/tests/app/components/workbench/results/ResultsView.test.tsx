@@ -5,12 +5,33 @@ import type {
   EnvironmentProfile,
   ExecutionResultEnvelope,
   QueryTabState,
+  DocumentNodeChildrenResponse,
 } from '@datapadplusplus/shared-types'
 import { describe, expect, it, vi } from 'vitest'
 import { resultEditQueryText } from '../../../../../src/app/result-edit-context'
 import { ResultsView } from '../../../../../src/app/components/workbench/results/ResultsView'
 
 describe('ResultsView', () => {
+  it.each(['complete', 'changed-tab', 'failure'])('whole-result copying handles %s hydration without copying placeholders', async outcome => {
+    const clipboard = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: clipboard } })
+    const result = resultEnvelope([{ _id: 'one', nested: { __datapadLazyNode: true, type: 'object', childCount: 1, path: ['nested'], loaded: false } }], false)
+    const payload = { ...result.payloads[0]!, renderer: 'document' as const, documents: [{ _id: 'one', nested: { __datapadLazyNode: true } }], database: 'fixture', collection: 'items' }
+    let resolve!: (value: DocumentNodeChildrenResponse | undefined) => void
+    const pending = new Promise<DocumentNodeChildrenResponse | undefined>(done => { resolve = done })
+    const fetch = vi.fn(() => pending)
+    const props = { capabilities: { canCancel: false, canExplain: false, defaultRowLimit: 200, editorLanguage: 'mongodb' as const, supportsLiveMetadata: true },
+      connection: connectionProfile({ engine: 'mongodb', family: 'document' }), activeTab: queryTab(result), result, payload,
+      onFetchDocumentNodeChildren: fetch, onLoadNextPage: vi.fn(), onResultRendered: vi.fn(), onSelectRenderer: vi.fn() }
+    const { rerender } = render(<ResultsView {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Copy result' }))
+    expect(clipboard).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Copy result' })).toBeDisabled()
+    if (outcome === 'changed-tab') rerender(<ResultsView {...props} activeTab={{ ...props.activeTab, id: 'other' }} />)
+    await act(async () => resolve(outcome === 'failure' ? undefined : { tabId: 'tab-mongodb', documentId: 'one', path: [], value: { _id: 'one', nested: { source: true } }, notices: [] }))
+    if (outcome === 'complete') expect(clipboard).toHaveBeenCalledExactlyOnceWith(JSON.stringify([{ _id: 'one', nested: { source: true } }], null, 2))
+    else expect(clipboard).not.toHaveBeenCalled()
+  })
   it('keeps renderer controls responsive while a deferred view is prepared', () => {
     const result = resultEnvelope([{ _id: 'document-1' }], false)
     result.deferredRendererModes = ['table', 'raw']

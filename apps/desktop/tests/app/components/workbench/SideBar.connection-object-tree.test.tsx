@@ -7,6 +7,14 @@ import { ConnectionObjectTree } from '../../../../src/app/components/workbench/S
 import { explorerFolderOrderKey } from '../../../../src/app/components/workbench/SideBar.connection-object-tree-order'
 
 describe('ConnectionObjectTree', () => {
+  it('forwards the clicked tree environment instead of relying on the active query tab', () => {
+    const onOpenScopedQuery = vi.fn()
+    render(<ConnectionObjectTree connection={mongoConnection()} environment={{ ...localEnvironment(), id: 'env-uat', label: 'UAT' }}
+      nodes={[{ id: 'items', kind: 'collection', label: 'items', scope: 'collection:fixture:items', queryable: true }]}
+      onOpenScopedQuery={onOpenScopedQuery} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Query' }))
+    expect(onOpenScopedQuery).toHaveBeenCalledExactlyOnceWith('conn-mongo', expect.objectContaining({ label: 'items' }), 'env-uat')
+  })
   it.each([
     [mongoConnection(), 'documents', 'Documents', 'documents:catalog.orders'],
     [mongoConnection(), 'aggregations', 'Aggregations', 'aggregations:catalog.orders'],

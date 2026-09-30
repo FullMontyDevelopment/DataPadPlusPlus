@@ -310,6 +310,11 @@ impl ManagedAppState {
             .cloned()
             .ok_or_else(|| CommandError::new("connection-missing", "Connection was not found."))?;
         let legacy_title = legacy_scoped_title_candidate(&connection, &request.target);
+        let environment_id = super::library::effective_connection_environment_id(
+            &self.snapshot,
+            &connection.id,
+            request.environment_id.clone(),
+        );
 
         if let Some(existing_tab) = self
             .snapshot
@@ -317,6 +322,7 @@ impl ManagedAppState {
             .iter()
             .find(|tab| {
                 tab.connection_id == request.connection_id
+                    && tab.environment_id == environment_id
                     && if let Some(target) = tab.scoped_target.as_ref() {
                         scoped_targets_match(target, &request.target)
                     } else {

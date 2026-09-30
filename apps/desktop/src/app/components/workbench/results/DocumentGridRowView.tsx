@@ -34,7 +34,7 @@ interface DocumentGridRowViewProps {
     originElement: HTMLElement,
   ): void
   onRenameField(row: DocumentGridRow, nextName: string): void
-  onScheduleCopyValue(value: unknown): void
+  onScheduleCopyValue(row: DocumentGridRow): void
   onStopEditing(): void
   onToggleRow(row: DocumentGridRow): void
   onUpdateValue(row: DocumentGridRow, nextValue: unknown, editKind?: 'set-field' | 'change-field-type'): void
@@ -186,7 +186,7 @@ export const DocumentGridRowView = memo(function DocumentGridRowView({
                 ? `Drag ${row.fieldPath} with value ${draggedValueLabel} to the query builder`
                 : 'Copy value'
             }
-            onClick={() => onScheduleCopyValue(row.value)}
+            onClick={() => onScheduleCopyValue(row)}
             onDoubleClick={() => {
               onCancelScheduledCopy()
               onBeginEditing(row, 'value')

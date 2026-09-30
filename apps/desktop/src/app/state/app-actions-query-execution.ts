@@ -1,6 +1,7 @@
 import { startTransition, useCallback, useMemo, useRef } from 'react'
 import type { ExecutionRequest } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
+import { tabEnvironmentConflict } from '../../services/runtime/library-connection-helpers'
 import type { ConnectionHealthSource } from './connection-health'
 import { ensureWorkspaceUnlocked } from './app-state-factories'
 import { toUserError } from './app-state-selectors'
@@ -73,6 +74,8 @@ export function useQueryExecutionActions({
         if (!tab) {
           throw new Error('Query tab was not found.')
         }
+        const environmentConflict = tabEnvironmentConflict(latest.payload.snapshot, tab)
+        if (environmentConflict) throw new Error(environmentConflict.message)
         if (isQueryTabExecutionLocked(tab, latest.executionsByTab[tabId])) {
           return
         }

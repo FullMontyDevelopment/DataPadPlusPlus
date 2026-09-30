@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { projectDeferredResultPayload } from '../../../src/services/runtime/result-materialization'
 
 describe('deferred result materialization', () => {
+  it.each(['json', 'table', 'raw'] as const)('never materializes internal placeholders into %s', (renderer) => {
+    expect(projectDeferredResultPayload(mongoResult([{ _id: 'one', nested: { __datapadLazyNode: true } }]), renderer)).toBeUndefined()
+  })
   it('projects JSON over the canonical MongoDB documents without copying them', () => {
     const documents = [{ _id: 'one', nested: { enabled: true } }]
     const result = mongoResult(documents)

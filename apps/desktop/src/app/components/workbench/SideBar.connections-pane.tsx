@@ -85,7 +85,7 @@ export function ConnectionsPane({
   onLoadExplorerScope(connectionId: string, scope?: string): void
   onOpenConnectionExplorer(connectionId: string): void
   onOpenConnectionMetrics(connectionId: string): void
-  onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
+  onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget, environmentId?: string): void
   onOpenObjectView?(connectionId: string, node: ExplorerNode): void
   onCreateTab(connectionId?: string): void
   onSelectConnection(connectionId: string): void

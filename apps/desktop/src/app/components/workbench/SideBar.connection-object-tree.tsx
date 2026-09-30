@@ -82,7 +82,7 @@ export function ConnectionObjectTree({
   onCreateApiServer?(connectionId: string, node: ExplorerNode): void
   onAddToApiServer?(connectionId: string, node: ExplorerNode): void
   onOpenObjectView?(connectionId: string, node: ExplorerNode): void
-  onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget): void
+  onOpenScopedQuery(connectionId: string, target: ScopedQueryTarget, environmentId?: string): void
   onCreateTestSuite?(connectionId: string, target: ScopedQueryTarget): void
   explorerFolderOrders?: Record<string, string[]>
   onSetExplorerFolderOrder?(orderKey: string, orderedNodeKeys: string[]): void
@@ -222,12 +222,16 @@ export function ConnectionObjectTree({
     },
     [clearFolderDrag, draggedFolder, setFolderOrder],
   )
+  const openScopedQueryForEnvironment = (target: ScopedQueryTarget) => {
+    if (environment) onOpenScopedQuery(connection.id, target, environment.id)
+    else onOpenScopedQuery(connection.id, target)
+  }
   const openNodeQuery = (node: ConnectionTreeNode) => {
     if (!isScopedQueryable(node)) {
       return
     }
 
-    onOpenScopedQuery(connection.id, connectionTreeNodeTarget(node))
+    openScopedQueryForEnvironment(connectionTreeNodeTarget(node))
   }
   const openObjectContextMenu = (
     event: MouseEvent<HTMLElement>,
@@ -276,7 +280,7 @@ export function ConnectionObjectTree({
     }
 
     if (action.command === 'open-template' && action.queryTemplate) {
-      onOpenScopedQuery(connection.id, {
+      openScopedQueryForEnvironment({
         ...connectionTreeNodeTarget(node),
         queryTemplate: action.queryTemplate,
       })

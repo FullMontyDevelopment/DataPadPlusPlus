@@ -53,7 +53,7 @@ export const clientExecution = {
     }
     const payload = projectDeferredResultPayload(result, request.renderer)
     if (!payload) {
-      throw new Error(`The ${request.renderer} renderer is unavailable for this result.`)
+      throw new Error(`The ${request.renderer} view requires complete result data. Use Copy Value in Document view or rerun without efficiency mode.`)
     }
 
     return {

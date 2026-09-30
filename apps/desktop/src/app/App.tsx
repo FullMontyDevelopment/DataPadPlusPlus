@@ -103,7 +103,7 @@ import {
   describeUnknownError,
   reportFrontendDiagnostic,
 } from '../services/runtime/frontend-diagnostics'
-import { connectionLibraryNodeId } from '../services/runtime/library-connection-helpers'
+import { connectionLibraryNodeId, effectiveConnectionEnvironmentId, tabEnvironmentConflict } from '../services/runtime/library-connection-helpers'
 import { projectDeferredResultPayload } from '../services/runtime/result-materialization'
 import { runtimeSliceForEngine } from '../services/runtime/datastores/registry'
 import {
@@ -776,6 +776,7 @@ function DesktopWorkspace() {
   const activeExecutionStatus = activeTabExecution ? 'loading' : 'idle'
   const activeExecutionId = activeTabExecution?.executionId
   const activeExecutionLocked = isQueryTabExecutionLocked(activeTab, activeTabExecution)
+  const activeEnvironmentConflict = snapshot && activeTab ? tabEnvironmentConflict(snapshot, activeTab) : undefined
   const documentResetToken =
     activeTabExecution?.phase === 'server'
       ? activeTabExecution.executionId
@@ -3480,8 +3481,7 @@ function DesktopWorkspace() {
 
   const openConnectionMetrics = (connectionId: string) => {
     const connection = snapshot.connections.find((item) => item.id === connectionId)
-    const environmentId =
-      snapshot.ui.activeEnvironmentId || connection?.environmentIds[0] || activeEnvironment?.id
+    const environmentId = connection ? effectiveConnectionEnvironmentId(snapshot, connection) : undefined
 
     setConnectionDraft(undefined)
     void (async () => {
@@ -3607,7 +3607,8 @@ function DesktopWorkspace() {
     environmentId?: string,
     cursor?: string,
   ) => {
-    const resolvedEnvironmentId = environmentId || activeEnvironmentId
+    const connection = snapshot.connections.find(item => item.id === connectionId)
+    const resolvedEnvironmentId = environmentId || (connection ? effectiveConnectionEnvironmentId(snapshot, connection) : undefined)
 
     if (!resolvedEnvironmentId) {
       return
@@ -3638,11 +3639,7 @@ function DesktopWorkspace() {
     })()
   }
 
-  const openScopedQuery = (connectionId: string, target: ScopedQueryTarget) => {
-    const environmentId =
-      snapshot.ui.activeEnvironmentId ||
-      snapshot.connections.find((connection) => connection.id === connectionId)?.environmentIds[0]
-
+  const openScopedQuery = (connectionId: string, target: ScopedQueryTarget, environmentId?: string) => {
     setConnectionDraft(undefined)
     void (async () => {
       await actions.createScopedTab({
@@ -3751,7 +3748,7 @@ function DesktopWorkspace() {
         activeTabIsTestSuite={activeTabIsTestSuite}
         activeTabIsWorkspaceSearch={activeTabIsWorkspaceSearch}
         bottomPanelVisibleRef={bottomPanelVisibleRef}
-        executionLocked={activeExecutionLocked}
+        executionLocked={activeExecutionLocked || Boolean(activeEnvironmentConflict)}
         keyboardShortcuts={keyboardShortcuts}
         openQueryTab={openQueryTab}
         requestCloseTab={requestCloseTab}
@@ -4357,7 +4354,7 @@ function DesktopWorkspace() {
                         nodeId: node.id,
                       })
                     }
-                    onOpenQuery={(target) => openScopedQuery(activeConnection.id, target)}
+                    onOpenQuery={(target) => openScopedQuery(activeConnection.id, target, activeEnvironment?.id)}
                     onOpenObjectView={(node) => openObjectView(activeConnection.id, node)}
                   />
                 ) : activeTabIsExplorer ? (
@@ -4381,7 +4378,7 @@ function DesktopWorkspace() {
                     environment={activeEnvironment}
                     tab={activeTab}
                     onRefresh={(tabId) => actions.refreshObjectViewTab(tabId)}
-                    onOpenQuery={(target) => openScopedQuery(activeConnection.id, target)}
+                    onOpenQuery={(target) => openScopedQuery(activeConnection.id, target, activeEnvironment?.id)}
                     onOpenObjectView={openObjectView}
                     onPlanOperation={planDatastoreOperationWithConfirmation}
                     onExecuteDataEdit={actions.executeDataEdit}
@@ -4464,13 +4461,13 @@ function DesktopWorkspace() {
                           connection={activeConnection}
                           tab={activeTab}
                           builderState={activeBuilderState}
-                          executionLocked={activeExecutionLocked}
+                          executionLocked={activeExecutionLocked || Boolean(activeEnvironmentConflict)}
                           onBuilderStateChange={persistBuilderState}
                           onCount={countQueryBuilderResults}
                         />
                       ) : undefined}
                       executionStatus={activeExecutionStatus}
-                      executionLocked={activeExecutionLocked}
+                      executionLocked={activeExecutionLocked || Boolean(activeEnvironmentConflict)}
                       capabilities={runtimeCapabilities}
                       canCancelExecution={canCancelExecution}
                       onExecute={() => runCurrentTabQuery()}
@@ -4573,7 +4570,7 @@ function DesktopWorkspace() {
                             : undefined
                       }
                       executeTitle={
-                        activeBuilderInvalid
+                        activeEnvironmentConflict?.message ?? (activeBuilderInvalid
                           ? activeBuilderCompilation.errors[0]?.message ?? 'Fix the invalid Query Builder value before running.'
                           : activeSelectedText
                           ? 'Run only the selected text. Shortcut: Ctrl+Enter.'
@@ -4583,10 +4580,11 @@ function DesktopWorkspace() {
                           ? activeRedisConsoleVisible
                             ? 'Run the current Redis command. Shortcut: Ctrl+Enter.'
                             : 'Switch to Redis Console to run a command.'
-                          : undefined
+                          : undefined)
                       }
                       executeDisabled={
                         activeExecutionLocked ||
+                        Boolean(activeEnvironmentConflict) ||
                         activeBuilderInvalid ||
                         (
                           activeTabUsesRedisConsole &&
@@ -4606,6 +4604,15 @@ function DesktopWorkspace() {
                     />
 
                     <div className="editor-surface">
+                      {activeEnvironmentConflict ? (
+                        <div role="alert" className="query-environment-warning">
+                          <span>{activeEnvironmentConflict.message}</span>
+                          <button type="button" className="drawer-button" disabled={activeExecutionLocked}
+                            onClick={() => void actions.selectEnvironment(activeTab.id, activeEnvironmentConflict.environmentId)}>
+                            Use {activeEnvironmentConflict.label}
+                          </button>
+                        </div>
+                      ) : null}
                       <div className="editor-surface-meta">
                         <span className="editor-surface-context">
                           {activeConnection.name} / {activeEnvironment.label}
@@ -4652,7 +4659,7 @@ function DesktopWorkspace() {
                               onInspectRedisKey={actions.inspectRedisKey}
                               onCount={countQueryBuilderResults}
                               redisRefreshSignal={redisBrowserRefreshSignals[activeTab.id] ?? 0}
-                              executionLocked={activeExecutionLocked}
+                              executionLocked={activeExecutionLocked || Boolean(activeEnvironmentConflict)}
                               theme={resolvedTheme}
                             />
                           </Suspense>
@@ -4749,7 +4756,7 @@ function DesktopWorkspace() {
                 rendererPreparing={activeRendererPreparing}
                 rendererError={activeRendererError}
                 documentResetToken={documentResetToken}
-                executionLocked={activeExecutionLocked}
+                executionLocked={activeExecutionLocked || Boolean(activeEnvironmentConflict)}
                 diagnostics={diagnostics}
                 explorerInspection={explorerInspection}
                 lastExecution={lastExecution}

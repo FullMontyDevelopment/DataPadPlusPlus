@@ -160,6 +160,12 @@ pub(crate) fn materialize_result_renderer(
         )
     })?;
     let value = canonical_source_value(source.payload);
+    if contains_result_placeholder(value) {
+        return Err(CommandError::new(
+            "result-value-incomplete",
+            "This result contains efficiency-mode previews. Use Copy Value in Document view to load complete data, or rerun without efficiency mode before switching views.",
+        ));
+    }
 
     match renderer {
         "json" => Ok(payload_json(script_result_value(&source, value))),
@@ -207,6 +213,23 @@ pub(crate) fn materialize_result_renderer(
 struct CanonicalResultSource<'a> {
     context: Option<&'a Value>,
     payload: &'a Value,
+}
+
+fn contains_result_placeholder(value: &Value) -> bool {
+    match value {
+        Value::Object(fields) => {
+            [
+                "__datapadLazyNode",
+                "__datapadTruncated",
+                "__datapadUnsupported",
+            ]
+            .iter()
+            .any(|key| fields.get(*key) == Some(&Value::Bool(true)))
+                || fields.values().any(contains_result_placeholder)
+        }
+        Value::Array(items) => items.iter().any(contains_result_placeholder),
+        _ => false,
+    }
 }
 
 fn canonical_result_source(payloads: &[Value]) -> Option<CanonicalResultSource<'_>> {
