@@ -3715,13 +3715,20 @@ button:disabled:hover {
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-gutter: stable;
   scrollbar-color: color-mix(in srgb, var(--muted) 30%, transparent) transparent;
   scrollbar-width: thin;
 }
 
 .editor-tabs::-webkit-scrollbar {
-  height: 4px;
+  height: 3px;
+}
+
+/* Standard non-auto scrollbar properties override WebKit dimensions in Chromium. */
+@supports selector(::-webkit-scrollbar) {
+  .editor-tabs {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
 }
 
 .editor-tabs::-webkit-scrollbar-track {
@@ -3771,10 +3778,10 @@ button:disabled:hover {
 .editor-tab {
   position: relative;
   display: inline-flex;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   align-items: center;
   gap: 6px;
-  min-width: 132px;
+  min-width: 112px;
   max-width: min(260px, 45vw);
   padding: 0 8px 0 12px;
   border: 0;
@@ -3782,8 +3789,10 @@ button:disabled:hover {
   border-right: 1px solid var(--border);
   background: transparent;
   color: var(--muted);
-  cursor: pointer;
+  font-size: 12px;
+  cursor: grab;
   user-select: none;
+  touch-action: pan-y;
 }
 
 .editor-tab.is-active {
@@ -3812,13 +3821,21 @@ button:disabled:hover {
   opacity: 0.45;
 }
 
+.editor-tabs.is-reordering,
+.editor-tabs.is-reordering .editor-tab {
+  cursor: grabbing;
+}
+
 .editor-tab.is-drop-before::after,
 .editor-tab.is-drop-after::after {
   content: '';
   position: absolute;
   top: 3px;
   bottom: 3px;
-  width: 2px;
+  width: 3px;
+  border-radius: 2px;
+  z-index: 2;
+  pointer-events: none;
   background: var(--accent);
 }
 
@@ -13983,6 +14000,67 @@ body.is-results-side-resizing .editor-workspace {
   background: var(--panel-bg);
 }
 
+.document-edit-progress {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font: 11px var(--font-ui, sans-serif);
+  white-space: nowrap;
+}
+
+.document-edit-progress-cancel {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.document-edit-progress-cancel:hover {
+  color: var(--text);
+}
+
+.document-edit-notice {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+
+.document-edit-notice h2 {
+  font-size: 16px;
+}
+
+.document-edit-notice .drawer-button-row {
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
+.document-edit-notice-message {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.document-edit-progress-spinner {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: result-preparing-spin 800ms linear infinite;
+}
+
+.document-edit-progress-spinner.is-paused {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .document-edit-progress-spinner {
+    animation: none;
+  }
+}
+
 .document-data-grid-toolbar {
   min-height: 30px;
   display: flex;
@@ -14159,6 +14237,12 @@ body.is-results-side-resizing .editor-workspace {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
+}
+
+.document-data-grid-cell--type:has(.document-edit-progress) {
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-block: 3px;
 }
 
 .document-data-grid-row.is-search-match .document-data-grid-cell {

@@ -107,6 +107,7 @@ export function DocumentDraftInput({
   value,
   ariaLabel,
   autoFocus = false,
+  disabled = false,
   onChange,
   onError,
 }: {
@@ -114,6 +115,7 @@ export function DocumentDraftInput({
   value: string
   ariaLabel?: string
   autoFocus?: boolean
+  disabled?: boolean
   onChange(value: string): void
   onError(message: string): void
 }) {
@@ -123,7 +125,7 @@ export function DocumentDraftInput({
 
   if (type === 'boolean') {
     return (
-      <select aria-label={ariaLabel ?? 'Boolean field value'} value={value || 'false'} onChange={(event) => onChange(event.target.value)}>
+      <select disabled={disabled} aria-label={ariaLabel ?? 'Boolean field value'} value={value || 'false'} onChange={(event) => onChange(event.target.value)}>
         <option value="false">false</option>
         <option value="true">true</option>
       </select>
@@ -135,6 +137,7 @@ export function DocumentDraftInput({
     <div className="document-typed-value-editor">
       {compound ? (
         <textarea
+          disabled={disabled}
           aria-label={ariaLabel ?? 'New field JSON value'}
           autoFocus={autoFocus}
           value={value}
@@ -142,6 +145,7 @@ export function DocumentDraftInput({
         />
       ) : (
         <input
+          disabled={disabled}
           aria-label={ariaLabel ?? 'New field value'}
           autoFocus={autoFocus}
           inputMode={type === 'number' || type === 'decimal' ? 'decimal' : 'text'}
@@ -153,6 +157,7 @@ export function DocumentDraftInput({
         <label className="document-date-picker">
           <span>Pick local time</span>
           <input
+            disabled={disabled}
             type="datetime-local"
             aria-label="Pick local date and time"
             onChange={(event) => {

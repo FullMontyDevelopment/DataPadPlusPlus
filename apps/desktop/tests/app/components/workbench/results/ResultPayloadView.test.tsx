@@ -859,6 +859,8 @@ describe('ResultPayloadView', () => {
       expect(screen.getByText('MongoDB rejected the document edit.')).toBeInTheDocument()
     })
     expect(screen.getByLabelText('Edit value status')).toHaveValue('paused')
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('MongoDB rejected the document edit.')
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }))
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(screen.getByRole('button', { name: 'active' })).toBeInTheDocument()
   })

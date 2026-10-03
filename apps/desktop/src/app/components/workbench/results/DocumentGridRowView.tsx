@@ -1,4 +1,4 @@
-import { memo, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { memo, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import {
   isBsonDateValue,
@@ -8,6 +8,7 @@ import {
   isLiteDbGuidValue,
 } from './document-bson-values'
 import { DocumentDraftInput } from './DocumentAddFieldDialog'
+import { DocumentEditProgress, type DocumentEditProgressState } from './DocumentEditProgress'
 import { documentValueTypeLabel, type DocumentGridRow, type DocumentValueType } from './document-grid-model'
 import { coerceValue, editableValue, parseEditedValue } from './document-value-editing'
 import {
@@ -23,6 +24,10 @@ interface DocumentGridRowViewProps {
   error?: string
   expanded: boolean
   loading?: boolean
+  preparingEdit?: boolean
+  editProgress?: DocumentEditProgressState
+  editLocked?: boolean
+  onCancelPreparation?(): void
   matched?: boolean
   row: DocumentGridRow
   onBeginEditing(row: DocumentGridRow, cell: 'field' | 'type' | 'value'): void
@@ -45,6 +50,10 @@ export const DocumentGridRowView = memo(function DocumentGridRowView({
   error,
   expanded,
   loading = false,
+  preparingEdit = false,
+  editProgress,
+  editLocked = false,
+  onCancelPreparation,
   matched = false,
   row,
   onBeginEditing,
@@ -59,6 +68,8 @@ export const DocumentGridRowView = memo(function DocumentGridRowView({
   const editingField = editingCell === 'field'
   const editingType = editingCell === 'type'
   const editingValue = editingCell === 'value'
+  const progress = preparingEdit || editProgress
+    ? <DocumentEditProgress edit={editProgress} onCancelLoading={onCancelPreparation} /> : null
   const draggedValue = draggableRowValue(row)
   const draggedValueType = documentDragValueType(draggedValue, row.type)
   const draggedValueLabel = String(row.path.length === 0 ? row.label : row.valueLabel)
@@ -79,16 +90,17 @@ export const DocumentGridRowView = memo(function DocumentGridRowView({
   return (
     <div
       role="row"
+      aria-busy={Boolean(preparingEdit || editProgress)}
       aria-level={row.depth + 1}
       aria-expanded={row.expandable ? expanded : undefined}
       className={`document-data-grid-row${matched ? ' is-search-match' : ''}${
-        row.fieldPath && !editingField && !editingType && !editingValue
+        row.fieldPath && !editingField && !editingType && !editingValue && !progress
           ? ' is-field-draggable'
           : ''
       }`}
       tabIndex={-1}
       onPointerDown={(event) => {
-        if (!editingField && !editingType && !editingValue) {
+        if (!editingField && !editingType && !editingValue && !progress && !editLocked) {
           startDocumentFieldPointerDrag(event, fieldDragPayload)
         }
       }}
@@ -119,6 +131,7 @@ export const DocumentGridRowView = memo(function DocumentGridRowView({
         {editingField ? (
           <FieldNameEditor
             row={row}
+            locked={editLocked}
             onRenameField={onRenameField}
             onStopEditing={onStopEditing}
           />
@@ -132,6 +145,7 @@ export const DocumentGridRowView = memo(function DocumentGridRowView({
             {row.label}
           </span>
         )}
+        {!editingValue && !editingType ? progress : null}
         {error ? (
           <span className="document-data-grid-row-error" title={error} aria-label={error}>
             <AlertTriangle aria-hidden="true" size={13} strokeWidth={1.8} />
@@ -141,11 +155,12 @@ export const DocumentGridRowView = memo(function DocumentGridRowView({
       <div className="document-data-grid-cell document-data-grid-cell--type" role="gridcell">
         {editingType ? (
           <select
+            disabled={editLocked}
             className={`document-type-badge is-${row.type}`}
             aria-label={`Change type ${row.fieldPath}`}
             value={row.type}
             autoFocus
-            onBlur={onStopEditing}
+            onBlur={() => { if (!editLocked) onStopEditing() }}
             onChange={(event) => {
               onUpdateValue(
                 row,
@@ -169,11 +184,14 @@ export const DocumentGridRowView = memo(function DocumentGridRowView({
             {documentValueTypeLabel(row.type)}
           </span>
         )}
+        {editingType ? progress : null}
       </div>
       <div className="document-data-grid-cell document-data-grid-cell--value" role="gridcell">
         {editingValue ? (
           <FieldValueEditor
             row={row}
+            locked={editLocked}
+            progress={progress}
             onStopEditing={onStopEditing}
             onUpdateValue={onUpdateValue}
           />
@@ -325,16 +343,19 @@ function documentDragValueType(value: unknown, fallbackType: DocumentValueType) 
 
 function FieldNameEditor({
   row,
+  locked,
   onRenameField,
   onStopEditing,
 }: {
   row: DocumentGridRow
+  locked: boolean
   onRenameField(row: DocumentGridRow, nextName: string): void
   onStopEditing(): void
 }) {
   const [fieldDraft, setFieldDraft] = useState(row.label)
 
   const commit = () => {
+    if (locked) return
     const nextName = fieldDraft.trim()
 
     if (nextName && nextName !== row.label) {
@@ -349,22 +370,27 @@ function FieldNameEditor({
       className="document-data-grid-field-input"
       aria-label={`Rename field ${row.label}`}
       value={fieldDraft}
+      readOnly={locked}
       autoFocus
       onBlur={commit}
       onChange={(event) => setFieldDraft(event.target.value)}
       onClick={(event) => event.stopPropagation()}
       onFocus={(event) => event.currentTarget.select()}
-      onKeyDown={(event) => handleDraftEditorKeyDown(event, commit, onStopEditing)}
+      onKeyDown={(event) => { if (!locked) handleDraftEditorKeyDown(event, commit, onStopEditing) }}
     />
   )
 }
 
 function FieldValueEditor({
   row,
+  locked,
+  progress,
   onStopEditing,
   onUpdateValue,
 }: {
   row: DocumentGridRow
+  locked: boolean
+  progress: ReactNode
   onStopEditing(): void
   onUpdateValue(
     row: DocumentGridRow,
@@ -376,6 +402,7 @@ function FieldValueEditor({
   const [error, setError] = useState('')
 
   const commit = () => {
+    if (locked) return
     const parsed = parseEditedValue(valueDraft, row.type, row.value)
     if (!parsed.ok) {
       setError(parsed.error)
@@ -387,13 +414,14 @@ function FieldValueEditor({
   return (
     <div
       className="document-data-grid-value-input document-inline-value-editor"
-      onKeyDown={(event) => handleDraftEditorKeyDown(event, commit, onStopEditing)}
+      onKeyDown={(event) => { if (!locked) handleDraftEditorKeyDown(event, commit, onStopEditing) }}
     >
       <DocumentDraftInput
         type={row.type}
         value={valueDraft}
         ariaLabel={`Edit value ${row.fieldPath}`}
         autoFocus
+        disabled={locked}
         onChange={(value) => {
           setValueDraft(value)
           setError('')
@@ -401,8 +429,9 @@ function FieldValueEditor({
         onError={setError}
       />
       <div className="document-inline-value-editor-actions">
-        <button type="button" className="drawer-button drawer-button--compact" onClick={onStopEditing}>Cancel</button>
-        <button type="button" className="drawer-button drawer-button--compact drawer-button--primary" onClick={commit}>Save</button>
+        {progress}
+        <button type="button" disabled={locked} className="drawer-button drawer-button--compact" onClick={onStopEditing}>Cancel</button>
+        <button type="button" disabled={locked} className="drawer-button drawer-button--compact drawer-button--primary" onClick={commit}>Save</button>
       </div>
       {error ? <span className="document-edit-error" role="alert">{error}</span> : null}
     </div>

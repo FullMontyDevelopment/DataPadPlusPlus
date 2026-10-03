@@ -17,7 +17,9 @@ Eligible tab context menus provide:
 - **Move to Window…**;
 - **Move to Main Window**.
 
-When drag support passes the platform feasibility checks, dragging outside creates an editor window, dropping over another tab inserts before/after it, and dropping on an empty strip appends. Escape or an invalid target cancels without changing ownership.
+Within a window, drag a tab header to the insertion marker to reorder it. Hold near the strip's left or right edge to scroll hidden tabs into view. Escape cancels; dropping outside the strip leaves the order unchanged. Reordering preserves the selected tab, drafts, pins, and environment colors. You can also focus a header and press **Alt+Shift+Left/Right**, or use its context-menu Move commands. Local reordering does not require the experimental plugin.
+
+Cross-window dragging is currently unavailable. Use the Move commands to detach a tab or move it between windows. Windows cannot be considered drag-capable merely because it uses WebView2: the current native file-drop handler intercepts HTML drag/drop. Local pointer-based reordering remains available with the plugin both enabled and disabled, and native file-drop handling is unchanged. Cross-window gestures must pass the platform feasibility checks before being enabled again.
 
 Running or queued work blocks transfer. DataPad++ flushes editor/builder drafts before moving a tab and transfers ownership atomically only after a new window reports ready. Failure leaves the tab in its source window.
 

@@ -1,14 +1,14 @@
 use super::{
-    generate_id, timestamp_now, ui::normalize_workspace_windows, ui::tab_can_detach,
-    ManagedAppState,
+    generate_id, tabs::reorder_query_tabs_in_place, timestamp_now, ui::normalize_workspace_windows,
+    ui::tab_can_detach, ManagedAppState,
 };
 use crate::domain::{
     error::CommandError,
     models::{
-        BootstrapPayload, MultiWindowTabsSettingsRequest, WorkspaceTabDragSession,
-        WorkspaceTabDragSessionRequest, WorkspaceTabTransferRequest, WorkspaceWindowBounds,
-        WorkspaceWindowContext, WorkspaceWindowGeometryRequest, WorkspaceWindowListResponse,
-        WorkspaceWindowState, WorkspaceWindowTarget,
+        BootstrapPayload, MultiWindowTabsSettingsRequest, WorkspaceSnapshot,
+        WorkspaceTabDragSession, WorkspaceTabDragSessionRequest, WorkspaceTabTransferRequest,
+        WorkspaceWindowBounds, WorkspaceWindowContext, WorkspaceWindowGeometryRequest,
+        WorkspaceWindowListResponse, WorkspaceWindowState, WorkspaceWindowTarget,
     },
 };
 use std::time::{Duration, Instant};
@@ -93,9 +93,11 @@ impl ManagedAppState {
             window_id: window_id.into(),
             role: role.into(),
             multi_window_enabled: self.snapshot.preferences.multi_window_tabs.enabled,
-            // WebView2 is the only release WebView where the transfer-token spike is enabled.
-            // The accessible Move commands remain available on every desktop target.
-            drag_supported: cfg!(target_os = "windows"),
+            // The Windows WebView's native file-drop handler intercepts HTML drag/drop.
+            // Do not infer cross-window drag support from the OS: no release WebView
+            // currently passes the drag feasibility gate with our window configuration.
+            // Local pointer reordering and accessible Move commands remain available.
+            drag_supported: false,
         }
     }
 
@@ -176,28 +178,7 @@ impl ManagedAppState {
         window_id: &str,
         ordered_tab_ids: Vec<String>,
     ) -> Result<BootstrapPayload, CommandError> {
-        self.snapshot.ui.workspace_windows = normalize_workspace_windows(&self.snapshot);
-        let window = self
-            .snapshot
-            .ui
-            .workspace_windows
-            .iter_mut()
-            .find(|window| window.id == window_id)
-            .ok_or_else(|| {
-                CommandError::new("window-missing", "The tab window is no longer open.")
-            })?;
-        let mut current = window.tab_ids.clone();
-        let mut requested = ordered_tab_ids.clone();
-        current.sort();
-        requested.sort();
-        requested.dedup();
-        if current != requested || ordered_tab_ids.len() != window.tab_ids.len() {
-            return Err(CommandError::new(
-                "tab-reorder-invalid",
-                "Tab order was rejected because it does not match this window's tabs.",
-            ));
-        }
-        window.tab_ids = ordered_tab_ids;
+        reorder_workspace_tabs(&mut self.snapshot, window_id, ordered_tab_ids)?;
         self.snapshot.updated_at = timestamp_now();
         self.persist()?;
         Ok(self.bootstrap_payload())
@@ -486,6 +467,38 @@ pub(super) fn transfer_tab_ownership(
         .insert(insertion, request.tab_id.clone());
     destination.active_tab_id = request.tab_id.clone();
     destination.last_focused_at = Some(timestamp_now());
+    Ok(())
+}
+
+pub(super) fn reorder_workspace_tabs(
+    snapshot: &mut WorkspaceSnapshot,
+    window_id: &str,
+    ordered_tab_ids: Vec<String>,
+) -> Result<(), CommandError> {
+    // Validate a normalized copy so stale/invalid orders cannot change ownership.
+    let mut windows = normalize_workspace_windows(snapshot);
+    let window = windows
+        .iter_mut()
+        .find(|window| window.id == window_id)
+        .ok_or_else(|| CommandError::new("window-missing", "The tab window is no longer open."))?;
+    let mut current = window.tab_ids.clone();
+    let mut requested = ordered_tab_ids.clone();
+    current.sort();
+    requested.sort();
+    requested.dedup();
+    if current != requested || ordered_tab_ids.len() != window.tab_ids.len() {
+        return Err(CommandError::new(
+            "tab-reorder-invalid",
+            "Tab order was rejected because it does not match this window's tabs.",
+        ));
+    }
+    // With the plugin disabled, persistence rebuilds main.tab_ids from snapshot.tabs.
+    // Updating only main.tab_ids makes every successful drag immediately snap back.
+    if !snapshot.preferences.multi_window_tabs.enabled {
+        reorder_query_tabs_in_place(&mut snapshot.tabs, ordered_tab_ids.clone())?;
+    }
+    window.tab_ids = ordered_tab_ids;
+    snapshot.ui.workspace_windows = windows;
     Ok(())
 }
 

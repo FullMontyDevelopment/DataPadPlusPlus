@@ -276,7 +276,8 @@ export function SettingsExperimentalPanel({
               <ul className="settings-plugin-capabilities">
                 <li>Desktop only; unavailable in browser preview</li>
                 <li>Move commands work on Windows, Linux, and macOS</li>
-                <li>Cross-window dragging is enabled only on validated platforms</li>
+                <li>Drag headers to reorder within a window; use Move commands between windows</li>
+                <li>Cross-window dragging is currently unavailable</li>
               </ul>
 
               <div className="settings-form-grid settings-form-grid--compact">

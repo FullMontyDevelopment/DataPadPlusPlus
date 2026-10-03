@@ -111,6 +111,81 @@ pub(super) async fn validate_large_documents(
             collection.count_documents(doc! {}).await? == 1,
             "rejected insert wrote nothing",
         )?;
+
+        // A realistic repeated baseline exercises plan redaction as well as
+        // rename/unset execution. These are synthetic values, never credentials.
+        let record = doc! {
+            "password": "fixture-only-value", "token": "fixture-only-token",
+            "passing": "untouched", "note": "Bearer fixture-only; Basic fixture-only;",
+        };
+        collection
+            .insert_one(doc! {
+                "_id": "repeated-baseline", "renameMe": "kept", "removeMe": "removed",
+                "records": vec![record; 10_000],
+            })
+            .await?;
+        let baseline = json!({
+            "_id": "repeated-baseline", "renameMe": "kept", "removeMe": "removed",
+            "records": vec![json!({
+                "password": "fixture-only-value", "token": "fixture-only-token",
+                "passing": "untouched", "note": "Bearer fixture-only; Basic fixture-only;",
+            }); 10_000],
+        });
+        request.target.document_id = Some(json!("repeated-baseline"));
+        request.target.expected_document = Some(baseline.clone());
+        request.edit_kind = "rename-field".into();
+        request.confirmation_text = Some("CONFIRM MONGODB RENAME-FIELD".into());
+        request.changes = vec![DataEditChange {
+            path: Some(vec!["renameMe".into()]),
+            new_name: Some("renamed".into()),
+            ..Default::default()
+        }];
+        let renamed = adapters::execute_data_edit(connection, &request).await?;
+        verify(renamed.executed, "rename with repetitive baseline")?;
+        let after = renamed.metadata.as_ref().unwrap()["documentEvidence"]["afterDocument"].clone();
+        verify(
+            after.get("renameMe").is_none() && after["renamed"] == "kept",
+            "rename evidence",
+        )?;
+        verify(
+            after["records"] == baseline["records"],
+            "rename preserves unmasked data",
+        )?;
+        verify(
+            !adapters::execute_data_edit(connection, &request)
+                .await?
+                .executed,
+            "stale rename rejected",
+        )?;
+
+        request.target.expected_document = Some(after);
+        request.edit_kind = "unset-field".into();
+        request.confirmation_text = Some("CONFIRM MONGODB UNSET-FIELD".into());
+        request.changes = vec![DataEditChange {
+            path: Some(vec!["removeMe".into()]),
+            ..Default::default()
+        }];
+        let removed = adapters::execute_data_edit(connection, &request).await?;
+        verify(removed.executed, "remove with repetitive baseline")?;
+        let after = &removed.metadata.as_ref().unwrap()["documentEvidence"]["afterDocument"];
+        verify(
+            after.get("removeMe").is_none() && after["renamed"] == "kept",
+            "remove evidence",
+        )?;
+        verify(
+            after["records"] == baseline["records"],
+            "remove preserves unmasked data",
+        )?;
+        let stored = collection
+            .find_one(doc! { "_id": "repeated-baseline" })
+            .await?
+            .unwrap();
+        verify(
+            !stored.contains_key("renameMe")
+                && !stored.contains_key("removeMe")
+                && stored.get_str("renamed").ok() == Some("kept"),
+            "renamed and removed fields persisted",
+        )?;
         Ok(())
     }
     .await;

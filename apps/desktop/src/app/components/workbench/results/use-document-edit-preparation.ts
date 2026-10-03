@@ -28,14 +28,15 @@ export function useDocumentEditPreparation(options: Options) {
   const pendingIndex = useRef<number | undefined>(undefined)
   const complete = useRef(new WeakSet<Document>())
   const baseline = useRef<{ index: number; document: Document } | undefined>(undefined)
-  const [preparing, setPreparing] = useState(false)
+  const [preparingRowId, setPreparingRowId] = useState<string>()
+  const preparing = preparingRowId !== undefined
 
   useLayoutEffect(() => { current.current = options })
   useLayoutEffect(() => {
     generation.current += 1
     pending.current = false
     baseline.current = undefined
-    queueMicrotask(() => setPreparing(false))
+    queueMicrotask(() => setPreparingRowId(undefined))
     return () => { generation.current += 1 }
   }, [options.documents, options.scopeKey, options.locked, options.enabled])
   useLayoutEffect(() => { complete.current = new WeakSet() }, [options.documents, options.scopeKey])
@@ -44,7 +45,7 @@ export function useDocumentEditPreparation(options: Options) {
     generation.current += 1
     pending.current = false
     baseline.current = undefined
-    setPreparing(false)
+    setPreparingRowId(undefined)
   }
 
   const prepare = async (row: DocumentGridRow): Promise<DocumentGridRow | undefined> => {
@@ -66,7 +67,7 @@ export function useDocumentEditPreparation(options: Options) {
         }
         pending.current = true
         pendingIndex.current = row.documentIndex
-        setPreparing(true)
+        setPreparingRowId(row.id)
         const response = await source.fetch({ ...source.request, documentId: original._id, path: [], mode: 'full-value' })
         if (!isCurrent()) return undefined
         if (!response || response.tabId !== source.request.tabId || response.path.length !== 0 ||
@@ -96,7 +97,7 @@ export function useDocumentEditPreparation(options: Options) {
     } finally {
       if (token === generation.current) {
         pending.current = false
-        setPreparing(false)
+        setPreparingRowId(undefined)
       }
     }
   }
@@ -119,7 +120,7 @@ export function useDocumentEditPreparation(options: Options) {
     baseline.current = { index: row.documentIndex, document }
   }
 
-  return { preparing, prepare, cancel, getBaseline, responseGuard, accept,
+  return { preparing, preparingRowId, prepare, cancel, getBaseline, responseGuard, accept,
     isPreparingDocument: (index: number) => pending.current && pendingIndex.current === index,
   }
 }

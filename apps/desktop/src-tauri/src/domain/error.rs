@@ -202,30 +202,36 @@ fn redact_secret_assignments(value: &str) -> String {
 }
 
 fn redact_secret_assignment_key(value: &str, key: &str) -> String {
-    let mut output = value.to_string();
+    // Search the original input once per key, then append unchanged spans.
+    // Re-lowercasing/replacing the whole string for every match was quadratic
+    // for document-edit plans containing large, repetitive before-documents.
+    // ASCII folding also preserves UTF-8 byte offsets (Unicode folding does not).
+    let lower = value.to_ascii_lowercase();
+    let mut output = String::with_capacity(value.len());
+    let mut copied_through = 0;
     let mut search_from = 0;
 
-    loop {
-        let lower = output.to_lowercase();
-        let Some(relative_position) = lower[search_from..].find(key) else {
-            return output;
-        };
+    while let Some(relative_position) = lower[search_from..].find(key) {
         let key_start = search_from + relative_position;
         let key_end = key_start + key.len();
 
-        if !is_assignment_key_boundary(&output, key_start, key_end) {
+        if !is_assignment_key_boundary(value, key_start, key_end) {
             search_from = key_end;
             continue;
         }
 
-        let Some((value_start, value_end)) = assignment_value_range(&output, key_end) else {
+        let Some((value_start, value_end)) = assignment_value_range(value, key_end) else {
             search_from = key_end;
             continue;
         };
 
-        output.replace_range(value_start..value_end, SECRET_REPLACEMENT);
-        search_from = value_start + SECRET_REPLACEMENT.len();
+        output.push_str(&value[copied_through..value_start]);
+        output.push_str(SECRET_REPLACEMENT);
+        copied_through = value_end;
+        search_from = value_end;
     }
+    output.push_str(&value[copied_through..]);
+    output
 }
 
 fn is_assignment_key_boundary(value: &str, start: usize, end: usize) -> bool {
@@ -305,24 +311,23 @@ fn redact_auth_headers(value: &str) -> String {
 }
 
 fn redact_auth_header_scheme(value: &str, scheme: &str) -> String {
-    let mut output = value.to_string();
+    let lower = value.to_ascii_lowercase();
+    let scheme_lower = scheme.to_ascii_lowercase();
+    let mut output = String::with_capacity(value.len());
+    let mut copied_through = 0;
     let mut search_from = 0;
 
-    loop {
-        let lower = output.to_lowercase();
-        let Some(relative_position) = lower[search_from..].find(&scheme.to_lowercase()) else {
-            return output;
-        };
+    while let Some(relative_position) = lower[search_from..].find(&scheme_lower) {
         let scheme_start = search_from + relative_position;
         let scheme_end = scheme_start + scheme.len();
 
-        if !is_assignment_key_boundary(&output, scheme_start, scheme_end) {
+        if !is_assignment_key_boundary(value, scheme_start, scheme_end) {
             search_from = scheme_end;
             continue;
         }
 
         let token_start = scheme_end
-            + output[scheme_end..]
+            + value[scheme_end..]
                 .chars()
                 .take_while(|character| character.is_whitespace())
                 .map(char::len_utf8)
@@ -333,7 +338,7 @@ fn redact_auth_header_scheme(value: &str, scheme: &str) -> String {
         }
 
         let mut token_end = token_start;
-        for character in output[token_start..].chars() {
+        for character in value[token_start..].chars() {
             if character.is_whitespace() || matches!(character, ';' | ',') {
                 break;
             }
@@ -345,9 +350,13 @@ fn redact_auth_header_scheme(value: &str, scheme: &str) -> String {
             continue;
         }
 
-        output.replace_range(token_start..token_end, SECRET_REPLACEMENT);
-        search_from = token_start + SECRET_REPLACEMENT.len();
+        output.push_str(&value[copied_through..token_start]);
+        output.push_str(SECRET_REPLACEMENT);
+        copied_through = token_end;
+        search_from = token_end;
     }
+    output.push_str(&value[copied_through..]);
+    output
 }
 
 fn is_identifier_character(character: char) -> bool {

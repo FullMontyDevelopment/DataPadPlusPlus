@@ -15,15 +15,18 @@ describe('data edit confirmation', () => {
       request: DataEditExecutionRequest,
     ): Promise<DataEditExecutionResponse> => responseForRequest(request))
     const confirm = vi.fn(async () => true)
+    const onPhaseChange = vi.fn()
     const request = dataEditRequest()
 
     const response = await executeDataEditWithConfirmation(executeDataEdit, request, {
       confirm,
       actionLabel: 'Update document field.',
       confirmationTitle: 'Apply this edit?',
+      onPhaseChange,
     })
 
     expect(confirm).toHaveBeenCalledTimes(1)
+    expect(onPhaseChange.mock.calls).toEqual([['executing'], ['confirming'], ['executing']])
     expect(executeDataEdit).toHaveBeenCalledTimes(2)
     expect(executeDataEdit).toHaveBeenLastCalledWith({
       ...request,

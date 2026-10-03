@@ -17,6 +17,7 @@ export interface ExecuteDataEditOptions {
   actionLabel?: string
   confirm?: DataEditConfirmationHandler
   confirmationTitle?: string
+  onPhaseChange?(phase: 'executing' | 'confirming'): void
 }
 
 export interface DataEditConfirmationDetails {
@@ -30,6 +31,7 @@ export async function executeDataEditWithConfirmation(
   request: DataEditExecutionRequest,
   options: ExecuteDataEditOptions = {},
 ) {
+  options.onPhaseChange?.('executing')
   const response = await executeDataEdit(request)
   const confirmationText = response?.plan?.confirmationText
 
@@ -52,6 +54,7 @@ export async function executeDataEditWithConfirmation(
     }
   }
 
+  options.onPhaseChange?.('confirming')
   const confirmed = await options.confirm(withoutTypedConfirmationWarnings(response), options)
   if (!confirmed) {
     return {
@@ -63,6 +66,7 @@ export async function executeDataEditWithConfirmation(
     }
   }
 
+  options.onPhaseChange?.('executing')
   const confirmedResponse = await executeDataEdit({
     ...request,
     confirmationText,

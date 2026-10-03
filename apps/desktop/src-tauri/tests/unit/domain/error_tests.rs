@@ -2,6 +2,54 @@ use super::CommandError;
 use std::borrow::Cow;
 
 #[test]
+fn command_redaction_preserves_unicode_byte_offsets_and_case_insensitive_secrets() {
+    let text = "İ 測試 🔑 PASSWORD=short; pwd=longer-value; Bearer opaque; Basic YWJj; TOKEN='秘密'; pass=; passage=keep; password={schema}";
+    assert_eq!(super::redact_sensitive_text(text),
+        "İ 測試 🔑 PASSWORD=********; pwd=********; Bearer ********; Basic ********; TOKEN='********'; pass=; passage=keep; password={schema}");
+}
+
+#[test]
+fn command_redaction_handles_large_repeated_edit_baselines_without_losing_secrets() {
+    let record = r#"{"password":"private","token":"private","passing":"keep","note":"Bearer opaque; Basic YWJj;","schema":{"password":{"type":"string"}}},"#;
+    let expected = r#"{"password":"********","token":"********","passing":"keep","note":"Bearer ********; Basic ********;","schema":{"password":{"type":"string"}}},"#;
+    // Repeated secret-like words in a complete document used to trigger a
+    // whole-input allocation and scan for every occurrence. No wall-clock
+    // assertion: this must also work on slow/debug CI workers.
+    assert_eq!(
+        super::redact_sensitive_text(&record.repeat(20_000)),
+        expected.repeat(20_000)
+    );
+}
+
+#[test]
+fn command_redaction_handles_empty_adjacent_and_terminal_assignments() {
+    for (input, expected) in [
+        (
+            "password='' token=final",
+            "password='********' token=********",
+        ),
+        (
+            "password=secret;password=secret",
+            "password=********;password=********",
+        ),
+        (
+            "Bearer token, Basic credential",
+            "Bearer ********, Basic ********",
+        ),
+        (
+            "password token Bearer Basic",
+            "password token Bearer ********",
+        ),
+        (
+            "passing=ok tokenized=ok Bearerish=ok",
+            "passing=ok tokenized=ok Bearerish=ok",
+        ),
+    ] {
+        assert_eq!(super::redact_sensitive_text(input), expected);
+    }
+}
+
+#[test]
 fn sqlserver_error_mapping_adds_actionable_invalid_object_hint() {
     let error: CommandError = tiberius::error::Error::Protocol(Cow::Borrowed(
         "Token error: 'Invalid object name 'accounts'.' on server executing on line 1 (code: 208)",

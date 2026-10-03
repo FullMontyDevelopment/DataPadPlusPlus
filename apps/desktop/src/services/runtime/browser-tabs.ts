@@ -1,5 +1,5 @@
 import type { CloseQueryTabsRequest, ConnectionProfile, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryTabState, ScopedQueryTarget, UpdateQueryTabSqlScopeRequest, UpdateQueryTabTargetRequest, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
-import { createId, defaultQueryTextForConnection, defaultQueryViewModeForConnection, defaultScriptTextForConnection, editorLabelForConnection, languageForConnection } from '../../app/state/helpers'
+import { createId, defaultQueryTextForConnection, defaultQueryViewModeForConnection, defaultScriptTextForConnection, editorLabelForConnection, languageForConnection, normalizeWorkspaceWindows } from '../../app/state/helpers'
 import { createDefaultCosmosSqlBuilderState } from '../../app/components/workbench/query-builder/cosmos-sql'
 import { defaultSqlQueryScope } from '../../app/components/workbench/query-targets/query-target-registry'
 import {
@@ -952,18 +952,27 @@ export function reorderQueryTabsInSnapshot(
 ): WorkspaceSnapshot {
   const next = cloneSnapshot(snapshot)
   const tabById = new Map(next.tabs.map((tab) => [tab.id, tab]))
+  const windows = normalizeWorkspaceWindows(next)
+  const window = windows.find((item) => item.id === (request.windowId ?? 'main'))
 
   if (
-    request.orderedTabIds.length !== next.tabs.length ||
+    !window ||
+    request.orderedTabIds.length !== window.tabIds.length ||
     new Set(request.orderedTabIds).size !== request.orderedTabIds.length ||
-    request.orderedTabIds.some((tabId) => !tabById.has(tabId))
+    request.orderedTabIds.some((tabId) => !window.tabIds.includes(tabId))
   ) {
     return next
   }
 
-  next.tabs = request.orderedTabIds
-    .map((tabId) => tabById.get(tabId))
-    .filter((tab): tab is QueryTabState => Boolean(tab))
+  // Single-window normalization derives its order from tabs; multi-window mode
+  // uses each window's own tabIds. Keep the relevant source of truth in sync.
+  if (!next.preferences.multiWindowTabs?.enabled) {
+    next.tabs = request.orderedTabIds
+      .map((tabId) => tabById.get(tabId))
+      .filter((tab): tab is QueryTabState => Boolean(tab))
+  }
+  window.tabIds = [...request.orderedTabIds]
+  next.ui.workspaceWindows = windows
   next.updatedAt = new Date().toISOString()
   return next
 }

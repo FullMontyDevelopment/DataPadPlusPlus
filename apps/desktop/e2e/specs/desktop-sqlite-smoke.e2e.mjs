@@ -361,4 +361,66 @@ describe('DataPad++ native SQLite smoke', () => {
     await waitForText('Fixture SQLite')
     assert.equal(await editorTabCount(), 1, 'The main window must regain exactly one moved tab.')
   })
+
+  it('reorders headers with real mouse input and retains the order after reload in both window modes', async () => {
+    for (const enabled of [false, true]) {
+      await clickControl('Open settings')
+      await clickControl('Plugins')
+      await setPluginCheckbox('Multi-window Tabs', enabled)
+      await browser.waitUntil(async () => (await editorTabCount()) === 2)
+
+      const before = await browser.execute(() => {
+        const tabs = [...document.querySelectorAll('.editor-tabs [role="tab"]')]
+        return {
+          labels: tabs.map(tab => tab.querySelector('.editor-tab-label')?.textContent),
+          selected: tabs.find(tab => tab.getAttribute('aria-selected') === 'true')?.textContent,
+          nativeDraggable: tabs.some(tab => tab.draggable),
+          rects: tabs.map(tab => {
+            const rect = tab.getBoundingClientRect()
+            return { left: rect.left, right: rect.right, top: rect.top, height: rect.height }
+          }),
+        }
+      })
+      assert.equal(before.nativeDraggable, false, 'Local reordering must not enter intercepted HTML drag/drop.')
+      const source = before.rects[0]
+      const destination = before.rects[1]
+      const x = Math.round(destination.right - 8)
+      const y = Math.round(source.top + source.height / 2)
+      // WebDriver pointer actions exercise capture and real browser events, not synthetic DragEvents.
+      try {
+        await browser.performActions([{
+          type: 'pointer', id: 'tab-reorder-mouse', parameters: { pointerType: 'mouse' },
+          actions: [
+            { type: 'pointerMove', duration: 0, origin: 'viewport', x: Math.round(source.left + 45), y },
+            { type: 'pointerDown', button: 0 },
+            { type: 'pointerMove', duration: 500, origin: 'viewport', x, y },
+          ],
+        }])
+        await browser.waitUntil(async () => browser.execute(
+          () => Boolean(document.querySelector('.editor-tabs .is-drop-after')),
+        ), { timeout: 5000, timeoutMsg: 'Expected a visible tab insertion marker while dragging.' })
+        await browser.performActions([{
+          type: 'pointer', id: 'tab-reorder-mouse', parameters: { pointerType: 'mouse' },
+          actions: [{ type: 'pointerUp', button: 0 }],
+        }])
+      } finally {
+        await browser.releaseActions()
+      }
+      const expected = [before.labels[1], before.labels[0]]
+      await browser.waitUntil(async () => browser.execute(
+        expectedLabels => JSON.stringify([...document.querySelectorAll('.editor-tab-label')].map(tab => tab.textContent))
+          === JSON.stringify(expectedLabels), expected,
+      ), { timeout: 10000, timeoutMsg: 'Expected the native runtime to retain the new tab order.' })
+      assert.equal(await browser.execute(
+        () => document.querySelector('.editor-tabs [aria-selected="true"]')?.textContent,
+      ), before.selected, 'Reordering must not change the selected tab.')
+      await browser.refresh()
+      await waitForText('Fixture SQLite')
+      await browser.waitUntil(async () => browser.execute(
+        expectedLabels => JSON.stringify([...document.querySelectorAll('.editor-tab-label')].map(tab => tab.textContent))
+          === JSON.stringify(expectedLabels), expected,
+      ), { timeout: 10000, timeoutMsg: 'Expected the reordered tabs to survive a reload.' })
+      await clickControl('Close tab Settings')
+    }
+  })
 })

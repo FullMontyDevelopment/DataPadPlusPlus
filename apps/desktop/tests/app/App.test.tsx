@@ -2136,7 +2136,17 @@ describe('App', () => {
     expect(screen.queryByLabelText(/Type/i)).not.toBeInTheDocument()
   })
 
-  it('keeps query tab headers clean, scrollable, and reorderable', async () => {
+  it.each([
+    [false, false],
+    [true, false],
+    [true, true],
+  ])('keeps query tab headers clean, scrollable, and reorderable (multi-window %s, native drag %s)', async (multiWindowEnabled, dragSupported) => {
+    const snapshot = loadBrowserSnapshot()
+    snapshot.preferences.multiWindowTabs = { enabled: multiWindowEnabled }
+    saveBrowserSnapshot(snapshot)
+    vi.spyOn(desktopClient, 'getWorkspaceWindowContext').mockResolvedValue({
+      windowId: 'main', role: 'main', multiWindowEnabled, dragSupported,
+    })
     render(<App />)
 
     await createFirstConnection()
@@ -2155,6 +2165,23 @@ describe('App', () => {
     await waitFor(() => {
       expect(getEditorTabNames()[0]).toContain('Query 2')
     })
+
+    // Pointer dragging uses the same persisted reorder action without changing selection.
+    const headers = within(tablist).getAllByRole('tab')
+    const selectedTitle = within(tablist).getByRole('tab', { selected: true }).textContent
+    vi.spyOn(tablist, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 400, 35))
+    headers.forEach((header, index) => {
+      vi.spyOn(header, 'getBoundingClientRect').mockReturnValue(new DOMRect(index * 100, 0, 100, 35))
+    })
+    fireEvent.pointerDown(headers[0], { pointerId: 1, button: 0, clientX: 50, clientY: 15, isPrimary: true })
+    fireEvent.pointerMove(headers[0], { pointerId: 1, clientX: 185, clientY: 15 })
+    expect(headers[0]).toHaveClass('is-dragging')
+    expect(headers[1]).toHaveClass('is-drop-after')
+    fireEvent.pointerUp(headers[0], { pointerId: 1, clientX: 185, clientY: 15 })
+    await waitFor(() => {
+      expect(getEditorTabNames()[0]).toContain('Query 1')
+    })
+    expect(within(tablist).getByRole('tab', { selected: true })).toHaveTextContent(selectedTitle ?? '')
   })
 
   it('supports VS Code-style tab close actions from the context menu', async () => {

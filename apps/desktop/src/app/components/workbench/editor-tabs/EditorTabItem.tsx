@@ -3,6 +3,7 @@ import type {
   DragEvent,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent,
+  PointerEvent,
 } from 'react'
 import type {
   ConnectionProfile,
@@ -36,6 +37,7 @@ interface EditorTabItemProps {
   draggingTabId?: string
   dropTarget?: EditorTabDropTarget
   editing: boolean
+  nativeDraggable?: boolean
   environment?: EnvironmentProfile
   tab: QueryTabState
   tabRef(element: HTMLDivElement | null): void
@@ -52,6 +54,10 @@ interface EditorTabItemProps {
   onDrop(event: DragEvent<HTMLDivElement>, tab: QueryTabState): void
   onKeyDown(event: ReactKeyboardEvent<HTMLDivElement>, tab: QueryTabState): void
   onSelectTab(tabId: string): void
+  onPointerDown?(event: PointerEvent<HTMLDivElement>, tabId: string): void
+  onPointerMove?(event: PointerEvent<HTMLDivElement>): void
+  onPointerUp?(event: PointerEvent<HTMLDivElement>): void
+  onPointerCancel?(): void
 }
 
 export function EditorTabItem({
@@ -61,6 +67,7 @@ export function EditorTabItem({
   draggingTabId,
   dropTarget,
   editing,
+  nativeDraggable = false,
   environment,
   tab,
   tabRef,
@@ -77,6 +84,10 @@ export function EditorTabItem({
   onDrop,
   onKeyDown,
   onSelectTab,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
 }: EditorTabItemProps) {
   const environmentColor = environment?.color.trim()
   const hasEnvironmentColor = Boolean(environmentColor)
@@ -125,7 +136,7 @@ export function EditorTabItem({
       : ''
   }${
     tabCanBeSaved && tab.dirty ? '\nUnsaved changes' : ''
-  }`
+  }\nDrag to reorder · Alt+Shift+Left/Right to move`
   const dropBefore = dropTarget?.tabId === tab.id && dropTarget.placement === 'before'
   const dropAfter = dropTarget?.tabId === tab.id && dropTarget.placement === 'after'
   const tabFailed = tab.status === 'error' || tab.status === 'blocked'
@@ -136,7 +147,8 @@ export function EditorTabItem({
       role="tab"
       tabIndex={0}
       aria-selected={active}
-      draggable={!editing}
+      draggable={!editing && nativeDraggable}
+      aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
       className={`editor-tab${active ? ' is-active' : ''}${hasEnvironmentColor ? ' has-environment-color' : ''}${draggingTabId === tab.id ? ' is-dragging' : ''}${dropBefore ? ' is-drop-before' : ''}${dropAfter ? ' is-drop-after' : ''}${tabRunning ? ' is-running' : ''}${tabFailed ? ' is-error' : ''}`}
       data-environment-id={environment?.id}
       style={tabStyle}
@@ -146,10 +158,17 @@ export function EditorTabItem({
       onDoubleClick={() => onBeginRename(tab)}
       onDragStart={(event) => onDragStart(event, tab)}
       onDragOver={(event) => onDragOver(event, tab)}
-      onDragLeave={() => onDragLeave(tab.id)}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onDragLeave(tab.id)
+      }}
       onDrop={(event) => onDrop(event, tab)}
       onDragEnd={(event) => onDragEnd(event, tab)}
       onKeyDown={(event) => onKeyDown(event, tab)}
+      onPointerDown={editing ? undefined : (event) => onPointerDown?.(event, tab.id)}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onLostPointerCapture={onPointerCancel}
     >
       {tab.tabKind === 'settings' ? (
         <SettingsIcon

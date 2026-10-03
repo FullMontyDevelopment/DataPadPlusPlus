@@ -9,6 +9,8 @@ import type {
   DocumentEditMetadata,
 } from '@datapadplusplus/shared-types'
 import { DocumentAddFieldDialog } from './DocumentAddFieldDialog'
+import type { DocumentEditProgressState } from './DocumentEditProgress'
+import { DocumentEditNotice } from './DocumentEditNotice'
 import { DocumentContextMenu } from './document-context-menu'
 import { DeleteConfirmationPanel } from './DeleteConfirmationPanel'
 import type { DocumentEditContext } from './document-edit-context'
@@ -137,6 +139,8 @@ export function DocumentResultsView({
 }: DocumentResultsViewProps) {
   const connectionBehavior = documentResultBehaviorForConnection(connection)
   const [editPending, setEditPending] = useState(false)
+  const [editProgress, setEditProgress] = useState<DocumentEditProgressState>()
+  const [editNotice, setEditNotice] = useState<string>()
   const editInFlight = useRef(false)
   const [draftState, setDraftState] = useState(() => ({
     source: documents,
@@ -175,6 +179,10 @@ export function DocumentResultsView({
   const draftDocuments = draftState.source === documents ? draftState.documents : documents
   const efficiencyModeEnabled = hydrationMode === 'lazy'
   const editScopeKey = JSON.stringify([tabId, editContext, database, collection, connection?.id, connection?.readOnly, editMetadata, documentResetToken])
+  const reportEditProblem = (message: string) => {
+    setCopyMessage('')
+    setEditNotice(message)
+  }
   const preparation = useDocumentEditPreparation({
     documents,
     draftDocuments,
@@ -188,7 +196,7 @@ export function DocumentResultsView({
     fetch: onFetchDocumentNodeChildren,
     invalidateHydration: (index) => invalidateDocumentHydration(index),
     onPrepared: (index, document) => updateDraftDocuments((current) => current.map((item, itemIndex) => itemIndex === index ? document : item)),
-    onMessage: setCopyMessage,
+    onMessage: reportEditProblem,
   })
   const behavior = executionLocked || editPending || preparation.preparing
     ? {
@@ -358,6 +366,8 @@ export function DocumentResultsView({
       setPendingAddField(undefined)
       setPendingFieldDelete(undefined)
       setPendingDocumentDelete(undefined)
+      setEditProgress(undefined)
+      setEditNotice(undefined)
     })
   }, [cancelDataEditConfirmation, documentResetToken, documents, draftDocuments])
 
@@ -373,6 +383,8 @@ export function DocumentResultsView({
       setPendingFieldDelete(undefined)
       setPendingDocumentDelete(undefined)
       setPendingAddField(undefined)
+      setEditProgress(undefined)
+      setEditNotice(undefined)
     })
   }, [cancelDataEditConfirmation, executionLocked])
 
@@ -485,6 +497,8 @@ export function DocumentResultsView({
       setPendingFieldDelete(undefined)
       setPendingDocumentDelete(undefined)
       cancelDataEditConfirmation()
+      setEditProgress(undefined)
+      setEditNotice(undefined)
     })
   }, [editScopeKey, documents, cancelDataEditConfirmation])
 
@@ -492,7 +506,7 @@ export function DocumentResultsView({
     if (executionLocked || editInFlight.current) return undefined
     const reason = !onExecuteDataEdit ? 'Guarded datastore edit execution is unavailable.' :
       documentEditUnavailableReason(connection, editContext, draftDocuments, row, editMetadata)
-    if (reason) { setCopyMessage(reason); return undefined }
+    if (reason) { reportEditProblem(reason); return undefined }
     return preparation.prepare(row)
   }
 
@@ -504,21 +518,24 @@ export function DocumentResultsView({
     successMessage: string,
   ) => {
     if (executionLocked || editInFlight.current) {
-      setCopyMessage('Wait for the running query to finish before editing this result.')
+      reportEditProblem('Wait for the current operation to finish before editing this result.')
       return false
     }
     const baseline = preparation.getBaseline(row)
     if (!baseline || containsUnavailableValue(baseline)) {
-      setCopyMessage('Load the complete document and reopen the editor before saving.')
+      reportEditProblem('Load the complete document and reopen the editor before saving.')
       return false
     }
     const baselineDocuments = draftDocuments.map((document, index) => index === row.documentIndex ? baseline : document)
     const isCurrent = preparation.responseGuard(row)
     editInFlight.current = true
-      setEditPending(true)
+    setEditPending(true)
+    setCopyMessage('')
+    setEditProgress({ rowId: row.id, kind: editKind, phase: 'executing' })
+    let confirmationCanceled = false
       try {
         if (!onExecuteDataEdit || !editContext || !connection) {
-          setCopyMessage('Edit unavailable; this result is missing guarded datastore execution scope.')
+          reportEditProblem('Edit unavailable; this result is missing datastore execution scope.')
           return false
         }
 
@@ -535,7 +552,7 @@ export function DocumentResultsView({
         )
 
         if (!request) {
-          setCopyMessage(
+          reportEditProblem(
             documentEditUnavailableReason(
               connection,
               editContext,
@@ -552,8 +569,13 @@ export function DocumentResultsView({
           request,
           {
             actionLabel: successMessage,
-            confirm: confirmDataEdit,
+            confirm: async (response, options) => {
+              const confirmed = await confirmDataEdit(response, options)
+              confirmationCanceled = !confirmed
+              return confirmed
+            },
             confirmationTitle: 'Apply this document edit?',
+            onPhaseChange: (phase) => { if (isCurrent()) setEditProgress({ rowId: row.id, kind: editKind, phase }) },
           },
         )
         const failureMessage = dataEditStatusMessage(
@@ -563,7 +585,8 @@ export function DocumentResultsView({
 
         if (!isCurrent()) return false
         if (!response?.executed) {
-          setCopyMessage(failureMessage)
+          if (confirmationCanceled) setCopyMessage(failureMessage)
+          else reportEditProblem(response?.warnings.at(-1) ?? failureMessage)
           return false
         }
 
@@ -580,11 +603,12 @@ export function DocumentResultsView({
         setCopyMessage(response.messages.at(-1) ?? successMessage)
         return true
       } catch (error) {
-        if (isCurrent()) setCopyMessage(dataEditErrorMessage(error, 'Document edit failed.'))
+        if (isCurrent()) reportEditProblem(dataEditErrorMessage(error, 'Document edit failed.'))
         return false
       } finally {
         editInFlight.current = false
         setEditPending(false)
+        setEditProgress(undefined)
       }
   }
 
@@ -596,7 +620,7 @@ export function DocumentResultsView({
       ? 'Guarded datastore edit execution is unavailable.'
       : documentEditUnavailableReason(connection, editContext, draftDocuments, row, editMetadata)
     if (unavailableReason) {
-      setCopyMessage(unavailableReason)
+      reportEditProblem(unavailableReason)
       return
     }
     const permissions = editablePermissions(row, behavior, protectedPaths)
@@ -772,7 +796,7 @@ export function DocumentResultsView({
       protectedPaths,
     })
     if (fieldError) {
-      setCopyMessage(fieldError)
+      reportEditProblem(fieldError)
       return
     }
 
@@ -858,7 +882,7 @@ export function DocumentResultsView({
         editMetadata,
       )
       if (unavailableReason || executionLocked || editPending) {
-        setCopyMessage(
+        reportEditProblem(
           unavailableReason ?? 'Wait for the active operation before editing raw JSON.',
         )
         return
@@ -918,18 +942,18 @@ export function DocumentResultsView({
 
   const deleteDocument = (row: DocumentGridRow) => {
     if (executionLocked || editInFlight.current) {
-      setCopyMessage('Wait for the running query to finish before deleting this document.')
+      reportEditProblem('Wait for the current operation to finish before deleting this document.')
       return
     }
     void (async () => {
       if (!onExecuteDataEdit || !editContext || !connection) {
-        setCopyMessage('Delete unavailable; data edit execution is unavailable.')
+        reportEditProblem('Delete unavailable; data edit execution is unavailable.')
         return
       }
 
       const baseline = preparation.getBaseline(row)
       if (!baseline || containsUnavailableValue(baseline)) {
-        setCopyMessage('Load the complete document and reopen the delete action before continuing.')
+        reportEditProblem('Load the complete document and reopen the delete action before continuing.')
         return
       }
       const isCurrent = preparation.responseGuard(row)
@@ -943,17 +967,25 @@ export function DocumentResultsView({
       )
 
       if (!request) {
-        setCopyMessage('Delete unavailable; DataPad++ needs a collection and stable _id.')
+        reportEditProblem('Delete unavailable; DataPad++ needs a collection and stable _id.')
         return
       }
 
+      let confirmationCanceled = false
       try {
         editInFlight.current = true
         setEditPending(true)
+        setCopyMessage('')
+        setEditProgress({ rowId: row.id, kind: 'delete-document', phase: 'executing' })
         const response = await executeDataEditWithConfirmation((request) => isCurrent() ? onExecuteDataEdit(request) : Promise.resolve(undefined), request, {
           actionLabel: 'Delete this document.',
-          confirm: confirmDataEdit,
+          confirm: async (response, options) => {
+            const confirmed = await confirmDataEdit(response, options)
+            confirmationCanceled = !confirmed
+            return confirmed
+          },
           confirmationTitle: 'Delete this document?',
+          onPhaseChange: (phase) => { if (isCurrent()) setEditProgress({ rowId: row.id, kind: 'delete-document', phase }) },
         })
         const failureMessage = dataEditStatusMessage(
           response,
@@ -962,7 +994,8 @@ export function DocumentResultsView({
 
         if (!isCurrent()) return
         if (!response?.executed) {
-          setCopyMessage(failureMessage)
+          if (confirmationCanceled) setCopyMessage(failureMessage)
+          else reportEditProblem(response?.warnings.at(-1) ?? failureMessage)
           return
         }
 
@@ -973,10 +1006,11 @@ export function DocumentResultsView({
         )
         setCopyMessage(response.messages.at(-1) ?? 'Deleted document.')
       } catch (error) {
-        if (isCurrent()) setCopyMessage(dataEditErrorMessage(error, 'Document delete failed.'))
+        if (isCurrent()) reportEditProblem(dataEditErrorMessage(error, 'Document delete failed.'))
       } finally {
         editInFlight.current = false
         setEditPending(false)
+        setEditProgress(undefined)
       }
     })()
   }
@@ -994,6 +1028,10 @@ export function DocumentResultsView({
       error={activeHydrationErrors.get(row.id)}
       expanded={effectiveExpandedRows.has(row.id)}
       loading={activeHydratingRows.has(row.id)}
+      preparingEdit={preparation.preparingRowId === row.id}
+      editProgress={editProgress?.rowId === row.id ? editProgress : undefined}
+      editLocked={editPending || preparation.preparing || Boolean(editNotice)}
+      onCancelPreparation={preparation.cancel}
       matched={hasSearch && searchResult.matchedRowIds.has(row.id)}
       editingCell={
         effectiveActiveEditor?.rowId === row.id ? effectiveActiveEditor.cell : undefined
@@ -1024,12 +1062,6 @@ export function DocumentResultsView({
     <div className="document-data-grid-shell" aria-label="Document results" onKeyDown={(event) => {
       if (event.key === 'Escape' && preparation.preparing) preparation.cancel()
     }}>
-      {preparation.preparing ? (
-        <div className="panel-footnote" role="status" aria-live="polite">
-          Loading complete document for editing…{' '}
-          <button type="button" className="drawer-button drawer-button--compact" onClick={preparation.cancel}>Cancel loading</button>
-        </div>
-      ) : null}
       <DocumentResultsToolbar
         efficiencyModeEnabled={efficiencyModeEnabled}
         hasSearch={hasSearch}
@@ -1042,7 +1074,7 @@ export function DocumentResultsView({
         onExpandAll={expandAll}
         onSearchInputChange={setSearchInput}
       />
-      <div className={`document-results-content${inspectorRow && inspectorDocument ? ' has-inspector' : ''}`}>
+      <div aria-busy={editPending || preparation.preparing} className={`document-results-content${inspectorRow && inspectorDocument ? ' has-inspector' : ''}`}>
         <div className="document-data-grid-frame">
           <DocumentVirtualGridRows
             rowCount={treeIndex.rowCount}
@@ -1144,7 +1176,7 @@ export function DocumentResultsView({
       {pendingFieldDeleteRow ? (
         <DeleteConfirmationPanel
           title={`Remove field ${pendingFieldDeleteRow.fieldPath || pathSegments(pendingFieldDeleteRow.path).join('.')}?`}
-          body="DataPad++ will run this guarded field removal with confirmation."
+          body="This removes the field from the stored document."
           onCancel={() => setPendingFieldDelete(undefined)}
           onConfirm={() => {
             const row = pendingFieldDeleteRow
@@ -1156,7 +1188,7 @@ export function DocumentResultsView({
       {pendingDocumentDeleteRow ? (
         <DeleteConfirmationPanel
           title={`Delete document ${pendingDocumentDeleteRow.label}?`}
-          body="DataPad++ will run this guarded document delete with confirmation."
+          body="This permanently deletes the stored document."
           onCancel={() => setPendingDocumentDelete(undefined)}
           onConfirm={() => {
             const row = pendingDocumentDeleteRow
@@ -1166,6 +1198,7 @@ export function DocumentResultsView({
         />
       ) : null}
       {confirmationDialog}
+      {editNotice ? <DocumentEditNotice message={editNotice} onClose={() => setEditNotice(undefined)} /> : null}
     </div>
   )
 }

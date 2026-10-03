@@ -4128,6 +4128,7 @@ function DesktopWorkspace() {
                   multiWindowEnabled={Boolean(
                     snapshot.preferences.multiWindowTabs?.enabled,
                   )}
+                  crossWindowDragSupported={workspaceWindowContext.dragSupported}
                   windowTargets={workspaceWindowTargets}
                   onMoveTabToWindow={payload.health.runtime === 'tauri'
                     ? (tabId, destinationWindowId) =>

@@ -869,7 +869,6 @@ pub(super) fn tab_close_persistence_warning(
     })
 }
 
-#[cfg(test)]
 pub(super) fn reorder_query_tabs_in_place(
     tabs: &mut Vec<QueryTabState>,
     ordered_tab_ids: Vec<String>,

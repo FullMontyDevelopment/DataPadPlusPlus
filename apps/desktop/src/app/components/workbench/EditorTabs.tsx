@@ -15,6 +15,7 @@ import type {
 import { EditorTabContextMenu } from './editor-tabs/EditorTabContextMenu'
 import { EditorTabItem, type EditorTabDropTarget } from './editor-tabs/EditorTabItem'
 import { useTabStripScroll } from './editor-tabs/useTabStripScroll'
+import { useTabPointerReorder } from './editor-tabs/useTabPointerReorder'
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -40,6 +41,7 @@ interface EditorTabsProps {
   onCloseTabs(tabIds: string[]): void
   currentWindowId?: string
   multiWindowEnabled?: boolean
+  crossWindowDragSupported?: boolean
   windowTargets?: WorkspaceWindowTarget[]
   onMoveTabToWindow?(tabId: string, destinationWindowId?: string): void
   onStartCrossWindowDrag?(tabId: string): void
@@ -60,6 +62,7 @@ export function EditorTabs({
   onCloseTabs,
   currentWindowId = 'main',
   multiWindowEnabled = false,
+  crossWindowDragSupported = false,
   windowTargets = [],
   onMoveTabToWindow,
   onStartCrossWindowDrag,
@@ -73,19 +76,25 @@ export function EditorTabs({
   const [dropTarget, setDropTarget] = useState<EditorTabDropTarget>()
   const stripRef = useRef<HTMLDivElement>(null)
   const tabRefs = useRef(new Map<string, HTMLDivElement>())
+  const nativeDraggable = multiWindowEnabled && crossWindowDragSupported
+  const pointerReorder = useTabPointerReorder(
+    stripRef, tabRefs, tabs.map((tab) => tab.id), onReorderTabs,
+  )
   const { scrollState, scrollTabs, scrollTabsOnWheel } = useTabStripScroll(stripRef, tabs.length)
   const environmentsById = new Map(
     environments.map((environment) => [environment.id, environment]),
   )
 
   useEffect(() => {
+    // Background execution updates must not pull the strip away from a drag target.
+    if (draggingTabId || pointerReorder.draggingTabId) return
     const activeTab = tabRefs.current.get(activeTabId)
 
     activeTab?.scrollIntoView?.({
       block: 'nearest',
       inline: 'nearest',
     })
-  }, [activeTabId, tabs])
+  }, [activeTabId, tabs, draggingTabId, pointerReorder.draggingTabId])
 
   const beginRename = (tab: QueryTabState) => {
     setEditingTabId(tab.id)
@@ -166,6 +175,8 @@ export function EditorTabs({
     event: DragEvent<HTMLDivElement>,
     targetTab: QueryTabState,
   ) => {
+    if (!draggingTabId && (!nativeDraggable
+      || !event.dataTransfer.types.includes('application/x-datapadplusplus-tab-id'))) return
     event.preventDefault()
     event.stopPropagation()
 
@@ -264,25 +275,39 @@ export function EditorTabs({
 
       <div
         ref={stripRef}
-        className="editor-tabs"
+        className={`editor-tabs${draggingTabId || pointerReorder.draggingTabId ? ' is-reordering' : ''}`}
         role="tablist"
         aria-label="Editor tabs"
         onWheel={scrollTabsOnWheel}
         onDragOver={(event) => {
-          if (multiWindowEnabled) {
-            event.preventDefault()
+          if (!draggingTabId && (!nativeDraggable
+            || !event.dataTransfer.types.includes('application/x-datapadplusplus-tab-id'))) return
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'move'
+          const lastTab = tabs.at(-1)
+          if (event.target === event.currentTarget && lastTab) {
+            setDropTarget({ tabId: lastTab.id, placement: 'after' })
+          }
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setDropTarget(undefined)
           }
         }}
         onDrop={(event) => {
           if (event.target !== event.currentTarget) {
             return
           }
+          if (!draggingTabId && (!nativeDraggable
+            || !event.dataTransfer.types.includes('application/x-datapadplusplus-tab-id'))) return
           event.preventDefault()
           if (draggingTabId) {
             moveTab(draggingTabId, orderedTabIds.length - 1)
           } else {
             onDropCrossWindowTab?.()
           }
+          setDraggingTabId(undefined)
+          setDropTarget(undefined)
         }}
       >
         {tabs.map((tab) => {
@@ -296,9 +321,10 @@ export function EditorTabs({
               active={tab.id === activeTabId}
               connection={connection}
               draftTitle={draftTitle}
-              draggingTabId={draggingTabId}
-              dropTarget={dropTarget}
+              draggingTabId={pointerReorder.draggingTabId ?? draggingTabId}
+              dropTarget={pointerReorder.dropTarget ?? dropTarget}
               editing={editingTabId === tab.id}
+              nativeDraggable={nativeDraggable}
               environment={environment}
               tabRef={(element) => {
                 if (element) {
@@ -329,17 +355,28 @@ export function EditorTabs({
                 }
               }}
               onDragOver={(event, targetTab) => {
-                if ((!draggingTabId && !multiWindowEnabled) || draggingTabId === targetTab.id) {
+                if ((!draggingTabId && (!nativeDraggable
+                  || !event.dataTransfer.types.includes('application/x-datapadplusplus-tab-id')))
+                  || draggingTabId === targetTab.id) {
                   return
                 }
 
                 event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
                 setDropTarget({
                   tabId: targetTab.id,
                   placement: dropPlacement(event),
                 })
               }}
               onDragStart={(event) => {
+                if (!nativeDraggable) {
+                  event.preventDefault()
+                  return
+                }
+                // Hand off only after the WebView actually starts a native drag.
+                // Merely advertising support must not disable local pointer reordering.
+                pointerReorder.cancel()
+                setContextMenu(undefined)
                 setDraggingTabId(tab.id)
                 event.dataTransfer.effectAllowed = 'move'
                 event.dataTransfer.setData('application/x-datapadplusplus-tab-id', tab.id)
@@ -347,11 +384,22 @@ export function EditorTabs({
               }}
               onDrop={dropTab}
               onKeyDown={tabKeyDown}
-              onSelectTab={onSelectTab}
+              onSelectTab={(tabId) => {
+                if (!pointerReorder.suppressClick()) onSelectTab(tabId)
+              }}
+              onPointerDown={(event, tabId) => {
+                setContextMenu(undefined)
+                pointerReorder.onPointerDown(event, tabId)
+              }}
+              onPointerMove={pointerReorder.onPointerMove}
+              onPointerUp={pointerReorder.onPointerUp}
+              onPointerCancel={pointerReorder.cancel}
             />
           )
         })}
       </div>
+
+      <span className="sr-only" aria-live="polite">{pointerReorder.announcement}</span>
 
       <button
         type="button"

@@ -67,6 +67,158 @@ async function menu(field: string | undefined, action: string) {
 }
 
 describe('efficiency-mode document editing', () => {
+  it('keeps save progress inside the inline value editor and prevents duplicate submissions', async () => {
+    const pending = deferred<DataEditExecutionResponse>()
+    const execute = vi.fn(() => pending.promise)
+    setup({ onExecuteDataEdit: execute })
+    await expand()
+    inline()
+    const input = await screen.findByRole('textbox', { name: 'Edit value name' })
+    fireEvent.change(input, { target: { value: 'after' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }))
+    const progress = await screen.findByText('Saving…')
+    expect(progress.closest('.document-inline-value-editor')).toContainElement(input)
+    expect(progress.closest('[role="row"]')).toBe(fieldRow('name'))
+    expect(input).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }))
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    await act(async () => pending.resolve(success({ ...full, name: 'after' })))
+    expect(screen.queryByText('Saving…')).not.toBeInTheDocument()
+    expect(screen.getByText('after')).toBeInTheDocument()
+  })
+
+  it('explains a blocked inline edit in a dialog without loading or writing', async () => {
+    const { execute, fetch } = setup({ connection: { ...connection, readOnly: true } })
+    await expand()
+    inline()
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent(/read.only/i)
+    expect(execute).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument()
+    expect(screen.getByText('before')).toBeInTheDocument()
+  })
+
+  it('places type-change progress beside the type selector', async () => {
+    const pending = deferred<DataEditExecutionResponse>()
+    const execute = vi.fn(() => pending.promise)
+    setup({ onExecuteDataEdit: execute })
+    await expand()
+    fireEvent.doubleClick(within(fieldRow('name')).getByText('string'))
+    const type = await screen.findByRole('combobox', { name: 'Change type name' })
+    fireEvent.change(type, { target: { value: 'boolean' } })
+    const progress = await screen.findByText('Saving…')
+    expect(progress.closest('.document-data-grid-cell--type')).toContainElement(type)
+    expect(type).toBeDisabled()
+    await act(async () => pending.resolve(success({ ...full, name: true })))
+    expect(screen.queryByText('Saving…')).not.toBeInTheDocument()
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['Rename Field', 'Remove Field'])('shows progress throughout %s and only changes the result after acknowledgement', async action => {
+    const pending = deferred<DataEditExecutionResponse>()
+    const execute = vi.fn(() => pending.promise)
+    setup({ onExecuteDataEdit: execute })
+    await expand()
+    await menu('name', action)
+    if (action === 'Rename Field') {
+      const input = await screen.findByRole('textbox', { name: 'Rename field name' })
+      fireEvent.change(input, { target: { value: 'title' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      // A second submit while waiting must not send another request.
+      fireEvent.keyDown(input, { key: 'Enter' })
+    } else {
+      fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }))
+    }
+    const label = action === 'Rename Field' ? 'Renaming…' : 'Removing…'
+    const progress = await screen.findByText(label)
+    expect(progress.closest('[role="row"]')).toBe(screen.getByText('before').closest('[role="row"]'))
+    expect(progress.closest('.document-data-grid-cell--id')).toBeInTheDocument()
+    expect(document.querySelector('.document-data-grid-header')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(document.querySelector('.document-results-content')).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByText('before')).toBeInTheDocument()
+    expect(execute).toHaveBeenCalledTimes(1)
+    const after: Record<string, unknown> = { ...full }
+    delete after.name
+    if (action === 'Rename Field') after.title = 'before'
+    await act(async () => pending.resolve(success(after)))
+    expect(screen.queryByText(label)).not.toBeInTheDocument()
+    expect(document.querySelector('[data-field-path="name"]')).not.toBeInTheDocument()
+    expect(document.querySelector('.document-results-content')).toHaveAttribute('aria-busy', 'false')
+  })
+
+  it.each(['confirm', 'cancel'])('keeps the confirmation stage visible and handles %s without claiming premature success', async choice => {
+    const pending = deferred<DataEditExecutionResponse>()
+    const execute = vi.fn().mockResolvedValueOnce({
+      executed: false, executionSupport: 'live', messages: [], warnings: [],
+      plan: { confirmationText: 'CONFIRM FIXTURE', warnings: [] },
+    }).mockImplementationOnce(() => pending.promise)
+    setup({ onExecuteDataEdit: execute })
+    await expand()
+    await menu('name', 'Rename Field')
+    const input = await screen.findByRole('textbox', { name: 'Rename field name' })
+    fireEvent.change(input, { target: { value: 'title' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(await screen.findByText('Confirm…')).toBeInTheDocument()
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: choice === 'confirm' ? 'Continue' : 'Cancel' }))
+    if (choice === 'confirm') {
+      expect(await screen.findByText('Renaming…')).toBeInTheDocument()
+      expect(execute).toHaveBeenCalledTimes(2)
+      await act(async () => pending.resolve({ executed: false, messages: [], warnings: ['The document changed.'] } as unknown as DataEditExecutionResponse))
+      expect(screen.getByRole('alertdialog')).toHaveTextContent('The document changed.')
+    } else {
+      expect(await screen.findByText('Data edit canceled before execution.')).toBeInTheDocument()
+      expect(execute).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    }
+    expect(document.querySelector('.document-edit-progress')).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Rename field name' })).toHaveValue('title')
+    expect(screen.getByText('before')).toBeInTheDocument()
+  })
+
+  it('clears pending progress on a failed write and preserves the rename draft for retry', async () => {
+    const execute = vi.fn().mockRejectedValue(new Error('Fixture connection timed out'))
+    setup({ onExecuteDataEdit: execute })
+    await expand()
+    await menu('name', 'Rename Field')
+    const input = await screen.findByRole('textbox', { name: 'Rename field name' })
+    fireEvent.change(input, { target: { value: 'title' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(await screen.findByText('Fixture connection timed out')).toBeInTheDocument()
+    expect(document.querySelector('.document-edit-progress')).not.toBeInTheDocument()
+    expect(input).toHaveValue('title')
+    expect(execute).toHaveBeenCalledTimes(1)
+    const notice = screen.getByRole('alertdialog', { name: 'Edit could not be completed' })
+    expect(notice).toHaveTextContent('Fixture connection timed out')
+    expect(within(notice).getByRole('button', { name: 'OK' })).toHaveFocus()
+    fireEvent.click(within(notice).getByRole('button', { name: 'OK' }))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(input).not.toHaveAttribute('readonly')
+    expect(input).toHaveValue('title')
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['refresh', 'scope', 'lock'])('does not leave progress or apply an old rename after %s', async reason => {
+    const pending = deferred<DataEditExecutionResponse>()
+    const { props, rerender } = setup({ onExecuteDataEdit: () => pending.promise })
+    await expand()
+    await menu('name', 'Rename Field')
+    const input = await screen.findByRole('textbox', { name: 'Rename field name' })
+    fireEvent.change(input, { target: { value: 'title' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(await screen.findByText('Renaming…')).toBeInTheDocument()
+    rerender(<DocumentResultsView {...props}
+      {...(reason === 'refresh' ? { documents: [preview()] } : reason === 'scope' ? { collection: 'other' } : { executionLocked: true })}
+    />)
+    await waitFor(() => expect(document.querySelector('.document-edit-progress')).not.toBeInTheDocument())
+    await act(async () => pending.resolve(success({ _id: 'one', title: 'stale' })))
+    expect(screen.queryByText('Saved.')).not.toBeInTheDocument()
+    expect(document.querySelector('[data-field-path="title"]')).not.toBeInTheDocument()
+  })
+
   it.each(['Copy Value', 'Copy Document JSON'])('loads the selected complete document before %s', async action => {
     const clipboard = vi.fn(async () => {})
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: clipboard } })
@@ -158,7 +310,9 @@ describe('efficiency-mode document editing', () => {
     inline()
     inline()
     expect(fetch).toHaveBeenCalledTimes(1)
-    expect(await screen.findByText(/Loading complete document/)).toBeInTheDocument()
+    const progress = await screen.findByText('Loading…')
+    expect(progress.closest('[role="row"]')).toBe(fieldRow('name'))
+    expect(screen.getAllByText('Loading…')).toHaveLength(1)
     if (reason === 'cancel') fireEvent.click(screen.getByRole('button', { name: 'Cancel loading' }))
     if (reason === 'refresh') rerender(<DocumentResultsView {...props} documents={[preview()]} />)
     if (reason === 'reorder') rerender(<DocumentResultsView {...props} documents={[props.documents[1]!, props.documents[0]!]} />)
@@ -179,6 +333,7 @@ describe('efficiency-mode document editing', () => {
     inline()
     expect(await screen.findByText('Fixture hydration failed')).toBeInTheDocument()
     expect(execute).not.toHaveBeenCalled()
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'OK' }))
     inline()
     expect(await screen.findByRole('textbox', { name: 'Edit value name' })).toHaveValue('before')
     expect(fetch).toHaveBeenCalledTimes(2)

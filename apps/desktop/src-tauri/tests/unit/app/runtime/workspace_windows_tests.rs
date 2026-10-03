@@ -1,9 +1,115 @@
 use super::workspace_windows::{
-    clamp_restored_window_bounds, transfer_tab_ownership, WorkspaceMonitorBounds,
+    clamp_restored_window_bounds, reorder_workspace_tabs, transfer_tab_ownership,
+    WorkspaceMonitorBounds,
 };
+use super::{blank_workspace_snapshot, ui::normalize_workspace_windows};
 use crate::domain::models::{
-    WorkspaceTabTransferRequest, WorkspaceWindowBounds, WorkspaceWindowState,
+    QueryTabState, WorkspaceTabTransferRequest, WorkspaceWindowBounds, WorkspaceWindowState,
 };
+
+#[test]
+fn single_window_reorder_survives_persistence_normalization_and_reload() {
+    let mut snapshot = blank_workspace_snapshot();
+    snapshot.tabs = vec![tab("one"), tab("two"), tab("three")];
+    snapshot.ui.active_tab_id = "two".into();
+    let original_tabs = snapshot.tabs.clone();
+
+    reorder_workspace_tabs(
+        &mut snapshot,
+        "main",
+        vec!["three".into(), "one".into(), "two".into()],
+    )
+    .unwrap();
+    let saved = serde_json::to_string(&snapshot).unwrap();
+    let reloaded = serde_json::from_str(&saved).unwrap();
+    let windows = normalize_workspace_windows(&reloaded);
+
+    assert_eq!(windows[0].tab_ids, ["three", "one", "two"]);
+    assert_eq!(windows[0].active_tab_id, "two");
+    assert_eq!(snapshot.ui.active_tab_id, "two");
+    for original in original_tabs {
+        let moved = snapshot
+            .tabs
+            .iter()
+            .find(|tab| tab.id == original.id)
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(moved).unwrap(),
+            serde_json::to_value(original).unwrap()
+        );
+    }
+}
+
+#[test]
+fn multi_window_reorder_changes_only_the_requested_window_order() {
+    let mut snapshot = blank_workspace_snapshot();
+    snapshot.preferences.multi_window_tabs.enabled = true;
+    snapshot.tabs = vec![tab("one"), tab("two"), tab("three"), tab("four")];
+    snapshot.ui.active_tab_id = "two".into();
+    snapshot.ui.workspace_windows = vec![
+        window("main", "main", &["one", "two"]),
+        window("editor-one", "editor", &["three", "four"]),
+    ];
+    let original_tabs = serde_json::to_value(&snapshot.tabs).unwrap();
+
+    for (id, order) in [
+        ("main", vec!["two", "one"]),
+        ("editor-one", vec!["four", "three"]),
+    ] {
+        reorder_workspace_tabs(
+            &mut snapshot,
+            id,
+            order.into_iter().map(str::to_owned).collect(),
+        )
+        .unwrap();
+        snapshot.ui.workspace_windows = normalize_workspace_windows(&snapshot);
+    }
+    assert_eq!(snapshot.ui.workspace_windows[0].tab_ids, ["two", "one"]);
+    assert_eq!(snapshot.ui.workspace_windows[1].tab_ids, ["four", "three"]);
+    assert_eq!(snapshot.ui.workspace_windows[0].active_tab_id, "two");
+    assert_eq!(snapshot.ui.workspace_windows[1].active_tab_id, "four");
+    assert_eq!(serde_json::to_value(&snapshot.tabs).unwrap(), original_tabs);
+}
+
+#[test]
+fn stale_or_foreign_reorder_leaves_the_entire_snapshot_unchanged() {
+    let mut snapshot = blank_workspace_snapshot();
+    snapshot.preferences.multi_window_tabs.enabled = true;
+    snapshot.tabs = vec![tab("one"), tab("two"), tab("three")];
+    snapshot.ui.workspace_windows = vec![
+        window("main", "main", &["one", "two"]),
+        window("editor-one", "editor", &["three"]),
+    ];
+    for (id, order) in [
+        ("main", vec!["one", "one"]),
+        ("main", vec!["one"]),
+        ("main", vec!["one", "missing"]),
+        ("main", vec!["one", "three"]),
+        ("missing", vec!["one", "two"]),
+    ] {
+        let before = serde_json::to_value(&snapshot).unwrap();
+        assert!(reorder_workspace_tabs(
+            &mut snapshot,
+            id,
+            order.into_iter().map(str::to_owned).collect()
+        )
+        .is_err());
+        assert_eq!(serde_json::to_value(&snapshot).unwrap(), before);
+    }
+}
+
+fn tab(id: &str) -> QueryTabState {
+    QueryTabState {
+        id: id.into(),
+        tab_kind: Some("query".into()),
+        title: format!("Draft {id}"),
+        query_text: "select 42;".into(),
+        environment_id: format!("env-{id}"),
+        pinned: Some(true),
+        dirty: true,
+        ..QueryTabState::default()
+    }
+}
 
 #[test]
 fn transfer_is_atomic_and_preserves_destination_order() {
