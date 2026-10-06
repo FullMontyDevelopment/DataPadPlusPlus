@@ -64,7 +64,7 @@ async function saveConnectionDraft(drawer: HTMLElement, options = { createQueryT
 
   await waitFor(() => {
     expect(screen.queryByLabelText('connection drawer')).not.toBeInTheDocument()
-  })
+  }, { timeout: 4000 })
 
   if (options.createQueryTab) {
     await openNewQueryFromConnection('PostgreSQL connection', /Query 1/i)

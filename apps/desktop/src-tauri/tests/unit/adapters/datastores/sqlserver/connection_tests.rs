@@ -51,7 +51,70 @@ fn sqlserver_config_rejects_unavailable_auth_modes() {
     let error = sqlserver_config(&connection).expect_err("AAD should be gated");
 
     assert_eq!(error.code, "sqlserver-auth-mode-unavailable");
-    assert!(error.message.contains("OS account token broker"));
+    assert!(error.message.contains("No fallback login"));
+}
+
+#[test]
+fn entra_config_requires_tls_and_never_inherits_sql_credentials_or_trust_bypass() {
+    for ado in [None, Some("Server=fixture.database.windows.net;Authentication=Active Directory Interactive;Database=fixture")] {
+        let mut connection = resolved_connection(Some(SqlServerConnectionOptions {
+            authentication_mode: Some("azure-ad-interactive".into()),
+            ..Default::default()
+        }));
+        connection.connection_string = ado.map(str::to_owned);
+        // This builder never contains an acquired token; only the empty sentinel.
+        let config = format!("{:?}", sqlserver_config(&connection).unwrap());
+        assert!(config.contains("encryption: Required"));
+        assert!(config.contains("trust: Default"));
+        assert!(config.contains("AADToken(\"\")"));
+        assert!(!config.contains("SqlServerAuth"));
+    }
+}
+
+#[test]
+fn windows_ado_aliases_reach_current_user_authentication_without_alternate_credentials() {
+    for property in [
+        "Integrated Security",
+        "IntegratedSecurity",
+        "Trusted_Connection",
+    ] {
+        for value in ["true", "yes", "SSPI"] {
+            let mut connection = resolved_connection(None);
+            connection.connection_string = Some(format!("Server=localhost;{property}={value}"));
+            let config = sqlserver_config(&connection);
+            if cfg!(windows) {
+                assert!(format!("{:?}", config.unwrap()).contains("auth: Integrated"));
+            } else {
+                assert_eq!(config.unwrap_err().code, "sqlserver-windows-unavailable");
+            }
+        }
+    }
+}
+
+#[test]
+fn conflicting_ca_and_trust_bypass_return_an_error_instead_of_panicking() {
+    let mut connection = resolved_connection(None);
+    connection.connection_string = Some(
+        "Server=localhost;TrustServerCertificate=true;TrustServerCertificateCA=unit.pem".into(),
+    );
+    assert_eq!(
+        sqlserver_config(&connection).unwrap_err().code,
+        "sqlserver-auth-configuration"
+    );
+}
+
+#[tokio::test]
+async fn missing_entra_session_fails_before_database_network_access() {
+    let mut connection = resolved_connection(Some(SqlServerConnectionOptions {
+        authentication_mode: Some("azure-ad-interactive".into()),
+        ..Default::default()
+    }));
+    connection.port = Some(1);
+    connection.host = "127.0.0.1".into();
+    match sqlserver_client(&connection).await {
+        Err(error) => assert_eq!(error.code, "sqlserver-sign-in-required"),
+        Ok(_) => panic!("An unsigned Entra connection must not connect"),
+    }
 }
 
 #[test]
@@ -65,23 +128,19 @@ fn sqlserver_auth_disabled_reasons_are_mode_specific() {
         sqlserver_config(&resolved_connection(Some(service_principal))).expect_err("SP gated");
     assert!(service_principal_error
         .message
-        .contains("token exchange is not wired"));
+        .contains("No fallback login"));
 
     let mut managed_identity = sqlserver_options("azure-sql");
     managed_identity.authentication_mode = Some("azure-ad-managed-identity".into());
     let managed_identity_error = sqlserver_config(&resolved_connection(Some(managed_identity)))
         .expect_err("managed identity gated");
-    assert!(managed_identity_error
-        .message
-        .contains("managed identity token endpoint"));
+    assert!(managed_identity_error.message.contains("No fallback login"));
 
     let mut certificate = sqlserver_options("tcp");
     certificate.authentication_mode = Some("certificate".into());
     let certificate_error =
         sqlserver_config(&resolved_connection(Some(certificate))).expect_err("cert gated");
-    assert!(certificate_error
-        .message
-        .contains("client certificate path or certificate store/thumbprint"));
+    assert!(certificate_error.message.contains("No fallback login"));
 }
 
 fn sqlserver_options(connect_mode: &str) -> SqlServerConnectionOptions {

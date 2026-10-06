@@ -18,6 +18,7 @@
     },
     {
       "label": "datapadplusplus:oracle:ensure",
+      "dependsOn": ["datapadplusplus:auth:ensure"],
       "type": "shell",
       "command": "npm",
       "args": [
@@ -27,6 +28,14 @@
       "options": {
         "cwd": "${workspaceFolder}"
       },
+      "problemMatcher": []
+    },
+    {
+      "label": "datapadplusplus:auth:ensure",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "auth:sidecar:ensure"],
+      "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
     {

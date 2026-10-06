@@ -68,3 +68,6 @@
   .connection-editor-body { padding: 16px; }
   .connection-editor-dialog footer > span { display: none; }
 }
+.sqlserver-authentication { margin-block: 1rem; }
+.sqlserver-authentication p { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.sqlserver-authentication-actions { display: flex; gap: 8px; margin-top: 10px; }

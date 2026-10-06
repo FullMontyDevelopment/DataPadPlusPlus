@@ -3,12 +3,19 @@ use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
 use super::super::super::*;
+use super::authentication::{authentication, Authentication};
 
 pub(super) fn sqlserver_config(
     connection: &ResolvedConnectionProfile,
 ) -> Result<Config, CommandError> {
+    let authentication = authentication(connection)?;
     let mut config = if let Some(connection_string) = &connection.connection_string {
-        Config::from_ado_string(connection_string)?
+        Config::from_ado_string(connection_string).map_err(|_| {
+            CommandError::new(
+                "sqlserver-connection-string-invalid",
+                "The SQL Server connection string is invalid. Check the supported ADO.NET options.",
+            )
+        })?
     } else {
         config_from_fields(connection)?
     };
@@ -23,28 +30,66 @@ pub(super) fn sqlserver_config(
     }
 
     apply_sqlserver_options(&mut config, connection)?;
+    if authentication == Authentication::Windows {
+        #[cfg(windows)]
+        config.authentication(AuthMethod::Integrated);
+    }
+    if authentication == Authentication::Entra {
+        config.encryption(EncryptionLevel::Required);
+        // A placeholder prevents SQL credentials from ever being used; the shared session
+        // path replaces this with a silently acquired token before making a TCP connection.
+        config.authentication(AuthMethod::aad_token(String::new()));
+    }
     Ok(config)
 }
 
 pub(super) async fn sqlserver_client(
     connection: &ResolvedConnectionProfile,
 ) -> Result<SqlServerClient<tokio_util::compat::Compat<TcpStream>>, CommandError> {
-    let config = sqlserver_config(connection)?;
-    let tcp = if connection
-        .sqlserver_options
-        .as_ref()
-        .and_then(|options| options.instance_name.as_deref())
-        .filter(|value| !value.trim().is_empty())
-        .is_some()
-        && connection.port.is_none()
-    {
+    let mut config = sqlserver_config(connection)?;
+    if authentication(connection)? == Authentication::Entra {
+        let token = crate::app::runtime::sqlserver_auth::access_token(
+            connection
+                .sqlserver_options
+                .as_ref()
+                .and_then(|o| o.authentication_context.as_ref()),
+        )
+        .await?;
+        config.authentication(AuthMethod::aad_token(token.as_str()));
+    }
+    let routing_config = config.clone();
+    let original_host = config
+        .get_addr()
+        .rsplit_once(':')
+        .map(|(host, _)| host.to_ascii_lowercase())
+        .unwrap_or_default();
+    let tcp = if connection.connection_string.is_some() || connection.port.is_none() {
+        // Also resolves named instances supplied only inside an opaque ADO string.
+        // Without an instance the driver's helper makes a normal TCP connection.
         TcpStream::connect_named(&config).await?
     } else {
         TcpStream::connect(config.get_addr()).await?
     };
 
     tcp.set_nodelay(true)?;
-    let client = SqlServerClient::connect(config, tcp.compat_write()).await?;
+    let client = match SqlServerClient::connect(config, tcp.compat_write()).await {
+        // Only a TLS-validated public Azure SQL gateway may redirect login. This is
+        // before any query is submitted, never a replay of a query or mutation.
+        Err(tiberius::error::Error::Routing { host, port })
+            if authentication(connection)? == Authentication::Entra
+                && original_host.ends_with(".database.windows.net")
+                && host.to_ascii_lowercase().ends_with(".database.windows.net")
+                && port > 0 =>
+        {
+            let mut config = routing_config;
+            config.host(host);
+            config.port(port);
+            let tcp = TcpStream::connect(config.get_addr()).await?;
+            tcp.set_nodelay(true)?;
+            SqlServerClient::connect(config, tcp.compat_write()).await?
+        }
+        result => result?,
+    };
     Ok(client)
 }
 
@@ -58,18 +103,8 @@ fn config_from_fields(connection: &ResolvedConnectionProfile) -> Result<Config, 
         return Err(CommandError::new(
             "sqlserver-unsupported-connection-mode",
             format!(
-                "SQL Server {connect_mode} profiles are stored, but this build can only connect live through TCP, named instances, Azure SQL SQL-auth, or connection strings."
+                "SQL Server {connect_mode} profiles are stored, but this build can only connect live through TCP, named instances, Azure SQL, or connection strings."
             ),
-        ));
-    }
-
-    let auth_mode = options
-        .and_then(|item| item.authentication_mode.as_deref())
-        .unwrap_or("sql-server");
-    if !matches!(auth_mode, "sql-server") {
-        return Err(CommandError::new(
-            "sqlserver-auth-mode-unavailable",
-            sqlserver_auth_disabled_reason(auth_mode, options),
         ));
     }
 
@@ -105,8 +140,11 @@ fn apply_sqlserver_options(
     config: &mut Config,
     connection: &ResolvedConnectionProfile,
 ) -> Result<(), CommandError> {
+    let entra = authentication(connection)? == Authentication::Entra;
     let Some(options) = connection.sqlserver_options.as_ref() else {
-        config.trust_cert();
+        if !entra && connection.connection_string.is_none() {
+            config.trust_cert();
+        }
         return Ok(());
     };
 
@@ -134,7 +172,11 @@ fn apply_sqlserver_options(
         .filter(|value| !value.trim().is_empty())
     {
         config.trust_cert_ca(ca_path);
-    } else if options.trust_server_certificate.unwrap_or(true) {
+    } else if !entra
+        && options
+            .trust_server_certificate
+            .unwrap_or(connection.connection_string.is_none())
+    {
         config.trust_cert();
     }
 
@@ -162,64 +204,6 @@ fn apply_sqlserver_options(
     }
 
     Ok(())
-}
-
-fn sqlserver_auth_disabled_reason(
-    auth_mode: &str,
-    options: Option<&crate::domain::models::SqlServerConnectionOptions>,
-) -> String {
-    let Some(options) = options else {
-        return format!(
-            "SQL Server {auth_mode} authentication is represented in the profile, but live connections require an adapter-specific runtime path. Use SQL Server authentication or a connection string for now."
-        );
-    };
-
-    match auth_mode {
-        "windows" => "Windows Integrated authentication is saved in the profile, but the current TDS runtime does not expose SSPI/Kerberos credential delegation. Use SQL Server authentication or a connection string for now.".into(),
-        "azure-ad-password" => {
-            if options.aad_access_token_secret_ref.is_some() {
-                "Microsoft Entra password mode has a stored token reference, but live token exchange is not wired to the SQL Server driver yet. Use SQL Server authentication or a connection string for now.".into()
-            } else {
-                "Microsoft Entra password mode needs a token-acquisition runtime before live execution. Store tenant/client metadata for planning, then use SQL Server authentication or a connection string for now.".into()
-            }
-        }
-        "azure-ad-integrated" => "Microsoft Entra integrated authentication needs OS account token broker support that is not wired to the SQL Server driver yet. Use SQL Server authentication or a connection string for now.".into(),
-        "azure-ad-interactive" => "Microsoft Entra interactive authentication needs browser/device-code token acquisition that is not wired to the SQL Server driver yet. Use SQL Server authentication or a connection string for now.".into(),
-        "azure-ad-managed-identity" => {
-            if has_text(options.azure_managed_identity_client_id.as_deref()) {
-                "Managed identity client id is saved, but DataPad++ has not wired the Azure managed identity token endpoint into SQL Server live connections yet.".into()
-            } else {
-                "Managed identity authentication needs an Azure managed identity token endpoint and optional client id before SQL Server live connections can use it.".into()
-            }
-        }
-        "azure-ad-service-principal" => {
-            if !has_text(options.azure_tenant_id.as_deref())
-                || !has_text(options.azure_client_id.as_deref())
-                || options.service_principal_secret_ref.is_none()
-            {
-                "Service principal authentication needs tenant id, client id, and a stored client-secret reference before it can be promoted from plan-only.".into()
-            } else {
-                "Service principal metadata is complete, but token exchange is not wired to the SQL Server driver yet. Use SQL Server authentication or a connection string for now.".into()
-            }
-        }
-        "certificate" => {
-            if !has_text(options.client_certificate_path.as_deref())
-                && !has_text(options.certificate_store.as_deref())
-                && !has_text(options.certificate_thumbprint.as_deref())
-            {
-                "Certificate authentication needs a client certificate path or certificate store/thumbprint before it can be promoted from plan-only.".into()
-            } else {
-                "Certificate metadata is saved, but certificate-based SQL Server authentication is not wired to the current TDS runtime yet.".into()
-            }
-        }
-        _ => format!(
-            "SQL Server {auth_mode} authentication is represented in the profile, but live connections require an adapter-specific runtime path. Use SQL Server authentication or a connection string for now."
-        ),
-    }
-}
-
-fn has_text(value: Option<&str>) -> bool {
-    matches!(value, Some(item) if !item.trim().is_empty())
 }
 
 #[cfg(test)]

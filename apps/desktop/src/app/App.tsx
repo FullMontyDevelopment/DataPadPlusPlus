@@ -4858,6 +4858,7 @@ function DesktopWorkspace() {
               theme={snapshot.preferences.theme}
               activeConnection={drawerConnection}
               workspaceRevision={snapshot.workspaceRevision}
+              workspaceId={workspaceSwitcherStatus?.activeWorkspaceId}
               isNewConnection={!snapshot.connections.some(connection => connection.id === drawerConnection?.id)}
               environments={snapshot.environments}
               connectionTest={connectionTest}

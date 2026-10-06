@@ -26,7 +26,7 @@ describe('docs content', () => {
   it('preserves 33 routes and adds the focused task and plugin guides', () => {
     const slugs = docArticles.map((article) => article.slug)
     expect(new Set(slugs).size).toBe(slugs.length)
-    expect(slugs).toHaveLength(43)
+    expect(slugs).toHaveLength(44)
     expect(slugs).toEqual(expect.arrayContaining([
       'interface-tour', 'first-query', 'tabs-panels-and-drawers', 'connection-health',
       'query-history-explain', 'metrics-and-inspection', 'transfers-center', 'appearance-shortcuts-logs',

@@ -57,6 +57,24 @@ export type DocArticle = Omit<LegacyDocArticle, 'screenshots' | 'steps' | 'notes
 
 const legacyDocArticles: LegacyDocArticle[] = [
   {
+    slug: 'sqlserver-authentication',
+    title: 'SQL Server Windows Login And Microsoft Entra',
+    description: 'Connect with your current Windows account or sign in to Microsoft Entra in your system browser.',
+    category: 'Connections, environments, and secrets',
+    readingTime: '7 min', screenshots: [], status: 'Experimental', appliesTo: ['sqlserver'],
+    warning: 'Pre-release: real Windows-domain and Azure SQL MFA validation is required on each release platform. Do not use production workloads to test this feature.',
+    steps: [
+      { title: 'Choose the authentication method', body: 'Create or edit SQL Server and choose SQL login, Windows — current account (Windows only), or Microsoft Entra — browser sign-in. Authentication is independent of TCP, named-instance or Azure SQL transport. No Windows password is collected.' },
+      { title: 'Prepare your organisation’s registration', body: 'For Entra, an administrator supplies tenant and application client IDs, a public desktop registration with http://localhost redirect, Azure SQL Database delegated user_impersonation permission and consent. Configure the database’s Entra administrator and grant the user database access. No client secret is needed.' },
+      { title: 'Sign in in the system browser', body: 'Choose Sign in and complete account selection and MFA. Cancel sign-in stops waiting; the request otherwise expires after five minutes. Device-compliance policies requiring an OS broker are unsupported. Sign-in never starts automatically during background loading or query execution.' },
+      { title: 'Choose session-only or protected remembering', body: 'Remember this account is unchecked by default. Remembered sessions use Windows protection, macOS Keychain or Linux Secret Service, never plaintext storage, workspace files or exports. If secure storage is unavailable, use session-only sign-in. Each workspace, connection, environment, tenant and client has its own selected account.' },
+      { title: 'Test database access separately', body: 'Saving a profile does not connect. A completed sign-in survives saving the same account binding; changing tenant, application or environment requires signing in again. Choose Test connection to verify database access. Entra requires encryption and certificate validation; correct certificate trust and hostnames rather than bypassing them.' },
+      { title: 'Change or remove the selected account', body: 'Change account opens the Microsoft account selector. Sign out removes only this DataPad++ binding. When tokens cannot renew silently, return to the editor and sign in; queries and writes are never automatically replayed.' },
+    ],
+    notes: ['Windows authentication requires domain/server configuration and is not universally available on Azure SQL. Entra Integrated/WAM, cross-platform Kerberos, alternate Windows credentials, device-code flow, service principals, certificates, managed identities and sovereign clouds are outside this release.'],
+    sections: [{ id: 'setup-reference', title: 'Registration and troubleshooting reference', blocks: [{ type: 'links', links: [{ href: 'https://github.com/FullMontyDevelopment/DataPadPlusPlus/blob/main/docs/sqlserver-authentication.md', label: 'SQL Server authentication reference', description: 'Registration, database access, certificate errors, account isolation, Conditional Access and validation checklist.' }] }] }],
+  },
+  {
     slug: 'install-and-update',
     title: 'Install And Update DataPad++',
     description: 'Download the right desktop artifact, install it, and understand updater behavior.',
@@ -1913,7 +1931,7 @@ export type DocNavigationGroup = {
 
 export const docNavigationGroups: DocNavigationGroup[] = [
   { label: 'Start here', slugs: ['install-and-update', 'first-launch', 'interface-tour', 'first-query'] },
-  { label: 'Connections and organization', slugs: ['connections', 'environments', 'library', 'connection-health'] },
+  { label: 'Connections and organization', slugs: ['connections', 'sqlserver-authentication', 'environments', 'library', 'connection-health'] },
   { label: 'Navigate and inspect', slugs: ['explorer', 'datastore-explorer', 'relationship-explorer', 'oracle-explorer-intellisense', 'metrics-and-inspection', 'tabs-panels-and-drawers'] },
   { label: 'Query and edit', slugs: ['querying', 'query-history-explain', 'typed-query-builders', 'sql-database-schema-scope', 'results-and-editing', 'document-results-editing', 'key-value-full-value'] },
   { label: 'Move and protect data', slugs: ['import-export', 'result-export', 'native-datastore-transfers', 'transfers-center', 'settings-workspace-backups', 'workspace-import-export', 'workspace-size-analysis'] },

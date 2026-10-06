@@ -180,8 +180,8 @@ const datastoreDocsBase: DatastoreDocBase[] = [
       'SQL Server and Azure SQL expose TDS SQL, Showplan rendering, Query Store, Extended Events, Agent posture, and guarded table/file workflows.',
     bestFor: ['Corporate SQL systems', 'Query Store review', 'Showplan and DMV diagnostics'],
     connections: [
-      'Choose SQL Server, then select SQL login, Windows Integrated, Microsoft Entra, managed identity, service principal, or certificate profile metadata.',
-      'Read per-auth-mode disabled reasons when the current runtime cannot execute that credential path directly.',
+      'Choose SQL Server login, Windows current-account authentication on Windows, or Microsoft Entra system-browser sign-in with MFA. Authentication is separate from TCP, named-instance and Azure SQL transport.',
+      'Entra requires your organisation’s tenant/client registration, database permissions and certificate-validated encryption. Remembered accounts are device-local and excluded from backups. Native identity acceptance testing remains required; managed identities, service principals, certificates and OS-broker flows are unavailable.',
     ],
     explorer: [
       'Browse databases, schemas, tables, views, procedures, functions, indexes, security, storage, Query Store, Extended Events, Agent, files, and partitions.',

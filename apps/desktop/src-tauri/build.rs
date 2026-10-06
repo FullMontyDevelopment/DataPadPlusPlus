@@ -18,6 +18,7 @@ fn main() {
     }
 
     let target = std::env::var("TARGET").unwrap_or_default();
+    println!("cargo:rustc-env=DATAPAD_BUILD_TARGET={target}");
     if target.contains("windows-msvc") {
         println!("cargo:rustc-link-arg=/STACK:16777216");
     } else if target.contains("windows-gnu") {

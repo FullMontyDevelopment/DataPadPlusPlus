@@ -1,5 +1,30 @@
 use super::*;
 
+#[test]
+fn execution_workspace_identity_is_explicit_and_does_not_repair_an_unknown_owner() {
+    assert_eq!(registered_workspace_id(None).unwrap(), "default");
+    let snapshot = crate::app::runtime::blank_workspace_snapshot();
+    let mut registry = WorkspaceSwitcherStatus {
+        enabled: true,
+        active_workspace_id: "auth-workspace".into(),
+        workspaces: vec![workspace_summary(
+            "auth-workspace",
+            "Unit workspace",
+            &snapshot,
+            None,
+        )],
+    };
+    assert_eq!(
+        registered_workspace_id(Some(registry.clone())).unwrap(),
+        "auth-workspace"
+    );
+    registry.active_workspace_id = "missing-workspace".into();
+    assert_eq!(
+        registered_workspace_id(Some(registry)).unwrap_err().code,
+        "workspace-identity-unavailable"
+    );
+}
+
 struct MigrationTestDirectory(PathBuf);
 impl MigrationTestDirectory {
     fn new() -> Self {

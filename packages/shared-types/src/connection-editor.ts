@@ -38,6 +38,22 @@ export interface ConnectionSecretRevealRequest {
 }
 export interface ConnectionFieldError { path: string; message: string }
 
+export interface SqlServerAuthRequest {
+  workspaceId: string
+  profile: ConnectionProfile
+  environmentId: string
+  workspaceRevision: number
+  remember?: boolean
+}
+export interface SqlServerAuthStatus {
+  warning?: string | null
+  state: 'signed-out' | 'signed-in' | 'signing-in' | 'unavailable'
+  account?: string | null
+  remembered: boolean
+  windowsAvailable: boolean
+  windowsAccount?: string | null
+}
+
 export function connectionFieldValue(profile: ConnectionProfile, path: string): unknown {
   return path.split('.').reduce<unknown>((value, key) =>
     value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined, profile)
@@ -69,6 +85,13 @@ export function validateConnectionEditor(profile: ConnectionProfile): Connection
   }
   if (!capability) return [...errors, { path: 'engine', message: 'Unsupported datastore.' }]
   if (!capability.methods.includes(profile.connectionMode ?? 'native')) errors.push({ path: 'connectionMode', message: 'Choose a supported connection method for this datastore.' })
+  if (profile.engine === 'sqlserver' && profile.sqlServerOptions?.authenticationMode === 'azure-ad-interactive') {
+    const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    for (const key of ['azureTenantId', 'azureClientId'] as const) {
+      if (!guid.test(profile.sqlServerOptions[key]?.trim() ?? '')) errors.push({ path: 'sqlServerOptions.' + key, message: `Enter a valid ${key === 'azureTenantId' ? 'tenant' : 'application client'} ID.` })
+    }
+    if (profile.sqlServerOptions.encryptConnection === false || profile.sqlServerOptions.trustServerCertificate === true) errors.push({ path: 'sqlServerOptions.encryptConnection', message: 'Microsoft Entra requires encryption and certificate validation.' })
+  }
   if (profile.connectionMode === 'connection-string') return errors
   for (const field of capability.fields) {
     const value = connectionFieldValue(profile, field.path)

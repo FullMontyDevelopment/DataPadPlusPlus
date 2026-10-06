@@ -9,9 +9,11 @@ import {
 import { DatastoreEngineSelect } from './RightDrawer.engine-select'
 import { defaultPortForEngine, engineFamily, engineOption, inferConnectionName, isCustomConnectionName } from './RightDrawer.helpers'
 import { ConnectionSecretField } from './ConnectionSecretField'
+import { SqlServerAuthenticationFields } from './datastores/sqlserver/SqlServerAuthenticationFields'
 import './ConnectionEditorDialog.css'
 
 export interface ConnectionEditorDialogProps {
+  workspaceId?: string
   activeConnection: ConnectionProfile
   environments: EnvironmentProfile[]
   workspaceRevision: number
@@ -255,10 +257,12 @@ export function ConnectionEditorDialog(props: ConnectionEditorDialogProps) {
               <label><input type="checkbox" checked={draft.readOnly} onChange={event => change('readOnly', event.target.checked)} />Read-only connection</label>
               <label><input type="checkbox" checked={draft.favorite} onChange={event => change('favorite', event.target.checked)} />Favorite</label>
             </div>
+            {draft.engine === 'sqlserver' ? <SqlServerAuthenticationFields profile={draft} workspaceId={props.workspaceId} workspaceRevision={props.workspaceRevision} onChange={change} /> : null}
           {!uri ? (['authentication', 'tls', 'advanced'] as const).map(section => {
-            const fields = capability.fields.filter(item => item.section === section)
+            const fields = capability.fields.filter(item => item.section === section && !(draft.engine === 'sqlserver' && section === 'authentication'))
+            if (draft.engine === 'sqlserver' && section === 'authentication' && draft.sqlServerOptions?.authenticationMode && draft.sqlServerOptions.authenticationMode !== 'sql-server') return null
             if (!fields.length && !(section === 'authentication' && capability.credentials)) return null
-            return <details key={section}>
+            return <details key={section} open={draft.engine === 'sqlserver' && section === 'authentication' || undefined}>
               <summary>{({ authentication: 'Authentication', tls: 'TLS & certificates', advanced: 'Advanced' })[section]}</summary>
               <fieldset className="connection-editor-grid" disabled={draft.engine === 'litedb' && Boolean(createdPath) && section === 'authentication'}>
                 {section === 'authentication' && capability.credentials ? <>

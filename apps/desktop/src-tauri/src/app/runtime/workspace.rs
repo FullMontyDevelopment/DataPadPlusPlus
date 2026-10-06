@@ -213,6 +213,7 @@ impl ManagedAppState {
     }
 
     fn emit_workspace_context_changed(&self) {
+        super::sqlserver_auth::invalidate_all();
         if super::datastore_mcp_server::reset_workspace_servers(self).is_err() {
             crate::infrastructure::log_breadcrumb("mcp", "workspace-server-restart-failed");
         }

@@ -251,6 +251,9 @@ impl ManagedAppState {
     }
 
     pub fn set_locked(&mut self, is_locked: bool) -> Result<BootstrapPayload, CommandError> {
+        if is_locked {
+            super::sqlserver_auth::invalidate_all();
+        }
         self.snapshot.lock_state.is_locked = is_locked;
         self.snapshot.lock_state.locked_at = if is_locked {
             Some(timestamp_now())

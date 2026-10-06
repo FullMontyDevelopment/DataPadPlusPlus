@@ -20,8 +20,16 @@ import {
   validateEnvironmentProfile,
 } from './request-validation'
 import { validateEnvironmentContextId, validateRequiredId } from './datastores/common/request-validation-core'
+import type { SqlServerAuthRequest, SqlServerAuthStatus } from '@datapadplusplus/shared-types'
 
 export const clientConnections = {
+  async sqlServerAuthentication(request: SqlServerAuthRequest, operation: 'status' | 'sign-in' | 'sign-out' | 'cancel'): Promise<SqlServerAuthStatus> {
+    if (!isTauriRuntime()) {
+      if (operation !== 'status') throw new Error('Microsoft and Windows sign-in require the desktop application.')
+      return { state: 'unavailable', remembered: false, windowsAvailable: false }
+    }
+    return invokeDesktop<SqlServerAuthStatus>('sqlserver_authentication', { request, operation })
+  },
   async connectionEditorSnapshot(): Promise<BootstrapPayload> {
     return isTauriRuntime() ? invokeDesktop<BootstrapPayload>('bootstrap_app') : buildBrowserPayload(loadBrowserSnapshot())
   },

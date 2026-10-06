@@ -24846,10 +24846,30 @@
           "diff",
           "raw"
         ],
-        "description": "Preview creating a MongoDB database user with assigned roles.",
+        "description": "Create a MongoDB database user with assigned roles after confirmation.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "This operation needs an adapter-specific live executor before it can run safely.",
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
+      },
+      {
+        "id": "mongodb.user.update",
+        "engine": "mongodb",
+        "family": "document",
+        "label": "Edit User",
+        "scope": "user",
+        "risk": "write",
+        "requiredCapabilities": [
+          "supports_user_role_browser"
+        ],
+        "supportedRenderers": [
+          "diff",
+          "raw"
+        ],
+        "description": "Update selected user properties; role assignments replace the existing list.",
+        "requiresConfirmation": true,
+        "executionSupport": "live",
+        "disabledReason": null,
         "previewOnly": false
       },
       {
@@ -24866,10 +24886,10 @@
           "diff",
           "raw"
         ],
-        "description": "Preview dropping a MongoDB database user.",
+        "description": "Drop a MongoDB database user after confirmation.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "This operation needs an adapter-specific live executor before it can run safely.",
+        "executionSupport": "live",
+        "disabledReason": null,
         "previewOnly": false
       },
       {
@@ -24886,10 +24906,30 @@
           "diff",
           "raw"
         ],
-        "description": "Preview creating a MongoDB role with privileges and inherited roles.",
+        "description": "Create a MongoDB role with privileges and inherited roles after confirmation.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "This operation needs an adapter-specific live executor before it can run safely.",
+        "executionSupport": "live",
+        "disabledReason": null,
+        "previewOnly": false
+      },
+      {
+        "id": "mongodb.role.update",
+        "engine": "mongodb",
+        "family": "document",
+        "label": "Edit Role",
+        "scope": "role",
+        "risk": "write",
+        "requiredCapabilities": [
+          "supports_user_role_browser"
+        ],
+        "supportedRenderers": [
+          "diff",
+          "raw"
+        ],
+        "description": "Update a custom role's privileges and inheritance after confirmation.",
+        "requiresConfirmation": true,
+        "executionSupport": "live",
+        "disabledReason": null,
         "previewOnly": false
       },
       {
@@ -24906,10 +24946,10 @@
           "diff",
           "raw"
         ],
-        "description": "Preview dropping a MongoDB database role.",
+        "description": "Drop a custom MongoDB role after confirmation.",
         "requiresConfirmation": true,
-        "executionSupport": "plan-only",
-        "disabledReason": "This operation needs an adapter-specific live executor before it can run safely.",
+        "executionSupport": "live",
+        "disabledReason": null,
         "previewOnly": false
       },
       {

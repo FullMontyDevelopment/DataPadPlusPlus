@@ -42,6 +42,7 @@ mod response_redaction_keys;
 mod saved_work;
 mod settings_tabs;
 mod sql_hints;
+pub mod sqlserver_auth;
 mod tabs;
 mod tests_workbench;
 mod ui;

@@ -199,6 +199,7 @@ pub(super) fn interpolate_sqlserver_options(
     interpolate: &impl Fn(&str) -> String,
 ) -> SqlServerConnectionOptions {
     SqlServerConnectionOptions {
+        authentication_context: None,
         connect_mode: options.connect_mode.as_deref().map(interpolate),
         instance_name: options.instance_name.as_deref().map(interpolate),
         local_db_instance: options.local_db_instance.as_deref().map(interpolate),

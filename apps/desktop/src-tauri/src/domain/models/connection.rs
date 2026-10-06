@@ -119,6 +119,9 @@ pub struct MemcachedConnectionOptions {
 #[derive(Clone, Serialize, Deserialize, Default, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SqlServerConnectionOptions {
+    /// Runtime-only binding; never accepted from React or written to a workspace/bundle.
+    #[serde(skip)]
+    pub(crate) authentication_context: Option<crate::app::runtime::sqlserver_auth::AuthContext>,
     pub connect_mode: Option<String>,
     pub instance_name: Option<String>,
     pub local_db_instance: Option<String>,

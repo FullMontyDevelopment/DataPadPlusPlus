@@ -30,6 +30,7 @@ interface RightDrawerProps {
   theme: WorkspaceSnapshot['preferences']['theme']
   activeConnection?: ConnectionProfile
   workspaceRevision?: number
+  workspaceId?: string
   isNewConnection?: boolean
   environments: EnvironmentProfile[]
   connectionTest?: ConnectionTestResult
@@ -60,6 +61,7 @@ export function RightDrawer({
   theme,
   activeConnection,
   workspaceRevision = 0,
+  workspaceId,
   isNewConnection = false,
   environments,
   connectionTest,
@@ -132,7 +134,7 @@ export function RightDrawer({
   if (view === 'connection' && activeConnection) {
     return <ConnectionEditorDialog
       activeConnection={activeConnection} environments={environments}
-      workspaceRevision={workspaceRevision} isNew={isNewConnection}
+      workspaceRevision={workspaceRevision} workspaceId={workspaceId} isNew={isNewConnection}
       onClose={onClose} onSaveConnection={onSaveConnection} onTestConnection={onTestConnection}
       onPickLocalDatabaseFile={onPickLocalDatabaseFile} onCreateLocalDatabase={onCreateLocalDatabase}
     />

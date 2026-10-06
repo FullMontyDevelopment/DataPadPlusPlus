@@ -31,6 +31,7 @@ axum = "0.8"
 base64 = "0.23"
 bigdecimal = "0.4"
 chrono = { version = "0.4", default-features = false }
+connection-string = "0.2"
 duckdb = { version = "1.10505.0", features = ["bundled"] }
 futures-util = "0.3"
 flate2 = "1"
@@ -75,7 +76,8 @@ zeroize = "1"
 tauri-plugin-updater = "2.10.1"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_Debug"] }
+tiberius = { version = "0.12", default-features = false, features = ["winauth"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_Debug", "Win32_Security_Authentication_Identity"] }
 
 [profile.dev]
 debug = 2

@@ -251,9 +251,12 @@ jobs:
       - name: Prepare and smoke-test bundled Oracle runtime
         env:
           DATAPADPLUSPLUS_ORACLE_RID: ${{ matrix.oracle-rid }}
+          DATAPADPLUSPLUS_AUTH_RID: ${{ matrix.oracle-rid }}
         run: |
           npm run oracle:sidecar:prepare
           npm run oracle:sidecar:smoke
+          npm run auth:sidecar:prepare
+          npm run auth:sidecar:smoke
 
       - name: Configure Windows bundled C++ build flags
         if: runner.os == 'Windows'
@@ -411,6 +414,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           DATAPADPLUSPLUS_ORACLE_RID: ${{ matrix.oracle-rid }}
+          DATAPADPLUSPLUS_AUTH_RID: ${{ matrix.oracle-rid }}
         with:
           projectPath: apps/desktop
           tagName: app-v${{ inputs.version }}
@@ -441,6 +445,7 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           DATAPADPLUSPLUS_ORACLE_RID: ${{ matrix.oracle-rid }}
+          DATAPADPLUSPLUS_AUTH_RID: ${{ matrix.oracle-rid }}
         with:
           projectPath: apps/desktop
           tagName: app-v${{ inputs.version }}
@@ -497,11 +502,18 @@ jobs:
               throw "Expected macOS app bundle was not found."
             }
             $appSidecar = Join-Path $app.FullName "Contents/MacOS/datapadplusplus-oracle-runtime"
+            $authSidecar = Join-Path $app.FullName "Contents/MacOS/datapadplusplus-auth-runtime"
+            & test -x $authSidecar
+            if ($LASTEXITCODE -ne 0) { throw "Authentication helper is missing from the macOS bundle." }
+            node tests/release/smoke-auth-sidecar.mjs --binary $authSidecar
+            if ($LASTEXITCODE -ne 0) { throw "The bundled authentication helper could not run under macOS signing entitlements." }
             & test -x $appSidecar
             if ($LASTEXITCODE -ne 0) {
               throw "Oracle runtime is missing or not executable inside $($app.FullName)."
             }
             if ($env:MACOS_SIGNED -eq "true") {
+              & codesign --verify --strict --verbose=2 $authSidecar
+              if ($LASTEXITCODE -ne 0) { throw "Authentication helper failed macOS signature verification." }
               & codesign --verify --strict --verbose=2 $appSidecar
               if ($LASTEXITCODE -ne 0) {
                 throw "Oracle runtime failed macOS code-signature verification."
@@ -648,7 +660,12 @@ jobs:
           $sidecarPortableName = if ($IsWindows) { "datapadplusplus-oracle-runtime.exe" } else { "datapadplusplus-oracle-runtime" }
           $sidecarPortable = Join-Path $portableDir $sidecarPortableName
           Copy-Item -LiteralPath $sidecarSource -Destination $sidecarPortable
+          $authSource = Join-Path "apps/desktop/src-tauri/binaries" ($sidecarSourceName.Replace("oracle-runtime", "auth-runtime"))
+          $authPortable = Join-Path $portableDir ($sidecarPortableName.Replace("oracle-runtime", "auth-runtime"))
+          if (-not (Test-Path -LiteralPath $authSource)) { throw "The authentication helper is missing." }
+          Copy-Item -LiteralPath $authSource -Destination $authPortable
           if (-not $IsWindows) {
+            & chmod 755 $authPortable
             & chmod 755 $sidecarPortable
             if ($LASTEXITCODE -ne 0) {
               throw "Could not preserve executable permissions on the portable Oracle runtime."
@@ -659,6 +676,7 @@ jobs:
             throw "Expected Oracle.ManagedDataAccess.Core license was not found at $oracleLicense"
           }
           Copy-Item -LiteralPath $oracleLicense -Destination (Join-Path $portableDir "Oracle.ManagedDataAccess.Core-LICENSE.txt")
+          Copy-Item -LiteralPath "apps/desktop/src-tauri/resources/licenses/Microsoft.Identity.Client-LICENSE.txt" -Destination (Join-Path $portableDir "Microsoft.Identity.Client-LICENSE.txt")
 
           $baseName = "DataPadPlusPlus-$($env:RELEASE_VERSION)-$($env:ARTIFACT_SUFFIX)-executable"
           if ($IsWindows) {

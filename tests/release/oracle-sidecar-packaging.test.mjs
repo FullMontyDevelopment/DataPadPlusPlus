@@ -10,7 +10,7 @@ test('Tauri packages the managed Oracle runtime and license', () => {
 
   assert.match(config.build.beforeDevCommand, /oracle:sidecar:ensure/)
   assert.match(config.build.beforeBuildCommand, /oracle:sidecar:prepare/)
-  assert.deepEqual(config.bundle.externalBin, ['binaries/datapadplusplus-oracle-runtime'])
+  assert.ok(config.bundle.externalBin.includes('binaries/datapadplusplus-oracle-runtime'))
   assert.ok(
     config.bundle.resources.includes('resources/licenses/Oracle.ManagedDataAccess.Core-LICENSE.txt'),
   )

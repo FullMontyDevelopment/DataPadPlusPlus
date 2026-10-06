@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>datapadplusplus-auth-runtime</AssemblyName>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
+    <InternalsVisibleTo Include="DataPadPlusPlus.Auth.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.90.1" />
+    <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.90.1" />
+  </ItemGroup>
+</Project>

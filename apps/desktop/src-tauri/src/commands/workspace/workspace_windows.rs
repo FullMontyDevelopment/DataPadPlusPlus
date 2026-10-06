@@ -586,6 +586,7 @@ pub fn shutdown_datapad_application(
         }
     }
     lock_window_coordinator(&coordinator)?.shutting_down = true;
+    crate::app::runtime::sqlserver_auth::invalidate_all();
     window.app_handle().exit(0);
     Ok(())
 }

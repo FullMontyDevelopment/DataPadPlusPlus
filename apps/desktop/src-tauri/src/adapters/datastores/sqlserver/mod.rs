@@ -1,5 +1,6 @@
 use super::super::*;
 
+mod authentication;
 mod connection;
 mod diagnostics;
 mod editing;

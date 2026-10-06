@@ -24,6 +24,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "oracle:sidecar:ensure": "node ../../tests/release/ensure-oracle-sidecar.mjs",
+    "auth:sidecar:ensure": "node ../../tests/release/prepare-auth-sidecar.mjs --ensure",
+    "auth:sidecar:prepare": "node ../../tests/release/prepare-auth-sidecar.mjs",
     "oracle:sidecar:prepare": "node ../../tests/release/prepare-oracle-sidecar.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

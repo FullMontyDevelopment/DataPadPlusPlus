@@ -159,6 +159,7 @@ impl ManagedAppState {
             collect_replaced_connection_string_refs(previous, &profile, &mut secret_changes);
         }
         let previous_snapshot = self.snapshot.clone();
+        let saved_connection_id = profile.id.clone();
 
         if let Some(index) = self
             .snapshot
@@ -179,6 +180,14 @@ impl ManagedAppState {
             return Err(error);
         }
         secret_changes.retire_superseded(self);
+        if let Some(saved) = self
+            .snapshot
+            .connections
+            .iter()
+            .find(|profile| profile.id == saved_connection_id)
+        {
+            super::sqlserver_auth::connection_saved(saved);
+        }
         Ok(self.bootstrap_payload())
     }
 
@@ -205,6 +214,7 @@ impl ManagedAppState {
         connection_id: &str,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
+        super::sqlserver_auth::invalidate_pending(Some(connection_id), None);
         validators::validate_connection_id(connection_id)?;
 
         let deleted = self
@@ -273,6 +283,7 @@ impl ManagedAppState {
         mut profile: EnvironmentProfile,
     ) -> Result<BootstrapPayload, CommandError> {
         validators::validate_environment_profile(&profile)?;
+        super::sqlserver_auth::invalidate_pending(None, Some(&profile.id));
         normalize_environment_profile(&mut profile);
 
         if let Some(index) = self
@@ -296,6 +307,7 @@ impl ManagedAppState {
         environment_id: &str,
     ) -> Result<BootstrapPayload, CommandError> {
         self.ensure_unlocked()?;
+        super::sqlserver_auth::invalidate_pending(None, Some(environment_id));
         validators::validate_environment_id(environment_id)?;
 
         if !self
@@ -480,11 +492,22 @@ impl ManagedAppState {
         let resolved_environment =
             resolve_environment_for_execution(&self.snapshot.environments, environment_id);
         let interpolate = |value: &str| interpolate_value(value, &resolved_environment.variables);
-        let password = match inline_secret.filter(|secret| !secret.is_empty()) {
+        let external_auth = profile.engine == "sqlserver"
+            && (profile.connection_mode.as_deref() == Some("connection-string")
+                || profile
+                    .sqlserver_options
+                    .as_ref()
+                    .and_then(|o| o.authentication_mode.as_deref())
+                    .is_some_and(|mode| mode != "sql-server"));
+        let password = if external_auth {
+            None
+        } else {
+            match inline_secret.filter(|secret| !secret.is_empty()) {
             Some(secret) => Some(secret.to_string()),
             None => profile.auth.secret_ref.as_ref().map(security::resolve_secret_value).transpose()
                 .map_err(|_| CommandError::new("connection-credential-unavailable",
                     format!("The saved credential for {} ({}) is unavailable. Replace it in connection settings.", profile.name, profile.engine)))?,
+        }
         };
 
         let resolved_database = profile.database.as_deref().map(interpolate);
@@ -526,7 +549,7 @@ impl ManagedAppState {
                 )
             });
 
-        let resolved = ResolvedConnectionProfile {
+        let mut resolved = ResolvedConnectionProfile {
             id: profile.id.clone(),
             name: profile.name.clone(),
             engine: profile.engine.clone(),
@@ -599,6 +622,17 @@ impl ManagedAppState {
                 .map(|options| interpolate_warehouse_options(options, &interpolate)),
             read_only: profile.read_only,
         };
+        if resolved.engine == "sqlserver" {
+            resolved
+                .sqlserver_options
+                .get_or_insert_with(Default::default);
+            let context = self.sqlserver_auth_context(&resolved, environment_id)?;
+            resolved
+                .sqlserver_options
+                .as_mut()
+                .expect("SQL Server options")
+                .authentication_context = Some(context);
+        }
         let warnings = build_resolution_warnings(&resolved, &resolved_environment);
 
         Ok((resolved, resolved_environment, warnings))

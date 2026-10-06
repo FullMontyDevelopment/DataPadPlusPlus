@@ -235,6 +235,7 @@ fn coordinate_window_close(window: &tauri::Window, event: &WindowEvent) {
             return;
         }
         drop(state);
+        app::runtime::sqlserver_auth::invalidate_all();
         if let Ok(mut coordinator) = window
             .state::<app::runtime::SharedWorkspaceWindowCoordinator>()
             .lock()
@@ -579,6 +580,7 @@ pub fn run() {
             commands::workspace::stop_datastore_mcp_server,
             commands::workspace::switch_workspace,
             commands::workspace::test_connection,
+            commands::workspace::sqlserver_authentication,
             commands::workspace::unlock_app,
             commands::workspace::add_datastore_api_server_custom_endpoint,
             commands::workspace::add_datastore_api_server_resources,

@@ -25,7 +25,7 @@ export function sqlServerAuthSupport(
   >,
 ): SqlServerAuthSupport {
   const mode = options?.authenticationMode ?? 'sql-server'
-  if (mode === 'sql-server') {
+  if (mode === 'sql-server' || mode === 'windows' || mode === 'azure-ad-interactive') {
     return { live: true, evidence: 'live' }
   }
 
@@ -53,15 +53,15 @@ export function sqlServerAuthDisabledReason(
 ) {
   switch (mode) {
     case 'windows':
-      return 'Windows Integrated authentication is saved in the profile, but the current TDS runtime does not expose SSPI/Kerberos credential delegation. Use SQL Server login or a connection string for live execution.'
+      return 'Windows current-account authentication requires the Windows desktop application and a configured Windows-authentication server. Choose a supported authentication method in the connection editor.'
     case 'azure-ad-password':
       return options?.aadAccessTokenSecretRef
-        ? 'Microsoft Entra password mode has a stored token reference, but live token exchange is not wired to the SQL Server driver yet. Use SQL Server login or a connection string for live execution.'
-        : 'Microsoft Entra password mode needs a token-acquisition runtime before live execution. Store tenant/client metadata for planning, then use SQL Server login or a connection string for now.'
+        ? 'Microsoft Entra password mode has a stored token reference, but live token exchange is not wired to the SQL Server driver yet. Choose a supported authentication method in the connection editor.'
+        : 'Microsoft Entra password mode needs a token-acquisition runtime before live execution. Choose Microsoft Entra browser sign-in instead.'
     case 'azure-ad-integrated':
-      return 'Microsoft Entra integrated authentication needs OS account token broker support that is not wired to the SQL Server driver yet. Use SQL Server login or a connection string for live execution.'
+      return 'Microsoft Entra integrated authentication needs OS account token broker support that is not wired to the SQL Server driver yet. Choose a supported authentication method in the connection editor.'
     case 'azure-ad-interactive':
-      return 'Microsoft Entra interactive authentication needs browser/device-code token acquisition that is not wired to the SQL Server driver yet. Use SQL Server login or a connection string for live execution.'
+      return 'Microsoft Entra browser sign-in requires an organisation-owned public-client registration in the desktop connection editor. Choose a supported authentication method in the connection editor.'
     case 'azure-ad-managed-identity':
       return options?.azureManagedIdentityClientId
         ? 'Managed identity client id is saved, but DataPad++ has not wired the Azure managed identity token endpoint into SQL Server live connections yet.'
@@ -70,7 +70,7 @@ export function sqlServerAuthDisabledReason(
       if (!options?.azureTenantId || !options.azureClientId || !options.servicePrincipalSecretRef) {
         return 'Service principal authentication needs tenant id, client id, and a stored client-secret reference before it can be promoted from plan-only.'
       }
-      return 'Service principal metadata is complete, but token exchange is not wired to the SQL Server driver yet. Use SQL Server login or a connection string for live execution.'
+      return 'Service principal metadata is complete, but token exchange is not wired to the SQL Server driver yet. Choose a supported authentication method in the connection editor.'
     case 'certificate':
       if (
         !options?.clientCertificatePath &&

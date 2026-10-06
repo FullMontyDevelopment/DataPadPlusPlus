@@ -207,6 +207,28 @@ pub fn workspace_switcher_status(
     Ok(status_response(registry))
 }
 
+/// Identity lookup for execution/authentication must not rewrite registry summaries.
+pub(crate) fn active_workspace_id(app: &AppHandle) -> Result<String, CommandError> {
+    registered_workspace_id(read_workspace_registry(app)?)
+}
+
+fn registered_workspace_id(
+    registry: Option<WorkspaceSwitcherStatus>,
+) -> Result<String, CommandError> {
+    let Some(registry) = registry else {
+        return Ok(DEFAULT_WORKSPACE_ID.into());
+    };
+    if registry
+        .workspaces
+        .iter()
+        .any(|entry| entry.id == registry.active_workspace_id && !entry.id.is_empty())
+    {
+        Ok(registry.active_workspace_id)
+    } else {
+        Err(CommandError::new("workspace-identity-unavailable", "The active workspace identity could not be verified. Reopen the workspace before signing in."))
+    }
+}
+
 /// Credential cleanup must inspect other workspaces without switching, migrating,
 /// repairing, or writing them. An unreadable inventory means cleanup must stop.
 pub(crate) fn visit_inactive_workspace_snapshots(
