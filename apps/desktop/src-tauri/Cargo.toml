@@ -7,6 +7,11 @@ repository = "https://github.com/FullMontyDevelopment/DataPadPlusPlus"
 license-file = "../../../LICENSE"
 edition = "2021"
 
+[workspace]
+members = ["vendor/tiberius"]
+default-members = ["."]
+resolver = "2"
+
 [features]
 default = []
 live-fixtures = []
@@ -84,3 +89,7 @@ debug = 2
 
 [profile.dev.package."*"]
 debug = 0
+
+# Narrow, audited Windows Negotiate/TDS login fix; see the vendor patch notes.
+[patch.crates-io]
+tiberius = { path = "vendor/tiberius" }

@@ -14,6 +14,28 @@ permissions:
   contents: read
 
 jobs:
+  sqlserver-driver:
+    name: SQL Server driver (${{ matrix.platform }})
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, ubuntu-22.04]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: swatinem/rust-cache@v2.9.1
+        with:
+          workspaces: './apps/desktop/src-tauri -> target'
+          key: sqlserver-driver-${{ matrix.platform }}
+      - name: Test TDS login and Windows Negotiate (no domain or database required)
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml -p tiberius --lib --locked
+      - name: Lint the driver patch and authentication tests
+        run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml -p tiberius --lib --tests --locked -- -D warnings
+
   authentication-helper:
     name: Authentication helper (${{ matrix.platform }})
     runs-on: ${{ matrix.platform }}

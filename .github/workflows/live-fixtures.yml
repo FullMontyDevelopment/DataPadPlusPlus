@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'apps/desktop/src-tauri/src/adapters/**'
+      - 'apps/desktop/src-tauri/vendor/tiberius/**'
       - 'apps/desktop/src-tauri/tests/adapters_integration.rs'
       - 'apps/desktop/src-tauri/src/app/runtime/datastore_mcp_server/**'
       - 'apps/desktop/src-tauri/src/app/runtime/query_compiler*'

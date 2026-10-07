@@ -3,6 +3,22 @@ use crate::domain::models::{SecretRef, SqlServerConnectionOptions};
 use super::*;
 
 #[test]
+fn windows_service_principal_uses_resolved_tcp_port_including_named_instances() {
+    let mut config = Config::new();
+    config.host("sql.corp.example");
+    config.instance_name("REPORTING");
+    apply_connected_port(&mut config, Authentication::Windows, 51433);
+    assert_eq!(config.get_addr(), "sql.corp.example:51433");
+    for mode in [Authentication::SqlLogin, Authentication::Entra] {
+        let mut config = Config::new();
+        config.host("sql.corp.example");
+        config.port(1433);
+        apply_connected_port(&mut config, mode, 51433);
+        assert_eq!(config.get_addr(), "sql.corp.example:1433");
+    }
+}
+
+#[test]
 fn sqlserver_config_supports_named_instance_without_port() {
     let connection = resolved_connection(Some(sqlserver_options("named-instance")));
 

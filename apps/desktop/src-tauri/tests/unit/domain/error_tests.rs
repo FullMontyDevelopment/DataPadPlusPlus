@@ -2,6 +2,45 @@ use super::CommandError;
 use std::borrow::Cow;
 
 #[test]
+fn sqlserver_windows_domain_errors_do_not_suggest_changing_sql_credentials() {
+    for message in [
+        "Login failed. The login is from an untrusted domain and cannot be used with Integrated authentication. (code: 18452)",
+        "Token error: login failed (code: 18452)",
+    ] {
+        let error: CommandError = tiberius::error::Error::Protocol(message.into()).into();
+        assert_eq!(error.code, "sqlserver-windows-domain-rejected");
+        assert!(error.message.contains("fully qualified DNS name"));
+        assert!(error.message.contains("SPN"));
+        assert!(!error.message.contains("Check the authentication mode, login name, password"));
+    }
+}
+
+#[test]
+fn sqlserver_sspi_failures_have_windows_guidance_and_keep_safe_status_codes() {
+    let error: CommandError = tiberius::error::Error::Protocol(
+        "Windows SSPI negotiation: establishing the security context failed (0x8009030C)".into(),
+    )
+    .into();
+    assert_eq!(error.code, "sqlserver-windows-auth-failed");
+    assert!(error.message.contains("0x8009030C"));
+    assert!(error.message.contains("Extended Protection"));
+}
+
+#[test]
+fn sqlserver_sql_login_and_tls_errors_retain_existing_classification() {
+    for (message, code) in [
+        (
+            "Login failed for user (code: 18456)",
+            "sqlserver-login-failed",
+        ),
+        ("TLS certificate validation failed", "sqlserver-tls-failure"),
+    ] {
+        let error: CommandError = tiberius::error::Error::Protocol(message.into()).into();
+        assert_eq!(error.code, code);
+    }
+}
+
+#[test]
 fn command_redaction_preserves_unicode_byte_offsets_and_case_insensitive_secrets() {
     let text = "İ 測試 🔑 PASSWORD=short; pwd=longer-value; Bearer opaque; Basic YWJj; TOKEN='秘密'; pass=; passage=keep; password={schema}";
     assert_eq!(super::redact_sensitive_text(text),

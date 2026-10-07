@@ -2,6 +2,20 @@ import { describe, expect, it } from 'vitest'
 import styles from '../../src/app/components/workbench/ConnectionEditorDialog.css?raw'
 
 describe('Connection editor style contract', () => {
+  it('keeps test feedback next to its action and constrains long details without growing the form', () => {
+    expect(styles).toMatch(/\.connection-editor-test-group \{[^}]+display: flex[^}]+min-width: 0/)
+    expect(styles).toMatch(/\.connection-editor-test-group > button \{ flex: 0 0 auto/)
+    expect(styles).toMatch(/\.connection-editor-test-details \{[^}]+max-height: min\(96px, 16dvh\)[^}]+overflow: auto[^}]+overscroll-behavior: contain[^}]+scrollbar-width: thin/)
+    expect(styles).toMatch(/\.connection-editor-test-details:focus-visible \{[^}]+outline: 2px solid var\(--accent\)/)
+    expect(styles).toMatch(/@media \(max-width: 600px\)[\s\S]+\.connection-editor-test-group \{ flex-basis: 100%/)
+  })
+  it('uses semantic theme colours and respects reduced motion for test progress', () => {
+    for (const [state, colour] of [['success', 'success'], ['warning', 'warning'], ['error', 'danger']]) {
+      expect(styles).toContain(`.connection-editor-test[data-state=${state}] { --connection-test-color: var(--${colour}); }`)
+    }
+    expect(styles).toContain('border-left: 3px solid var(--connection-test-color)')
+    expect(styles).toContain('@media (prefers-reduced-motion: reduce) { .connection-editor-test-spinner { animation: none; } }')
+  })
   it('keeps discard confirmation above the form and bounded to the viewport', () => {
     expect(styles).toContain('.connection-discard-overlay { z-index: 31; padding: 16px; }')
     expect(styles).toMatch(/\.workbench-dialog\.connection-discard-dialog \{[^}]+width: min\(440px, 100%\)[^}]+max-height: calc\(100dvh - 32px\)/)

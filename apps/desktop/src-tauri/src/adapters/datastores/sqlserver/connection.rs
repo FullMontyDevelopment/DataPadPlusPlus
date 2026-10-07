@@ -71,6 +71,11 @@ pub(super) async fn sqlserver_client(
         TcpStream::connect(config.get_addr()).await?
     };
 
+    apply_connected_port(
+        &mut config,
+        authentication(connection)?,
+        tcp.peer_addr()?.port(),
+    );
     tcp.set_nodelay(true)?;
     let client = match SqlServerClient::connect(config, tcp.compat_write()).await {
         // Only a TLS-validated public Azure SQL gateway may redirect login. This is
@@ -91,6 +96,14 @@ pub(super) async fn sqlserver_client(
         result => result?,
     };
     Ok(client)
+}
+
+fn apply_connected_port(config: &mut Config, authentication: Authentication, port: u16) {
+    if authentication == Authentication::Windows {
+        // SQL Browser may resolve a named instance to a dynamic port. Kerberos
+        // must target that TCP service, not the driver's default port (1433).
+        config.port(port);
+    }
 }
 
 fn config_from_fields(connection: &ResolvedConnectionProfile) -> Result<Config, CommandError> {

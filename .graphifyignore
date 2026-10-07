@@ -13,6 +13,7 @@ apps/desktop/src-tauri/target-*/
 apps/desktop/src-tauri/sidecars/**/bin/
 apps/desktop/src-tauri/sidecars/**/obj/
 apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/vendor/
 packages/*/dist/
 apps/desktop/src-tauri/src/app/runtime/query_compiler.js
 packages/query-compiler/src/schemas.ts

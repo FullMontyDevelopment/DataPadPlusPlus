@@ -10,7 +10,15 @@ import { DatastoreEngineSelect } from './RightDrawer.engine-select'
 import { defaultPortForEngine, engineFamily, engineOption, inferConnectionName, isCustomConnectionName } from './RightDrawer.helpers'
 import { ConnectionSecretField } from './ConnectionSecretField'
 import { SqlServerAuthenticationFields } from './datastores/sqlserver/SqlServerAuthenticationFields'
+import { ConnectionConnectedIcon, RefreshIcon, WarningIcon } from './icons'
 import './ConnectionEditorDialog.css'
+
+interface ConnectionTestFeedback {
+  state: 'testing' | 'success' | 'warning' | 'error'
+  title: string
+  message?: string
+  warnings?: string[]
+}
 
 export interface ConnectionEditorDialogProps {
   workspaceId?: string
@@ -32,7 +40,7 @@ export function ConnectionEditorDialog(props: ConnectionEditorDialogProps) {
   const [secrets, setSecrets] = useState<Record<string, ConnectionSecretMutation>>({})
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [test, setTest] = useState<ConnectionTestResult>()
+  const [test, setTest] = useState<ConnectionTestFeedback>()
   const [localIntent, setLocalIntent] = useState<'open' | 'create'>('open')
   const [folder, setFolder] = useState('')
   const [filename, setFilename] = useState('database')
@@ -81,7 +89,7 @@ export function ConnectionEditorDialog(props: ConnectionEditorDialogProps) {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeRef.current(); return }
       if (event.key !== 'Tab') return
       const scope = discardRef.current ?? dialogRef.current
-      const items = [...(scope?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, textarea:not([disabled])') ?? [])]
+      const items = [...(scope?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, textarea:not([disabled]), [tabindex="0"]') ?? [])]
         .filter(item => item.tabIndex !== -1 && !item.matches(':disabled') && (!item.closest('details:not([open])') || item.tagName === 'SUMMARY'))
       const first = items[0]; const last = items.at(-1)
       if (!scope?.contains(document.activeElement)) { event.preventDefault(); first?.focus() }
@@ -125,11 +133,11 @@ export function ConnectionEditorDialog(props: ConnectionEditorDialogProps) {
       {item.help ? <small id={helpId}>{item.help}</small> : null}
     </label>
   }
-  const validate = () => {
+  const validate = (reportError: (message: string) => void = setError) => {
     const errors = validateConnectionEditor(draft)
     if (uri && !draft.auth.connectionStringSecretRef && !secrets['auth.connectionStringSecretRef']?.value) errors.push({ path: 'connectionString', message: 'Enter the complete connection string.' })
     for (const mutation of Object.values(secrets)) if (mutation.action === 'replace' && !mutation.value) errors.push({ path: mutation.slot, message: 'Enter a replacement value or undo the credential change.' })
-    if (errors.length) { setError(errors.map(item => item.message).join(' ')); return false }
+    if (errors.length) { reportError(errors.map(item => item.message).join(' ')); return false }
     return true
   }
   const save = async () => {
@@ -162,16 +170,25 @@ export function ConnectionEditorDialog(props: ConnectionEditorDialogProps) {
     } finally { setBusy(false) }
   }
   const testConnection = async () => {
-    if (!validate()) return
+    if (busy) return
+    setError('')
+    if (!validate(message => setTest({ state: 'error', title: 'Check connection settings', message }))) return
     const current = ++generation.current
-    setBusy(true); setError('')
+    setBusy(true); setTest({ state: 'testing', title: 'Testing connection…' })
+    const failed = () => setTest({ state: 'error', title: 'Test could not complete', message: 'Check the application error for details, then try again.' })
     try {
       const profile = { ...draft, ...(uri ? { host: '', port: undefined, database: undefined } : {}),
         connectionString: secrets['auth.connectionStringSecretRef']?.value }
       const result = await props.onTestConnection(profile, draft.environmentIds[0] ?? '', secrets['auth.secretRef']?.value)
-      if (generation.current === current) setTest(result)
-    } catch { setError('Connection testing failed. Check the application error for details.'); }
-    finally { setBusy(false) }
+      if (generation.current !== current) return
+      if (result) setTest({
+        state: !result.ok ? 'error' : result.warnings.length ? 'warning' : 'success',
+        title: !result.ok ? 'Connection failed' : result.warnings.length ? 'Connected with warnings' : 'Connected',
+        message: result.message, warnings: result.warnings,
+      })
+      else failed()
+    } catch { if (generation.current === current) failed() }
+    finally { if (generation.current === current) setBusy(false) }
   }
   const pick = async (purpose: 'open' | 'create') => {
     const current = ++generation.current
@@ -277,13 +294,30 @@ export function ConnectionEditorDialog(props: ConnectionEditorDialogProps) {
           </section>
           {capability.limitations.length ? <details className="connection-editor-limitations"><summary>Runtime support and limitations</summary><ul>{capability.limitations.map(item => <li key={item}>{item}</li>)}</ul></details> : null}
         </fieldset>
-        {test ? <div role="status" className={test.ok ? 'connection-editor-test' : 'form-error'}>{test.message}{test.warnings.map(warning => <p key={warning}>{warning}</p>)}</div> : null}
         {error ? <p role="alert" className="form-error">{error}</p> : null}
       </div>
-      <footer><button type="button" title={local && localIntent === 'create' && !createdPath ? 'Create the database before testing it.' : Object.values(secrets).some(item => item.action === 'remove' || !['auth.secretRef', 'auth.connectionStringSecretRef'].includes(item.slot)) ? 'Save secondary credential changes before testing this connection.' : undefined}
-        disabled={busy || local && localIntent === 'create' && !createdPath || Object.values(secrets).some(item => item.action === 'remove' || !['auth.secretRef', 'auth.connectionStringSecretRef'].includes(item.slot))} onClick={() => void testConnection()}>Test connection</button>
-        <span /> <button type="button" disabled={busy} onClick={close}>Cancel</button>
-        <button type="button" className="drawer-button--primary" disabled={busy} onClick={() => void save()}>{busy ? 'Working…' : local && localIntent === 'create' && !createdPath ? 'Create Database and Save Connection' : 'Save Connection'}</button></footer>
+      <footer>
+        <div className="connection-editor-test-group">
+          <button type="button" aria-describedby={test ? methodId + '-test-status' : undefined} title={local && localIntent === 'create' && !createdPath ? 'Create the database before testing it.' : Object.values(secrets).some(item => item.action === 'remove' || !['auth.secretRef', 'auth.connectionStringSecretRef'].includes(item.slot)) ? 'Save secondary credential changes before testing this connection.' : undefined}
+            disabled={busy || local && localIntent === 'create' && !createdPath || Object.values(secrets).some(item => item.action === 'remove' || !['auth.secretRef', 'auth.connectionStringSecretRef'].includes(item.slot))} onClick={() => void testConnection()}>Test connection</button>
+          <div id={methodId + '-test-status'} className="connection-editor-test" data-state={test?.state} role="status" aria-live="polite" aria-atomic="true">
+            {test ? <>
+              <div className="connection-editor-test-heading">
+                {test.state === 'testing' ? <RefreshIcon className="connection-editor-test-spinner" /> : test.state === 'success' ? <ConnectionConnectedIcon /> : <WarningIcon />}
+                <strong>{test.title}</strong>
+              </div>
+              {test.message || test.warnings?.length ? <div className="connection-editor-test-details" role="region" aria-label="Connection test details" tabIndex={0}>
+                {test.message ? <p>{test.message}</p> : null}
+                {test.warnings?.length ? <ul>{test.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul> : null}
+              </div> : null}
+            </> : null}
+          </div>
+        </div>
+        <div className="connection-editor-footer-actions">
+          <button type="button" disabled={busy} onClick={close}>Cancel</button>
+          <button type="button" className="drawer-button--primary" disabled={busy} onClick={() => void save()}>{busy && test?.state !== 'testing' ? 'Working…' : local && localIntent === 'create' && !createdPath ? 'Create Database and Save Connection' : 'Save Connection'}</button>
+        </div>
+      </footer>
     </div>
   </div>
     {discard ? <div className="workbench-modal-overlay connection-discard-overlay">

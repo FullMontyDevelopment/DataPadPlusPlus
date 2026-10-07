@@ -16,10 +16,20 @@ Saving a profile does not connect to a database. Sign-in is not evidence that da
 
 ## Windows current account
 
-1. Configure TCP or a named instance reachable from this Windows machine.
+1. Configure TCP or a named instance reachable from this Windows machine. Prefer the server's fully qualified DNS name (for example, `sql.corp.example`); an IP address normally cannot use the server's DNS-based Kerberos identity.
 2. Choose **Windows — current account**. The displayed account is the account running DataPad++, including when launched through Run as another user.
 3. Ensure the SQL Server administrator has granted that Windows user or group a login and database permissions. Domain trust, DNS and Kerberos service principal names must be configured by your administrator as appropriate.
 4. Test the connection. DataPad++ never asks for or stores a Windows password.
+
+Windows login uses the operating system's **Negotiate** provider: Kerberos when available, with NTLM fallback only as allowed by Windows/domain policy. DataPad++ does not force NTLM, collect alternate Windows credentials, or retry with SQL credentials. Short DNS names are expanded with the Windows resolver; explicit fully qualified aliases are preserved. The SQL service principal uses the actual connected TCP port, including dynamically resolved named instances. TLS endpoint channel bindings are supplied for Extended Protection. Windows login runs inside the Rust process, not the Entra authentication sidecar.
+
+After connecting, this read-only query shows the authentication actually accepted by SQL Server:
+
+```sql
+SELECT CONNECTIONPROPERTY('auth_scheme') AS authentication_method;
+```
+
+Expect `KERBEROS` where domain policy requires it. `NTLM` means Windows negotiated NTLM; it is not evidence that Kerberos prerequisites are correct. An administrator must resolve missing or duplicate SPNs, domain trust, DNS or policy issues. See [Microsoft's SQL Server SPN guidance](https://learn.microsoft.com/en-us/sql/database-engine/configure-windows/register-a-service-principal-name-for-kerberos-connections).
 
 This is not Microsoft Entra Integrated authentication. Azure SQL Database does not universally accept this Windows login mode. Azure SQL Managed Instance's additional Windows/Kerberos support has separate infrastructure prerequisites; see [Microsoft's setup guidance](https://learn.microsoft.com/en-us/azure/azure-sql/managed-instance/winauth-azuread-setup?view=azuresql).
 
@@ -52,6 +62,8 @@ Entra requires encryption and certificate validation. `Encrypt=false`, `DANGER_P
 
 ## Troubleshooting and limits
 
+- **18452 / untrusted domain:** Windows authentication was rejected, not a SQL-password validation failure. Check domain/VPN connectivity, the exact server DNS name and database selection, and ask your administrator to verify the SQL Server service account's SPN, trust, login permissions and authentication policy. Compare with SSMS using the same Windows account, TCP endpoint and database; do not weaken NTLM restrictions or certificate validation as a workaround.
+- **Windows SSPI negotiation failure:** the message contains a safe Windows status code or protocol reason, not authentication tokens. Check DNS/SPNs and domain access. Channel-binding errors additionally require checking the server certificate and Extended Protection configuration.
 - **Sign-in required:** open the connection editor and sign in for the correct environment. A cached account does not guarantee consent or database access remains valid.
 - **Secure storage unavailable:** unlock the OS keyring or use session-only sign-in.
 - **Microsoft sign-in rejected:** verify tenant/client IDs, localhost redirect, delegated permission and administrator consent. Ask the administrator to inspect Entra sign-in logs for Conditional Access failures.
@@ -62,6 +74,10 @@ Entra requires encryption and certificate validation. `Encrypt=false`, `DANGER_P
 ## Developer validation
 
 `npm run auth:sidecar:test` publishes and exercises the private helper protocol without an identity provider. Native unit tests cover mode selection, aliases, conflicts, strict TLS and platform gating. Release packaging includes the helper on Windows x64, Linux x64 and macOS Apple Silicon; SQL execution remains in Rust/Tiberius.
+
+`cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml -p tiberius --lib --locked` runs the patched driver tests. CI runs these on Windows and Linux, including multi-round and final-token TDS exchanges, failure handling, packet types and Windows-only SSPI/channel-binding tests. [Driver patch notes](../apps/desktop/src-tauri/vendor/tiberius/DATAPAD_PATCH.md) explain the vendor boundary and maintenance requirements.
+
+For live Windows-domain acceptance, test read-only operations using a domain-joined client and SQL Server with correctly registered SPNs: FQDN, short hostname, explicit alias, non-default port and named instance; verify `auth_scheme = KERBEROS`. Repeat with NTLM denied, Extended Protection required, invalid/missing SPNs, a login without database access, and after disconnecting the VPN. Failures must remain failures, without a SQL-login fallback or automatic query replay. Exercise connection testing, Explorer, queries, metadata and editing through the shared connection path against disposable data only.
 
 macOS signing includes the JIT entitlement required by the bundled .NET runtime, without debugger or library-validation bypass entitlements. The release workflow smoke-tests the helper inside the resulting app bundle as well as verifying its signature. See [Microsoft's macOS deployment requirements](https://learn.microsoft.com/en-us/dotnet/core/deploying/macos).
 

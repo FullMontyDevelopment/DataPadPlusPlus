@@ -566,7 +566,17 @@ impl From<tiberius::error::Error> for CommandError {
     fn from(error: tiberius::error::Error) -> Self {
         let raw = error.to_string();
         let lower = raw.to_lowercase();
-        let (code, hint) = if lower.contains("login failed")
+        let (code, hint) = if lower.contains("18452") || lower.contains("untrusted domain") {
+            (
+                "sqlserver-windows-domain-rejected",
+                "SQL Server rejected Windows authentication. Use the server's fully qualified DNS name and check domain/VPN connectivity. Ask your administrator to verify domain trust, the SQL Server service principal name (SPN), Windows login permissions, and Kerberos/NTLM policy. A SQL password will not fix this Windows-login error.",
+            )
+        } else if lower.contains("windows sspi negotiation") {
+            (
+                "sqlserver-windows-auth-failed",
+                "Windows could not complete SQL Server authentication. Use the server's fully qualified DNS name, check domain/VPN connectivity and ask your administrator to verify the SQL Server SPN and authentication policy. For channel-binding errors, also check TLS certificates and Extended Protection; do not disable security policy to bypass the failure.",
+            )
+        } else if lower.contains("login failed")
             || lower.contains("18456")
             || lower.contains("authentication")
         {

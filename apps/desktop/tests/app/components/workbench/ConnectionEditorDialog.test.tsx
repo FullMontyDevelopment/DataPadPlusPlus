@@ -1,6 +1,6 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CONNECTION_EDITOR_CATALOG, DATASTORE_ENGINES, setConnectionField, validateConnectionEditor } from '@datapadplusplus/shared-types'
+import { CONNECTION_EDITOR_CATALOG, DATASTORE_ENGINES, setConnectionField, validateConnectionEditor, type ConnectionTestResult } from '@datapadplusplus/shared-types'
 import { ConnectionEditorDialog, type ConnectionEditorDialogProps } from '../../../../src/app/components/workbench/ConnectionEditorDialog'
 import { ConnectionSecretField } from '../../../../src/app/components/workbench/ConnectionSecretField'
 import { createConnectionProfile } from '../../../../src/app/state/app-state-factories'
@@ -47,6 +47,8 @@ describe('Connection editor', () => {
     expect(tabs[0]).toHaveAttribute('tabindex', '0')
     expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', tabs[0].id)
     expect(screen.queryByRole('combobox', { name: 'Connection method' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Test connection' }).closest('footer')).toContainElement(screen.getByRole('status'))
+    expect(screen.getByRole('status').closest('.connection-editor-body')).toBeNull()
     for (const tab of tabs.slice(1)) {
       expect(tab).toHaveAttribute('aria-selected', 'false')
       expect(tab).toHaveAttribute('tabindex', '-1')
@@ -302,6 +304,104 @@ describe('Connection editor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Test connection' }))
     expect(props.onTestConnection).not.toHaveBeenCalled()
     expect(screen.getByLabelText('Port')).toHaveValue('54x')
+    expect(screen.getByRole('status')).toHaveTextContent('Check connection settings')
+    expect(screen.getByRole('status')).toHaveTextContent('between 1 and 65535')
+    expect(screen.getByRole('status')).toHaveAttribute('data-state', 'error')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+  it.each([
+    { ok: true, warnings: [], state: 'success', title: 'Connected' },
+    { ok: true, warnings: ['Some metadata is unavailable.'], state: 'warning', title: 'Connected with warnings' },
+    { ok: false, warnings: ['Verify your network connection.'], state: 'error', title: 'Connection failed' },
+  ])('shows $state feedback beside Test connection outside the scrolling form', async ({ ok, warnings, state, title }) => {
+    const result: ConnectionTestResult = { ok, warnings, message: 'An authoritative datastore test response.', engine: 'postgres', resolvedHost: 'localhost' }
+    setup({ onTestConnection: vi.fn(async () => result) })
+    const button = screen.getByRole('button', { name: 'Test connection' })
+    fireEvent.click(button)
+    await screen.findByText(title)
+    const status = screen.getByRole('status')
+    expect(status).toHaveAttribute('data-state', state)
+    expect(status).toHaveAttribute('aria-live', 'polite')
+    expect(status).toHaveAttribute('aria-atomic', 'true')
+    expect(button.parentElement).toContainElement(status)
+    expect(button.closest('footer')).toContainElement(status)
+    expect(button).toHaveAccessibleDescription(expect.stringContaining(title))
+    expect(status.closest('.connection-editor-body')).toBeNull()
+    expect(status).toHaveTextContent(result.message)
+    for (const warning of warnings) expect(status).toHaveTextContent(warning)
+    expect(status.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByRole('region', { name: 'Connection test details' })).toHaveAttribute('tabindex', '0')
+    expect(screen.getByRole('button', { name: 'Save Connection' })).toBeEnabled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+  it('replaces previous feedback with pending progress, prevents duplicate tests, and clears it after editing', async () => {
+    let finish!: (result: ConnectionTestResult) => void
+    const result: ConnectionTestResult = { ok: true, warnings: [], message: 'Datastore is reachable.', engine: 'postgres', resolvedHost: 'localhost' }
+    const onTestConnection = vi.fn<ConnectionEditorDialogProps['onTestConnection']>()
+      .mockResolvedValueOnce(result)
+      .mockImplementationOnce(() => new Promise(done => { finish = done }))
+    const props = setup({ onTestConnection })
+    const button = screen.getByRole('button', { name: 'Test connection' })
+    fireEvent.click(button)
+    await screen.findByText(result.message)
+    fireEvent.click(button)
+    expect(screen.getByRole('status')).toHaveAttribute('data-state', 'testing')
+    expect(screen.getByRole('status')).toHaveTextContent('Testing connection…')
+    expect(screen.queryByText(result.message)).not.toBeInTheDocument()
+    expect(screen.getByRole('status').querySelector('svg')).toHaveClass('connection-editor-test-spinner')
+    expect(button).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Save Connection' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Working…' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Host')).toBeDisabled()
+    fireEvent.click(button)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(props.onClose).not.toHaveBeenCalled()
+    expect(onTestConnection).toHaveBeenCalledTimes(2)
+    await act(async () => finish(result))
+    expect(screen.getByRole('status')).toHaveAttribute('data-state', 'success')
+    expect(button).toBeEnabled()
+    fireEvent.change(screen.getByLabelText('Host'), { target: { value: 'another.example.test' } })
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+    expect(button).not.toHaveAttribute('aria-describedby')
+  })
+  it.each(['missing', 'rejected'] as const)('shows inline feedback for a %s result without displaying raw exceptions', async outcome => {
+    setup({ onTestConnection: vi.fn(async () => {
+      if (outcome === 'rejected') throw new Error('private-connection-string')
+      return undefined
+    }) })
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection' }))
+    await screen.findByText('Test could not complete')
+    expect(screen.getByRole('status')).toHaveAttribute('data-state', 'error')
+    expect(screen.getByRole('status')).toHaveTextContent('Check the application error for details, then try again.')
+    expect(screen.queryByText(/private-connection-string/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Test connection' })).toBeEnabled()
+  })
+  it('retains full long errors and warnings in keyboard-accessible inline details', async () => {
+    const message = 'Connection refused: '.repeat(500)
+    const warning = 'Verify the server configuration.'
+    setup({ onTestConnection: vi.fn(async () => ({ ok: false, engine: 'postgres', resolvedHost: 'localhost', message, warnings: [warning, warning] })) })
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection' }))
+    const details = await screen.findByRole('region', { name: 'Connection test details' })
+    expect(details.querySelector('p')?.textContent).toBe(message)
+    expect(within(details).getAllByRole('listitem')).toHaveLength(2)
+    details.focus()
+    expect(details).toHaveFocus()
+    const save = screen.getByRole('button', { name: 'Save Connection' })
+    save.focus()
+    fireEvent.keyDown(save, { key: 'Tab' })
+    expect(screen.getByRole('button', { name: 'Close connection editor' })).toHaveFocus()
+  })
+  it('does not apply late test results to a replacement connection dialog', async () => {
+    let finish!: (result: ConnectionTestResult) => void
+    setup({ onTestConnection: vi.fn(() => new Promise(done => { finish = done })) })
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection' }))
+    // A workspace/profile replacement mounts a new editor instead of reusing the draft.
+    cleanup()
+    setup({ activeConnection: { ...profile(), name: 'Replacement' } })
+    await act(async () => finish({ ok: true, engine: 'postgres', resolvedHost: 'localhost', message: 'Original connection result', warnings: [] }))
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+    expect(screen.queryByText('Original connection result')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Test connection' })).toBeEnabled()
   })
   it('does not block connection strings on a hidden native port draft', async () => {
     const props = setup()
@@ -497,4 +597,3 @@ describe('Connection capability catalogue', () => {
     expect(validateConnectionEditor(invalid)).toContainEqual({ path: 'postgresOptions.connectTimeoutMs', message: 'Enter a non-negative whole number.' })
   })
 })
-
