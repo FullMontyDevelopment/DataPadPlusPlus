@@ -486,6 +486,8 @@ async fn run_litedb_sidecar_request(
 ) -> Result<String, CommandError> {
     let timeout_ms = litedb_sidecar_timeout_ms(connection);
     let mut command = Command::new(sidecar_path);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW: the bundled helper is not an interactive terminal.
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -496,8 +498,8 @@ async fn run_litedb_sidecar_request(
         CommandError::new(
             "litedb-sidecar-unavailable",
             format!(
-                "LiteDB sidecar could not be launched from '{}'. Configure SidecarPath with a valid local executable or remove it to use contract preview. Details: {}",
-                sidecar_path, error
+                "The LiteDB runtime could not be started. Reinstall DataPad++ or prepare the LiteDB runtime in your development checkout. System error: {}",
+                error.kind()
             ),
         )
     })?;
@@ -634,7 +636,7 @@ pub(super) fn litedb_live_sidecar_boundary(
         "status": if write_intent { "live-mutation-dispatch" } else { "live-read-dispatch" },
         "operation": operation,
         "sidecarConfigured": sidecar_path.is_some(),
-        "sidecarPathSource": if sidecar_path.is_some() { "connection-string-sidecar-path" } else { "not-configured" },
+        "sidecarPathSource": if sidecar_path.is_some() { "runtime-resolver" } else { "not-configured" },
         "dispatchEvidence": evidence.as_str(),
         "processDispatchValidated": evidence.process_dispatch_validated(),
         "engineRuntimeValidated": false,
@@ -682,6 +684,17 @@ fn litedb_fixture_sidecar_response(
         .and_then(Value::as_str)
         .unwrap_or("collection");
     match operation {
+        "GetMetadata" => json!({
+            "collections": [{ "name": "orders", "documentCount": 2, "indexes": 2 }],
+            "indexes": [{ "collection": "orders", "name": "_id", "expression": "$._id", "unique": true }],
+            "pragmas": [
+                { "name": "USER_VERSION", "value": 7 },
+                { "name": "TIMEOUT", "value": 60 },
+                { "name": "UTC_DATE", "value": false }
+            ],
+            "collectionCount": 1, "documentCount": 2, "indexCount": 2,
+            "engineOpenValidated": true
+        }),
         "ListCollections" => json!({
             "collections": ["products", "orders", "auditLog"],
             "databasePath": litedb_file_path(connection),

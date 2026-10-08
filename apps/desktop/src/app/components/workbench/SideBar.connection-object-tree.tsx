@@ -126,6 +126,8 @@ export function ConnectionObjectTree({
     [connection, environmentId, explorerFolderOrders, rawNodes],
   )
   const environmentStyle = environmentAccentVariables(environment)
+  const rootPage = explorerScopes?.[explorerScopeKey(undefined)]?.pageInfo
+  const rootLoading = isExplorerScopeLoading(connection.id, undefined)
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({})
   const [visibleChildCounts, setVisibleChildCounts] = useState<Record<string, number>>({})
   const [contextMenu, setContextMenu] = useState<ConnectionObjectContextMenuState>()
@@ -329,7 +331,7 @@ export function ConnectionObjectTree({
 
           return (
             <ConnectionObjectTreeNode
-              key={nodeKey}
+              key={connectionTreeStateKey(connection, node)}
               connection={connection}
               depth={1}
               visualDepth={1 + visualDepthOffset}
@@ -363,6 +365,16 @@ export function ConnectionObjectTree({
             />
           )
         })}
+        {rootPage?.hasMore && rootPage.nextCursor && onLoadExplorerScope ? (
+          <button
+            type="button"
+            className="datastore-explorer-load-more"
+            disabled={rootLoading}
+            onClick={() => onLoadExplorerScope(connection.id, undefined, rootPage.nextCursor)}
+          >
+            {rootLoading ? 'Loading connection objects…' : 'Load more connection objects'}
+          </button>
+        ) : null}
       </div>
 
       {contextMenu ? (
@@ -423,15 +435,21 @@ function mergeConnectionTrees(
   liveNodes: ConnectionTreeNode[],
 ): ConnectionTreeNode[] {
   const merged = structuralNodes.map(cloneConnectionTreeNode)
+  const claimed = new Set<number>()
 
   for (const liveNode of liveNodes) {
-    const key = connectionTreeMergeKey(liveNode)
-    const existingIndex = merged.findIndex(
-      (node) => connectionTreeMergeKey(node) === key,
+    // Overlay placeholders, never merge two authoritative live siblings by name.
+    const existingIndex = structuralNodes.findIndex(
+      (node, index) => !claimed.has(index) && (
+        node.id === liveNode.id ||
+        (node.scope !== undefined && node.scope === liveNode.scope) ||
+        node.label === liveNode.label
+      ),
     )
 
     const existingNode = merged[existingIndex]
     if (existingIndex >= 0 && existingNode) {
+      claimed.add(existingIndex)
       merged[existingIndex] = mergeConnectionTreeNode(
         connection,
         existingNode,
@@ -505,8 +523,10 @@ function cloneConnectionTreeNode(node: ConnectionTreeNode): ConnectionTreeNode {
   }
 }
 
-function connectionTreeMergeKey(node: ConnectionTreeNode) {
-  return node.label.trim().toLowerCase()
+function connectionTreeStateKey(connection: ConnectionProfile, node: ConnectionTreeNode) {
+  // Keep runtime identity separate from the legacy persisted folder-order keys.
+  const path = node.path?.[0] === connection.name ? node.path.slice(1) : (node.path ?? [])
+  return JSON.stringify(path.at(-1) === node.label ? path : [...path, node.label])
 }
 
 function connectionTreeNodeKey(connection: ConnectionProfile, node: ConnectionTreeNode) {
@@ -666,6 +686,7 @@ function ConnectionObjectTreeNode({
   node,
   nodeKey,
   parentNodeKey,
+  parentStateKey,
   siblingOrderKeys,
   draggedFolder,
   folderDropTarget,
@@ -700,6 +721,7 @@ function ConnectionObjectTreeNode({
   node: ConnectionTreeNode
   nodeKey: string
   parentNodeKey: string
+  parentStateKey?: string
   siblingOrderKeys: string[]
   draggedFolder?: ConnectionObjectFolderDragState
   folderDropTarget?: string
@@ -723,8 +745,9 @@ function ConnectionObjectTreeNode({
   ): void
 }) {
   const children = node.children ?? EMPTY_CONNECTION_TREE_NODES
+  const stateKey = JSON.stringify([parentStateKey ?? '', connectionTreeStateKey(connection, node)])
   const visibleChildCount =
-    visibleChildCounts[nodeKey] ?? CONNECTION_OBJECT_CHILD_BATCH_SIZE
+    visibleChildCounts[stateKey] ?? CONNECTION_OBJECT_CHILD_BATCH_SIZE
   const visibleChildren = children.slice(0, visibleChildCount)
   const remainingChildren = Math.max(children.length - visibleChildren.length, 0)
   const scopeResponse = node.scope
@@ -740,7 +763,7 @@ function ConnectionObjectTreeNode({
   const hasChildren = children.length > 0
   const canLoadChildren = Boolean(node.expandable && node.scope && onLoadExplorerScope)
   const canExpand = hasChildren || canLoadChildren
-  const expanded = Boolean(expandedNodes[nodeKey])
+  const expanded = Boolean(expandedNodes[stateKey])
   const loadingScope = node.scope ?? node.refreshScope
   const branchLoading = Boolean(
     loadingScope && isExplorerScopeLoading(connection.id, loadingScope),
@@ -771,7 +794,7 @@ function ConnectionObjectTreeNode({
     }
 
     const nextExpanded = !expanded
-    onToggleNode(nodeKey)
+    onToggleNode(stateKey)
 
     if (nextExpanded && shouldLoadScopedChildren(connection, node, children, branchLoading)) {
       onRequestAutoLoadScope(node.scope)
@@ -865,7 +888,7 @@ function ConnectionObjectTreeNode({
         }}
         onContextMenu={(event) => {
           if (hasObjectMenu) {
-            onContextMenu(event, node, nodeKey)
+            onContextMenu(event, node, stateKey)
           }
         }}
         onKeyDown={(event) => {
@@ -946,7 +969,7 @@ function ConnectionObjectTreeNode({
               className="tree-item-action-menu"
               aria-label={`Object actions for ${node.label}`}
               title={`Object actions for ${node.label}`}
-              onClick={(event) => openObjectMenuFromButton(event, node, nodeKey, onContextMenu)}
+              onClick={(event) => openObjectMenuFromButton(event, node, stateKey, onContextMenu)}
             >
               <MoreIcon className="tree-icon" />
             </button>
@@ -960,7 +983,7 @@ function ConnectionObjectTreeNode({
 
             return (
               <ConnectionObjectTreeNode
-                key={childKey}
+                key={connectionTreeStateKey(connection, child)}
                 connection={connection}
                 depth={depth + 1}
                 visualDepth={visualDepth + 1}
@@ -972,6 +995,7 @@ function ConnectionObjectTreeNode({
                 node={child}
                 nodeKey={childKey}
                 parentNodeKey={nodeKey}
+                parentStateKey={stateKey}
                 siblingOrderKeys={orderableChildKeys}
                 draggedFolder={draggedFolder}
                 folderDropTarget={folderDropTarget}
@@ -1016,7 +1040,7 @@ function ConnectionObjectTreeNode({
             event.preventDefault()
             event.stopPropagation()
             if (remainingChildren > 0) {
-              onLoadMoreChildren(nodeKey)
+              onLoadMoreChildren(stateKey)
             } else if (nextCursor) {
               onLoadExplorerScope?.(connection.id, node.scope, nextCursor)
             }

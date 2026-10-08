@@ -94,6 +94,7 @@ jobs:
         run: |
           npm run oracle:sidecar:ensure
           npm run auth:sidecar:ensure
+          npm run litedb:sidecar:ensure
           npm run oracle:sidecar:smoke
 
       - name: Start and seed core fixtures

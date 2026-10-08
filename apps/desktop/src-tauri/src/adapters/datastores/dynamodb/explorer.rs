@@ -107,34 +107,44 @@ async fn table_nodes(
     connection: &ResolvedConnectionProfile,
     limit: Option<u32>,
 ) -> Result<Vec<ExplorerNode>, CommandError> {
-    let value = dynamodb_call(connection, "ListTables", &json!({})).await?;
-    let limit = bounded_page_size(limit.or(Some(100))) as usize;
     let table_prefix = dynamodb_table_prefix(connection);
-    Ok(value
-        .get("TableNames")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .filter(|name| {
-            table_prefix
-                .as_deref()
-                .map(|prefix| name.starts_with(prefix))
-                .unwrap_or(true)
-        })
-        .take(limit)
-        .map(|name| ExplorerNode {
-            id: format!("table:{name}"),
-            family: "widecolumn".into(),
-            label: name.into(),
-            kind: "table".into(),
-            detail: "DynamoDB table".into(),
-            scope: Some(format!("table:{name}")),
-            path: Some(vec![connection.name.clone(), "Tables".into()]),
-            query_template: Some(dynamodb_scan_template(name)),
-            expandable: Some(true),
-        })
-        .collect())
+    let table_prefix = table_prefix.as_deref();
+    collect_explorer_pages(limit, |cursor| async move {
+        let mut body = json!({ "Limit": 100 });
+        if let Some(cursor) = cursor {
+            body["ExclusiveStartTableName"] = json!(cursor);
+        }
+        let value = dynamodb_call(connection, "ListTables", &body).await?;
+        let next = value
+            .get("LastEvaluatedTableName")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let nodes = value
+            .get("TableNames")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter(|name| {
+                table_prefix
+                    .map(|prefix| name.starts_with(prefix))
+                    .unwrap_or(true)
+            })
+            .map(|name| ExplorerNode {
+                id: format!("table:{name}"),
+                family: "widecolumn".into(),
+                label: name.into(),
+                kind: "table".into(),
+                detail: "DynamoDB table".into(),
+                scope: Some(format!("table:{name}")),
+                path: Some(vec![connection.name.clone(), "Tables".into()]),
+                query_template: Some(dynamodb_scan_template(name)),
+                expandable: Some(true),
+            })
+            .collect();
+        Ok((nodes, next))
+    })
+    .await
 }
 
 async fn table_child_nodes(

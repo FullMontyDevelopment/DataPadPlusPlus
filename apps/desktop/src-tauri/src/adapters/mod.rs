@@ -33,6 +33,10 @@ mod experience;
 mod registry;
 mod runtime;
 
+#[cfg(test)]
+#[path = "../../tests/support/explorer_paging_fixture.rs"]
+pub(crate) mod explorer_paging_fixture;
+
 pub(crate) use common::*;
 pub(crate) use contract::DatastoreAdapter;
 pub(crate) use count_execution::{cancel_count_execution, register_count_execution};

@@ -52,7 +52,7 @@ describe('datastore documentation', () => {
       expect(guide.connections.join(' ')).toContain('Create new database')
       expect(guide.connections.join(' ')).toContain('Open existing database')
     }
-    expect(getDatastoreDocBySlug('litedb')!.connections.join(' ')).toContain('not currently bundled')
+    expect(getDatastoreDocBySlug('litedb')!.connections.join(' ')).toContain('self-contained LiteDB runtime')
     expect(getDatastoreDocBySlug('mongodb')!.connections.join(' ')).toContain('Studio 3T')
     expect(getDatastoreDocBySlug('mongodb')!.connections.join(' ')).toContain('unchanged')
   })

@@ -22,6 +22,10 @@ pub(crate) struct LiteDbAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for LiteDbAdapter {
+    fn handles_explorer_paging(&self) -> bool {
+        true
+    }
+
     fn supports_standard_live_operations(&self) -> bool {
         true
     }
@@ -91,7 +95,7 @@ impl DatastoreAdapter for LiteDbAdapter {
         connection: &ResolvedConnectionProfile,
         request: &ExplorerInspectRequest,
     ) -> Result<ExplorerInspectResponse, CommandError> {
-        Ok(inspect_litedb_explorer_node(connection, request))
+        inspect_litedb_explorer_node(connection, request).await
     }
 
     async fn execute(

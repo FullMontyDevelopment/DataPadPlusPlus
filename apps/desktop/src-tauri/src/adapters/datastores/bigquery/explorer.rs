@@ -219,12 +219,14 @@ async fn dataset_nodes(
 ) -> Result<Vec<ExplorerNode>, CommandError> {
     if has_live_auth(connection) && has_http_endpoint(connection) {
         let project = bigquery_project_id(connection);
-        let response = bigquery_get(
+        let value = bigquery_list_value(
             connection,
             &format!("/bigquery/v2/projects/{project}/datasets?maxResults=100"),
+            "datasets",
+            limit,
+            |_| true,
         )
         .await?;
-        let value = parse_bigquery_json(&response.body)?;
         return Ok(bigquery_dataset_nodes_from_value(connection, &value, limit));
     }
 
@@ -279,12 +281,21 @@ async fn table_nodes(
 ) -> Result<Vec<ExplorerNode>, CommandError> {
     if has_live_auth(connection) && has_http_endpoint(connection) {
         let project = bigquery_project_id(connection);
-        let response = bigquery_get(
+        let value = bigquery_list_value(
             connection,
             &format!("/bigquery/v2/projects/{project}/datasets/{dataset}/tables?maxResults=100"),
+            "tables",
+            limit,
+            |item| {
+                table_type.is_none_or(|expected| {
+                    item.get("type")
+                        .and_then(Value::as_str)
+                        .unwrap_or(BIGQUERY_KIND_TABLE)
+                        == expected
+                })
+            },
         )
         .await?;
-        let value = parse_bigquery_json(&response.body)?;
         return Ok(bigquery_table_nodes_from_value(
             connection, &project, dataset, &value, table_type, limit,
         ));
@@ -299,16 +310,58 @@ async fn job_nodes(
 ) -> Result<Vec<ExplorerNode>, CommandError> {
     if has_live_auth(connection) && has_http_endpoint(connection) {
         let project = bigquery_project_id(connection);
-        let response = bigquery_get(
+        let value = bigquery_list_value(
             connection,
             &format!("/bigquery/v2/projects/{project}/jobs?maxResults=100"),
+            "jobs",
+            limit,
+            |_| true,
         )
         .await?;
-        let value = parse_bigquery_json(&response.body)?;
         return Ok(bigquery_job_nodes_from_value(connection, &value, limit));
     }
 
     Ok(Vec::new())
+}
+
+async fn bigquery_list_value(
+    connection: &ResolvedConnectionProfile,
+    path: &str,
+    field: &str,
+    limit: Option<u32>,
+    include: impl Fn(&Value) -> bool + Sync,
+) -> Result<Value, CommandError> {
+    let include = &include;
+    let items = collect_explorer_pages(limit, |cursor| async move {
+        let mut url =
+            reqwest::Url::parse(&format!("http://explorer.invalid{path}")).map_err(|_| {
+                CommandError::new("bigquery-explorer-path", "Invalid BigQuery metadata path.")
+            })?;
+        if let Some(cursor) = cursor {
+            url.query_pairs_mut().append_pair("pageToken", &cursor);
+        }
+        let path = match url.query() {
+            Some(query) => format!("{}?{query}", url.path()),
+            None => url.path().to_string(),
+        };
+        let response = bigquery_get(connection, &path).await?;
+        let value = parse_bigquery_json(&response.body)?;
+        let next = value
+            .get("nextPageToken")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let items = value
+            .get(field)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|item| include(item))
+            .cloned()
+            .collect();
+        Ok((items, next))
+    })
+    .await?;
+    Ok(json!({ field: items }))
 }
 
 async fn reservations_nodes(
@@ -318,14 +371,16 @@ async fn reservations_nodes(
     if has_live_auth(connection) && has_http_endpoint(connection) {
         let project = bigquery_project_id(connection);
         let location = bigquery_location(connection);
-        let response = bigquery_get(
+        let value = bigquery_list_value(
             connection,
             &format!(
                 "/bigqueryreservation/v1/projects/{project}/locations/{location}/reservations"
             ),
+            "reservations",
+            limit,
+            |_| true,
         )
         .await?;
-        let value = parse_bigquery_json(&response.body)?;
         return Ok(bigquery_reservation_nodes_from_value(
             connection, &value, limit,
         ));
@@ -638,12 +693,14 @@ async fn routine_nodes(
     }
 
     let project = bigquery_project_id(connection);
-    let response = bigquery_get(
+    let value = bigquery_list_value(
         connection,
         &format!("/bigquery/v2/projects/{project}/datasets/{dataset}/routines?maxResults=100"),
+        "routines",
+        limit,
+        |_| true,
     )
     .await?;
-    let value = parse_bigquery_json(&response.body)?;
     let limit = bounded_page_size(limit.or(Some(100))) as usize;
 
     Ok(value
@@ -689,12 +746,14 @@ async fn model_nodes(
     }
 
     let project = bigquery_project_id(connection);
-    let response = bigquery_get(
+    let value = bigquery_list_value(
         connection,
         &format!("/bigquery/v2/projects/{project}/datasets/{dataset}/models?maxResults=100"),
+        "models",
+        limit,
+        |_| true,
     )
     .await?;
-    let value = parse_bigquery_json(&response.body)?;
     let limit = bounded_page_size(limit.or(Some(100))) as usize;
 
     Ok(value

@@ -11,6 +11,79 @@ use crate::domain::models::{
     CosmosDbConnectionOptions, ExplorerInspectRequest, ExplorerRequest, ResolvedConnectionProfile,
 };
 
+use crate::adapters::explorer_paging_fixture as fixture;
+
+#[tokio::test]
+#[ignore = "requires isolated Cosmos DB emulator fixture"]
+async fn cosmosdb_live_fixture_explorer_pages_containers(
+) -> Result<(), crate::domain::error::CommandError> {
+    use super::super::connection::{
+        cosmosdb_create_resource, cosmosdb_delete_resource, cosmosdb_get_feed,
+    };
+
+    let database = format!("dp_explorer_{:016x}", rand::random::<u64>());
+    let mut connection = connection();
+    let port = fixture::local_port("DATAPADPLUSPLUS_COSMOSDB_EMULATOR_PORT", 8082);
+    connection.host = "127.0.0.1".into();
+    connection.port = Some(port);
+    connection.connection_string = Some(format!("http://127.0.0.1:{port}"));
+    connection.database = Some(database.clone());
+    connection.read_only = false;
+    connection.cosmos_db_options = Some(CosmosDbConnectionOptions {
+        api: Some("nosql".into()),
+        auth_mode: Some("emulator".into()),
+        ..Default::default()
+    });
+    cosmosdb_create_resource(&connection, "/dbs", &json!({ "id": database }).to_string()).await?;
+    let path = format!("/dbs/{database}/colls");
+    let mut names = (0..102)
+        .map(|index| format!("objects_{index:03}"))
+        .collect::<Vec<_>>();
+    names.extend(["Case".into(), "case".into()]);
+    let result = async {
+        for name in &names {
+            cosmosdb_create_resource(
+                &connection,
+                &path,
+                &json!({
+                    "id": name, "partitionKey": { "paths": ["/pk"], "kind": "Hash" }
+                })
+                .to_string(),
+            )
+            .await?;
+        }
+        let native = cosmosdb_get_feed(&connection, &path, None).await?;
+        let nodes =
+            fixture::read_all(&connection, &format!("cosmos:containers:{database}")).await?;
+        Ok::<_, crate::domain::error::CommandError>((native, nodes))
+    }
+    .await;
+    let cleanup = cosmosdb_delete_resource(&connection, &format!("/dbs/{database}")).await;
+    cleanup?;
+    let (native, nodes) = result?;
+    let native_count = native.json()?["DocumentCollections"]
+        .as_array()
+        .expect("native container list")
+        .len();
+    if native.continuation.is_none() {
+        // The vNext emulator currently ignores max-item-count for collection
+        // feeds. Still prove UI paging over its real catalog; native token
+        // forwarding is covered separately by the HTTP contract regressions.
+        assert_eq!(native_count, names.len());
+        eprintln!("note: Cosmos emulator returned its full metadata feed; native continuation coverage remains contract-only.");
+    } else {
+        assert!(native_count < names.len());
+    }
+    assert_eq!(
+        nodes
+            .iter()
+            .map(|node| node.label.clone())
+            .collect::<std::collections::BTreeSet<_>>(),
+        names.into_iter().collect()
+    );
+    Ok(())
+}
+
 #[test]
 fn cosmosdb_query_template_targets_database_and_container() {
     let value: serde_json::Value =

@@ -78,7 +78,7 @@ describe('docs content', () => {
       'does not ask for a master password', 'Leave the field blank to keep it',
       'Create Database and Save Connection', 'Existing files are never replaced',
       'Keep editing', 'Discard changes', 'scroll position', 'secondary credential',
-      'Browser preview cannot save or reveal', 'not currently bundled',
+      'Browser preview cannot save or reveal', 'Desktop builds include the LiteDB runtime',
     ]) expect(text).toContain(instruction)
     expect(JSON.stringify(docArticles)).not.toMatch(/connection drawer|Schema 12 is the current/i)
   })

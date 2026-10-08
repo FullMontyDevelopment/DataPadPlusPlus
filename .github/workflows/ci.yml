@@ -55,6 +55,9 @@ jobs:
       - name: Test, publish and exercise the private authentication protocol
         run: npm run auth:sidecar:test
 
+      - name: Test and smoke-test bundled LiteDB runtime
+        run: npm run litedb:sidecar:test
+
   deterministic-tests:
     name: Unit and dependency-free integration tests
     runs-on: ubuntu-22.04

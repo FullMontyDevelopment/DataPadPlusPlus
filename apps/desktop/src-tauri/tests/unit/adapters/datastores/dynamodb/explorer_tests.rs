@@ -8,6 +8,101 @@ use super::{
 use super::{dynamodb_query_index_template, dynamodb_scan_template};
 use crate::domain::models::{DynamoDbConnectionOptions, ResolvedConnectionProfile};
 
+use crate::adapters::explorer_paging_fixture as fixture;
+
+#[tokio::test]
+#[ignore = "requires isolated DynamoDB Local fixture"]
+async fn dynamodb_live_fixture_explorer_pages_tables(
+) -> Result<(), crate::domain::error::CommandError> {
+    use super::super::connection::dynamodb_call;
+    use serde_json::json;
+
+    let prefix = format!("dp_explorer_{:016x}", rand::random::<u64>());
+    let mut connection = test_connection(Some(&prefix));
+    connection.host = "127.0.0.1".into();
+    connection.port = Some(fixture::local_port("DATAPADPLUSPLUS_DYNAMODB_PORT", 8001));
+    // Compose has no DynamoDB healthcheck: the port may open before its Java
+    // runtime is ready. Retry only the read-only probe, never fixture writes.
+    let mut ready = false;
+    for _ in 0..60 {
+        if matches!(
+            tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                dynamodb_call(&connection, "ListTables", &json!({ "Limit": 1 })),
+            )
+            .await,
+            Ok(Ok(_))
+        ) {
+            ready = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+    if !ready {
+        return Err(crate::domain::error::CommandError::new(
+            "fixture-not-ready",
+            "Start the isolated DynamoDB Local fixture before running the Explorer test.",
+        ));
+    }
+    let mut names = (0..102)
+        .map(|index| format!("{prefix}_{index:03}"))
+        .collect::<Vec<_>>();
+    // DynamoDB Local's SQLite catalog cannot create names differing only by
+    // case; that distinction is covered by the shared tree contract tests.
+    names.extend([
+        format!("{prefix}_UpperCase"),
+        format!("{prefix}_lowercase"),
+        format!("{prefix}_zzz"),
+    ]);
+    let mut created = Vec::new();
+    let result = async {
+        for name in &names {
+            dynamodb_call(
+                &connection,
+                "CreateTable",
+                &json!({
+                    "TableName": name,
+                    "AttributeDefinitions": [{ "AttributeName": "pk", "AttributeType": "S" }],
+                    "KeySchema": [{ "AttributeName": "pk", "KeyType": "HASH" }],
+                    "BillingMode": "PAY_PER_REQUEST"
+                }),
+            )
+            .await?;
+            created.push(name.clone());
+        }
+        let nodes = fixture::read_all(&connection, "dynamodb:tables").await?;
+        // All of the first native page is filtered out for this prefix. It
+        // must not be mistaken for an empty catalog.
+        connection.dynamo_db_options.as_mut().unwrap().table_prefix = Some(format!("{prefix}_zzz"));
+        let filtered = fixture::read_all(&connection, "dynamodb:tables").await?;
+        Ok::<_, crate::domain::error::CommandError>((nodes, filtered))
+    }
+    .await;
+    let mut cleanup_errors = Vec::new();
+    for name in created {
+        if let Err(error) =
+            dynamodb_call(&connection, "DeleteTable", &json!({ "TableName": name })).await
+        {
+            cleanup_errors.push(error.code);
+        }
+    }
+    assert!(
+        cleanup_errors.is_empty(),
+        "Fixture cleanup failed: {cleanup_errors:?}"
+    );
+    let (nodes, filtered) = result?;
+    assert_eq!(
+        nodes
+            .iter()
+            .map(|node| node.label.clone())
+            .collect::<std::collections::BTreeSet<_>>(),
+        names.into_iter().collect()
+    );
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].label, format!("{prefix}_zzz"));
+    Ok(())
+}
+
 #[test]
 fn dynamodb_scan_template_targets_table() {
     let value: serde_json::Value = serde_json::from_str(&dynamodb_scan_template("Orders")).unwrap();

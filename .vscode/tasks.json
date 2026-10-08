@@ -18,7 +18,7 @@
     },
     {
       "label": "datapadplusplus:oracle:ensure",
-      "dependsOn": ["datapadplusplus:auth:ensure"],
+      "dependsOn": ["datapadplusplus:auth:ensure", "datapadplusplus:litedb:ensure"],
       "type": "shell",
       "command": "npm",
       "args": [
@@ -35,6 +35,14 @@
       "type": "shell",
       "command": "npm",
       "args": ["run", "auth:sidecar:ensure"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "datapadplusplus:litedb:ensure",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "litedb:sidecar:ensure"],
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },

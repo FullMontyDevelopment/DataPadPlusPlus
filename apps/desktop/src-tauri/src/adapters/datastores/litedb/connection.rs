@@ -39,7 +39,7 @@ pub(super) async fn test_litedb_connection(
 }
 
 fn litedb_runtime_missing() -> CommandError {
-    CommandError::new("litedb-runtime-missing", "The LiteDB runtime is unavailable. Configure a valid SidecarPath or DATAPADPLUSPLUS_LITEDB_SIDECAR_PATH. No database was created or modified.")
+    CommandError::new("litedb-runtime-missing", "The bundled LiteDB runtime is missing. Reinstall DataPad++ or run npm run litedb:sidecar:ensure in a development checkout. No database was created or modified.")
 }
 
 pub(crate) async fn create_litedb_database(
@@ -176,6 +176,55 @@ pub(crate) fn litedb_sidecar_path(connection: &ResolvedConnectionProfile) -> Opt
                 .ok()
                 .filter(|value| !value.trim().is_empty())
         })
+        .or_else(|| {
+            // Contract unit tests select their fixture explicitly; installed binaries must not
+            // turn deterministic tests into disk access. Live tests call the resolver directly.
+            if cfg!(test) {
+                return None;
+            }
+            bundled_litedb_sidecar_path()
+        })
+}
+
+pub(super) fn require_litedb_sidecar(
+    connection: &ResolvedConnectionProfile,
+) -> Result<String, CommandError> {
+    litedb_sidecar_path(connection).ok_or_else(litedb_runtime_missing)
+}
+
+pub(super) fn bundled_litedb_sidecar_path() -> Option<String> {
+    let name = format!(
+        "datapadplusplus-litedb-runtime{}",
+        std::env::consts::EXE_SUFFIX
+    );
+    let mut candidates = Vec::new();
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(parent) = executable.parent() {
+            candidates.push(parent.join(&name));
+            candidates.push(parent.join("../Resources").join(&name));
+        }
+    }
+    #[cfg(debug_assertions)]
+    {
+        let triple = match (std::env::consts::OS, std::env::consts::ARCH) {
+            ("windows", "x86_64") => "x86_64-pc-windows-msvc",
+            ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
+            ("macos", "aarch64") => "aarch64-apple-darwin",
+            _ => "unsupported-target",
+        };
+        candidates.push(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("binaries")
+                .join(format!(
+                    "datapadplusplus-litedb-runtime-{triple}{}",
+                    std::env::consts::EXE_SUFFIX
+                )),
+        );
+    }
+    candidates
+        .into_iter()
+        .find(|path| path.is_file())
+        .map(|path| path.to_string_lossy().into_owned())
 }
 
 pub(crate) fn litedb_connection_option(

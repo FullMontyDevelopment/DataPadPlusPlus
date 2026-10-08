@@ -7,6 +7,52 @@ namespace DataPadPlusPlus.LiteDbSidecar.Tests;
 public sealed class LiteDbSidecarTests
 {
     [Fact]
+    public async Task Explorer_metadata_reads_real_collections_indexes_counts_and_pragmas_without_writing()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var databasePath = Path.Combine(root, "metadata.db");
+            await SeedAsync(databasePath, new { _id = 1, name = "café 日本語" }, new { _id = 2, amount = 5.25m });
+            using var indexed = await InvokeAsync(Envelope(databasePath, "EnsureIndex", false,
+                new { collection = "items", name = "amount_idx", expression = "$.amount", unique = false }));
+            Assert.True(indexed.RootElement.GetProperty("ok").GetBoolean());
+            var before = await File.ReadAllBytesAsync(databasePath);
+            using var result = await InvokeAsync(Envelope(databasePath, "GetMetadata", true, new { }));
+            Assert.True(result.RootElement.GetProperty("ok").GetBoolean(), result.RootElement.GetRawText());
+            var data = result.RootElement.GetProperty("response");
+            Assert.Equal(1, data.GetProperty("collectionCount").GetInt32());
+            Assert.Equal(2, data.GetProperty("documentCount").GetInt32());
+            Assert.Equal(3, data.GetProperty("indexCount").GetInt32()); // _id, fixture category, and amount_idx
+            Assert.Equal("items", data.GetProperty("collections")[0].GetProperty("name").GetString());
+            Assert.Equal(6, data.GetProperty("pragmas").GetArrayLength());
+            using var allIndexes = await InvokeAsync(Envelope(databasePath, "ListIndexes", true, new { }));
+            Assert.Equal(3, allIndexes.RootElement.GetProperty("response").GetProperty("indexes").GetArrayLength());
+            using var missing = await InvokeAsync(Envelope(databasePath, "GetMetadata", true, new { collection = "removed" }));
+            Assert.Equal("litedb-collection-missing", missing.RootElement.GetProperty("code").GetString());
+            Assert.Equal(before, await File.ReadAllBytesAsync(databasePath));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Theory]
+    [InlineData("ListCollections")]
+    [InlineData("ListIndexes")]
+    [InlineData("GetMetadata")]
+    public async Task Explorer_does_not_silently_create_missing_databases(string operation)
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var databasePath = Path.Combine(root, "missing.db");
+            using var response = await InvokeAsync(Envelope(databasePath, operation, true, new { }));
+            Assert.Equal("litedb-file-missing", response.RootElement.GetProperty("code").GetString());
+            Assert.False(File.Exists(databasePath));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
     public async Task Large_json_import_and_guarded_edit_use_native_document_limits()
     {
         var root = CreateTemporaryDirectory();

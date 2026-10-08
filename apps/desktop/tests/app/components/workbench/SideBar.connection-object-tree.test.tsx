@@ -5,8 +5,74 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ConnectionTreeNode } from '../../../../src/app/components/workbench/SideBar.helpers'
 import { ConnectionObjectTree } from '../../../../src/app/components/workbench/SideBar.connection-object-tree'
 import { explorerFolderOrderKey } from '../../../../src/app/components/workbench/SideBar.connection-object-tree-order'
+import { explorerScopeKey } from '../../../../src/app/state/app-state-reducer-helpers'
 
 describe('ConnectionObjectTree', () => {
+  it('does not share identically labelled child expansion across different parents', () => {
+    render(<ConnectionObjectTree connection={postgresConnection()} nodes={['Orders', 'orders'].map((label) => ({
+      id: `table:${label}`, label, kind: 'table', children: [{
+        id: `columns:${label}`, label: 'Columns', kind: 'columns',
+        children: [{ id: `column:${label}`, label: `${label} field`, kind: 'column' }],
+      }],
+    }))} onOpenScopedQuery={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Orders' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Columns' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand orders' }))
+    expect(screen.getByText('Orders field')).toBeInTheDocument()
+    expect(screen.queryByText('orders field')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Expand Columns' })).toBeInTheDocument()
+  })
+  it('offers continuation for paged root metadata and locks it during loading', () => {
+    const onLoadExplorerScope = vi.fn()
+    const connection = postgresConnection()
+    const props = {
+      connection, onLoadExplorerScope, onOpenScopedQuery: vi.fn(), explorerNodes: [],
+      explorerScopes: { [explorerScopeKey(undefined)]: {
+        connectionId: connection.id, environmentId: 'env-local', summary: '', capabilities: {} as never,
+        nodes: [], pageInfo: { returnedCount: 100, hasMore: true, nextCursor: 'next-root' },
+      } },
+    }
+    const { rerender } = render(<ConnectionObjectTree {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Load more connection objects' }))
+    expect(onLoadExplorerScope).toHaveBeenCalledExactlyOnceWith(connection.id, undefined, 'next-root')
+    rerender(<ConnectionObjectTree {...props} isExplorerScopeLoading={() => true} />)
+    expect(screen.getByRole('button', { name: 'Loading connection objects…' })).toBeDisabled()
+    rerender(<ConnectionObjectTree {...props} explorerScopes={{}} />)
+    expect(screen.queryByRole('button', { name: 'Load more connection objects' })).not.toBeInTheDocument()
+  })
+  it.each([
+    ['postgresql', 'sql', 'table'],
+    ['mongodb', 'document', 'collection'],
+    ['redis', 'keyvalue', 'key'],
+    ['dynamodb', 'widecolumn', 'table'],
+    ['snowflake', 'warehouse', 'table'],
+  ] as const)('preserves case-distinct live %s objects', (engine, family, kind) => {
+    const connection = { ...postgresConnection(), engine, family }
+    render(<ConnectionObjectTree connection={connection} nodes={[]} explorerNodes={['Orders', 'orders'].map((label) => ({
+      id: `${kind}:${label}`, label, kind, family, detail: 'Live object',
+      scope: `${kind}:${label}`, path: [connection.name], expandable: true,
+    }))} onOpenScopedQuery={vi.fn()} />)
+    // Expand structural groups, if this engine places objects under one.
+    for (let depth = 0; depth < 5 && !screen.queryByText('Orders'); depth += 1) {
+      screen.queryAllByRole('button', { name: /^Expand / }).forEach((button) => fireEvent.click(button))
+    }
+    expect(screen.getByText('Orders')).toBeInTheDocument()
+    expect(screen.getByText('orders')).toBeInTheDocument()
+  })
+
+  it.each([['Orders', 'orders'], ['order-items', 'order_items'], ['日本', '中文']])(
+    'keeps expansion independent for %s and %s', (first, second) => {
+      render(<ConnectionObjectTree connection={oracleConnection()} nodes={[first, second].map((label) => ({
+        id: `table:${label}`, label, kind: 'table', scope: `table:${label}`, expandable: true,
+        children: [{ id: `column:${label}`, label: `${label} column`, kind: 'column' }],
+      }))} onOpenScopedQuery={vi.fn()} />)
+      fireEvent.click(screen.getByRole('button', { name: `Expand ${first}` }))
+      expect(screen.getByText(`${first} column`)).toBeInTheDocument()
+      expect(screen.queryByText(`${second} column`)).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: `Expand ${second}` })).toBeInTheDocument()
+    },
+  )
+
   it('forwards the clicked tree environment instead of relying on the active query tab', () => {
     const onOpenScopedQuery = vi.fn()
     render(<ConnectionObjectTree connection={mongoConnection()} environment={{ ...localEnvironment(), id: 'env-uat', label: 'UAT' }}
@@ -562,6 +628,7 @@ describe('ConnectionObjectTree', () => {
 
     render(
       <ConnectionObjectTree
+        adapterManifest={adapterManifestFor(liteDbConnection())}
         connection={liteDbConnection()}
         explorerNodes={[
           {
@@ -612,6 +679,8 @@ describe('ConnectionObjectTree', () => {
       />,
     )
 
+    expect(screen.queryByText('Local Database')).not.toBeInTheDocument()
+    expect(screen.getAllByText('catalog.db')).toHaveLength(1)
     expandTreeItem('catalog.db')
     fireEvent.contextMenu(treeItemForLabel('Indexes'), { clientX: 24, clientY: 32 })
 

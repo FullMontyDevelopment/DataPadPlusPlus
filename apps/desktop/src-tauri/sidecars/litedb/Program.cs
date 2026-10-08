@@ -69,11 +69,15 @@ static object Dispatch(SidecarRequest envelope)
         return RestoreDatabase(envelope);
     }
 
-    using var db = new LiteDatabase(BuildConnectionString(databasePath, envelope.Password));
+    using var db = new LiteDatabase(new ConnectionString {
+        Filename = databasePath, Password = envelope.Password,
+        ReadOnly = envelope.ReadOnly, Connection = ConnectionType.Shared
+    });
 
     return operation switch
     {
         "ListCollections" => ListCollections(db),
+        "GetMetadata" or "Statistics" or "Pragmas" or "Maintenance" => GetMetadata(db, envelope),
         "Find" or "Query" => Find(db, envelope),
         "FindById" => FindById(db, envelope),
         "Count" => Count(db, envelope),
@@ -152,6 +156,27 @@ static object ListCollections(LiteDatabase db)
     return new { collections };
 }
 
+static object GetMetadata(LiteDatabase db, SidecarRequest envelope)
+{
+    var requested = OptionalString(envelope.Request, "collection");
+    var names = db.GetCollectionNames().OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray();
+    if (requested is not null && !names.Contains(requested, StringComparer.OrdinalIgnoreCase))
+        throw new SidecarException("litedb-collection-missing", "The selected collection no longer exists. Refresh the Explorer.");
+    var selected = requested is null ? names : names.Where(name => string.Equals(name, requested, StringComparison.OrdinalIgnoreCase)).ToArray();
+    var indexes = selected.SelectMany(name => IndexSummaries(db, name)).ToArray();
+    var collections = selected.Select(name => new {
+        name, documentCount = db.GetCollection<BsonDocument>(name).LongCount(),
+        indexes = IndexSummaries(db, name).Length
+    }).ToArray();
+    var pragmas = new[] { "USER_VERSION", "TIMEOUT", "UTC_DATE", "COLLATION", "LIMIT_SIZE", "CHECKPOINT" }
+        .Select(name => new { name, value = BsonToElement(db.Pragma(name)), source = "database file", status = "live" }).ToArray();
+    return new {
+        collections, indexes, pragmas, collectionCount = names.Length,
+        documentCount = collections.Sum(item => item.documentCount), indexCount = indexes.Length,
+        engineOpenValidated = true, readOnly = envelope.ReadOnly
+    };
+}
+
 static object Find(LiteDatabase db, SidecarRequest envelope)
 {
     var collectionName = RequireCollection(envelope.Request);
@@ -196,8 +221,10 @@ static object Count(LiteDatabase db, SidecarRequest envelope)
 
 static object ListIndexes(LiteDatabase db, SidecarRequest envelope)
 {
-    var collectionName = RequireCollection(envelope.Request);
-    var indexes = IndexSummaries(db, collectionName);
+    var collectionName = OptionalString(envelope.Request, "collection");
+    var indexes = collectionName is null
+        ? db.GetCollectionNames().OrderBy(name => name, StringComparer.OrdinalIgnoreCase).SelectMany(name => IndexSummaries(db, name)).ToArray()
+        : IndexSummaries(db, collectionName);
 
     return new { collection = collectionName, indexes };
 }
@@ -1027,6 +1054,10 @@ static void ValidateEnvelope(SidecarRequest envelope)
     var readOperations = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "ListCollections",
+        "GetMetadata",
+        "Statistics",
+        "Pragmas",
+        "Maintenance",
         "Find",
         "FindById",
         "Query",

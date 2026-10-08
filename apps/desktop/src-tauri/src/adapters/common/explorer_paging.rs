@@ -6,6 +6,43 @@ use crate::domain::{
 const CURSOR_VERSION: &str = "explorer-v1";
 const MAX_GENERIC_FETCH: usize = 5_000;
 
+/// Adapt native service pages to the cumulative fetch used by the shared
+/// Explorer cursor. Filtering belongs in `fetch` so an empty filtered page
+/// cannot be mistaken for the end of a remote catalog.
+pub(crate) async fn collect_explorer_pages<T, F, Fut>(
+    limit: Option<u32>,
+    mut fetch: F,
+) -> Result<Vec<T>, CommandError>
+where
+    F: FnMut(Option<String>) -> Fut,
+    Fut: std::future::Future<Output = Result<(Vec<T>, Option<String>), CommandError>>,
+{
+    let limit = super::bounded_page_size(limit.or(Some(100))) as usize;
+    let mut items = Vec::new();
+    let mut cursor = None;
+    let mut seen = std::collections::HashSet::new();
+    // Bound sparse/empty remote pages as well as returned rows. Never report a
+    // broken or unbounded continuation chain as a successfully empty catalog.
+    for _ in 0..1_000 {
+        let (page, next) = fetch(cursor).await?;
+        items.extend(page.into_iter().take(limit - items.len()));
+        if items.len() >= limit || next.as_deref().is_none_or(str::is_empty) {
+            return Ok(items);
+        }
+        if !seen.insert(next.clone()) {
+            return Err(CommandError::new(
+                "explorer-pagination-stalled",
+                "The datastore repeated an Explorer continuation. Refresh metadata and try again.",
+            ));
+        }
+        cursor = next;
+    }
+    Err(CommandError::new(
+        "explorer-pagination-limit",
+        "The datastore returned too many metadata pages. Narrow the Explorer scope and try again.",
+    ))
+}
+
 pub(crate) fn prepare_default_explorer_request(
     engine: &str,
     request: &ExplorerRequest,

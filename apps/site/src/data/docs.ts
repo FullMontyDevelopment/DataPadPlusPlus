@@ -200,7 +200,7 @@ const legacyDocArticles: LegacyDocArticle[] = [
             { title: 'Choose the new file', body: 'Choose folder… and enter Filename without its displayed extension. Selecting the folder creates nothing. SQLite and DuckDB can Include example tables and data; leave that option off for an empty database.' },
             { title: 'Create once, then connect', body: 'Choose Create Database and Save Connection. Existing files are never replaced. Test connection is unavailable until the new database exists. If file creation succeeds but saving the profile fails, retry Save Connection; the file is not created again.' },
           ] },
-          { type: 'callout', tone: 'warning', title: 'LiteDB requires its runtime', body: 'LiteDB creation requires a configured LiteDB sidecar; it is not currently bundled. For a new encrypted file, enter its password explicitly. When creating a different file from an encrypted profile, use Remove for an unencrypted new file. Once created, its password is fixed while profile saving is retried.' },
+          { type: 'callout', tone: 'note', title: 'LiteDB includes its runtime', body: 'Desktop builds include the LiteDB runtime for creation, testing and collection metadata; a separate .NET installation is not needed. For a new encrypted file, enter its password explicitly. When creating a different file from an encrypted profile, use Remove for an unencrypted new file. Once created, its password is fixed while profile saving is retried.' },
           { type: 'paragraph', text: 'Canceling after a file was created does not delete it. The discard confirmation warns that the created database file will remain on disk.' },
         ],
       },

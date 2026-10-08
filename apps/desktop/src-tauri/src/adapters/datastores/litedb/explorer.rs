@@ -1,10 +1,12 @@
 use std::fs;
 
+use crate::domain::models::ExplorerPageInfo;
 use serde_json::{json, Value};
 
 use super::super::super::*;
 use super::catalog::litedb_execution_capabilities;
-use super::connection::{litedb_file_path, litedb_local_file_preflight};
+use super::connection::{litedb_file_path, litedb_local_file_preflight, require_litedb_sidecar};
+use super::query::{execute_litedb_sidecar_operation, litedb_live_sidecar_boundary};
 
 pub(super) async fn list_litedb_explorer_nodes(
     connection: &ResolvedConnectionProfile,
@@ -12,14 +14,14 @@ pub(super) async fn list_litedb_explorer_nodes(
 ) -> Result<ExplorerResponse, CommandError> {
     let nodes = match request.scope.as_deref() {
         Some("litedb:database") => database_child_nodes(connection),
-        Some("litedb:collections") => Vec::new(),
+        Some("litedb:collections") => collection_nodes(connection).await?,
         Some(scope) if scope.starts_with("litedb:collection:") => {
             collection_child_nodes(connection, scope)
         }
-        Some("litedb:indexes") => Vec::new(),
+        Some("litedb:indexes") => collection_index_nodes(connection, None).await?,
         Some(scope) if scope.starts_with("litedb:collection-indexes:") => {
             let collection = scope.trim_start_matches("litedb:collection-indexes:");
-            collection_index_nodes(connection, collection)
+            collection_index_nodes(connection, Some(collection)).await?
         }
         Some("litedb:file-storage") => file_storage_child_nodes(connection),
         Some("litedb:storage") => Vec::new(),
@@ -30,6 +32,35 @@ pub(super) async fn list_litedb_explorer_nodes(
         None => root_nodes(connection),
     };
 
+    let scope = request.scope.as_deref().unwrap_or("root");
+    let offset = match request.cursor.as_deref() {
+        None => 0,
+        Some(cursor) => cursor
+            .rsplit_once('|')
+            .filter(|(saved, _)| *saved == scope)
+            .and_then(|(_, offset)| offset.parse::<usize>().ok())
+            .filter(|offset| *offset <= nodes.len())
+            .ok_or_else(|| {
+                CommandError::new(
+                    "litedb-explorer-cursor-invalid",
+                    "This Explorer page is no longer valid. Refresh the branch.",
+                )
+            })?,
+    };
+    let total = nodes.len();
+    let nodes = nodes
+        .into_iter()
+        .skip(offset)
+        .take(request.limit.unwrap_or(100).clamp(1, 1000) as usize)
+        .collect::<Vec<_>>();
+    let end = offset + nodes.len();
+    let page_info = Some(ExplorerPageInfo {
+        cursor: request.cursor.clone(),
+        next_cursor: (end < total).then(|| format!("{scope}|{end}")),
+        returned_count: nodes.len() as u32,
+        known_total: Some(total as u32),
+        has_more: end < total,
+    });
     Ok(ExplorerResponse {
         connection_id: request.connection_id.clone(),
         environment_id: request.environment_id.clone(),
@@ -41,18 +72,18 @@ pub(super) async fn list_litedb_explorer_nodes(
         ),
         capabilities: litedb_execution_capabilities(),
         nodes,
-        page_info: None,
+        page_info,
     })
 }
 
-pub(super) fn inspect_litedb_explorer_node(
+pub(super) async fn inspect_litedb_explorer_node(
     connection: &ResolvedConnectionProfile,
     request: &ExplorerInspectRequest,
-) -> ExplorerInspectResponse {
+) -> Result<ExplorerInspectResponse, CommandError> {
     let query_template = litedb_query_template(&request.node_id);
-    let payload = litedb_inspection_payload(connection, &request.node_id);
+    let payload = litedb_inspection_payload(connection, &request.node_id).await?;
 
-    ExplorerInspectResponse {
+    Ok(ExplorerInspectResponse {
         node_id: request.node_id.clone(),
         summary: format!(
             "LiteDB metadata view ready for {} on {}.",
@@ -60,7 +91,49 @@ pub(super) fn inspect_litedb_explorer_node(
         ),
         query_template: Some(query_template),
         payload: Some(payload),
-    }
+    })
+}
+
+async fn collection_nodes(
+    connection: &ResolvedConnectionProfile,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let sidecar = require_litedb_sidecar(connection)?;
+    let outcome = execute_litedb_sidecar_operation(
+        connection,
+        "ListCollections",
+        &json!({}),
+        1000,
+        &sidecar,
+        true,
+    )
+    .await?;
+    let rows = outcome.response["collections"].as_array().ok_or_else(|| {
+        CommandError::new(
+            "litedb-metadata-invalid",
+            "The LiteDB runtime returned invalid collection metadata.",
+        )
+    })?;
+    let mut names = rows
+        .iter()
+        .filter_map(|row| row.as_str().or_else(|| row["name"].as_str()))
+        .collect::<Vec<_>>();
+    names.sort_by_key(|name| name.to_lowercase());
+    names.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+    Ok(names
+        .into_iter()
+        .map(|name| {
+            litedb_node(
+                &format!("litedb:collection:{name}"),
+                name,
+                "collection",
+                "LiteDB document collection",
+                Some(&format!("litedb:collection:{name}")),
+                true,
+                Some(find_template(name)),
+                vec![litedb_file_name(connection), "Collections".into()],
+            )
+        })
+        .collect())
 }
 
 fn root_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
@@ -260,29 +333,66 @@ fn collection_child_nodes(
     ]
 }
 
-fn collection_index_nodes(
+async fn collection_index_nodes(
     connection: &ResolvedConnectionProfile,
-    collection: &str,
-) -> Vec<ExplorerNode> {
-    if collection.trim().is_empty() {
-        return Vec::new();
-    }
-
-    vec![litedb_node(
-        &format!("litedb:index:{collection}:_id"),
-        "_id",
-        "index",
-        "$._id | unique",
-        Some(&format!("litedb:index:{collection}:_id")),
-        false,
-        Some(json!({ "operation": "ListIndexes", "collection": collection }).to_string()),
-        vec![
-            litedb_file_name(connection),
-            "Collections".into(),
-            collection.into(),
-            "Indexes".into(),
-        ],
-    )]
+    collection: Option<&str>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let sidecar = require_litedb_sidecar(connection)?;
+    let outcome = execute_litedb_sidecar_operation(
+        connection,
+        "ListIndexes",
+        &json!({"collection": collection}),
+        1000,
+        &sidecar,
+        true,
+    )
+    .await?;
+    let rows = outcome.response["indexes"].as_array().ok_or_else(|| {
+        CommandError::new(
+            "litedb-metadata-invalid",
+            "The LiteDB runtime returned invalid index metadata.",
+        )
+    })?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| {
+            let name = row["name"].as_str()?;
+            let owner = row["collection"].as_str()?;
+            let label = if collection.is_some() {
+                name.to_string()
+            } else {
+                format!("{owner}.{name}")
+            };
+            let path = if collection.is_some() {
+                vec![
+                    litedb_file_name(connection),
+                    "Collections".into(),
+                    owner.into(),
+                    "Indexes".into(),
+                ]
+            } else {
+                vec![litedb_file_name(connection), "Indexes".into()]
+            };
+            Some(litedb_node(
+                &format!("litedb:index:{owner}:{name}"),
+                &label,
+                "index",
+                &format!(
+                    "{}{}",
+                    row["expression"].as_str().unwrap_or(""),
+                    if row["unique"] == true {
+                        " | unique"
+                    } else {
+                        ""
+                    }
+                ),
+                Some(&format!("litedb:index:{owner}:{name}")),
+                false,
+                Some(json!({"operation": "ListIndexes", "collection": owner}).to_string()),
+                path,
+            ))
+        })
+        .collect())
 }
 
 fn file_storage_child_nodes(connection: &ResolvedConnectionProfile) -> Vec<ExplorerNode> {
@@ -323,12 +433,31 @@ fn diagnostics_child_nodes(connection: &ResolvedConnectionProfile) -> Vec<Explor
     )]
 }
 
-fn litedb_inspection_payload(connection: &ResolvedConnectionProfile, node_id: &str) -> Value {
+async fn litedb_inspection_payload(
+    connection: &ResolvedConnectionProfile,
+    node_id: &str,
+) -> Result<Value, CommandError> {
     let object_view = litedb_object_view(node_id);
     let collection = collection_from_node_id(node_id);
+    let sidecar = require_litedb_sidecar(connection)?;
+    let metadata = execute_litedb_sidecar_operation(
+        connection,
+        "GetMetadata",
+        &json!({"collection": collection}),
+        1000,
+        &sidecar,
+        true,
+    )
+    .await?;
+    let mut live_boundary =
+        litedb_live_sidecar_boundary(Some(&sidecar), "GetMetadata", metadata.evidence, false);
+    live_boundary["engineRuntimeValidated"] = metadata.response["engineOpenValidated"].clone();
+    let metadata = metadata.response;
     let file_path = litedb_file_path(connection);
     let file_size = file_size_label(&file_path);
-    let local_file_preflight = litedb_local_file_preflight(connection, false);
+    let mut local_file_preflight = litedb_local_file_preflight(connection, false);
+    local_file_preflight["sidecarExecutionBoundary"] = live_boundary.clone();
+    local_file_preflight["encryptionBoundary"]["liveValidation"] = json!("engine-open-succeeded");
     let file_exists = local_file_preflight["exists"].as_bool().unwrap_or(false);
     let read_probe_status = local_file_preflight["readProbe"]["status"].clone();
     let write_probe_status = local_file_preflight["writeProbe"]["status"].clone();
@@ -339,62 +468,33 @@ fn litedb_inspection_payload(connection: &ResolvedConnectionProfile, node_id: &s
             .push("LiteDB file metadata is unavailable; verify the local file path.".to_string());
     }
 
-    warnings.push(
-        "Live collection metadata is limited until the LiteDB metadata bridge is available."
-            .to_string(),
-    );
-
-    let collections = collection
-        .as_ref()
-        .map(|name| {
-            vec![json!({
-                "name": name,
-                "documentCount": "-",
-                "indexes": "-",
-                "avgDocumentSize": "-",
-            })]
-        })
-        .unwrap_or_default();
-    let indexes = collection
-        .as_ref()
-        .map(|name| {
-            vec![json!({
-                "collection": name,
-                "name": "_id",
-                "expression": "$._id",
-                "unique": true,
-                "status": "expected",
-            })]
-        })
-        .unwrap_or_default();
-    let fields = collection
-        .as_ref()
-        .map(|name| {
-            vec![json!({
-                "path": "_id",
-                "types": "document id",
-                "presence": "-",
-                "example": format!("{name} document key"),
-                "warning": "",
-            })]
-        })
-        .unwrap_or_default();
+    let collections = metadata["collections"].clone();
+    let indexes = metadata["indexes"].clone();
+    let fields = if collection.is_some() && matches!(object_view, "schema" | "collection") {
+        execute_litedb_sidecar_operation(
+            connection,
+            "SampleSchema",
+            &json!({"collection": collection, "limit": 25}),
+            25,
+            &sidecar,
+            true,
+        )
+        .await?
+        .response["fields"]
+            .clone()
+    } else {
+        json!([])
+    };
     let settings = vec![
         json!({ "name": "File", "value": file_path, "scope": "local file" }),
-        json!({ "name": "Mode", "value": connection.connection_string.as_deref().unwrap_or("local-file"), "scope": "connection" }),
+        json!({ "name": "Mode", "value": "local-file", "scope": "connection" }),
         json!({ "name": "Password", "value": if connection.password.is_some() { "stored secret" } else { "not configured" }, "scope": "secret store" }),
         json!({ "name": "Read Only", "value": connection.read_only, "scope": "safety" }),
     ];
-    let pragmas = vec![
-        json!({ "name": "USER_VERSION", "value": "-", "source": "database file", "status": "metadata bridge required" }),
-        json!({ "name": "TIMEOUT", "value": "-", "source": "database file", "status": "metadata bridge required" }),
-        json!({ "name": "UTC_DATE", "value": "-", "source": "database file", "status": "metadata bridge required" }),
-        json!({ "name": "COLLATION", "value": "-", "source": "database file", "status": "metadata bridge required" }),
-        json!({ "name": "Read Only", "value": connection.read_only, "source": "connection", "status": if connection.read_only { "enabled" } else { "writable" } }),
-    ];
+    let pragmas = metadata["pragmas"].clone();
     let storage = vec![
         json!({ "name": "File Size", "value": file_size, "status": if file_exists { "healthy" } else { "watch" }, "guidance": "Local file size is read directly from the filesystem." }),
-        json!({ "name": "Collection Metadata", "value": if collections.is_empty() { "sidecar required" } else { "scoped collection" }, "status": "watch", "guidance": "Collection counts and page allocation need the LiteDB sidecar metadata endpoint." }),
+        json!({ "name": "Collections", "value": metadata["collectionCount"], "status": "healthy", "guidance": "Read from the LiteDB engine." }),
     ];
     let maintenance = vec![
         json!({ "name": "Checkpoint", "effect": "Flush pending pages", "risk": "low", "status": "preview" }),
@@ -403,27 +503,27 @@ fn litedb_inspection_payload(connection: &ResolvedConnectionProfile, node_id: &s
         json!({ "name": "Backup", "effect": "Copy database file after checkpoint", "risk": "low", "status": "preview" }),
     ];
     let statistics = vec![
-        json!({ "name": "Documents", "value": if collection.is_some() { "-" } else { "metadata bridge required" }, "scope": "collection" }),
-        json!({ "name": "Indexes", "value": indexes.len(), "scope": "collection" }),
+        json!({ "name": "Documents", "value": metadata["documentCount"], "scope": "selected scope" }),
+        json!({ "name": "Indexes", "value": metadata["indexCount"], "scope": "selected scope" }),
         json!({ "name": "Average Document Size", "value": "-", "scope": "collection" }),
         json!({ "name": "Storage Pages", "value": "-", "scope": "collection" }),
     ];
     let diagnostics = vec![
         json!({ "signal": "File Available", "value": file_exists, "status": if file_exists { "healthy" } else { "watch" }, "guidance": "Queries need the configured local file to exist and be accessible." }),
-        json!({ "signal": "Read Open Probe", "value": read_probe_status, "status": if local_file_preflight["readProbe"]["status"].as_str() == Some("ok") { "healthy" } else { "watch" }, "guidance": "Filesystem read-open evidence is non-mutating; LiteDB engine reads still need the sidecar." }),
+        json!({ "signal": "Read Open Probe", "value": read_probe_status, "status": if local_file_preflight["readProbe"]["status"].as_str() == Some("ok") { "healthy" } else { "watch" }, "guidance": "Filesystem and LiteDB engine read access have been checked." }),
         json!({ "signal": "Write Open Probe", "value": write_probe_status, "status": if local_file_preflight["writeProbe"]["status"].as_str() == Some("ok") { "watch" } else { "blocked" }, "guidance": "Filesystem write-open evidence does not prove LiteDB exclusive writer-lock behavior." }),
-        json!({ "signal": "Live Collection Enumeration", "value": "sidecar required", "status": "watch", "guidance": "DataPad++ no longer shows invented collection names when live metadata is unavailable." }),
+        json!({ "signal": "Live Collection Enumeration", "value": metadata["collectionCount"], "status": "healthy", "guidance": "Collections and indexes were read from the LiteDB engine." }),
         json!({ "signal": "Read Only", "value": connection.read_only, "status": if connection.read_only { "healthy" } else { "watch" }, "guidance": "Writable local file operations remain guarded by environment safety rules." }),
     ];
 
-    json!({
+    Ok(json!({
         "engine": "litedb",
         "database": litedb_file_name(connection),
         "objectView": object_view,
         "collection": collection,
-        "collectionCount": collections.len(),
-        "documentCount": "-",
-        "indexCount": indexes.len(),
+        "collectionCount": metadata["collectionCount"],
+        "documentCount": metadata["documentCount"],
+        "indexCount": metadata["indexCount"],
         "fileSize": file_size_label(&litedb_file_path(connection)),
         "collections": collections,
         "fields": fields,
@@ -437,9 +537,9 @@ fn litedb_inspection_payload(connection: &ResolvedConnectionProfile, node_id: &s
         "maintenance": maintenance,
         "diagnostics": diagnostics,
         "localFilePreflight": local_file_preflight,
-        "sidecarExecutionBoundary": local_file_preflight["sidecarExecutionBoundary"].clone(),
+        "sidecarExecutionBoundary": live_boundary,
         "warnings": warnings,
-    })
+    }))
 }
 
 fn litedb_query_template(node_id: &str) -> String {
@@ -553,6 +653,11 @@ fn litedb_object_view(node_id: &str) -> &'static str {
 }
 
 fn collection_from_node_id(node_id: &str) -> Option<String> {
+    if let Some(index) = node_id.strip_prefix("litedb:index:") {
+        return index
+            .split_once(':')
+            .map(|(collection, _)| collection.to_string());
+    }
     [
         "litedb:collection:",
         "litedb:documents:",

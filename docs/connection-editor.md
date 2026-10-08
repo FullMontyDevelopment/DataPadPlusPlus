@@ -39,7 +39,9 @@ Browser preview cannot save or reveal OS-vault credentials or create local datab
 
 Choose **Open existing database** or **Create new database**. Choosing a folder does not create a file. Creation happens with **Create Database and Save Connection**.
 
-SQLite and DuckDB support empty databases or example data. LiteDB uses its sidecar to initialize real pages, including optional password encryption. The current package does not bundle LiteDB: local creation requires the `DATAPADPLUSPLUS_LITEDB_SIDECAR_PATH` runtime configuration. Existing profiles may use a `SidecarPath` connection-string option.
+SQLite and DuckDB support empty databases or example data. LiteDB uses its bundled, self-contained runtime to initialize real pages, including optional password encryption. No separate .NET installation is required. Development checkouts prepare it with `npm run litedb:sidecar:ensure`; the desktop development/build hooks do this automatically. Explicit `DATAPADPLUSPLUS_LITEDB_SIDECAR_PATH` and `SidecarPath` overrides remain supported for custom runtimes.
+
+LiteDB Explorer reads actual collection names, index definitions, document counts and pragmas from the file. Expand **Collections** to see the collections, using **Load more** for large lists. An empty newly created database has no collections until a document or index creates one. Metadata reads open the file read-only; a missing file, wrong password or engine-open failure is an error, not an empty list. The live file replaces the generic Local Database heading rather than appearing as a second database.
 
 Creation initializes a temporary file on the destination filesystem and publishes it without replacing existing files. If saving the profile fails afterward, the dialog retains the created path and retries only profile saving. Testing SQLite or DuckDB does not create a missing file. LiteDB testing opens the database read-only and no longer reports contract-only success.
 

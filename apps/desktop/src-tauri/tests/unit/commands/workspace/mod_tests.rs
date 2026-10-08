@@ -1,5 +1,55 @@
 use super::*;
 
+#[tokio::test]
+#[ignore = "Requires the bundled runtime; run npm run rust:test:litedb"]
+async fn litedb_bundled_atomic_creation_and_encrypted_reopen() {
+    assert!(std::env::var("DATAPADPLUSPLUS_LITEDB_SIDECAR_PATH").is_ok());
+    for password in [None, Some("exact ; password Ω")] {
+        let path = test_local_path("atomic-litedb", "db");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        create_local_database_atomically(&path, "litedb", "empty", password)
+            .await
+            .unwrap();
+        let original = std::fs::read(&path).unwrap();
+        assert!(!original.is_empty());
+        let connection = crate::domain::models::ResolvedConnectionProfile {
+            id: "isolated-litedb".into(),
+            engine: "litedb".into(),
+            database: Some(path.to_string_lossy().into_owned()),
+            password: password.map(str::to_owned),
+            read_only: true,
+            ..Default::default()
+        };
+        assert!(
+            adapters::test_connection(&connection, Vec::new())
+                .await
+                .unwrap()
+                .ok
+        );
+        let collections = adapters::list_explorer_nodes(
+            &connection,
+            &crate::domain::models::ExplorerRequest {
+                connection_id: connection.id.clone(),
+                environment_id: "isolated".into(),
+                scope: Some("litedb:collections".into()),
+                limit: Some(1),
+                cursor: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(collections.nodes.is_empty());
+        assert_eq!(collections.page_info.unwrap().known_total, Some(0));
+        assert!(
+            create_local_database_atomically(&path, "litedb", "empty", password)
+                .await
+                .is_err()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
 #[test]
 fn atomic_database_creation_initializes_and_publishes_sqlite() {
     tauri::async_runtime::block_on(async {

@@ -19,7 +19,9 @@ Connection strings, credentials, and seeded smoke queries are listed in
 - Validate TimescaleDB fixture evidence: `npm run fixtures:validate:timescale`
 - Validate Oracle fixture evidence: `npm run fixtures:validate:oracle`
 - Validate Cosmos DB emulator evidence: `npm run fixtures:validate:cosmosdb`
+- Validate Cosmos DB Explorer paging: `npm run fixtures:validate:cosmosdb:explorer`
 - Validate DynamoDB Local fixture evidence: `npm run fixtures:validate:dynamodb`
+- Validate DynamoDB Explorer paging: `npm run fixtures:validate:dynamodb:explorer`
 - Validate opt-in DynamoDB AWS cloud evidence: `npm run fixtures:validate:dynamodb:cloud`
 - Validate Elasticsearch/OpenSearch fixture evidence: `npm run fixtures:validate:search`
 - Validate DuckDB local fixture evidence: `npm run fixtures:validate:duckdb`
@@ -36,6 +38,23 @@ npm run rust:test:fixtures
 ```
 
 The ordinary `npm run rust:test` command reports live fixture tests as ignored. The dedicated command enables those tests only after the runtime fixture flag above has also been set.
+
+The two `:explorer` commands above explicitly run ignored native tests against the
+corresponding already-running local fixture. They create uniquely named temporary
+objects, enumerate them through DataPad++ in 37-object pages, verify duplicates,
+completeness and refresh, then remove only those temporary objects. DynamoDB uses
+105 tables and also checks a prefix whose match falls beyond the first native
+100-table page. Cosmos DB uses 104 containers, including case-distinct names.
+Only the fixture port is configurable; these tests cannot target a remote host.
+Run the commands serially. These are Explorer tests, not tests of the connection
+editor's database-creation workflow.
+
+Emulator limits are explicit: DynamoDB Local's SQLite catalog cannot create two
+table names differing only by case (the shared UI contract tests cover that
+distinction). The current Cosmos DB vNext emulator returns the full collection
+feed regardless of `max-item-count`, so its test proves DataPad++ paging over real
+metadata, while native continuation-token forwarding remains HTTP-contract
+coverage rather than live Azure evidence.
 
 `DATAPADPLUSPLUS_*` is the current fixture environment prefix. Older `DATANAUT_*` and `UNIVERSALITY_*` variables may still be read as compatibility fallbacks, but new scripts and docs should use the DataPad++ prefix.
 

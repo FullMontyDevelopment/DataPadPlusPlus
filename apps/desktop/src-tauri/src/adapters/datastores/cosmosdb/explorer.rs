@@ -2,7 +2,9 @@ use serde_json::{json, Value};
 
 use super::super::super::*;
 use super::catalog::cosmosdb_execution_capabilities;
-use super::connection::{cosmosdb_default_database, cosmosdb_get, parse_cosmosdb_json};
+use super::connection::{
+    cosmosdb_default_database, cosmosdb_get, cosmosdb_get_feed, parse_cosmosdb_json,
+};
 
 pub(super) async fn list_cosmosdb_explorer_nodes(
     connection: &ResolvedConnectionProfile,
@@ -55,8 +57,9 @@ pub(super) async fn list_cosmosdb_explorer_nodes(
                 &database,
                 &container,
                 CosmosScriptBranch::stored_procedures(),
+                request.limit,
             )
-            .await
+            .await?
         }
         Some(scope) if scope.starts_with("cosmos:triggers:") => {
             let (database, container) = cosmosdb_scope_parts(connection, scope);
@@ -65,8 +68,9 @@ pub(super) async fn list_cosmosdb_explorer_nodes(
                 &database,
                 &container,
                 CosmosScriptBranch::triggers(),
+                request.limit,
             )
-            .await
+            .await?
         }
         Some(scope) if scope.starts_with("cosmos:udfs:") => {
             let (database, container) = cosmosdb_scope_parts(connection, scope);
@@ -75,12 +79,13 @@ pub(super) async fn list_cosmosdb_explorer_nodes(
                 &database,
                 &container,
                 CosmosScriptBranch::udfs(),
+                request.limit,
             )
-            .await
+            .await?
         }
         Some(scope) if scope.starts_with("cosmos:conflicts:") => {
             let (database, container) = cosmosdb_scope_parts(connection, scope);
-            conflict_child_nodes(connection, &database, &container).await
+            conflict_child_nodes(connection, &database, &container, request.limit).await?
         }
         Some(_) => Vec::new(),
         None => root_nodes(connection),
@@ -204,9 +209,28 @@ async fn database_nodes(
     connection: &ResolvedConnectionProfile,
     limit: Option<u32>,
 ) -> Result<Vec<ExplorerNode>, CommandError> {
-    let response = cosmosdb_get(connection, "/dbs").await?;
-    let value = parse_cosmosdb_json(&response.body)?;
+    let value = cosmosdb_list_value(connection, "/dbs", "Databases", limit).await?;
     Ok(database_nodes_from_value(connection, &value, limit))
+}
+
+async fn cosmosdb_list_value(
+    connection: &ResolvedConnectionProfile,
+    path: &str,
+    field: &str,
+    limit: Option<u32>,
+) -> Result<Value, CommandError> {
+    let items = collect_explorer_pages(limit, |cursor| async move {
+        let response = cosmosdb_get_feed(connection, path, cursor).await?;
+        let value = parse_cosmosdb_json(&response.body)?;
+        let items = value
+            .get(field)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        Ok((items, response.continuation))
+    })
+    .await?;
+    Ok(json!({ field: items }))
 }
 
 fn database_nodes_from_value(
@@ -529,8 +553,13 @@ async fn container_nodes(
     database: &str,
     limit: Option<u32>,
 ) -> Result<Vec<ExplorerNode>, CommandError> {
-    let response = cosmosdb_get(connection, &format!("/dbs/{database}/colls")).await?;
-    let value = parse_cosmosdb_json(&response.body)?;
+    let value = cosmosdb_list_value(
+        connection,
+        &format!("/dbs/{database}/colls"),
+        "DocumentCollections",
+        limit,
+    )
+    .await?;
     Ok(container_nodes_from_value(
         connection, database, &value, limit,
     ))
@@ -697,65 +726,76 @@ async fn script_child_nodes(
     database: &str,
     container: &str,
     branch: CosmosScriptBranch,
-) -> Vec<ExplorerNode> {
-    named_script_values(
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let value = cosmosdb_list_value(
         connection,
         &format!("/dbs/{database}/colls/{container}/{}", branch.path_segment),
         branch.array_key,
+        limit,
     )
-    .await
-    .into_iter()
-    .filter_map(|item| {
-        let name = item.get("id").and_then(Value::as_str)?.to_string();
-        Some(cosmos_node(
-            &format!(
-                "cosmos:{}:{database}:{container}:{name}",
-                branch.node_prefix
-            ),
-            &name,
-            branch.node_kind,
-            branch.detail,
-            Some(&format!(
-                "cosmos:{}:{database}:{container}:{name}",
-                branch.node_prefix
-            )),
-            false,
-            None,
-            cosmos_container_branch_path(connection, database, container, branch.label),
-        ))
-    })
-    .collect()
+    .await?;
+    Ok(value
+        .get(branch.array_key)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let name = item.get("id").and_then(Value::as_str)?.to_string();
+            Some(cosmos_node(
+                &format!(
+                    "cosmos:{}:{database}:{container}:{name}",
+                    branch.node_prefix
+                ),
+                &name,
+                branch.node_kind,
+                branch.detail,
+                Some(&format!(
+                    "cosmos:{}:{database}:{container}:{name}",
+                    branch.node_prefix
+                )),
+                false,
+                None,
+                cosmos_container_branch_path(connection, database, container, branch.label),
+            ))
+        })
+        .collect())
 }
 
 async fn conflict_child_nodes(
     connection: &ResolvedConnectionProfile,
     database: &str,
     container: &str,
-) -> Vec<ExplorerNode> {
-    optional_cosmosdb_json(
+    limit: Option<u32>,
+) -> Result<Vec<ExplorerNode>, CommandError> {
+    let value = cosmosdb_list_value(
         connection,
         &format!("/dbs/{database}/colls/{container}/conflicts"),
+        "Conflicts",
+        limit,
     )
-    .await
-    .and_then(|value| value.get("Conflicts").and_then(Value::as_array).cloned())
-    .unwrap_or_default()
-    .into_iter()
-    .filter_map(|item| {
-        let id = item.get("id").and_then(Value::as_str)?.to_string();
-        Some(cosmos_node(
-            &format!("cosmos:conflict:{database}:{container}:{id}"),
-            &id,
-            "conflict",
-            item.get("operationType")
-                .and_then(Value::as_str)
-                .unwrap_or("conflict"),
-            Some(&format!("cosmos:conflict:{database}:{container}:{id}")),
-            false,
-            None,
-            cosmos_container_branch_path(connection, database, container, "Conflict Feed"),
-        ))
-    })
-    .collect()
+    .await?;
+    Ok(value
+        .get("Conflicts")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let id = item.get("id").and_then(Value::as_str)?.to_string();
+            Some(cosmos_node(
+                &format!("cosmos:conflict:{database}:{container}:{id}"),
+                &id,
+                "conflict",
+                item.get("operationType")
+                    .and_then(Value::as_str)
+                    .unwrap_or("conflict"),
+                Some(&format!("cosmos:conflict:{database}:{container}:{id}")),
+                false,
+                None,
+                cosmos_container_branch_path(connection, database, container, "Conflict Feed"),
+            ))
+        })
+        .collect())
 }
 
 fn cosmos_container_branch_path(

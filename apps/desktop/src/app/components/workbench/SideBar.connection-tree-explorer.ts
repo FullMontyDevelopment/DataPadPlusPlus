@@ -23,7 +23,7 @@ export function buildConnectionObjectTreeFromExplorerNodes(
 
     path.forEach((_segment, index) => {
       const branchPath = path.slice(0, index + 1)
-      const key = treePathKey(connection, branchPath)
+      const key = treePathKey(branchPath)
       let branch = nodesByPath.get(key)
 
       if (!branch) {
@@ -48,7 +48,7 @@ export function buildConnectionObjectTreeFromExplorerNodes(
     const parentNode = ensureBranch(placement.path)
     const treeNode = explorerNodeToConnectionTreeNode(connection, node, placement.kind)
     const fullPath = [...placement.path, treeNode.label]
-    const key = treePathKey(connection, fullPath)
+    const key = treePathKey(fullPath)
     const existingNode = nodesByPath.get(key)
     const mergedNode = existingNode ? mergeTreeNode(existingNode, treeNode) : treeNode
 
@@ -161,10 +161,10 @@ function mergeTreeNode(
   return existingNode
 }
 
-function treePathKey(connection: ConnectionProfile, path: string[]) {
-  return path
-    .map((segment) => connection.engine === 'oracle' ? segment : segment.toLowerCase())
-    .join('/')
+function treePathKey(path: string[]) {
+  // Datastore identifiers are not display/search text. Case and separators can
+  // distinguish real objects, including quoted SQL names and document keys.
+  return JSON.stringify(path)
 }
 
 function fallbackExplorerQueryTemplate(

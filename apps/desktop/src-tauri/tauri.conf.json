@@ -4,9 +4,9 @@
   "version": "0.1.62",
   "identifier": "com.datapadplusplus.desktop",
   "build": {
-    "beforeDevCommand": "npm run auth:sidecar:ensure && npm run oracle:sidecar:ensure && npm run dev:ensure",
+    "beforeDevCommand": "npm run litedb:sidecar:ensure && npm run auth:sidecar:ensure && npm run oracle:sidecar:ensure && npm run dev:ensure",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "npm run auth:sidecar:prepare && npm run oracle:sidecar:prepare && npm run build",
+    "beforeBuildCommand": "npm run litedb:sidecar:prepare && npm run auth:sidecar:prepare && npm run oracle:sidecar:prepare && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -32,11 +32,13 @@
     "createUpdaterArtifacts": true,
     "externalBin": [
       "binaries/datapadplusplus-oracle-runtime",
-      "binaries/datapadplusplus-auth-runtime"
+      "binaries/datapadplusplus-auth-runtime",
+      "binaries/datapadplusplus-litedb-runtime"
     ],
     "resources": [
       "resources/licenses/Oracle.ManagedDataAccess.Core-LICENSE.txt",
-      "resources/licenses/Microsoft.Identity.Client-LICENSE.txt"
+      "resources/licenses/Microsoft.Identity.Client-LICENSE.txt",
+      "resources/licenses/LiteDB-LICENSE.txt"
     ],
     "targets": "all",
     "macOS": {

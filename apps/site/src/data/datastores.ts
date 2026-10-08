@@ -536,19 +536,19 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     slug: 'litedb',
     title: 'LiteDB',
     family: 'Document and NoSQL',
-    maturity: 'Available with a configured LiteDB sidecar',
+    maturity: 'Available through the bundled LiteDB runtime',
     summary:
       'LiteDB is documented as a local document-file workflow with collection metadata, index and file storage panels, sidecar boundaries, and guarded local management.',
     bestFor: ['Local document files', 'Embedded .NET data', 'Sidecar-backed validation'],
     connections: [
-      'Choose LiteDB → Local database file, then Open existing database or Create new database. Creation requires a configured LiteDB sidecar, which is not currently bundled. Existing connection strings can carry SidecarPath; local creation uses the runtime sidecar configuration.',
+      'Choose LiteDB → Local database file, then Open existing database or Create new database. The desktop app includes a self-contained LiteDB runtime; no separate .NET installation or SidecarPath configuration is needed. Development checkouts prepare it with npm run litedb:sidecar:ensure.',
       'Enter a new file password explicitly for encryption, then Create Database and Save Connection. When creating a different file from an encrypted profile, Remove selects an unencrypted new file. Existing files are never overwritten; existing-file tests open read-only.',
     ],
     explorer: [
       'Browse collections, inferred schema previews, indexes, file storage, storage health, local-file preflight state, encryption posture, lock-boundary posture, and settings.',
     ],
     queryModes: [
-      'Use LiteDB JSON operation previews, deterministic collection/field IntelliSense, bounded find snippets, and sidecar-backed read dispatch where configured.',
+      'Use LiteDB JSON operations with the bundled runtime. Expand Collections to load actual collection names, then inspect document counts, index definitions, sampled fields and database pragmas. Large collection lists offer Load more.',
     ],
     resultViews: [
       'Inspect document rows, raw JSON, collection statistics, sidecar response metadata, open-failure details, timeout details, and redacted local-file diagnostics.',
@@ -563,7 +563,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
       'Use the bundled sidecar for live Extended JSON collection transfer, guarded document edits, FileStorage operations, and coordinated full-file backup/restore under the writer lock.',
     ],
     safety: [
-      'Live document editing requires an explicitly configured LiteDB sidecar and remains guarded by file identity, read-only posture, encryption, lock, and _id mismatch checks.',
+      'Live document editing uses the bundled LiteDB runtime and remains guarded by file identity, read-only posture, encryption, lock, and _id mismatch checks. Explorer metadata requests open the database read-only; missing, encrypted or locked files report an error instead of an empty collection list.',
     ],
     screenshots: screenshotSet('litedb'),
   },

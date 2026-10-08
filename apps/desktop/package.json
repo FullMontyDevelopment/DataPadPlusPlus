@@ -25,6 +25,8 @@
     "test:watch": "vitest",
     "oracle:sidecar:ensure": "node ../../tests/release/ensure-oracle-sidecar.mjs",
     "auth:sidecar:ensure": "node ../../tests/release/prepare-auth-sidecar.mjs --ensure",
+    "litedb:sidecar:ensure": "node ../../tests/release/prepare-litedb-sidecar.mjs --ensure",
+    "litedb:sidecar:prepare": "node ../../tests/release/prepare-litedb-sidecar.mjs",
     "auth:sidecar:prepare": "node ../../tests/release/prepare-auth-sidecar.mjs",
     "oracle:sidecar:prepare": "node ../../tests/release/prepare-oracle-sidecar.mjs",
     "tauri": "tauri",

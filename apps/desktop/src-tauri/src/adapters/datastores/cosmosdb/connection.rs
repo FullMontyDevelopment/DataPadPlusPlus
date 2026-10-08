@@ -90,6 +90,7 @@ pub(super) struct CosmosDbQueryRequestOptions {
 #[derive(Debug, Clone, Default)]
 struct CosmosDbRequestOptions {
     query: Option<CosmosDbQueryRequestOptions>,
+    feed: Option<(u32, Option<String>)>,
     mutation: Option<CosmosDbMutationRequestOptions>,
     resource_json: bool,
 }
@@ -151,6 +152,25 @@ pub(super) async fn cosmosdb_get_with_cancellation(
     .await
 }
 
+pub(super) async fn cosmosdb_get_feed(
+    connection: &ResolvedConnectionProfile,
+    path: &str,
+    continuation: Option<String>,
+) -> Result<CosmosDbResponse, CommandError> {
+    cosmosdb_request(
+        connection,
+        Method::GET,
+        path,
+        None,
+        CosmosDbRequestOptions {
+            feed: Some((100, continuation)),
+            ..Default::default()
+        },
+        None,
+    )
+    .await
+}
+
 pub(super) async fn cosmosdb_post_query(
     connection: &ResolvedConnectionProfile,
     path: &str,
@@ -165,6 +185,7 @@ pub(super) async fn cosmosdb_post_query(
         Some(body),
         CosmosDbRequestOptions {
             query: Some(options),
+            feed: None,
             mutation: None,
             resource_json: false,
         },
@@ -200,6 +221,7 @@ pub(super) async fn cosmosdb_create_document(
         Some(body),
         CosmosDbRequestOptions {
             query: None,
+            feed: None,
             mutation: Some(CosmosDbMutationRequestOptions {
                 partition_key: partition_key.to_string(),
                 if_match: None,
@@ -224,6 +246,7 @@ pub(super) async fn cosmosdb_create_resource(
         Some(body),
         CosmosDbRequestOptions {
             query: None,
+            feed: None,
             mutation: None,
             resource_json: true,
         },
@@ -303,6 +326,7 @@ async fn cosmosdb_guarded_document_request(
         body,
         CosmosDbRequestOptions {
             query: None,
+            feed: None,
             mutation: Some(CosmosDbMutationRequestOptions {
                 partition_key: partition_key.to_string(),
                 if_match: if_match.map(str::to_string),
@@ -359,6 +383,12 @@ async fn cosmosdb_request(
         }
         if let Some(query) = options.query.as_ref() {
             request = apply_cosmosdb_query_headers(request, query);
+        }
+        if let Some((count, continuation)) = options.feed.as_ref() {
+            request = request.header("x-ms-max-item-count", count.to_string());
+            if let Some(continuation) = continuation {
+                request = request.header("x-ms-continuation", continuation);
+            }
         }
         if let Some(mutation) = options.mutation.as_ref() {
             request = request
