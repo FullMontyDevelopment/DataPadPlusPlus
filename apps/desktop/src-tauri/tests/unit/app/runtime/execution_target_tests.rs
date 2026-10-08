@@ -9,6 +9,39 @@ use crate::domain::models::{
 };
 
 #[test]
+fn litedb_scopes_never_replace_the_configured_database_file() {
+    for (kind, label, path, scope) in [
+        (
+            "collection",
+            "Client",
+            vec!["db.db", "Collections"],
+            "litedb:collection:Client",
+        ),
+        (
+            "documents",
+            "Documents",
+            vec!["db.db", "Collections", "Client"],
+            "litedb:documents:Client",
+        ),
+        ("database", "db.db", vec![], "litedb:database"),
+        (
+            "collection",
+            "Client",
+            vec!["Local Database", "Collections"],
+            "collection:wrong:Client",
+        ),
+    ] {
+        let mut connection = resolved_connection("litedb", "document");
+        connection.database = Some("C:\\databases\\客户\\db.db".into());
+        apply_scoped_target_override(&mut connection, Some(&target(kind, label, &path, scope)));
+        assert_eq!(
+            connection.database.as_deref(),
+            Some("C:\\databases\\客户\\db.db")
+        );
+    }
+}
+
+#[test]
 fn scoped_target_overrides_mongodb_database_without_changing_the_saved_profile() {
     let mut connection = resolved_connection("mongodb", "document");
     let target = target(

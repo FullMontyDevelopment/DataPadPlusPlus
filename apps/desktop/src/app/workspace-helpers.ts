@@ -52,6 +52,7 @@ import {
   defaultScriptTextForConnection,
   editorLanguageForConnection,
 } from './state/helpers'
+import { workbenchSliceForEngine } from './components/workbench/datastores/registry'
 
 export { defaultScriptTextForConnection }
 
@@ -69,6 +70,8 @@ export function builderStateForTab(
   draftStates: Record<string, QueryBuilderState>,
 ): QueryBuilderState | undefined {
   const draftState = draftStates[tab.id]
+  const provider = workbenchSliceForEngine(connection.engine).queryBuilder
+  if (provider) return provider.resolveState(tab, draftState)
 
   if (connection.engine === 'mongodb') {
     if (isMongoAggregationBuilderState(draftState)) {

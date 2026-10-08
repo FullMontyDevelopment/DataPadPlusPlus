@@ -1226,6 +1226,7 @@ fn normalize_request_key(key: &str) -> String {
     match key {
         "Collection" => "collection",
         "Filter" => "filter",
+        "Parameters" => "parameters",
         "Id" | "ID" => "id",
         "Limit" => "limit",
         "Skip" => "skip",

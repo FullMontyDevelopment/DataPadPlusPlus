@@ -240,6 +240,103 @@ public sealed class LiteDbSidecarTests
         }
     }
 
+    [Fact]
+    public async Task Find_and_count_apply_native_filters_grouping_sort_skip_and_parameters()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var file = Path.Combine(root, "queries.db");
+            await SeedAsync(file,
+                new { _id = 1, age = 10, status = "active", name = "Alice" },
+                new { _id = 2, age = 20, status = "active", name = "Alan" },
+                new { _id = 3, age = 30, status = "paused", name = "Bob" },
+                new { _id = 4, age = 40, status = "closed", name = "Carol" });
+            var filter = "($.[\"age\"] >= @p0) AND (($.[\"status\"] = @p1) OR ($.[\"status\"] = @p2))";
+            var parameters = new { p0 = 20, p1 = "active", p2 = "paused" };
+            using var found = await InvokeAsync(Envelope(file, "Find", true, new {
+                collection = "items", filter, parameters,
+                orderBy = new { expression = "$.[\"age\"]", direction = "desc" }, skip = 1, limit = 1
+            }));
+            Assert.True(found.RootElement.GetProperty("ok").GetBoolean(), found.RootElement.GetRawText());
+            Assert.Equal(2, found.RootElement.GetProperty("response").GetProperty("documents")[0].GetProperty("_id").GetInt32());
+            using var counted = await InvokeAsync(Envelope(file, "Count", true, new { collection = "items", filter, parameters }));
+            Assert.Equal(2, counted.RootElement.GetProperty("response").GetProperty("count").GetInt64());
+            using var equal = await InvokeAsync(Envelope(file, "Find", true, new { collection = "items", filter = new { age = 30 } }));
+            Assert.Single(equal.RootElement.GetProperty("response").GetProperty("documents").EnumerateArray());
+            foreach (var expression in new[] { "INDEXOF($.[\"name\"], @p0) = 0", "$.[\"name\"] IN @p1", "($.[\"name\"] IN @p2) = false" })
+            {
+                using var result = await InvokeAsync(Envelope(file, "Count", true, new { collection = "items", filter = expression, parameters = new { p0 = "Al", p1 = new[] { "Alice", "Alan" }, p2 = new[] { "Bob", "Carol" } } }));
+                Assert.True(result.RootElement.GetProperty("ok").GetBoolean(), result.RootElement.GetRawText());
+                Assert.Equal(2, result.RootElement.GetProperty("response").GetProperty("count").GetInt64());
+            }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Native_array_predicates_never_match_missing_null_or_scalar_values()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var file = Path.Combine(root, "arrays.db");
+            await SeedAsync(file, new { _id = 1, values = Array.Empty<int>() }, new { _id = 2, values = new[] { 1, 2 } },
+                new { _id = 3 }, new { _id = 4, values = (object?)null }, new { _id = 5, values = "abc" }, new { _id = 6, values = 5 });
+            foreach (var comparison in new[] { "= 0", "> 0", "= @p0" })
+            {
+                using var result = await InvokeAsync(Envelope(file, "Count", true, new { collection = "items", filter = $"(IS_ARRAY($.[\"values\"]) = true AND COUNT($.[\"values\"]) {comparison})", parameters = new { p0 = 2 } }));
+                Assert.True(result.RootElement.GetProperty("ok").GetBoolean(), result.RootElement.GetRawText());
+                Assert.Equal(1, result.RootElement.GetProperty("response").GetProperty("count").GetInt64());
+            }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Native_query_parameters_preserve_extended_json_and_cannot_inject_predicates()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var file = Path.Combine(root, "types.db");
+            var date = new Dictionary<string, object> { ["$date"] = "2026-10-08T10:30:00.000Z" };
+            var guid = new Dictionary<string, object> { ["$guid"] = "9e107d9d-372b-4f7d-bb3a-17d63746f9a0" };
+            var oid = new Dictionary<string, object> { ["$oid"] = "507f1f77bcf86cd799439011" };
+            await SeedAsync(file, new { _id = 1, date, guid, oid, name = "' OR true --", nested = new { active = true } }, new { _id = 2, name = "safe" });
+            foreach (var entry in new Dictionary<string, object> { ["date"] = date, ["guid"] = guid, ["oid"] = oid, ["name"] = "' OR true --", ["nested.active"] = true })
+            {
+                var expression = "$" + string.Concat(entry.Key.Split('.').Select(part => ".[\"" + part + "\"]")) + " = @p0";
+                using var result = await InvokeAsync(Envelope(file, "Count", true, new { collection = "items", filter = expression, parameters = new { p0 = entry.Value } }));
+                Assert.True(result.RootElement.GetProperty("ok").GetBoolean(), result.RootElement.GetRawText());
+                Assert.Equal(1, result.RootElement.GetProperty("response").GetProperty("count").GetInt64());
+            }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Invalid_filters_and_missing_collections_fail_instead_of_returning_unfiltered_data()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var file = Path.Combine(root, "invalid.db");
+            await SeedAsync(file, new { _id = 1 });
+            foreach (var request in new object[] {
+                new { collection = "items", filter = 5 }, new { collection = "items", filter = "bad syntax ('" },
+                new { collection = "items", filter = new Dictionary<string, object> { ["$or"] = new[] { 1 } } },
+                new { collection = "items", skip = -1 }, new { collection = "items", orderBy = new { expression = "_id", direction = "wrong" } },
+                new { collection = "missing" }
+            })
+            {
+                using var result = await InvokeAsync(Envelope(file, "Find", true, request));
+                Assert.False(result.RootElement.GetProperty("ok").GetBoolean());
+            }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     private static object MutationRequest(string databasePath, object document, object? previousDocument, string path) =>
         Envelope(databasePath, "UpdateDocument", false, new
         {

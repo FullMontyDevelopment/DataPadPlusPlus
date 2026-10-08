@@ -24,6 +24,7 @@ import {
   isMongoFindBuilderState,
 } from './mongo-find'
 import { mongoQueryScopeForTab } from './mongo-query-scope'
+import { buildLiteDbFindQueryText, isLiteDbFindBuilderState } from './litedb-find'
 import { isRedisKeyBrowserState } from './redis-key-browser'
 import {
   buildSearchDslQueryText,
@@ -105,6 +106,7 @@ function buildUncheckedQueryTextForBuilderState(
   connection: ConnectionProfile | undefined,
   tab?: QueryTabState,
 ) {
+  if (isLiteDbFindBuilderState(builderState)) return buildLiteDbFindQueryText(builderState)
   if (isMongoFindBuilderState(builderState)) {
     return buildMongoFindQueryText(builderState, {
       database: queryScopeForBuilderState(builderState, connection, tab)?.database,

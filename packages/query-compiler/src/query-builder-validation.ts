@@ -3,6 +3,7 @@ import type {
   SearchDslBuilderState,
 } from '@datapadplusplus/shared-types'
 import { isCqlPartitionBuilderState } from './cql-partition'
+import { isLiteDbFindBuilderState, validateLiteDbFindBuilder } from './litedb-find'
 import { isCosmosSqlBuilderState } from './cosmos-sql'
 import { isDynamoDbKeyConditionBuilderState } from './dynamodb-key-condition'
 import { isMongoFindBuilderState } from './mongo-find'
@@ -21,6 +22,7 @@ export interface QueryBuilderValidationError {
 }
 
 export function validateQueryBuilderState(state: QueryBuilderState): QueryBuilderValidationError[] {
+  if (isLiteDbFindBuilderState(state)) return validateLiteDbFindBuilder(state)
   const errors: QueryBuilderValidationError[] = []
   if (isMongoFindBuilderState(state)) {
     const disabledGroups = new Set(

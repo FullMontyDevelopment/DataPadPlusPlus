@@ -8,6 +8,7 @@ import type {
 } from '@datapadplusplus/shared-types'
 import { explorerNodeTarget } from '../SideBar.helpers'
 import { parseOracleObjectTarget } from './oracle-query-target'
+import { liteDbTargetValues } from '../datastores/litedb/litedb-target'
 
 export interface QueryTargetLevel {
   id: string
@@ -236,6 +237,7 @@ export function queryTargetValues(
   target: ScopedQueryTarget,
   registry = queryTargetRegistryForEngine(connection.engine),
 ) {
+  if (connection.engine === 'litedb') return liteDbTargetValues(connection, target)
   const values = Array(registry.levels.length).fill('') as string[]
   if (values.length === 0) {
     return values
@@ -296,7 +298,8 @@ function currentQueryTargetValues(
   registry: QueryTargetRegistryEntry,
   sqlScope?: SqlQueryScope,
 ) {
-  const values = target ? queryTargetValues(connection, target, registry) : registry.levels.map(() => '')
+  const values = connection.engine === 'litedb' ? liteDbTargetValues(connection, target)
+    : target ? queryTargetValues(connection, target, registry) : registry.levels.map(() => '')
   const set = (levelId: string, value: string | number | undefined) => {
     const index = registry.levels.findIndex((item) => item.id === levelId)
     if (index >= 0 && value !== undefined && String(value).trim()) {
@@ -330,6 +333,9 @@ function currentQueryTargetValues(
   )
 
   switch (builderState?.kind) {
+    case 'litedb-find':
+      set('collection', builderState.collection)
+      break
     case 'mongo-find':
     case 'mongo-aggregation':
       set('database', builderState.database)
@@ -407,7 +413,7 @@ function targetLevelHints(connection: ConnectionProfile, target: ScopedQueryTarg
     if (value?.trim()) hints[id] = value.trim()
   }
 
-  if (['mongodb', 'litedb', 'cosmosdb'].includes(connection.engine) && parts.length >= 3) {
+  if (['mongodb', 'cosmosdb'].includes(connection.engine) && parts.length >= 3) {
     set('database', parts[1])
   }
   if (connection.engine === 'cassandra' && identity.includes('.')) {

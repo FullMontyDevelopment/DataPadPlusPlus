@@ -361,6 +361,12 @@ fn oracle_context_actions(manifest: &AdapterManifest) -> Vec<DatastoreExperience
 
 fn query_builders(manifest: &AdapterManifest) -> Vec<DatastoreExperienceBuilder> {
     match manifest.engine.as_str() {
+        "litedb" => vec![builder(
+            "litedb-find",
+            "Find Builder",
+            "collection",
+            "visual",
+        )],
         "mongodb" => vec![
             builder("mongo-find", "Find Builder", "collection", "visual"),
             builder(

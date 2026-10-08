@@ -10,13 +10,14 @@ test('committed query compiler and type-derived schemas are current', () => {
 })
 
 test('frontend and sandbox agree across every executable builder family and typed predicates', async () => {
-  const modules = ['mongo-find', 'mongo-aggregation', 'sql-select', 'cosmos-sql', 'cql-partition', 'search-dsl', 'dynamodb-key-condition']
+  const modules = ['mongo-find', 'litedb-find', 'mongo-aggregation', 'sql-select', 'cosmos-sql', 'cql-partition', 'search-dsl', 'dynamodb-key-condition']
   const built = await build({ stdin: { contents: modules.map(name => `export * from './packages/query-compiler/src/${name}.ts'`).join('\n'), resolveDir: process.cwd() }, bundle: true, write: false, format: 'esm', platform: 'node' })
   const ui = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`)
   const context = vm.createContext({})
   new vm.Script(await readFile('apps/desktop/src-tauri/src/app/runtime/query_compiler.js', 'utf8')).runInContext(context)
   const compiler = context.DataPadQueryCompiler
   const vectors = [
+    ['litedb', ui.createDefaultLiteDbFindBuilderState('items')],
     ['mongodb', ui.createDefaultMongoFindBuilderState('items', 20, 'catalog')],
     ['mongodb', ui.createDefaultMongoAggregationBuilderState('items', 20, 'catalog')],
     ['cosmosdb', ui.createDefaultCosmosSqlBuilderState('items', 'catalog')],
@@ -38,6 +39,10 @@ test('frontend and sandbox agree across every executable builder family and type
     const output = compiler.compileSavedBuilder({ builderState:state, connection:{engine:'mongodb'} })
     assert.equal(output.ok, true, `${type}: ${JSON.stringify(output.errors)}`)
     assert.equal(output.queryText, ui.buildMongoFindQueryText(state, {database:'catalog'}))
+    const liteDbState = { ...ui.createDefaultLiteDbFindBuilderState('items'), filters: state.filters }
+    const liteDbOutput = compiler.compileSavedBuilder({ builderState: liteDbState, connection: { engine: 'litedb' } })
+    assert.equal(liteDbOutput.ok, true, `LiteDB ${type}: ${JSON.stringify(liteDbOutput.errors)}`)
+    assert.equal(liteDbOutput.queryText, ui.buildLiteDbFindQueryText(liteDbState))
   }
 })
 test('compiler runs without browser/Node services and rejects stale invalid input', async () => {

@@ -3,6 +3,7 @@ import type {
   QueryBuilderState,
 } from '@datapadplusplus/shared-types'
 import { buildCqlPartitionCountQueryText } from './cql-partition'
+import { buildLiteDbFindQueryText } from '../datastores/litedb/litedb-find'
 import { buildCosmosSqlCountQueryText } from './cosmos-sql'
 import { buildDynamoDbCountQueryText } from './dynamodb-key-condition'
 import { buildMongoAggregationCountQueryText } from './mongo-aggregation'
@@ -20,6 +21,8 @@ export function buildQueryBuilderCountText(
   context: QueryBuilderCountContext = {},
 ) {
   switch (state.kind) {
+    case 'litedb-find':
+      return buildLiteDbFindQueryText(state, true)
     case 'mongo-find':
       return buildMongoFindCountQueryText(state, { database: context.database })
     case 'mongo-aggregation':
@@ -47,6 +50,8 @@ export function buildQueryBuilderCountText(
 
 export function queryBuilderCountTarget(state: QueryBuilderState) {
   switch (state.kind) {
+    case 'litedb-find':
+      return state.collection.trim()
     case 'mongo-find':
     case 'mongo-aggregation':
       return state.collection.trim()

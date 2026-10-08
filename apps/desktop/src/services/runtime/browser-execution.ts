@@ -408,6 +408,8 @@ function browserBuilderTarget(state: QueryBuilderState | undefined) {
     return 'preview data'
   }
   switch (state.kind) {
+    case 'litedb-find':
+      return state.collection || 'collection'
     case 'mongo-find':
     case 'mongo-aggregation':
       return [state.database, state.collection].filter(Boolean).join('.') || 'collection'

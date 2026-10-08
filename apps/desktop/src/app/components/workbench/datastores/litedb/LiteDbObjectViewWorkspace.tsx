@@ -342,6 +342,7 @@ function liteDbQueryTargetFromObjectView(tab: QueryTabState): ScopedQueryTarget 
     path: state.path,
     scope: state.nodeId,
     queryTemplate: state.queryTemplate,
+    preferredBuilder: 'litedb-find',
   }
 }
 

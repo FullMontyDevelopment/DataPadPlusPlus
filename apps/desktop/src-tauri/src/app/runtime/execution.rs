@@ -393,7 +393,9 @@ fn apply_scoped_target_override(
     let path = target_path_values(connection, target);
 
     match connection.engine.as_str() {
-        "mongodb" | "litedb" => {
+        // LiteDB's database is a file path, never an Explorer display label or namespace.
+        // Its adapter selects collections within that same file.
+        "mongodb" => {
             if let Some(database) = direct_target_value(target, &["database", "catalog"])
                 .or_else(|| scoped_namespace(target, &["collection", "view", "documents"]))
                 .or_else(|| path.first().cloned())

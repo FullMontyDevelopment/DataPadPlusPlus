@@ -8,6 +8,7 @@ import { buildRedisKeyBrowserQueryText } from './redis-key-browser'
 export { compileQueryBuilderState } from './query-builder-routing'
 
 const engines: Record<string, readonly string[]> = {
+  'litedb-find': ['litedb'],
   'mongo-find': ['mongodb'], 'mongo-aggregation': ['mongodb'],
   'cosmos-sql': ['cosmosdb'], 'dynamodb-key-condition': ['dynamodb'],
   'cql-partition': ['cassandra'], 'search-dsl': ['elasticsearch', 'opensearch'],

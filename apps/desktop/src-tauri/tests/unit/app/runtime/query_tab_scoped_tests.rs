@@ -7,6 +7,36 @@ use crate::domain::models::{
 };
 
 #[test]
+fn scoped_litedb_collection_keeps_file_scope_and_gets_a_native_builder() {
+    let snapshot = snapshot_with_dev_environment();
+    let mut connection = test_connection("conn-lite", "Lite", "litedb", "document");
+    connection.database = Some("C:\\data\\客户\\db.db".into());
+    let tab = build_scoped_query_tab(
+        &snapshot,
+        &connection,
+        scoped_request(
+            &connection,
+            ScopedQueryTarget {
+                kind: "collection".into(),
+                label: "Client".into(),
+                path: vec!["db.db".into(), "Collections".into()],
+                scope: Some("litedb:collection:Client".into()),
+                query_template: None,
+                preferred_builder: Some("litedb-find".into()),
+            },
+            None,
+        ),
+    );
+    assert_eq!(builder_kind(&tab), Some("litedb-find"));
+    assert_eq!(tab.query_view_mode.as_deref(), Some("builder"));
+    let request: serde_json::Value = serde_json::from_str(&tab.query_text).unwrap();
+    assert_eq!(request["operation"], "Find");
+    assert_eq!(request["collection"], "Client");
+    assert!(request.get("database").is_none());
+    assert_eq!(tab.builder_state.as_ref().unwrap()["collection"], "Client");
+}
+
+#[test]
 fn scoped_mongodb_collection_tab_gets_builder_state() {
     let snapshot = snapshot_with_dev_environment();
     let connection = test_connection("conn-mongo", "Mongo", "mongodb", "document");

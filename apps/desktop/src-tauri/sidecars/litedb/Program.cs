@@ -180,10 +180,21 @@ static object GetMetadata(LiteDatabase db, SidecarRequest envelope)
 static object Find(LiteDatabase db, SidecarRequest envelope)
 {
     var collectionName = RequireCollection(envelope.Request);
-    var collection = db.GetCollection<BsonDocument>(collectionName);
     var limit = EffectiveLimit(envelope);
-    var documents = collection.FindAll()
-        .Take(limit)
+    var query = FilteredQuery(db, envelope);
+    if (OptionalProperty(envelope.Request, "orderBy") is { } orderBy)
+    {
+        var expression = orderBy.ValueKind == JsonValueKind.String ? orderBy.GetString() : OptionalString(orderBy, "expression");
+        var direction = orderBy.ValueKind == JsonValueKind.Object ? OptionalString(orderBy, "direction") ?? "asc" : "asc";
+        if (string.IsNullOrWhiteSpace(expression) || (direction != "asc" && direction != "desc"))
+            throw new SidecarException("litedb-invalid-sort", "Order by requires a LiteDB expression and asc or desc direction.");
+        query = query.OrderBy(BsonExpression.Create(expression), direction == "desc" ? Query.Descending : Query.Ascending);
+    }
+    var skip = 0;
+    if (OptionalProperty(envelope.Request, "skip") is { } skipValue &&
+        (skipValue.ValueKind != JsonValueKind.Number || !skipValue.TryGetInt32(out skip) || skip < 0))
+        throw new SidecarException("litedb-invalid-skip", "Skip must be a non-negative whole number.");
+    var documents = query.Skip(skip).Limit(limit).ToEnumerable()
         .Select(BsonToElement)
         .ToArray();
 
@@ -215,8 +226,41 @@ static object FindById(LiteDatabase db, SidecarRequest envelope)
 static object Count(LiteDatabase db, SidecarRequest envelope)
 {
     var collectionName = RequireCollection(envelope.Request);
-    var count = db.GetCollection<BsonDocument>(collectionName).Count();
+    var count = FilteredQuery(db, envelope).LongCount();
     return new { collection = collectionName, count };
+}
+
+static ILiteQueryable<BsonDocument> FilteredQuery(LiteDatabase db, SidecarRequest envelope)
+{
+    var collectionName = RequireCollection(envelope.Request);
+    if (!db.GetCollectionNames().Contains(collectionName, StringComparer.OrdinalIgnoreCase))
+        throw new SidecarException("litedb-collection-missing", "This LiteDB collection no longer exists. Refresh the Explorer.");
+    var query = db.GetCollection<BsonDocument>(collectionName).Query();
+    var parameters = new BsonDocument();
+    if (OptionalProperty(envelope.Request, "parameters") is { } values)
+    {
+        if (values.ValueKind != JsonValueKind.Object)
+            throw new SidecarException("litedb-invalid-parameters", "Query parameters must be a JSON object.");
+        foreach (var property in values.EnumerateObject()) parameters[property.Name] = JsonElementToBson(property.Value);
+    }
+    if (OptionalProperty(envelope.Request, "filter") is { } filter)
+    {
+        if (filter.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(filter.GetString()))
+            query = query.Where(BsonExpression.Create(filter.GetString(), parameters));
+        else if (filter.ValueKind == JsonValueKind.Object)
+        {
+            // Legacy object filters mean exact field equality, not MongoDB operators.
+            foreach (var property in filter.EnumerateObject())
+            {
+                if (property.Name.StartsWith('$') || property.Name.Split('.').Any(string.IsNullOrEmpty))
+                    throw new SidecarException("litedb-invalid-filter", "Use a LiteDB filter expression for operators; MongoDB operators are not supported.");
+                var path = "$" + string.Concat(property.Name.Split('.').Select(part => ".[" + System.Text.Json.JsonSerializer.Serialize(part) + "]"));
+                query = query.Where(BsonExpression.Create(path + " = @0", JsonElementToBson(property.Value)));
+            }
+        }
+        else throw new SidecarException("litedb-invalid-filter", "Filter must be a LiteDB expression or an equality object.");
+    }
+    return query;
 }
 
 static object ListIndexes(LiteDatabase db, SidecarRequest envelope)

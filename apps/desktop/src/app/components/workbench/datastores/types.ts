@@ -149,10 +149,24 @@ export interface DatastoreWorkbenchSlice {
     payload: Record<string, unknown>
   }) => ReactNode
   operationActions?: unknown
+  queryBuilder?: {
+    kind: QueryBuilderState['kind']
+    Component: ComponentType<DatastoreQueryBuilderProps>
+    resolveState(tab: QueryTabState, draft?: QueryBuilderState): QueryBuilderState | undefined
+  }
   queryBuilders?: unknown
   completionProviders?: unknown
   warehouseInsights?: (props: {
     kind: string
     payload: Record<string, unknown>
   }) => ReactNode
+}
+
+export interface DatastoreQueryBuilderProps {
+  tab: QueryTabState
+  builderState: QueryBuilderState
+  collectionOptions: string[]
+  showFetchSize: boolean
+  theme: string
+  onBuilderStateChange?(tabId: string, state: QueryBuilderState): void
 }

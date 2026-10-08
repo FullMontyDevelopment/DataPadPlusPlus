@@ -29,7 +29,9 @@ pub(super) fn build_scoped_query_tab(
     let target_label =
         scoped_target_object_label(&request.target, connection, target_object_name.as_deref());
     let limit = 20;
-    let query_text = if builder_kind.as_deref() == Some("mongo-find") {
+    let query_text = if builder_kind.as_deref() == Some("litedb-find") {
+        json!({ "operation": "Find", "collection": target_object_name.as_deref().unwrap_or_default(), "filter": {}, "skip": 0, "limit": limit }).to_string()
+    } else if builder_kind.as_deref() == Some("mongo-find") {
         mongo_find_query_text(
             target_object_name.as_deref().unwrap_or_default(),
             limit,
@@ -61,6 +63,11 @@ pub(super) fn build_scoped_query_tab(
             .unwrap_or_else(|| default_query_text(connection))
     };
     let builder_state = match builder_kind.as_deref() {
+        Some("litedb-find") => Some(json!({
+            "kind": "litedb-find", "collection": target_object_name.as_deref().unwrap_or_default(),
+            "filters": [], "filterGroups": [], "filterLogic": "and", "sort": [],
+            "skip": 0, "limit": limit, "lastAppliedQueryText": query_text,
+        })),
         Some("mongo-find") => Some(mongo_find_builder_state(
             target_object_name.as_deref().unwrap_or_default(),
             target_database.as_deref(),
@@ -323,7 +330,11 @@ fn scoped_builder_kind(
     connection: &ConnectionProfile,
     target: &ScopedQueryTarget,
 ) -> Option<String> {
-    if connection.engine == "mongodb" && target.preferred_builder.as_deref() == Some("mongo-find") {
+    if connection.engine == "litedb" && target.preferred_builder.as_deref() == Some("litedb-find") {
+        Some("litedb-find".into())
+    } else if connection.engine == "mongodb"
+        && target.preferred_builder.as_deref() == Some("mongo-find")
+    {
         Some("mongo-find".into())
     } else if connection.engine == "mongodb"
         && target.preferred_builder.as_deref() == Some("mongo-aggregation")
@@ -398,6 +409,18 @@ fn scoped_target_object_name(
     target: &ScopedQueryTarget,
     connection: &ConnectionProfile,
 ) -> Option<String> {
+    if connection.engine == "litedb" {
+        return target
+            .scope
+            .as_deref()
+            .and_then(|scope| {
+                scope
+                    .strip_prefix("litedb:collection:")
+                    .or_else(|| scope.strip_prefix("litedb:documents:"))
+            })
+            .map(str::to_string)
+            .or_else(|| (target.kind == "collection").then(|| target.label.clone()));
+    }
     if connection.engine == "cosmosdb" {
         return cosmos_target_parts(target).1;
     }

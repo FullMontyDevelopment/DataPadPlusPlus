@@ -353,6 +353,11 @@ export function branchNodeForPath(
     node.queryable = true
     node.builderKind = connection.engine === 'mongodb' ? 'mongo-find' : undefined
     node.queryTemplate = documentFindQueryTemplate(label, 20, database)
+    if (connection.engine === 'litedb') {
+      node.scope = `litedb:collection:${label}`
+      node.builderKind = 'litedb-find'
+      node.queryTemplate = JSON.stringify({ operation: 'Find', collection: label, filter: {}, limit: 20 })
+    }
   }
 
   if (connection.engine === 'mongodb' && parentLabel === 'Views') {

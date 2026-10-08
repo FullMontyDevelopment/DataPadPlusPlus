@@ -1,6 +1,8 @@
 import type { CloseQueryTabsRequest, ConnectionProfile, CreateObjectViewTabRequest, CreateScopedQueryTabRequest, QueryTabReorderRequest, QueryTabState, ScopedQueryTarget, UpdateQueryTabSqlScopeRequest, UpdateQueryTabTargetRequest, WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 import { createId, defaultQueryTextForConnection, defaultQueryViewModeForConnection, defaultScriptTextForConnection, editorLabelForConnection, languageForConnection, normalizeWorkspaceWindows } from '../../app/state/helpers'
 import { createDefaultCosmosSqlBuilderState } from '../../app/components/workbench/query-builder/cosmos-sql'
+import { buildLiteDbFindQueryText, createDefaultLiteDbFindBuilderState } from '../../app/components/workbench/datastores/litedb/litedb-find'
+import { liteDbTargetValues } from '../../app/components/workbench/datastores/litedb/litedb-target'
 import { defaultSqlQueryScope } from '../../app/components/workbench/query-targets/query-target-registry'
 import {
   cassandraPartitionKeyFromTarget,
@@ -276,6 +278,8 @@ export function createScopedQueryTabInSnapshot(
   const targetDatabase = scopedTargetDatabase(request.target, connection)
   const targetLabel = scopedTargetObjectLabel(request.target, connection, targetObjectName)
   const builderKind = scopedBuilderKind(connection, request.target)
+  const liteDbState = builderKind === 'litedb-find'
+    ? createDefaultLiteDbFindBuilderState(liteDbTargetValues(connection, request.target)[1]) : undefined
   const cosmosTarget = builderKind === 'cosmos-sql'
     ? cosmosSqlTargetFromTarget(request.target, connection, targetObjectName)
     : undefined
@@ -305,7 +309,8 @@ export function createScopedQueryTabInSnapshot(
   }
 
   const queryText =
-    builderKind === 'mongo-find'
+    liteDbState ? buildLiteDbFindQueryText(liteDbState)
+    : builderKind === 'mongo-find'
       ? mongoFindQueryText(targetObjectName ?? '', 20, targetDatabase)
       : builderKind === 'mongo-aggregation'
         ? mongoAggregationQueryText(targetObjectName ?? '', 20, targetDatabase)
@@ -349,7 +354,8 @@ export function createScopedQueryTabInSnapshot(
     scopedTarget: request.target,
     sqlScope: defaultSqlQueryScope(connection, request.target),
     builderState:
-      builderKind === 'mongo-find'
+      liteDbState ? { ...liteDbState, lastAppliedQueryText: queryText }
+      : builderKind === 'mongo-find'
         ? {
             kind: 'mongo-find',
             ...(targetDatabase ? { database: targetDatabase } : {}),
@@ -471,6 +477,7 @@ function scopedBuilderKind(
   connection: ConnectionProfile,
   target: ScopedQueryTarget,
 ): ScopedQueryTarget['preferredBuilder'] {
+  if (connection.engine === 'litedb' && target.preferredBuilder === 'litedb-find') return 'litedb-find'
   if (connection.engine === 'mongodb' && target.preferredBuilder === 'mongo-find') {
     return 'mongo-find'
   }

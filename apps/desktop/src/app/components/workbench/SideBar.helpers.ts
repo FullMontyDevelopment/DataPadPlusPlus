@@ -127,6 +127,8 @@ function preferredBuilderForExplorerNode({
     return 'mongo-aggregation'
   }
 
+  if (engine === 'litedb' && ['collection', 'documents'].includes(kind)) return 'litedb-find'
+
   if (engine === 'mongodb' && ['collection', 'documents', 'gridfs-collection', 'view-results', 'sample-results'].includes(kind)) {
     return 'mongo-find'
   }

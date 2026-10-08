@@ -1,5 +1,7 @@
 import type { DatastoreWorkbenchSlice } from '../types'
 import { LiteDbObjectViewWorkspace } from './LiteDbObjectViewWorkspace'
+import { LiteDbFindBuilder } from './LiteDbFindBuilder'
+import { isLiteDbFindBuilderState, parseLiteDbFindQueryText } from './litedb-find'
 import {
   createDatastoreExplorerProvider,
   createDatastoreObjectViewProvider,
@@ -8,6 +10,13 @@ import {
 
 export const litedbWorkbenchSlice = {
   engine: 'litedb',
+  queryBuilder: {
+    kind: 'litedb-find',
+    Component: LiteDbFindBuilder,
+    resolveState: (tab, draft) => isLiteDbFindBuilderState(draft) ? draft
+      : isLiteDbFindBuilderState(tab.builderState) ? tab.builderState
+      : parseLiteDbFindQueryText(tab.queryText),
+  },
   explorer: createDatastoreExplorerProvider({
     engine: 'litedb',
     family: 'document',

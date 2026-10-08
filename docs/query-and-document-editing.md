@@ -19,13 +19,38 @@ Invalid drafts remain in the row for correction but block Run, Count, and Use in
 
 `Exists`, `Does Not Exist`, `Is Null`, `Is Not Null`, `Has Items`, and `Has No Items` hide both value and type controls. `Has Length` shows one non-negative whole-number input and no type selector.
 
-Array predicates are offered only when the datastore provides a reliable server-side predicate. Supported builders include MongoDB, Cosmos DB NoSQL, DynamoDB filter expressions, PostgreSQL, CockroachDB, MySQL, MariaDB, SQLite, and SQL Server. They are intentionally absent from Elasticsearch/OpenSearch and Cassandra builder surfaces.
+Array predicates are offered only when the datastore provides a reliable native predicate. Supported builders include MongoDB, LiteDB, Cosmos DB NoSQL, DynamoDB filter expressions, PostgreSQL, CockroachDB, MySQL, MariaDB, SQLite, and SQL Server. They are intentionally absent from Elasticsearch/OpenSearch and Cassandra builder surfaces.
 
 `Has No Items` matches an existing empty array. Missing, null, and scalar values do not match. Some native predicates are computed or non-indexed; the builder displays concise performance guidance.
 
 ## Nested Groups
 
 Each group owns its `AND` or `OR` join and compiles with explicit parentheses/AST grouping. Child groups cannot leak their join into siblings. Disabled rows are excluded deliberately; invalid enabled rows block compilation instead of disappearing from the generated query.
+
+## LiteDB Queries
+
+Open a collection's **Query** action in Explorer to start its LiteDB builder. The Database selector displays the connected file's name; selecting a collection never changes the configured database file path.
+
+- Add typed filters, combine them with **All (AND)** or **Any (OR)**, and add groups with their own join.
+- Strings, numbers, booleans, nulls, dates, GUIDs, ObjectIds, and JSON share the standard value editors. Dates, GUIDs, and ObjectIds compile to LiteDB Extended JSON parameters, not ordinary strings.
+- **In** and **Not in** accept comma-separated typed values, or a JSON array. Use JSON with `$numberLong` or `$numberDecimal` wrappers when exact large-integer or decimal precision is needed.
+- **Has Items**, **Has No Items**, and **Has Length** use native array checks; missing, null, and scalar values do not match. Computed predicates may scan documents.
+- LiteDB supports one native sort expression. Set ascending/descending order, Skip, and the toolbar Fetch size. **Count** applies the filters but ignores Skip and Fetch size.
+- Field paths use dots for nested members, such as `address.city`. Comparisons follow the database's collation.
+
+The builder emits the adapter's JSON request format with a native parameterized `filter`, not MongoDB query syntax. Raw mode remains available for custom LiteDB expressions. Only empty-filter Find requests are automatically adopted into the builder; custom raw predicates are never silently discarded.
+
+```json
+{
+  "operation": "Find",
+  "collection": "Client",
+  "filter": "$.active = @active",
+  "parameters": { "active": true },
+  "orderBy": { "expression": "$.name", "direction": "asc" },
+  "skip": 0,
+  "limit": 20
+}
+```
 
 ## SQL Scope
 

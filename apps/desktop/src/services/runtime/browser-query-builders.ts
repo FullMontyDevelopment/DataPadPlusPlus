@@ -8,6 +8,7 @@ type QueryBuilder = DatastoreExperienceManifest['queryBuilders'][number]
 const SINGLE_QUERY_BUILDER_BY_ENGINE: Partial<
   Record<ConnectionProfile['engine'], QueryBuilder>
 > = {
+  litedb: { kind: 'litedb-find', label: 'Find Builder', scope: 'collection', defaultMode: 'visual' },
   elasticsearch: {
     kind: 'search-dsl',
     label: 'Search DSL Builder',

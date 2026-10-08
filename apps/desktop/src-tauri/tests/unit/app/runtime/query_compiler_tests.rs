@@ -1,6 +1,28 @@
 use super::*;
 
 #[test]
+fn litedb_embedded_builder_uses_native_parameters_and_rejects_invalid_drafts() {
+    let mut input = json!({"connection":{"engine":"litedb"},"builderState":{
+        "kind":"litedb-find","collection":"Client","filterLogic":"and","filterGroups":[],
+        "filters":[{"id":"date","field":"created","operator":"gte","valueType":"date","value":"2026-10-08T12:00:00+02:00"}],
+        "sort":[],"skip":0,"limit":20
+    }});
+    let result = invoke("compileSavedBuilder", &input).unwrap();
+    assert_eq!(result["ok"], true, "{result}");
+    let request: Value = serde_json::from_str(result["queryText"].as_str().unwrap()).unwrap();
+    assert_eq!(request["collection"], "Client");
+    assert_eq!(
+        request["parameters"]["p0"]["$date"],
+        "2026-10-08T10:00:00.000Z"
+    );
+    assert!(request.get("database").is_none());
+    input["builderState"]["filters"][0]["value"] = json!("not a date");
+    assert_eq!(invoke("compileSavedBuilder", &input).unwrap()["ok"], false);
+    input["connection"]["engine"] = json!("mongodb");
+    assert_eq!(invoke("compileSavedBuilder", &input).unwrap()["ok"], false);
+}
+
+#[test]
 fn mcp_quickjs_matches_frontend_vectors_for_all_builders_types_groups_and_array_predicates() {
     let vectors: Vec<Value> = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),

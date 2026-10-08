@@ -1044,7 +1044,7 @@ const legacyDocArticles: LegacyDocArticle[] = [
     readingTime: '10 min',
     screenshots: ['typed-query-builder', 'mongodb-builder'],
     status: 'Live',
-    appliesTo: ['mongodb', 'cosmosdb', 'dynamodb', 'postgresql', 'cockroachdb', 'mysql', 'mariadb', 'sqlite', 'sqlserver'],
+    appliesTo: ['mongodb', 'litedb', 'cosmosdb', 'dynamodb', 'postgresql', 'cockroachdb', 'mysql', 'mariadb', 'sqlite', 'sqlserver'],
     relatedGuides: ['querying', 'sql-database-schema-scope', 'document-results-editing'],
     featured: true,
     steps: [

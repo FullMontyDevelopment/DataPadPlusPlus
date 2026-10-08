@@ -23,6 +23,7 @@ import {
 } from '../results/field-drag'
 import { CqlPartitionBuilder } from './CqlPartitionBuilder'
 import { isCqlPartitionBuilderState } from './cql-partition'
+import { workbenchSliceForEngine } from '../datastores/registry'
 import { CosmosSqlBuilder } from './CosmosSqlBuilder'
 import { isCosmosSqlBuilderState } from './cosmos-sql'
 import { DynamoDbKeyConditionBuilder } from '../datastores/dynamodb/DynamoDbKeyConditionBuilder'
@@ -114,6 +115,13 @@ export function QueryBuilderPanel({
     />
   ) : null
   let panel: ReactNode = null
+  const adapter = connection ? workbenchSliceForEngine(connection.engine).queryBuilder : undefined
+  if (adapter && resolvedBuilderState?.kind === adapter.kind) {
+    const AdapterBuilder = adapter.Component
+    panel = <AdapterBuilder key={tab.id} tab={tab} builderState={resolvedBuilderState}
+      collectionOptions={collectionOptions} showFetchSize={!executionControlsInToolbar}
+      onBuilderStateChange={safeBuilderStateChange} theme={theme} />
+  }
 
   if (isMongoFindBuilderState(resolvedBuilderState)) {
     panel = (

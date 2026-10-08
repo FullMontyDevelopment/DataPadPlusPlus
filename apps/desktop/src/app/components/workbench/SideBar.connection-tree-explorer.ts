@@ -117,7 +117,9 @@ function explorerNodeToConnectionTreeNode(
         : (node.queryTemplate ?? fallbackExplorerQueryTemplate(connection, node)),
     queryable: isRedisPrefix || isRedisDatabase || isGraphQueryNode || isExplorerNodeQueryable(connection, node),
     expandable: node.expandable,
-    builderKind: isMongoBuilderNode
+    builderKind: connection.engine === 'litedb' && ['collection', 'documents'].includes(normalizedKind)
+      ? 'litedb-find'
+      : isMongoBuilderNode
       ? normalizedKind === 'aggregations'
         ? 'mongo-aggregation'
         : 'mongo-find'

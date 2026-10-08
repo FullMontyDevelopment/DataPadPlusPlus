@@ -132,6 +132,7 @@ export interface CreateObjectViewTabRequest {
 }
 
 export type QueryBuilderKind =
+  | 'litedb-find'
   | 'mongo-find'
   | 'mongo-aggregation'
   | 'cosmos-sql'
@@ -230,6 +231,30 @@ export interface MongoFindBuilderState {
   filterGroups?: MongoFindFilterGroup[]
   projectionMode: 'all' | 'include' | 'exclude'
   projectionFields: MongoFindProjectionField[]
+  sort: MongoFindSortRow[]
+  skip?: number
+  limit?: number
+  lastAppliedQueryText?: string
+}
+
+export type LiteDbFilterOperator = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte'
+  | 'contains' | 'starts-with' | 'in' | 'not-in' | 'is-null' | 'is-not-null'
+  | 'has-items' | 'has-no-items' | 'has-length'
+
+export interface LiteDbFindBuilderState {
+  kind: 'litedb-find'
+  collection: string
+  filterLogic: 'and' | 'or'
+  filters: Array<{
+    id: string
+    enabled?: boolean
+    groupId?: string
+    field: string
+    operator: LiteDbFilterOperator
+    valueType: MongoBuilderValueType
+    value: string
+  }>
+  filterGroups: MongoFindFilterGroup[]
   sort: MongoFindSortRow[]
   skip?: number
   limit?: number
@@ -613,6 +638,7 @@ export interface RedisKeyBrowserState {
 }
 
 export type QueryBuilderState =
+  | LiteDbFindBuilderState
   | MongoFindBuilderState
   | MongoAggregationBuilderState
   | CosmosSqlBuilderState

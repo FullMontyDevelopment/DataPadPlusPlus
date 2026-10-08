@@ -15,6 +15,18 @@ import {
 } from '../../../../../src/app/components/workbench/query-targets/query-target-change'
 
 describe('query target registry', () => {
+  it('uses the LiteDB filename, not the collection scope prefix, in both target dropdowns', () => {
+    const base = createSeedSnapshot().connections[0]!
+    const connection = { ...base, engine: 'litedb' as const, family: 'document' as const, database: 'C:\\客户\\db.db' }
+    const target = { kind: 'collection', label: 'Client', path: ['db.db', 'Collections'], scope: 'litedb:collection:Client' }
+    expect(queryTargetValues(connection, target)).toEqual(['db.db', 'Client'])
+    expect(queryTargetValues(connection, { ...target, kind: 'documents', label: 'Documents', scope: 'litedb:documents:Client' })).toEqual(['db.db', 'Client'])
+    const nodes = [explorerNode('database', 'db.db', [], 'litedb:database', true), explorerNode('collection', 'Client', ['db.db', 'Collections'], 'litedb:collection:Client', true)]
+    const choices = queryTargetOptions(connection, nodes, target, undefined)
+    expect(choices.selectedValues).toEqual(['db.db', 'Client'])
+    expect(choices.options[0]?.map(item => item.label)).toEqual(['db.db'])
+    expect(queryTargetOptions(connection, nodes, undefined, undefined).selectedValues[0]).toBe('db.db')
+  })
   it('declares selectable levels or an explicit no-target reason for every engine', () => {
     expect(Object.keys(QUERY_TARGET_REGISTRY).sort()).toEqual([...DATASTORE_ENGINES].sort())
     for (const engine of DATASTORE_ENGINES) {

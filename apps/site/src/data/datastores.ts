@@ -549,6 +549,8 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     ],
     queryModes: [
       'Use LiteDB JSON operations with the bundled runtime. Expand Collections to load actual collection names, then inspect document counts, index definitions, sampled fields and database pragmas. Large collection lists offer Load more.',
+      'Open Query on a collection for the LiteDB visual builder: grouped AND/OR filters, typed native dates/GUIDs/ObjectIds, JSON parameters, array predicates, one sort field, Skip and Fetch size. Count applies the same filters without paging. Computed filters may scan documents; comparisons use database collation.',
+      'The Database selector names the connected file; collection selection never changes its path. Raw mode accepts parameterized LiteDB filter expressions, not MongoDB operators. Existing custom raw filters remain in raw mode rather than being silently rewritten.',
     ],
     resultViews: [
       'Inspect document rows, raw JSON, collection statistics, sidecar response metadata, open-failure details, timeout details, and redacted local-file diagnostics.',
@@ -1148,7 +1150,7 @@ const sampleQueries: Record<DatastoreEngineId, { language: string; query: string
   dynamodb: { language: 'sql', query: 'SELECT productId, productName, category\nFROM "Products"\nWHERE category = \'active\'', expected: 'Matching items returned by the bounded PartiQL read.' },
   cassandra: { language: 'sql', query: 'SELECT product_id, product_name, category\nFROM catalog.products\nLIMIT 25;', expected: 'Up to 25 rows from the catalog keyspace.' },
   cosmosdb: { language: 'sql', query: 'SELECT TOP 25 c.id, c.name, c.category\nFROM c\nWHERE c.active = true', expected: 'Active documents from the selected container.' },
-  litedb: { language: 'javascript', query: 'db.products.find({ active: true }).limit(25)', expected: 'Documents read from the selected LiteDB collection.' },
+  litedb: { language: 'json', query: '{"operation":"Find","collection":"products","filter":"$.active = @active","parameters":{"active":true},"limit":25}', expected: 'Documents read from the selected LiteDB collection, filtered using a native parameterized expression.' },
   redis: { language: 'text', query: 'SCAN 0 MATCH sample:* COUNT 100', expected: 'A cursor and a bounded page of matching keys.' },
   valkey: { language: 'text', query: 'SCAN 0 MATCH sample:* COUNT 100', expected: 'A cursor and a bounded page of matching keys.' },
   memcached: { language: 'text', query: 'stats items', expected: 'Read-only item and slab statistics.' },

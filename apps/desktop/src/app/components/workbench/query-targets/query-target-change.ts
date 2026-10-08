@@ -108,6 +108,8 @@ export function builderStateForQueryTarget(
   const objectName = scopedObjectName(target, connection) || target.label
 
   switch (builderState.kind) {
+    case 'litedb-find':
+      return { ...builderState, collection: value('collection') || objectName }
     case 'mongo-find':
     case 'mongo-aggregation':
       return {
@@ -255,7 +257,8 @@ function targetTitle(
   if (builderState?.kind === 'mongo-aggregation' || target.preferredBuilder === 'mongo-aggregation') {
     return `${label}.aggregate.${extension}`
   }
-  if (builderState?.kind === 'cosmos-sql' || target.preferredBuilder === 'cosmos-sql') {
+  if (builderState?.kind === 'cosmos-sql' || target.preferredBuilder === 'cosmos-sql'
+    || builderState?.kind === 'litedb-find' || target.preferredBuilder === 'litedb-find') {
     return `${label}.${extension}`
   }
   return builderState ? `${label}.find.${extension}` : `${label}.${extension}`
