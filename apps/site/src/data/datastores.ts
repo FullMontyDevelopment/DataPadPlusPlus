@@ -550,6 +550,7 @@ const datastoreDocsBase: DatastoreDocBase[] = [
     queryModes: [
       'Use LiteDB JSON operations with the bundled runtime. Expand Collections to load actual collection names, then inspect document counts, index definitions, sampled fields and database pragmas. Large collection lists offer Load more.',
       'Open Query on a collection for the LiteDB visual builder: grouped AND/OR filters, typed native dates/GUIDs/ObjectIds, JSON parameters, array predicates, one sort field, Skip and Fetch size. Count applies the same filters without paging. Computed filters may scan documents; comparisons use database collation.',
+      'Drag result fields into Filters, a specific group, or Sort. Filter grips reorder conditions and move them between groups; Escape cancels and Up/Down on a focused grip reorder within its group. Dropped native values retain their types, including precise numeric wrappers. Dropping another sort field replaces the single sort while retaining its direction.',
       'The Database selector names the connected file; collection selection never changes its path. Raw mode accepts parameterized LiteDB filter expressions, not MongoDB operators. Existing custom raw filters remain in raw mode rather than being silently rewritten.',
     ],
     resultViews: [

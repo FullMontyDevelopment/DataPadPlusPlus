@@ -32,10 +32,12 @@ Each group owns its `AND` or `OR` join and compiles with explicit parentheses/AS
 Open a collection's **Query** action in Explorer to start its LiteDB builder. The Database selector displays the connected file's name; selecting a collection never changes the configured database file path.
 
 - Add typed filters, combine them with **All (AND)** or **Any (OR)**, and add groups with their own join.
+- Drag result fields onto **Filters**, directly into a group, or onto **Sort**. Dropping onto an existing filter adds a new condition without replacing it. Native values keep their types; integer/decimal wrappers use JSON to preserve precision.
+- Use each filter's grip to reorder it or move it between groups and the ungrouped area. Drop highlighting shows the destination; Escape cancels. With a grip focused, Up/Down reorder within its group.
 - Strings, numbers, booleans, nulls, dates, GUIDs, ObjectIds, and JSON share the standard value editors. Dates, GUIDs, and ObjectIds compile to LiteDB Extended JSON parameters, not ordinary strings.
 - **In** and **Not in** accept comma-separated typed values, or a JSON array. Use JSON with `$numberLong` or `$numberDecimal` wrappers when exact large-integer or decimal precision is needed.
 - **Has Items**, **Has No Items**, and **Has Length** use native array checks; missing, null, and scalar values do not match. Computed predicates may scan documents.
-- LiteDB supports one native sort expression. Set ascending/descending order, Skip, and the toolbar Fetch size. **Count** applies the filters but ignores Skip and Fetch size.
+- LiteDB supports one native sort expression; dropping a different field onto **Sort** replaces that field and keeps the direction. Set ascending/descending order, Skip, and the toolbar Fetch size. **Count** applies the filters but ignores Skip and Fetch size.
 - Field paths use dots for nested members, such as `address.city`. Comparisons follow the database's collation.
 
 The builder emits the adapter's JSON request format with a native parameterized `filter`, not MongoDB query syntax. Raw mode remains available for custom LiteDB expressions. Only empty-filter Find requests are automatically adopted into the builder; custom raw predicates are never silently discarded.

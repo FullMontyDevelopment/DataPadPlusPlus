@@ -167,6 +167,8 @@ export interface DatastoreQueryBuilderProps {
   builderState: QueryBuilderState
   collectionOptions: string[]
   showFetchSize: boolean
+  showTargetInputs?: boolean
+  countControl?: ReactNode
   theme: string
   onBuilderStateChange?(tabId: string, state: QueryBuilderState): void
 }

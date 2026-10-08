@@ -11213,6 +11213,26 @@ button:disabled:hover {
   flex: 0 0 120px;
 }
 
+.litedb-query-builder-controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.litedb-query-builder-controls .query-builder-field--number {
+  flex: 0 1 120px;
+}
+
+.litedb-query-builder-collection {
+  flex: 1 1 180px;
+}
+
+.litedb-query-builder .query-builder-filter-group-header {
+  flex-wrap: wrap;
+}
+
 .query-builder-grid {
   display: grid;
   align-items: start;

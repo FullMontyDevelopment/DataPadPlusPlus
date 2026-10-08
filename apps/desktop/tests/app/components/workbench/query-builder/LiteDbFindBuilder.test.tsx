@@ -119,9 +119,9 @@ describe('LiteDB query builder adapter', () => {
     expect(JSON.parse(buildLiteDbFindQueryText(counted)).parameters).toEqual({ p0: 20, p1: 'Client' })
     fireEvent.change(screen.getByLabelText('Filter 1 operator'), { target: { value: 'contains' } })
     expect(screen.getByLabelText('Filter 1 type')).toHaveValue('string')
-    fireEvent.click(screen.getByRole('button', { name: 'Add sort field' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add Sort' }))
     fireEvent.change(screen.getByLabelText('Sort field'), { target: { value: 'name' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Edit sort field' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Sort' }))
     expect(screen.getByLabelText('Sort field')).toHaveFocus()
   })
 

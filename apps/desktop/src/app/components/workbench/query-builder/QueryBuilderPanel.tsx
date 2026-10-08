@@ -120,6 +120,7 @@ export function QueryBuilderPanel({
     const AdapterBuilder = adapter.Component
     panel = <AdapterBuilder key={tab.id} tab={tab} builderState={resolvedBuilderState}
       collectionOptions={collectionOptions} showFetchSize={!executionControlsInToolbar}
+      showTargetInputs={!executionControlsInToolbar} countControl={countControl}
       onBuilderStateChange={safeBuilderStateChange} theme={theme} />
   }
 
@@ -244,6 +245,7 @@ export function QueryBuilderPanel({
   }
 
   const countIsInsideBuilder =
+    Boolean(adapter && resolvedBuilderState.kind === adapter.kind) ||
     isMongoFindBuilderState(resolvedBuilderState) ||
     isMongoAggregationBuilderState(resolvedBuilderState)
 

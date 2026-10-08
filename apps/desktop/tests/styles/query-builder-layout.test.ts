@@ -2,6 +2,12 @@ import styles from '../../src/styles/index.css?raw'
 import { describe, expect, it } from 'vitest'
 
 describe('query builder layout styles', () => {
+  it('keeps LiteDB paging compact and group headers wrapping without changing other adapters', () => {
+    expect(styles).toMatch(/\.litedb-query-builder-controls\s*\{[^}]*display:\s*flex;[^}]*align-items:\s*flex-end;[^}]*justify-content:\s*flex-end;[^}]*flex-wrap:\s*wrap;/s)
+    expect(styles).toMatch(/\.litedb-query-builder-controls \.query-builder-field--number\s*\{[^}]*flex:\s*0 1 120px;/s)
+    expect(styles).toMatch(/\.litedb-query-builder \.query-builder-filter-group-header\s*\{[^}]*flex-wrap:\s*wrap;/s)
+  })
+
   it('expands validation errors below controls without vertically recentering the row', () => {
     expect(styles).toMatch(
       /\.query-builder-row:has\(> \.query-builder-typed-value\.has-error\)[^{]*\{[^}]*align-items:\s*start;/s,
