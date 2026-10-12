@@ -1,0 +1,6 @@
+# Public product documentation is accessible to search and AI search crawlers.
+# This preserves open crawling; model-training policies are separate from search.
+User-agent: *
+Allow: /
+
+Sitemap: https://datapad-plus-plus.org/sitemap.xml

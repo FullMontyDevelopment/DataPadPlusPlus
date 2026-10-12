@@ -1,1 +1,3 @@
-/* /index.html 200
+# Keep the old downloads link, but index only the singular canonical URL.
+/downloads /download 301
+/downloads/ /download 301

@@ -1,13 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import {
-  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   BookOpen,
   Check,
   ChevronRight,
   Clipboard,
-  Database,
   ExternalLink,
   FileQuestion,
   Menu,
@@ -56,15 +54,28 @@ function urlWithSearch(path: string, query: string) {
   return query ? `${path}?q=${encodeURIComponent(query)}` : path
 }
 
+const searchChangeEvent = 'datapad-docs-search'
+function subscribeToSearch(onChange: () => void) {
+  window.addEventListener('popstate', onChange)
+  window.addEventListener(searchChangeEvent, onChange)
+  return () => {
+    window.removeEventListener('popstate', onChange)
+    window.removeEventListener(searchChangeEvent, onChange)
+  }
+}
+const getSearch = () => new URLSearchParams(window.location.search).get('q') ?? ''
+const getServerSearch = () => ''
+
 function useDocsSearch() {
-  const [query, setQueryState] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '')
+  // React uses the empty server snapshot while hydrating, then reads the browser URL.
+  const query = useSyncExternalStore(subscribeToSearch, getSearch, getServerSearch)
 
   const setQuery = (value: string) => {
-    setQueryState(value)
     const url = new URL(window.location.href)
     if (value.trim()) url.searchParams.set('q', value)
     else url.searchParams.delete('q')
     window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+    window.dispatchEvent(new Event(searchChangeEvent))
   }
 
   return { query, setQuery }
@@ -193,7 +204,7 @@ function ScreenshotFigure({ id }: { id: ScreenshotId }) {
   return (
     <figure className="learn-docs-figure">
       <a href={screenshot.image} target="_blank" rel="noreferrer" aria-label={`Open full-size image: ${screenshot.title}`}>
-        <img src={screenshot.image} alt={screenshot.alt} loading="lazy" />
+        <img src={screenshot.image} alt={screenshot.alt} width={screenshot.width} height={screenshot.height} loading="lazy" decoding="async" />
       </a>
       <figcaption><strong>{screenshot.title}.</strong> {screenshot.caption} <span>Open full size</span></figcaption>
     </figure>
@@ -322,7 +333,6 @@ function ArticlePage({ model, query, onOpenNavigation }: { model: ArticleModel; 
   const [activeId, setActiveId] = useState(model.sections[0]?.id ?? '')
 
   useEffect(() => {
-    setActiveId(model.sections[0]?.id ?? '')
     const headings = model.sections.map((section) => document.getElementById(section.id)).filter((item): item is HTMLElement => Boolean(item))
     const observer = new IntersectionObserver((entries) => {
       const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0]
@@ -374,14 +384,14 @@ function DocsIndex({ onOpenNavigation }: { onOpenNavigation: () => void }) {
   return (
     <>
       <button type="button" className="learn-docs-mobile-menu" onClick={onOpenNavigation}><Menu size={17} /> Browse documentation</button>
-      <main className="learn-docs-index-page">
+      <div className="learn-docs-index-page">
         <div className="learn-docs-index-hero"><p className="learn-docs-eyebrow">DataPad++ documentation</p><h1>Work safely across every datastore</h1><p>Step-by-step guides for the workbench, all seven plugins, common tasks, diagnostics, transfers, and all 29 declared datastore engines.</p><div><a href="/docs/first-query">Run your first query <ArrowRight size={16} /></a><a href="/docs/plugins">Explore plugins</a></div></div>
         <aside className="learn-docs-callout tone-warning"><strong>Pre-release software</strong><p>Use disposable, local, emulated, or read-only systems first. Keep independent backups and review every target before writes, administration, restore, or transfer execution.</p></aside>
         <div className="learn-docs-index-groups">
           {docNavigationGroups.map((group) => <section key={group.label}><h2>{group.label}</h2>{group.slugs.map((slug) => { const article = getDocBySlug(slug); return article ? <a key={slug} href={`/docs/${slug}`}><span><strong>{article.title}</strong><small>{article.description}</small></span><ChevronRight size={17} /></a> : null })}</section>)}
           <section><h2>All 29 datastores</h2><a href="/docs/datastores"><span><strong>Datastore guide index</strong><small>Connection fields, native workflows, sample reads, capabilities, diagnostics, transfers, limitations, and troubleshooting.</small></span><ChevronRight size={17} /></a></section>
         </div>
-      </main>
+      </div>
       <aside className="learn-docs-toc-column learn-docs-index-aside"><strong>Popular tasks</strong><a href="/docs/connections">Create a connection</a><a href="/docs/plugins">Enable a plugin</a><a href="/docs/query-history-explain">Explain a query</a><a href="/docs/transfers-center">Monitor a transfer</a><a href="/docs/appearance-shortcuts-logs">Collect logs</a></aside>
     </>
   )
@@ -391,11 +401,11 @@ function DatastoreIndex({ onOpenNavigation }: { onOpenNavigation: () => void }) 
   return (
     <>
       <button type="button" className="learn-docs-mobile-menu" onClick={onOpenNavigation}><Menu size={17} /> Browse documentation</button>
-      <main className="learn-docs-index-page">
+      <div className="learn-docs-index-page">
         <nav className="learn-docs-breadcrumb" aria-label="Breadcrumb"><a href="/docs">Docs</a><ChevronRight size={14} /><span aria-current="page">Datastores</span></nav>
         <div className="learn-docs-index-hero compact"><p className="learn-docs-eyebrow">29 engine guides</p><h1>Datastore guides</h1><p>Every guide uses the same safe path—connect, explore, scope, read, inspect, export, diagnose, and transfer—then names the controls and limits that differ for that engine.</p></div>
         <div className="learn-docs-datastore-groups">{datastoreDocsByFamily.map((group) => <section key={group.family}><header><h2>{group.family}</h2><span>{group.docs.length} engines</span></header><div>{group.docs.map((doc) => <a href={`/docs/datastores/${doc.slug}`} key={doc.slug}><span><strong>{doc.title}</strong><small>{doc.summary}</small><em>{doc.maturity}</em></span><ChevronRight size={18} /></a>)}</div></section>)}</div>
-      </main>
+      </div>
       <aside className="learn-docs-toc-column learn-docs-index-aside"><strong>Guide pattern</strong><span>Prerequisites</span><span>Connect and test</span><span>Explore and scope</span><span>Run a safe read</span><span>Inspect and export</span><span>Diagnose and transfer</span><span>Limits and troubleshooting</span></aside>
     </>
   )
@@ -414,8 +424,6 @@ export function DocsExperience({ slug }: DocsExperienceProps) {
     const article = getDocBySlug(slug)
     return article ? <ArticlePage model={GeneralArticleModel(article)} query={query} onOpenNavigation={() => setNavigationOpen(true)} /> : null
   }, [query, slug])
-
-  useEffect(() => setNavigationOpen(false), [slug])
 
   return (
     <main className="learn-docs-shell">

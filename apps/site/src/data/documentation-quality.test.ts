@@ -78,6 +78,8 @@ describe('documentation quality', () => {
     for (const slot of Object.values(screenshotSlots)) {
       const path = join(repositoryRoot, 'apps/site/public', slot.image)
       const { width, height } = pngDimensions(path)
+      expect(slot.width, slot.id).toBe(width)
+      expect(slot.height, slot.id).toBe(height)
       expect(width, slot.id).toBeGreaterThanOrEqual(360)
       expect(height, slot.id).toBeGreaterThanOrEqual(300)
       if (slot.id.startsWith('datastore-')) {

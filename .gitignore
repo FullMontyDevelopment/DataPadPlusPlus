@@ -28,6 +28,7 @@ graphify-out/
 *.tsbuildinfo
 
 apps/desktop/dist/
+apps/site/.prerender/
 apps/desktop/coverage/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/target-*/

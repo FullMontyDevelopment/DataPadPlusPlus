@@ -4,6 +4,9 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
+  ssr: {
+    noExternal: ['@datapadplusplus/shared-types'],
+  },
   server: {
     port: 1430,
     strictPort: true,

@@ -42,6 +42,8 @@ export type ScreenshotSlot = {
   alt: string
   caption: string
   image: string
+  width: number
+  height: number
   captureCase: string
   sharedAsset?: boolean
 }
@@ -274,6 +276,8 @@ const commonScreenshotSlots = Object.fromEntries(
       ...definition,
       alt: `${definition.title}. ${definition.caption}`,
       captureCase: `common:${id}`,
+      width: id === 'connection-wizard' ? 1280 : 1584,
+      height: id === 'connection-wizard' ? 1000 : 961,
     },
   ]),
 ) as Record<CommonScreenshotId, ScreenshotSlot>
@@ -288,6 +292,8 @@ const datastoreScreenshotSlots = Object.fromEntries(
         caption: `The ${label} connection dialog with supported method tabs and illustrative, non-secret settings. Expand optional sections and review runtime limitations before saving.`,
         image: `/screenshots/datastores/${engine}-connection.png`,
         captureCase: `datastore:${engine}:connection`,
+        width: 1280,
+        height: 1000,
       },
       {
         id: `datastore-${engine}-workflow`,
@@ -295,6 +301,8 @@ const datastoreScreenshotSlots = Object.fromEntries(
         caption: `A representative ${label} explorer and bounded read-only workflow. Replace the example objects with names from your datastore.`,
         image: `/screenshots/datastores/${engine}-workflow.png`,
         captureCase: `datastore:${engine}:workflow`,
+        width: 1584,
+        height: 961,
       },
     ] as ScreenshotSlot[]).map((slot) => [slot.id, { ...slot, alt: `${slot.title}. ${slot.caption}` }])
   }),

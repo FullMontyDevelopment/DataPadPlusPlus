@@ -1,22 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import {
   AlertTriangle,
   ArrowRight,
   BookOpen,
-  Boxes,
   CheckCircle2,
   ChevronRight,
-  Cloud,
   Database,
   Download,
   ExternalLink,
   FileArchive,
   HardDriveDownload,
-  Library,
   LockKeyhole,
   MonitorDown,
   Network,
-  Rocket,
   Search,
   Server,
   ShieldCheck,
@@ -32,7 +28,6 @@ import {
   launchWorkflow,
   releasesUrl,
   repoUrl,
-  websiteUrl,
 } from './data/product'
 import { getScreenshotSlot, type ScreenshotId } from './data/screenshots'
 import { DocsExperience } from './docs/DocsExperience'
@@ -45,6 +40,7 @@ import {
 } from './lib/downloads'
 import { detectPlatform, platformLabel, type Platform } from './lib/platform'
 import { fetchReleases, type GitHubRelease } from './lib/releases'
+import { applySeoMetadata, getSitePage, normalizeSitePath } from './lib/seo'
 
 type Route =
   | { name: 'home' }
@@ -53,6 +49,7 @@ type Route =
   | { name: 'coverage' }
   | { name: 'downloads' }
   | { name: 'docs'; slug?: string }
+  | { name: 'not-found' }
 
 const navItems = [
   { href: '/', label: 'Product' },
@@ -69,8 +66,12 @@ const platformIcons: Record<Platform, typeof MonitorDown> = {
   unknown: FileArchive,
 }
 
+const subscribeToPlatform = () => () => {}
+const serverPlatform = (): Platform => 'unknown'
+
 function routeFromPath(pathname: string): Route {
-  const path = pathname.replace(/\/+$/, '') || '/'
+  const path = normalizeSitePath(pathname)
+  if (!getSitePage(path)) return { name: 'not-found' }
   if (path === '/') return { name: 'home' }
   if (path === '/features') return { name: 'features' }
   if (path === '/safety') return { name: 'safety' }
@@ -78,25 +79,20 @@ function routeFromPath(pathname: string): Route {
   if (path === '/download' || path === '/downloads') return { name: 'downloads' }
   if (path === '/docs') return { name: 'docs' }
   if (path.startsWith('/docs/')) return { name: 'docs', slug: path.slice('/docs/'.length) }
-  return { name: 'home' }
+  return { name: 'not-found' }
 }
 
-function useRoute() {
-  const [route, setRoute] = useState(() => routeFromPath(window.location.pathname))
+function useRoute(initialPath: string) {
+  const [pathname, setPathname] = useState(initialPath)
 
   useEffect(() => {
-    const handlePopState = () => setRoute(routeFromPath(window.location.pathname))
+    const handlePopState = () => setPathname(window.location.pathname)
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
-  const navigate = (href: string) => {
-    window.history.pushState({}, '', href)
-    setRoute(routeFromPath(window.location.pathname))
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
-  return { route, navigate }
+  const route = useMemo(() => routeFromPath(pathname), [pathname])
+  return { route, pathname }
 }
 
 type AppLinkProps = {
@@ -170,16 +166,20 @@ function ScreenshotFrame({
   title,
   caption,
   image,
+  width,
+  height,
   compact = false,
 }: {
   title: string
   caption: string
   image: string
+  width: number
+  height: number
   compact?: boolean
 }) {
   return (
     <figure className={compact ? 'screenshot-frame compact' : 'screenshot-frame'}>
-      <img src={image} alt={`${title}. ${caption}`} />
+      <img src={image} alt={`${title}. ${caption}`} width={width} height={height} loading="lazy" decoding="async" />
       <figcaption>{caption}</figcaption>
     </figure>
   )
@@ -187,7 +187,7 @@ function ScreenshotFrame({
 
 function ScreenshotAsset({ id, compact = false }: { id: ScreenshotId; compact?: boolean }) {
   const slot = getScreenshotSlot(id)
-  return <ScreenshotFrame title={slot.title} caption={slot.caption} image={slot.image} compact={compact} />
+  return <ScreenshotFrame title={slot.title} caption={slot.caption} image={slot.image} width={slot.width} height={slot.height} compact={compact} />
 }
 
 function HeroProductVisual() {
@@ -208,6 +208,8 @@ function HeroProductVisual() {
         <div className="hero-product-image">
           <img
             src={screenshot.image}
+            width={screenshot.width}
+            height={screenshot.height}
             alt="DataPad++ desktop application showing a PostgreSQL query, Local Demo environment, result grid, connections, and status controls."
             fetchPriority="high"
           />
@@ -250,7 +252,7 @@ function HomePage({ releases, platform }: { releases: GitHubRelease[]; platform:
   const latestRelease = releases[0]
 
   return (
-    <>
+    <main>
       <section className="hero-section">
         <div className="hero-copy">
           <span className="hero-kicker">Pre-release desktop workbench</span>
@@ -321,7 +323,7 @@ function HomePage({ releases, platform }: { releases: GitHubRelease[]; platform:
         <ScreenshotAsset id="sql-query-results" compact />
         <ScreenshotAsset id="redis-browser" compact />
       </section>
-    </>
+    </main>
   )
 }
 
@@ -594,23 +596,18 @@ function PageTitle({
   )
 }
 
-export function App() {
-  const { route } = useRoute()
-  const [platform, setPlatform] = useState<Platform>('unknown')
+export function App({ initialPath = typeof window === 'undefined' ? '/' : window.location.pathname }: { initialPath?: string }) {
+  const { route, pathname } = useRoute(initialPath)
+  const platform = useSyncExternalStore(subscribeToPlatform, detectPlatform, serverPlatform)
   const [releases, setReleases] = useState<GitHubRelease[]>([])
   const [releasesStatus, setReleasesStatus] = useState<'loading' | 'ready' | 'error'>('loading')
 
   useEffect(() => {
-    const pageUrl = new URL(window.location.pathname, websiteUrl).toString()
-    document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute('href', pageUrl)
-    document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute('content', pageUrl)
-  }, [route])
+    applySeoMetadata(pathname)
+  }, [pathname])
 
   useEffect(() => {
-    setPlatform(detectPlatform())
-  }, [])
-
-  useEffect(() => {
+    if (route.name !== 'home' && route.name !== 'downloads') return
     const controller = new AbortController()
 
     fetchReleases(controller.signal)
@@ -624,7 +621,7 @@ export function App() {
       })
 
     return () => controller.abort()
-  }, [])
+  }, [route.name])
 
   const page = useMemo(() => {
     switch (route.name) {
@@ -637,7 +634,9 @@ export function App() {
       case 'downloads':
         return <DownloadsPage releases={releases} releasesStatus={releasesStatus} platform={platform} />
       case 'docs':
-        return <DocsExperience slug={route.slug} />
+        return <DocsExperience key={route.slug ?? 'index'} slug={route.slug} />
+      case 'not-found':
+        return <main className="page-shell"><PageTitle icon={Search} title="Page not found" body="This page does not exist or has moved." /><p><a href="/docs">Browse documentation</a> or <a href="/">return to DataPad++</a>.</p></main>
       case 'home':
       default:
         return <HomePage releases={releases} platform={platform} />
@@ -646,9 +645,10 @@ export function App() {
 
   return (
     <div className="site-app">
+      <a className="skip-link" href="#main-content">Skip to content</a>
       <Header />
       <PreReleaseNotice compact />
-      {page}
+      <div id="main-content" tabIndex={-1}>{page}</div>
       <footer className="site-footer">
         <div>
           <strong>DataPad++</strong>
