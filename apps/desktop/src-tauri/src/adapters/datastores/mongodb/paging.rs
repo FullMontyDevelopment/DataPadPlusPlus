@@ -34,23 +34,37 @@ pub(crate) async fn fetch_mongodb_page(
         .collect();
     let database = client.database(&database_resolution.database_name);
     let collection = database.collection::<Document>(collection_name);
-    let query_skip = input.get("skip").and_then(Value::as_u64).unwrap_or(0);
+    let query_skip = if input.get("pipeline").is_some() {
+        0
+    } else {
+        input.get("skip").and_then(Value::as_u64).unwrap_or(0)
+    };
     let skip = query_skip + u64::from(page_index) * u64::from(page_size);
     let explicit_limit = input
         .get("limit")
         .and_then(Value::as_u64)
         .and_then(|value| u32::try_from(value).ok())
         .filter(|value| *value > 0);
+    let consumed = page_index.saturating_mul(page_size);
     let effective_page_size = explicit_limit
-        .map(|limit| limit.min(page_size))
+        .map(|limit| limit.saturating_sub(consumed).min(page_size))
         .unwrap_or(page_size);
-    let documents = if let Some(pipeline) = input.get("pipeline").and_then(Value::as_array) {
+    let cursor_limit = explicit_limit
+        .map(|limit| {
+            limit
+                .saturating_sub(consumed)
+                .min(effective_page_size.saturating_add(1))
+        })
+        .unwrap_or_else(|| effective_page_size.saturating_add(1));
+    let documents = if effective_page_size == 0 {
+        Vec::new()
+    } else if let Some(pipeline) = input.get("pipeline").and_then(Value::as_array) {
         let mut pipeline = pipeline
             .iter()
             .map(|stage| mongodb_json_to_document(stage, "pipeline[]", "mongodb-paging-bson"))
             .collect::<Result<Vec<Document>, _>>()?;
         pipeline.push(doc! { "$skip": i64::try_from(skip).unwrap_or(i64::MAX) });
-        pipeline.push(doc! { "$limit": i64::from(effective_page_size.saturating_add(1)) });
+        pipeline.push(doc! { "$limit": i64::from(cursor_limit) });
         collection
             .aggregate(pipeline)
             .await?
@@ -65,7 +79,7 @@ pub(crate) async fn fetch_mongodb_page(
                 "mongodb-paging-bson",
             )?)
             .skip(skip)
-            .limit(i64::from(effective_page_size.saturating_add(1)));
+            .limit(i64::from(cursor_limit));
 
         if let Some(projection) = input.get("projection") {
             find = find.projection(mongodb_json_to_document(
@@ -107,7 +121,7 @@ pub(crate) async fn fetch_mongodb_page(
             ),
         ),
         PageResponseInput {
-            page_size: effective_page_size,
+            page_size,
             page_index,
             buffered_rows,
             has_more,

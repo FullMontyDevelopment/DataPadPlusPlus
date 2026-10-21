@@ -10,6 +10,11 @@ try
         ?? throw new SidecarException("litedb-invalid-request", "LiteDB sidecar request was empty.");
 
     ValidateEnvelope(envelope);
+    if (envelope.StreamResults)
+    {
+        StreamResults(envelope);
+        return;
+    }
     var response = Dispatch(envelope);
     WriteOk(response);
 }
@@ -181,6 +186,20 @@ static object Find(LiteDatabase db, SidecarRequest envelope)
 {
     var collectionName = RequireCollection(envelope.Request);
     var limit = EffectiveLimit(envelope);
+    var documents = PreparedFind(db, envelope).Limit(limit).ToEnumerable()
+        .Select(BsonToElement)
+        .ToArray();
+    return new
+    {
+        collection = collectionName,
+        documents,
+        hasMore = documents.Length >= limit && limit > envelope.RowLimit,
+        scanned = documents.Length
+    };
+}
+
+static ILiteQueryableResult<BsonDocument> PreparedFind(LiteDatabase db, SidecarRequest envelope)
+{
     var query = FilteredQuery(db, envelope);
     if (OptionalProperty(envelope.Request, "orderBy") is { } orderBy)
     {
@@ -194,17 +213,44 @@ static object Find(LiteDatabase db, SidecarRequest envelope)
     if (OptionalProperty(envelope.Request, "skip") is { } skipValue &&
         (skipValue.ValueKind != JsonValueKind.Number || !skipValue.TryGetInt32(out skip) || skip < 0))
         throw new SidecarException("litedb-invalid-skip", "Skip must be a non-negative whole number.");
-    var documents = query.Skip(skip).Limit(limit).ToEnumerable()
-        .Select(BsonToElement)
-        .ToArray();
+    return query.Skip(skip);
+}
 
-    return new
+static void StreamResults(SidecarRequest envelope)
+{
+    if (!envelope.ReadOnly || envelope.Operation is not ("Find" or "FindById"))
+        throw new SidecarException("litedb-stream-readonly", "Result streaming supports read-only Find and FindById.");
+    if (!File.Exists(envelope.DatabasePath))
+        throw new SidecarException("litedb-file-missing", "LiteDB file does not exist.");
+    using var db = new LiteDatabase(new ConnectionString {
+        Filename = envelope.DatabasePath, Password = envelope.Password,
+        ReadOnly = true, Connection = ConnectionType.Shared
+    });
+    IEnumerable<BsonDocument> documents;
+    if (envelope.Operation == "FindById")
     {
-        collection = collectionName,
-        documents,
-        hasMore = documents.Length >= limit && limit > envelope.RowLimit,
-        scanned = documents.Length
-    };
+        var document = db.GetCollection<BsonDocument>(RequireCollection(envelope.Request))
+            .FindById(JsonElementToBson(RequireProperty(envelope.Request, "id")));
+        documents = document is null ? Array.Empty<BsonDocument>() : new[] { document };
+    }
+    else
+    {
+        var query = PreparedFind(db, envelope);
+        if (OptionalProperty(envelope.Request, "limit") is { } limitValue && limitValue.ValueKind != JsonValueKind.Null)
+        {
+            if (!limitValue.TryGetInt32(out var limit) || limit <= 0)
+                throw new SidecarException("litedb-invalid-limit", "Query limit must be a positive whole number.");
+            query = query.Limit(limit);
+        }
+        documents = query.ToEnumerable();
+    }
+    long count = 0;
+    foreach (var document in documents)
+    {
+        Console.Out.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { kind = "row", value = BsonToElement(document) }, JsonOptions.Default));
+        count++;
+    }
+    Console.Out.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { kind = "complete", count }, JsonOptions.Default));
 }
 
 static object FindById(LiteDatabase db, SidecarRequest envelope)
@@ -1673,6 +1719,7 @@ static void WriteError(string code, string message)
 
 internal sealed class SidecarRequest
 {
+    public bool StreamResults { get; set; }
     public string? Engine { get; set; }
     public int ProtocolVersion { get; set; }
     public string? DatabasePath { get; set; }

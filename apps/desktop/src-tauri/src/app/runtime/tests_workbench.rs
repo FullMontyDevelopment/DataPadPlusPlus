@@ -490,6 +490,7 @@ impl ManagedAppState {
                 .unwrap_or("Test suite"),
         );
         let tab = QueryTabState {
+            query_fetch_batch_size: None,
             id: generate_id("test-tab"),
             title,
             tab_kind: Some("test-suite".into()),

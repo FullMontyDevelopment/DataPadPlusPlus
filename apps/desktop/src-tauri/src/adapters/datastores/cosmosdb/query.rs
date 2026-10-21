@@ -18,6 +18,83 @@ const READ_OPERATIONS: &[&str] = &[
     "ReadDocument",
 ];
 
+pub(super) async fn stream_result(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+) -> Result<(), CommandError> {
+    crate::adapters::result_stream::validate_read_request(request)?;
+    let input =
+        cosmos_sql_execution_request(request)?.unwrap_or(parse_request(selected_query(request))?);
+    let operation = cosmosdb_operation(&input)?;
+    if cosmosdb_api(connection) == "gremlin"
+        || !matches!(operation.as_str(), "QueryDocuments" | "ReadDocument")
+    {
+        return Err(CommandError::new(
+            "result-export-unsupported",
+            "Full Cosmos DB export supports NoSQL document SELECT queries and point reads.",
+        ));
+    }
+    if operation == "QueryDocuments" {
+        validate_single_cosmos_sql_query(
+            input
+                .get("query")
+                .and_then(Value::as_str)
+                .unwrap_or("SELECT * FROM c"),
+        )?;
+    }
+    let mut continuation = None;
+    let mut session_token = None;
+    loop {
+        let response = execute_read_operation(
+            connection,
+            CosmosDbReadOperationRequest {
+                execution_mode: request.mode.as_deref(),
+                operation: &operation,
+                request: &input,
+                row_limit: bounded_page_size(request.row_limit),
+                continuation: continuation.clone(),
+                session_token: session_token.clone(),
+                cancellation: None,
+            },
+        )
+        .await?;
+        // Decode the datastore body, not the diagnostic fields added by response.json().
+        let value: Value = serde_json::from_str(&response.body)?;
+        if operation == "ReadDocument" {
+            sink.row(value)?;
+            return Ok(());
+        }
+        let items = value
+            .get("Documents")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                CommandError::new(
+                    "result-export-response",
+                    "Cosmos DB returned an unexpected document response.",
+                )
+            })?;
+        for item in items {
+            if !sink.row(item.clone())? {
+                return Ok(());
+            }
+        }
+        match response.continuation.filter(|token| !token.is_empty()) {
+            None => return Ok(()),
+            Some(next) if continuation.as_ref() == Some(&next) => {
+                return Err(CommandError::new(
+                    "result-export-continuation",
+                    "Cosmos DB repeated a continuation token. No completed export was published.",
+                ))
+            }
+            Some(next) => continuation = Some(next),
+        }
+        if response.session_token.is_some() {
+            session_token = response.session_token;
+        }
+    }
+}
+
 pub(super) async fn execute_cosmosdb_query(
     adapter: &CosmosDbAdapter,
     connection: &ResolvedConnectionProfile,
@@ -209,7 +286,9 @@ pub(crate) async fn cosmosdb_editable_document_payload(
     })
 }
 
-fn cosmos_sql_execution_request(request: &ExecutionRequest) -> Result<Option<Value>, CommandError> {
+pub(super) fn cosmos_sql_execution_request(
+    request: &ExecutionRequest,
+) -> Result<Option<Value>, CommandError> {
     let Some(input) = request.datastore_execution_input.as_ref() else {
         return Ok(None);
     };

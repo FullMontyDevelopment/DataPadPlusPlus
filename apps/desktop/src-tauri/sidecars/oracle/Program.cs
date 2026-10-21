@@ -84,6 +84,13 @@ internal static partial class Program
                 continue;
             }
 
+            // Streaming uses a dedicated, short-lived process. It cannot share stdout with
+            // ordinary responses, and closing its pipe cancels only this export.
+            if (request.StreamResults)
+            {
+                return await StreamResultAsync(request);
+            }
+
             if (request.Operation.Equals("cancel", StringComparison.OrdinalIgnoreCase))
             {
                 await HandleCancelAsync(request);
@@ -1040,7 +1047,8 @@ internal sealed record OracleRequest(
     string? DataPumpScope,
     string? SourceSchema,
     string? TargetSchema,
-    string? TargetTable);
+    string? TargetTable,
+    bool StreamResults = false);
 
 internal sealed record OracleConnectionInput(
     string? Host,

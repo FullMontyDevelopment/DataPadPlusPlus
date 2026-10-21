@@ -1,8 +1,48 @@
+use futures_util::TryStreamExt;
 use sqlx::{Column, Row};
 
 use super::super::super::*;
 use super::cells::stringify_pg_cell;
 use super::connection::postgres_connect_options;
+
+pub(crate) async fn stream_postgres_result(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+) -> Result<(), CommandError> {
+    crate::adapters::result_stream::validate_sql(request)?;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(postgres_connect_options(connection)?)
+        .await?;
+    let mut transaction = pool.begin().await?;
+    sqlx::query(sqlx::AssertSqlSafe("SET TRANSACTION READ ONLY"))
+        .execute(&mut *transaction)
+        .await?;
+    let mut rows =
+        sqlx::query(sqlx::AssertSqlSafe(selected_query(request))).fetch(&mut *transaction);
+    while let Some(row) = rows.try_next().await? {
+        let cells = row
+            .columns()
+            .iter()
+            .enumerate()
+            .map(|(index, column)| {
+                Ok((
+                    column.name().to_owned(),
+                    super::cells::export_pg_cell(&row, index)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, CommandError>>()?;
+        let record = crate::adapters::result_stream::object_row(cells)?;
+        if !sink.row(record)? {
+            break;
+        }
+    }
+    drop(rows);
+    transaction.rollback().await?;
+    pool.close().await;
+    Ok(())
+}
 
 pub(crate) async fn fetch_postgres_page(
     connection: &ResolvedConnectionProfile,

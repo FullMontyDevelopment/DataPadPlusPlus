@@ -344,6 +344,7 @@ pub(super) fn get_item(
 
 pub(super) fn tab_for_item(snapshot: &WorkspaceSnapshot, node: &LibraryNode) -> QueryTabState {
     QueryTabState {
+        query_fetch_batch_size: None,
         id: format!("mcp-item-{}", node.id),
         title: node.name.clone(),
         tab_kind: Some(
@@ -699,6 +700,7 @@ impl DatapadMcpTools {
         let candidate = ManagedAppState {
             app: state.app.clone(),
             snapshot,
+            result_sessions: state.result_sessions.clone(),
         };
         persist_then_publish(&mut *state, candidate, ManagedAppState::persist)?;
         get_item(

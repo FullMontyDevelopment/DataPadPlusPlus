@@ -34,16 +34,18 @@ export function QueryBuilderExecutionControls({
       ? builderState.size ?? 20
       : builderState.limit ?? (builderState.kind === 'cosmos-sql' ? 50 : 20)
   const minimum = builderState.kind === 'search-dsl' ? 0 : 1
+  const supportsUnlimited = !['redis-key-browser', 'search-dsl', 'dynamodb-key-condition'].includes(builderState.kind)
+  const unlimited = 'limit' in builderState && builderState.limit === null
   const sizeHelp = builderState.kind === 'dynamodb-key-condition'
     ? 'Maximum items evaluated per request, before DynamoDB filters are applied.'
     : builderState.kind === 'search-dsl'
       ? 'Maximum search hits to return. Use 0 to return aggregations without hits.'
       : 'Maximum records returned by this builder query. Count ignores this limit.'
 
-  const updateSize = (value: number) => {
+  const updateSize = (value: number | null) => {
     if (locked || !onBuilderStateChange || builderState.kind === 'redis-key-browser') return
     const next = builderState.kind === 'search-dsl'
-      ? { ...builderState, size: value }
+      ? { ...builderState, size: value ?? 20 }
       : { ...builderState, limit: value }
     const scoped = queryBuilderStateWithDatabase(
       next,
@@ -59,11 +61,17 @@ export function QueryBuilderExecutionControls({
           key={`${tab.id}:${builderState.kind}`}
           value={size}
           minimum={minimum}
-          disabled={locked || !onBuilderStateChange}
+          disabled={locked || unlimited || !onBuilderStateChange}
           title={sizeHelp}
+          label={builderState.kind === 'dynamodb-key-condition' ? 'Items evaluated' : builderState.kind === 'search-dsl' ? 'Hit limit' : 'Query limit'}
           onChange={updateSize}
         />
       ) : null}
+      {supportsUnlimited ? <label className="toolbar-query-unlimited" title="Do not add a total limit to the authored query. Results still load one batch at a time.">
+        <input type="checkbox" aria-label="No query limit" checked={unlimited}
+          disabled={locked || !onBuilderStateChange} onChange={event => updateSize(event.target.checked ? null : 20)} />
+        <span>No limit</span>
+      </label> : null}
       <QueryBuilderCountButton
         activeExecution={locked || invalid}
         builderState={builderState}
@@ -75,11 +83,12 @@ export function QueryBuilderExecutionControls({
   )
 }
 
-function FetchSizeInput({ value, minimum, disabled, title, onChange }: {
+function FetchSizeInput({ value, minimum, disabled, title, label, onChange }: {
   value: number
   minimum: number
   disabled: boolean
   title: string
+  label: string
   onChange(value: number): void
 }) {
   const [draft, setDraft] = useState({ source: value, text: String(value) })
@@ -88,9 +97,9 @@ function FetchSizeInput({ value, minimum, disabled, title, onChange }: {
 
   return (
     <label className="toolbar-fetch-size" title={title}>
-      <span>Fetch size</span>
+      <span>{label}</span>
       <input
-        aria-label="Fetch size"
+        aria-label={label}
         aria-invalid={text !== '' && !valid}
         type="number"
         min={minimum}

@@ -381,7 +381,7 @@ describe('runtime request validation', () => {
       }),
     ).toMatchObject({
       executionId: 'execution-page-1',
-      pageSize: 1000,
+      pageSize: 5000,
       pageIndex: 100000,
     })
     expect(() =>

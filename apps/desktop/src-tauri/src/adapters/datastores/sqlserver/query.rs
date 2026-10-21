@@ -1,10 +1,93 @@
 use chrono::NaiveDateTime;
+use futures_util::TryStreamExt;
 use serde_json::{json, Value};
 use tiberius::{time as tds_time, ColumnData};
 
 use super::super::super::*;
 use super::connection::sqlserver_client;
 use super::SqlServerAdapter;
+
+pub(super) async fn stream_result(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+) -> Result<(), CommandError> {
+    crate::adapters::result_stream::validate_sql(request)?;
+    if split_sql_batch(selected_query(request), SqlBatchDialect::SqlServer).len() != 1 {
+        return Err(CommandError::new(
+            "result-export-read-only",
+            "Export one read-only statement at a time.",
+        ));
+    }
+    let mut client = sqlserver_client(connection).await?;
+    let mut stream = client
+        .simple_query(selected_query(request))
+        .await?
+        .into_row_stream();
+    while let Some(row) = stream.try_next().await? {
+        let record = crate::adapters::result_stream::object_row(
+            row.cells()
+                .map(|(column, value)| Ok((column.name().to_owned(), export_tiberius_cell(value)?)))
+                .collect::<Result<Vec<_>, CommandError>>()?,
+        )?;
+        if !sink.row(record)? {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn export_tiberius_cell(data: &ColumnData<'_>) -> Result<Value, CommandError> {
+    fn text<T>(
+        value: &Option<T>,
+        encode: impl FnOnce(&T) -> Option<String>,
+    ) -> Result<Value, CommandError> {
+        match value {
+            None => Ok(Value::Null),
+            Some(value) => encode(value).map(Value::String).ok_or_else(|| {
+                CommandError::new("result-export-value", "SQL Server returned a value that cannot be exported losslessly in this format.")
+            }),
+        }
+    }
+    Ok(match data {
+        ColumnData::Bit(value) => value.map(Value::Bool).unwrap_or(Value::Null),
+        ColumnData::U8(value) => value.map(|value| json!(value)).unwrap_or(Value::Null),
+        ColumnData::I16(value) => value.map(|value| json!(value)).unwrap_or(Value::Null),
+        ColumnData::I32(value) => value.map(|value| json!(value)).unwrap_or(Value::Null),
+        ColumnData::I64(value) => value.map(|value| json!(value)).unwrap_or(Value::Null),
+        ColumnData::F32(value) => value
+            .map(|value| {
+                serde_json::Number::from_f64(f64::from(value))
+                    .map(Value::Number)
+                    .unwrap_or_else(|| Value::String(value.to_string()))
+            })
+            .unwrap_or(Value::Null),
+        ColumnData::F64(value) => value
+            .map(|value| {
+                serde_json::Number::from_f64(value)
+                    .map(Value::Number)
+                    .unwrap_or_else(|| Value::String(value.to_string()))
+            })
+            .unwrap_or(Value::Null),
+        ColumnData::String(value) => text(value, |value| Some(value.to_string()))?,
+        ColumnData::Guid(value) => text(value, |value| Some(value.to_string()))?,
+        ColumnData::Binary(value) => text(value, |value| {
+            Some(crate::adapters::result_stream::binary_hex(value))
+        })?,
+        ColumnData::Numeric(value) => text(value, |value| Some(value.to_string()))?,
+        ColumnData::Xml(value) => text(value, |value| Some(value.as_ref().to_string()))?,
+        ColumnData::DateTime(value) => text(value, |value| format_sqlserver_datetime(*value))?,
+        ColumnData::SmallDateTime(value) => {
+            text(value, |value| format_sqlserver_small_datetime(*value))?
+        }
+        ColumnData::Time(value) => text(value, |value| format_sqlserver_time(*value))?,
+        ColumnData::Date(value) => text(value, |value| format_sqlserver_date(*value))?,
+        ColumnData::DateTime2(value) => text(value, |value| format_sqlserver_datetime2(*value))?,
+        ColumnData::DateTimeOffset(value) => {
+            text(value, |value| format_sqlserver_datetime_offset(*value))?
+        }
+    })
+}
 
 fn stringify_tiberius_cell(data: &ColumnData<'_>) -> String {
     match data {
@@ -25,7 +108,7 @@ fn stringify_tiberius_cell(data: &ColumnData<'_>) -> String {
             .unwrap_or_else(|| "null".into()),
         ColumnData::Binary(value) => value
             .as_ref()
-            .map(|item| format!("<{} bytes>", item.len()))
+            .map(|item| crate::adapters::result_stream::binary_hex(item))
             .unwrap_or_else(|| "null".into()),
         ColumnData::Numeric(value) => value
             .as_ref()

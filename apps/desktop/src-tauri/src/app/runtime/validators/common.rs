@@ -15,7 +15,7 @@ pub(super) const MAX_REDIS_COUNT: u32 = 1_000;
 pub(super) const MAX_REDIS_PAGE_SIZE: u32 = 1_000;
 pub(super) const MAX_REDIS_SAMPLE_SIZE: u32 = 5_000;
 pub(super) const MAX_QUERY_TEXT_BYTES: usize = 1024 * 1024;
-pub(super) const MAX_RESULT_PAGE_SIZE: u32 = 1_000;
+pub(super) const MAX_RESULT_PAGE_SIZE: u32 = 5_000;
 pub(super) const MAX_RESULT_PAGE_INDEX: u32 = 100_000;
 
 pub(super) const DATA_EDIT_KINDS: &[&str] = &[

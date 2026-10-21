@@ -135,6 +135,7 @@ fn build_settings_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
         .or_else(|| snapshot.environments.first());
 
     QueryTabState {
+        query_fetch_batch_size: None,
         id: generate_id("settings-tab"),
         title: "Settings".into(),
         tab_kind: Some("settings".into()),
@@ -245,6 +246,7 @@ fn build_api_server_tab(snapshot: &WorkspaceSnapshot, server_id: Option<String>)
         .unwrap_or("API Server");
 
     QueryTabState {
+        query_fetch_batch_size: None,
         id: generate_id("api-server-tab"),
         title: title.into(),
         tab_kind: Some("api-server".into()),
@@ -316,6 +318,7 @@ fn build_mcp_server_tab(snapshot: &WorkspaceSnapshot, server_id: Option<String>)
         .unwrap_or("MCP Server");
 
     QueryTabState {
+        query_fetch_batch_size: None,
         id: generate_id("mcp-server-tab"),
         title: title.into(),
         tab_kind: Some("mcp-server".into()),
@@ -421,6 +424,7 @@ fn build_workspace_search_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
         .or_else(|| snapshot.environments.first());
 
     QueryTabState {
+        query_fetch_batch_size: None,
         id: generate_id("workspace-search-tab"),
         title: "Search".into(),
         tab_kind: Some("workspace-search".into()),
@@ -473,6 +477,7 @@ fn build_security_checks_tab(snapshot: &WorkspaceSnapshot) -> QueryTabState {
         .or_else(|| snapshot.environments.first());
 
     QueryTabState {
+        query_fetch_batch_size: None,
         id: generate_id("security-checks-tab"),
         title: "Security Checks".into(),
         tab_kind: Some("security-checks".into()),

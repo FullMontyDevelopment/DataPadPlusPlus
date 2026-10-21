@@ -1,6 +1,6 @@
 import type { DocumentNodeChildrenRequest, DocumentNodeChildrenResponse, ExecutionRequest, ExecutionResponse, LocalDatabaseCreateRequest, LocalDatabaseCreateResult, LocalDatabasePickRequest, LocalDatabasePickResult, MaterializeResultRendererRequest, MaterializeResultRendererResponse, ResultPageRequest, ResultPageResponse } from '@datapadplusplus/shared-types'
 import { applyExecutionRequestLocally, fetchDocumentNodeChildrenLocally } from './browser-execution'
-import { fetchResultPageLocally } from './browser-structure'
+import { captureBrowserResultSession, fetchBrowserSessionPage } from './browser-result-sessions'
 import { findConnection, findTab, loadBrowserSnapshot, saveBrowserSnapshot } from './browser-store'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
 import { projectDeferredResultPayload } from './result-materialization'
@@ -22,6 +22,7 @@ export const clientExecution = {
       loadBrowserSnapshot(),
       request,
     )
+    captureBrowserResultSession(snapshot, request, response)
     saveBrowserSnapshot(snapshot)
     return response
   },
@@ -32,7 +33,7 @@ export const clientExecution = {
       return invokeDesktop<ResultPageResponse>('fetch_result_page', { request })
     }
 
-    return fetchResultPageLocally(loadBrowserSnapshot(), request)
+    return fetchBrowserSessionPage(loadBrowserSnapshot(), request)
   },
 
   async materializeResultRenderer(

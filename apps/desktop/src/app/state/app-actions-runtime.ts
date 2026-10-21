@@ -391,6 +391,7 @@ export function useRuntimeActions({
           environmentId: tab.environmentId,
           language: tab.language,
           queryText: resultEditQueryText(tab, tab.result),
+          resultId: tab.result.id,
           renderer: renderer ?? tab.result.defaultRenderer,
           pageSize: pageInfo.pageSize,
           pageIndex: pageInfo.pageIndex + 1,

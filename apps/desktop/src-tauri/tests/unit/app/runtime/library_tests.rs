@@ -10,6 +10,7 @@ fn query_execution_checks_tab_identity_and_library_environment_without_retargeti
     ];
     let connection_id = snapshot.library_nodes[1].connection_id.clone().unwrap();
     let mut tab = QueryTabState {
+        query_fetch_batch_size: None,
         connection_id: connection_id.clone(),
         environment_id: "env-prod".into(),
         ..Default::default()
@@ -299,6 +300,7 @@ fn duplicated_test_suites_receive_an_independent_identity_and_copy_name() {
 #[test]
 fn local_file_content_uses_script_text_for_script_tabs() {
     let tab = QueryTabState {
+        query_fetch_batch_size: None,
         query_text: "{ \"collection\": \"products\" }".into(),
         query_view_mode: Some("script".into()),
         script_text: Some("db.products.find({ sku: 'luna-lamp' })".into()),
@@ -314,6 +316,7 @@ fn local_file_content_uses_script_text_for_script_tabs() {
 #[test]
 fn local_file_content_serializes_test_suite_tabs() {
     let tab = QueryTabState {
+        query_fetch_batch_size: None,
         tab_kind: Some("test-suite".into()),
         query_text: "stale raw text".into(),
         test_suite: Some(json!({ "name": "Smoke", "cases": [] })),

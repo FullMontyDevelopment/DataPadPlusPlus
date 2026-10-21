@@ -54,6 +54,7 @@ async fn litedb_bundled_atomic_creation_and_encrypted_reopen() {
 fn atomic_database_creation_initializes_and_publishes_sqlite() {
     tauri::async_runtime::block_on(async {
         let path = test_local_path("atomic-sqlite", "sqlite");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         create_local_database_atomically(&path, "sqlite", "starter", None)
             .await
             .unwrap();
@@ -81,6 +82,7 @@ use crate::domain::models::QueryTabState;
 fn asynchronous_metadata_refresh_preserves_concurrent_saved_edits_and_selection() {
     let mut before = crate::app::runtime::blank_workspace_snapshot();
     before.tabs.push(QueryTabState {
+        query_fetch_batch_size: None,
         id: "metrics".into(),
         tab_kind: Some("metrics".into()),
         ..Default::default()
@@ -112,6 +114,7 @@ fn asynchronous_metadata_refresh_preserves_concurrent_saved_edits_and_selection(
 fn asynchronous_metadata_refresh_never_resurrects_closed_tabs_or_overwrites_changed_targets() {
     let mut before = crate::app::runtime::blank_workspace_snapshot();
     before.tabs.push(QueryTabState {
+        query_fetch_batch_size: None,
         id: "object".into(),
         environment_id: "before".into(),
         ..Default::default()

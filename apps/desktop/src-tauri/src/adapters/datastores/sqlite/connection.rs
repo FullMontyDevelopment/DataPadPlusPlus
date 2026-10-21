@@ -6,7 +6,7 @@ use sqlx::{
         SqliteAutoVacuum, SqliteConnectOptions, SqliteJournalMode, SqliteLockingMode,
         SqlitePoolOptions, SqliteSynchronous,
     },
-    Column, Row, SqlitePool, TypeInfo,
+    Column, Row, SqlitePool, TypeInfo, ValueRef,
 };
 
 use crate::domain::models::SqliteConnectionOptions;
@@ -14,6 +14,9 @@ use crate::domain::models::SqliteConnectionOptions;
 use super::super::super::*;
 
 pub(super) fn stringify_sqlite_cell(row: &sqlx::sqlite::SqliteRow, index: usize) -> String {
+    if row.try_get_raw(index).is_ok_and(|value| value.is_null()) {
+        return "null".into();
+    }
     stringify_sqlx_common(
         [
             row.try_get::<Option<String>, _>(index).ok().flatten(),
@@ -37,10 +40,30 @@ pub(super) fn stringify_sqlite_cell(row: &sqlx::sqlite::SqliteRow, index: usize)
             row.try_get::<Option<Vec<u8>>, _>(index)
                 .ok()
                 .flatten()
-                .map(|item| format!("<{} bytes>", item.len())),
+                .map(|item| crate::adapters::result_stream::binary_hex(&item)),
         ],
         format!("<{}>", row.columns()[index].type_info().name()),
     )
+}
+
+pub(super) fn export_sqlite_cell(
+    row: &sqlx::sqlite::SqliteRow,
+    index: usize,
+) -> Result<Value, CommandError> {
+    let raw = row.try_get_raw(index)?;
+    if raw.is_null() {
+        return Ok(Value::Null);
+    }
+    match raw.type_info().name() {
+        "INTEGER" | "INT" => Ok(serde_json::json!(row.try_get::<i64, _>(index)?)),
+        "REAL" | "FLOAT" => {
+            let value = row.try_get::<f64, _>(index)?;
+            Ok(if value.is_finite() { serde_json::json!(value) } else { Value::String(value.to_string()) })
+        }
+        "TEXT" => Ok(Value::String(row.try_get::<String, _>(index)?)),
+        "BLOB" => Ok(Value::String(crate::adapters::result_stream::binary_hex(&row.try_get::<Vec<u8>, _>(index)?))),
+        _ => Err(CommandError::new("result-export-type", "A SQLite column has a type this export codec cannot preserve. Cast it explicitly before exporting.")),
+    }
 }
 
 pub(super) async fn sqlite_pool(

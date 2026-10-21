@@ -45,6 +45,19 @@ pub(super) fn open_duckdb_connection(
     }
 }
 
+pub(super) fn open_duckdb_read_connection(
+    connection: &ResolvedConnectionProfile,
+) -> Result<Connection, CommandError> {
+    let path = validated_duckdb_database_path(connection)?;
+    if path == ":memory:" || path.eq_ignore_ascii_case("memory") {
+        return Err(CommandError::new("result-export-session", "An in-memory DuckDB database cannot be reopened for full-query export. Export loaded results instead."));
+    }
+    let config = duckdb::Config::default()
+        .access_mode(duckdb::AccessMode::ReadOnly)
+        .map_err(duckdb_error)?;
+    Connection::open_with_flags(path, config).map_err(duckdb_error)
+}
+
 pub(super) fn duckdb_database_path(connection: &ResolvedConnectionProfile) -> String {
     connection
         .warehouse_options

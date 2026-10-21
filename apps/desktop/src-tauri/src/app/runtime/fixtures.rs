@@ -204,6 +204,7 @@ fn fixture_workspace_seed_for_profile_options(
         explorer_nodes: Vec::new(),
         adapter_manifests: adapters::manifests(),
         preferences: AppPreferences {
+            query_results: Default::default(),
             theme: "dark".into(),
             telemetry: "opt-in".into(),
             lock_after_minutes: 15,

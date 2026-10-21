@@ -14,6 +14,8 @@ type WorkspaceActions = Pick<
   | 'clearWorkbenchMessages'
   | 'setTheme'
   | 'setSafeModeEnabled'
+  | 'setQueryResultPreferences'
+  | 'setQueryFetchBatchSize'
   | 'setKeyboardShortcut'
   | 'setFirstInstallGuideStatus'
   | 'setExplorerFolderOrder'
@@ -142,6 +144,28 @@ export function useWorkspaceActions({
       } catch (error) {
         handleError(error)
       }
+    },
+    [applyPayload, handleError],
+  )
+
+  const setQueryResultPreferences = useCallback<Actions['setQueryResultPreferences']>(
+    async (preferences) => {
+      try {
+        applyPayload(await desktopClient.setQueryResultPreferences(preferences))
+        return true
+      } catch (error) {
+        handleError(error)
+        return false
+      }
+    },
+    [applyPayload, handleError],
+  )
+  const setQueryFetchBatchSize = useCallback<Actions['setQueryFetchBatchSize']>(
+    async (tabId, batchSize) => {
+      try {
+        applyPayload(await desktopClient.setQueryFetchBatchSize(tabId, batchSize))
+        return true
+      } catch (error) { handleError(error); return false }
     },
     [applyPayload, handleError],
   )
@@ -1130,6 +1154,8 @@ export function useWorkspaceActions({
       clearWorkbenchMessages,
       setTheme,
       setSafeModeEnabled,
+      setQueryResultPreferences,
+      setQueryFetchBatchSize,
       setKeyboardShortcut,
       setFirstInstallGuideStatus,
       setExplorerFolderOrder,
@@ -1264,6 +1290,8 @@ export function useWorkspaceActions({
       clearAppLogFile,
       deleteAppLogFile,
       setSafeModeEnabled,
+      setQueryResultPreferences,
+      setQueryFetchBatchSize,
       setKeyboardShortcut,
       setFirstInstallGuideStatus,
       setExplorerFolderOrder,

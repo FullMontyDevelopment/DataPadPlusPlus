@@ -2,7 +2,7 @@
 
 Data transfer is distinct from result export, workspace backup, and datastore backup:
 
-- **Result export** writes the current result payload.
+- **Result export** writes accumulated loaded query results, or re-runs a supported original read query as a native stream. See [result exports and limits](result-exports.md).
 - **Data import/export** moves selected datastore objects through a native or portable format.
 - **Workspace backup** preserves DataPad++ configuration and saved work.
 - **Datastore backup/restore** uses a genuine in-process, SQL, sidecar, server, repository, or cloud API when available.

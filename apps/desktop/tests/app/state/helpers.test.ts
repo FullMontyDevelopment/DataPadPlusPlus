@@ -203,6 +203,45 @@ describe('migrateWorkspaceSnapshot', () => {
     )
   })
 
+  it('migrates schema 13 query limits once without rewriting drafts or builder limits', () => {
+    const original = structuredClone(createSeedSnapshot())
+    original.schemaVersion = 13
+    original.preferences.queryResults = undefined
+    original.connections.forEach(connection => { connection.id = `user-${connection.id}` })
+    original.tabs.forEach(tab => {
+      tab.id = `user-${tab.id}`
+      tab.connectionId = `user-${tab.connectionId}`
+    })
+    const drafts = original.tabs.map(tab => ({ id: tab.id, queryText: tab.queryText, builderState: tab.builderState }))
+    const upgraded = migrateWorkspaceSnapshot(original)
+    expect(upgraded.schemaVersion).toBe(CURRENT_WORKSPACE_SCHEMA_VERSION)
+    expect(upgraded.preferences.queryResults).toEqual({ fetchBatchSize: 500, maximumLoadedRows: null, maximumExportedRows: null })
+    for (const draft of drafts) {
+      const tab = upgraded.tabs.find(tab => tab.id === draft.id)
+      expect(tab?.queryText).toBe(draft.queryText)
+      expect(tab?.builderState).toEqual(draft.builderState)
+    }
+    upgraded.preferences.queryResults = { fetchBatchSize: 750, maximumLoadedRows: 1500, maximumExportedRows: null }
+    expect(migrateWorkspaceSnapshot(upgraded).preferences.queryResults).toEqual(upgraded.preferences.queryResults)
+    expect(original.schemaVersion).toBe(13)
+  })
+
+  it('rejects invalid imported query limits instead of silently treating them as unlimited', () => {
+    for (const fetchBatchSize of [0, 5001, -1, 1.5]) {
+      const snapshot = structuredClone(createSeedSnapshot())
+      snapshot.preferences.queryResults = { fetchBatchSize, maximumLoadedRows: null, maximumExportedRows: null }
+      expect(() => migrateWorkspaceSnapshot(snapshot)).toThrow('Fetch batch size')
+    }
+    for (const maximumLoadedRows of [0, -1, 1.5]) {
+      const snapshot = structuredClone(createSeedSnapshot())
+      snapshot.preferences.queryResults = { fetchBatchSize: 500, maximumLoadedRows, maximumExportedRows: null }
+      expect(() => migrateWorkspaceSnapshot(snapshot)).toThrow('Maximum loaded rows')
+    }
+    const snapshot = structuredClone(createSeedSnapshot())
+    snapshot.tabs[0].queryFetchBatchSize = 5001
+    expect(() => migrateWorkspaceSnapshot(snapshot)).toThrow('Tab fetch batch size')
+  })
+
   it('keeps vault-backed profiles in connection-string mode without plaintext', () => {
     const snapshot = structuredClone(createSeedSnapshot())
     snapshot.schemaVersion = 12
@@ -225,7 +264,7 @@ describe('migrateWorkspaceSnapshot', () => {
     }
     const originalConnection = structuredClone(connection)
     const upgraded = migrateWorkspaceSnapshot(snapshot)
-    expect(upgraded.schemaVersion).toBe(13)
+    expect(upgraded.schemaVersion).toBe(14)
     expect(upgraded.connections.find(item => item.id === connection.id)).toEqual(originalConnection)
     expect(upgraded.connections.find(item => item.id === connection.id)?.mongodbOptions?.retryWrites).toBeUndefined()
     expect(snapshot.schemaVersion).toBe(12)

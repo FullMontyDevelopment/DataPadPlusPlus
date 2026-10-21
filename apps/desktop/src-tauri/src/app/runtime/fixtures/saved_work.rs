@@ -54,6 +54,7 @@ pub(super) fn fixture_closed_tabs(
 
     vec![ClosedQueryTabSnapshot {
         tab: QueryTabState {
+            query_fetch_batch_size: None,
             id: "tab-fixture-recovery-example".into(),
             title: "Recovered fixture scratch.sql".into(),
             tab_kind: Some("query".into()),

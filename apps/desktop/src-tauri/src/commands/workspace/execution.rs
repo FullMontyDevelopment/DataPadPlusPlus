@@ -58,7 +58,17 @@ pub async fn execute_data_edit(
     request: DataEditExecutionRequest,
 ) -> Result<DataEditExecutionResponse, CommandError> {
     let runtime = clone_runtime(&state)?;
-    runtime.execute_data_edit(request).await
+    let response = runtime.execute_data_edit(request.clone()).await?;
+    if response.executed {
+        let mut current = lock_state(&state)?;
+        for session in current.result_sessions.values_mut().filter(|session| {
+            session.request.connection_id == request.connection_id
+                && session.request.environment_id == request.environment_id
+        }) {
+            session.apply_document_edit(&request, &response);
+        }
+    }
+    Ok(response)
 }
 
 #[tauri::command]
@@ -124,13 +134,17 @@ pub async fn execute_query_request(
     );
     mark_tab_execution_running(&state, &tab_id, &execution_id, None)?;
     let mut runtime = clone_runtime(&state)?;
+    let workspace_id = runtime.workspace_switcher_status()?.active_workspace_id;
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
     {
         let mut executions = lock_executions(&executions)?;
         executions.register(execution_id.clone(), abort_handle);
     }
-    let execution =
-        Abortable::new(runtime.execute_query(request.clone()), abort_registration).await;
+    let execution = Abortable::new(
+        runtime.execute_workbench_query(request.clone()),
+        abort_registration,
+    )
+    .await;
     {
         let mut executions = lock_executions(&executions)?;
         executions.remove(&execution_id);
@@ -144,11 +158,25 @@ pub async fn execute_query_request(
             clear_tab_execution_after_cancel(&state, &request, &execution_id)
         }
         Ok(Ok(response)) => {
+            if lock_state(&state)?
+                .workspace_switcher_status()?
+                .active_workspace_id
+                != workspace_id
+            {
+                return Err(CommandError::new(
+                    "execution-stale",
+                    "The workspace changed while this query was running.",
+                ));
+            }
             infrastructure::log_breadcrumb(
                 "command",
                 format!("execute-query-complete execution={execution_id} ok=true"),
             );
-            merge_execution_response(&state, response)
+            let session = response
+                .result
+                .as_ref()
+                .and_then(|result| runtime.result_sessions.remove(&result.id));
+            merge_execution_response(&state, response, session)
         }
         Ok(Err(error)) => {
             let message = error.message.clone();
@@ -324,10 +352,179 @@ pub async fn cancel_execution_request(
 #[tauri::command]
 pub async fn fetch_result_page(
     state: State<'_, SharedAppState>,
+    executions: State<'_, SharedExecutionRegistry>,
     request: ResultPageRequest,
 ) -> Result<ResultPageResponse, CommandError> {
     let runtime = clone_runtime(&state)?;
-    runtime.fetch_result_page(request).await
+    runtime.ensure_unlocked()?;
+    let tab = runtime
+        .snapshot
+        .tabs
+        .iter()
+        .find(|tab| tab.id == request.tab_id)
+        .ok_or_else(|| {
+            CommandError::new(
+                "result-page-stale",
+                "The result tab is no longer available.",
+            )
+        })?;
+    let result = tab.result.as_ref().ok_or_else(|| {
+        CommandError::new(
+            "result-page-stale",
+            "Run the query again before loading more.",
+        )
+    })?;
+    if request.result_id.as_deref() != Some(result.id.as_str()) {
+        return Err(CommandError::new(
+            "result-page-stale",
+            "The result changed. Load more from the current result.",
+        ));
+    }
+    let mut session = runtime
+        .result_sessions
+        .get(&result.id)
+        .cloned()
+        .ok_or_else(|| {
+            CommandError::new(
+                "result-page-stale",
+                "Run the query again to start a result session.",
+            )
+        })?;
+    super::result_export::session_for_export(&runtime, &request.tab_id, &result.id)?;
+    let previous_revision = session.revision;
+    let info = session.page_info.as_ref().ok_or_else(|| {
+        CommandError::new(
+            "result-page-unsupported",
+            "This result has no continuation.",
+        )
+    })?;
+    if !info.has_more
+        || request.page_index != Some(info.page_index + 1)
+        || request.cursor != info.next_cursor
+    {
+        return Err(CommandError::new(
+            "result-page-stale",
+            "This page has already loaded or the result has no further pages.",
+        ));
+    }
+    runtime.validate_result_context(
+        &request.tab_id,
+        &session.request.connection_id,
+        &session.request.environment_id,
+    )?;
+    let mut captured = request.clone();
+    captured.connection_id = session.request.connection_id.clone();
+    captured.environment_id = session.request.environment_id.clone();
+    captured.query_text = session.request.query_text.clone();
+    captured.selected_text = session.request.selected_text.clone();
+    captured.sql_scope = session.request.sql_scope.clone();
+    captured.scoped_target = session.request.scoped_target.clone();
+    captured.page_size = Some(info.page_size);
+    captured.renderer = session.page_renderer(&request.renderer).to_owned();
+    captured.document_efficiency_mode = Some(false);
+    let mut captured =
+        adapters::prepare_result_page(&session.connection, &session.request, captured)?;
+    let execution_id = request
+        .execution_id
+        .clone()
+        .unwrap_or_else(|| generate_id("result-page"));
+    captured.execution_id = Some(execution_id.clone());
+    let previous_status = {
+        let mut current = lock_state(&state)?;
+        current.ensure_unlocked()?;
+        let tab = current
+            .snapshot
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.id == request.tab_id)
+            .ok_or_else(|| {
+                CommandError::new(
+                    "result-page-stale",
+                    "The result tab is no longer available.",
+                )
+            })?;
+        if tab.active_execution.is_some() {
+            return Err(CommandError::new(
+                "result-page-busy",
+                "Wait for the current operation before loading another page.",
+            ));
+        }
+        let previous = tab.status.clone();
+        tab.status = "running".into();
+        tab.active_execution = Some(QueryTabActiveExecution {
+            execution_id: execution_id.clone(),
+            phase: "server".into(),
+            started_at: timestamp_now(),
+            message: Some("Loading more results".into()),
+        });
+        previous
+    };
+    let (handle, registration) = AbortHandle::new_pair();
+    lock_executions(&executions)?.register(execution_id.clone(), handle);
+    let response = Abortable::new(
+        adapters::fetch_result_page(&session.connection, &captured),
+        registration,
+    )
+    .await;
+    lock_executions(&executions)?.remove(&execution_id);
+    {
+        let mut current = lock_state(&state)?;
+        if let Some(tab) = current
+            .snapshot
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.id == request.tab_id)
+        {
+            if tab
+                .active_execution
+                .as_ref()
+                .is_some_and(|active| active.execution_id == execution_id)
+            {
+                tab.active_execution = None;
+                tab.status = previous_status;
+            }
+        }
+    }
+    let mut page = response.map_err(|_| {
+        CommandError::new(
+            "result-page-canceled",
+            "Loading more results was canceled. Existing results are unchanged.",
+        )
+    })??;
+    if page
+        .payload
+        .get("renderer")
+        .and_then(serde_json::Value::as_str)
+        == Some("raw")
+    {
+        return Err(CommandError::new("result-page-unavailable", "This adapter cannot continue this result in the results view yet. Use Full query results export where available; the existing loaded results have not changed."));
+    }
+    page.result_id = Some(result.id.clone());
+    session.append(&mut page)?;
+    if session.request.document_efficiency_mode == Some(true) {
+        page.payload = crate::app::runtime::result_sessions::document_preview(&page.payload);
+    }
+    let mut current = lock_state(&state)?;
+    current.ensure_unlocked()?;
+    super::result_export::session_for_export(&current, &request.tab_id, &result.id)?;
+    if !current.snapshot.tabs.iter().any(|tab| {
+        tab.id == request.tab_id
+            && tab
+                .result
+                .as_ref()
+                .is_some_and(|value| value.id == result.id)
+    }) || current
+        .result_sessions
+        .get(&result.id)
+        .is_none_or(|value| value.revision != previous_revision)
+    {
+        return Err(CommandError::new(
+            "result-page-stale",
+            "The result changed while loading this page.",
+        ));
+    }
+    current.result_sessions.insert(result.id.clone(), session);
+    Ok(page)
 }
 
 #[tauri::command]
@@ -335,6 +532,40 @@ pub async fn materialize_result_renderer(
     state: State<'_, SharedAppState>,
     request: MaterializeResultRendererRequest,
 ) -> Result<MaterializeResultRendererResponse, CommandError> {
+    let session = {
+        let state = lock_state(&state)?;
+        state.ensure_unlocked()?;
+        if state.result_sessions.contains_key(&request.result_id) {
+            let session = super::result_export::session_for_export(
+                &state,
+                &request.tab_id,
+                &request.result_id,
+            )?;
+            session
+                .chunks
+                .contains_key("document")
+                .then(|| session.clone())
+        } else {
+            None
+        }
+    };
+    if let Some(session) = session {
+        let renderer = request.renderer.clone();
+        let payload = tauri::async_runtime::spawn_blocking(move || session.materialize(&renderer))
+            .await
+            .map_err(|_| {
+                CommandError::new(
+                    "result-materialization-failed",
+                    "The result view could not be prepared.",
+                )
+            })??;
+        return Ok(MaterializeResultRendererResponse {
+            tab_id: request.tab_id,
+            result_id: request.result_id,
+            renderer: request.renderer,
+            payload,
+        });
+    }
     let result = {
         let state = lock_state(&state)?;
         let tab = state

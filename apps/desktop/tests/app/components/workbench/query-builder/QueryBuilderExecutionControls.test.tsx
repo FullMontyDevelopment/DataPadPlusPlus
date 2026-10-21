@@ -38,11 +38,11 @@ describe('QueryBuilderExecutionControls', () => {
     const toolbar = screen.getByLabelText('Editor toolbar')
     const resultControls = within(toolbar).getByRole('group', { name: 'Query result controls' })
     const panel = document.querySelector('.query-builder-workspace') as HTMLElement
-    expect(within(panel).queryByLabelText('Fetch size')).not.toBeInTheDocument()
+    expect(within(panel).queryByLabelText(/^(Query limit|Items evaluated|Hit limit)$/)).not.toBeInTheDocument()
     expect(within(panel).queryByLabelText('Limit')).not.toBeInTheDocument()
     expect(within(panel).queryByLabelText('Size')).not.toBeInTheDocument()
     expect(within(panel).queryByRole('button', { name: 'Count' })).not.toBeInTheDocument()
-    expect(screen.getAllByLabelText('Fetch size')).toHaveLength(1)
+    expect(screen.getAllByLabelText(/^(Query limit|Items evaluated|Hit limit)$/)).toHaveLength(1)
     expect(screen.getAllByRole('button', { name: 'Count' })).toHaveLength(1)
     const countButton = within(resultControls).getByRole('button', { name: 'Count' })
     expect(countButton).toHaveClass('toolbar-icon-action')
@@ -50,7 +50,7 @@ describe('QueryBuilderExecutionControls', () => {
     expect(countButton).toHaveAttribute('title', 'Count all records matching the current builder filters')
     expect(countButton.querySelector('svg')).toBeInTheDocument()
     expect(toolbar.children[1]).toBe(resultControls)
-    const input = within(resultControls).getByLabelText('Fetch size')
+    const input = within(resultControls).getByLabelText(/^(Query limit|Items evaluated|Hit limit)$/)
     input.focus()
     fireEvent.change(input, { target: { value: '37' } })
     expect(input).toHaveFocus()
@@ -69,7 +69,7 @@ describe('QueryBuilderExecutionControls', () => {
     const onCount = vi.fn().mockResolvedValue(undefined)
     const builder = { ...createDefaultRedisKeyBrowserState('orders:*'), scanCount: 250, pageSize: 100 }
     render(<Harness engine={engine} initialState={builder} onChange={onChange} onCount={onCount} />)
-    expect(screen.queryByLabelText('Fetch size')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/^(Query limit|Items evaluated|Hit limit)$/)).not.toBeInTheDocument()
     expect(within(screen.getByLabelText('Redis key browser')).queryByRole('button', { name: 'Count' })).not.toBeInTheDocument()
     fireEvent.click(within(screen.getByLabelText('Editor toolbar')).getByRole('button', { name: 'Count' }))
     await waitFor(() => expect(onCount).toHaveBeenCalledExactlyOnceWith('tab-fixture', builder))
@@ -79,7 +79,7 @@ describe('QueryBuilderExecutionControls', () => {
   it('allows clearing and replacing the size without applying incomplete, fractional, or unsafe limits', () => {
     const onChange = vi.fn()
     render(<Harness initialState={createDefaultMongoFindBuilderState('orders')} onChange={onChange} />)
-    const input = screen.getByLabelText('Fetch size')
+    const input = screen.getByLabelText(/^(Query limit|Items evaluated|Hit limit)$/)
     fireEvent.change(input, { target: { value: '' } })
     expect(input).toHaveValue(null)
     expect(onChange).not.toHaveBeenCalled()
@@ -98,9 +98,9 @@ describe('QueryBuilderExecutionControls', () => {
   it.each(['elasticsearch', 'opensearch'] as const)('preserves %s zero-hit aggregation requests', (engine) => {
     const onChange = vi.fn()
     render(<Harness engine={engine} initialState={createDefaultSearchDslBuilderState('orders')} onChange={onChange} />)
-    fireEvent.change(screen.getByLabelText('Fetch size'), { target: { value: '0' } })
+    fireEvent.change(screen.getByLabelText(/^(Query limit|Items evaluated|Hit limit)$/), { target: { value: '0' } })
     expect(onChange).toHaveBeenLastCalledWith('tab-fixture', expect.objectContaining({ size: 0 }))
-    expect(screen.getByLabelText('Fetch size')).toHaveAttribute('aria-invalid', 'false')
+    expect(screen.getByLabelText(/^(Query limit|Items evaluated|Hit limit)$/)).toHaveAttribute('aria-invalid', 'false')
   })
 
   it('finishes size editing with Enter without swallowing the Run keyboard shortcut', () => {
@@ -108,7 +108,7 @@ describe('QueryBuilderExecutionControls', () => {
     render(<div onKeyDown={shortcut}>
       <Harness initialState={createDefaultMongoFindBuilderState('orders')} onChange={vi.fn()} />
     </div>)
-    const input = screen.getByLabelText('Fetch size')
+    const input = screen.getByLabelText(/^(Query limit|Items evaluated|Hit limit)$/)
     input.focus()
     fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
     expect(shortcut).toHaveBeenCalledOnce()
@@ -126,7 +126,7 @@ describe('QueryBuilderExecutionControls', () => {
     const onCount = vi.fn()
     const onChange = vi.fn()
     render(<QueryBuilderExecutionControls tab={queryTab} builderState={builder} executionLocked={state === 'lock'} onBuilderStateChange={onChange} onCount={onCount} />)
-    expect(screen.getByLabelText('Fetch size')).toBeDisabled()
+    expect(screen.getByLabelText(/^(Query limit|Items evaluated|Hit limit)$/)).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Count' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: 'Count' }))
     expect(onCount).not.toHaveBeenCalled()
@@ -141,8 +141,8 @@ describe('QueryBuilderExecutionControls', () => {
     const invalid = { ...builder, collection: 'orders', filters: [{ id: 'invalid', field: 'price', operator: 'eq' as const, valueType: 'number' as const, value: 'no' }] }
     rerender(<QueryBuilderExecutionControls tab={tab(invalid)} builderState={invalid} onBuilderStateChange={onChange} onCount={onCount} />)
     expect(screen.getByRole('button', { name: 'Count' })).toBeDisabled()
-    expect(screen.getByLabelText('Fetch size')).toBeEnabled()
-    fireEvent.change(screen.getByLabelText('Fetch size'), { target: { value: '60' } })
+    expect(screen.getByLabelText(/^(Query limit|Items evaluated|Hit limit)$/)).toBeEnabled()
+    fireEvent.change(screen.getByLabelText(/^(Query limit|Items evaluated|Hit limit)$/), { target: { value: '60' } })
     expect(onChange).toHaveBeenCalledWith('tab-fixture', expect.objectContaining({ limit: 60, lastAppliedQueryText: invalid.lastAppliedQueryText }))
   })
 
@@ -168,11 +168,11 @@ describe('QueryBuilderExecutionControls', () => {
     const onChange = vi.fn()
     const onCount = vi.fn().mockResolvedValue(undefined)
     const { rerender } = render(<QueryBuilderExecutionControls tab={tab(first)} builderState={first} onBuilderStateChange={onChange} onCount={onCount} />)
-    fireEvent.change(screen.getByLabelText('Fetch size'), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText(/^(Query limit|Items evaluated|Hit limit)$/), { target: { value: '' } })
     const nextTab = { ...tab(second), id: 'tab-next' }
     rerender(<QueryBuilderExecutionControls tab={nextTab} builderState={second} onBuilderStateChange={onChange} onCount={onCount} />)
-    expect(screen.getByLabelText('Fetch size')).toHaveValue(80)
-    fireEvent.change(screen.getByLabelText('Fetch size'), { target: { value: '90' } })
+    expect(screen.getByLabelText(/^(Query limit|Items evaluated|Hit limit)$/)).toHaveValue(80)
+    fireEvent.change(screen.getByLabelText(/^(Query limit|Items evaluated|Hit limit)$/), { target: { value: '90' } })
     expect(onChange).toHaveBeenCalledExactlyOnceWith('tab-next', expect.objectContaining({ collection: 'users', limit: 90 }))
   })
 })

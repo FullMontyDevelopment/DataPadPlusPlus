@@ -74,6 +74,7 @@ impl ManagedAppState {
         let mut managed = Self {
             app,
             snapshot: migrate_snapshot(snapshot),
+            result_sessions: Default::default(),
         };
         let secret_changes = managed.migrate_embedded_connection_string_secrets()?;
         if let Err(error) =
@@ -193,6 +194,12 @@ impl ManagedAppState {
     }
 
     pub fn persist(&mut self) -> Result<(), CommandError> {
+        self.result_sessions.retain(|id, _| {
+            self.snapshot
+                .tabs
+                .iter()
+                .any(|tab| tab.result.as_ref().is_some_and(|result| &result.id == id))
+        });
         let previous_snapshot = self.snapshot.clone();
         let secret_changes = self.migrate_embedded_connection_string_secrets()?;
         self.snapshot.workspace_revision = self.snapshot.workspace_revision.saturating_add(1);
@@ -415,6 +422,7 @@ impl ManagedAppState {
         let mut temporary_state = ManagedAppState {
             app: self.app.clone(),
             snapshot: payload.snapshot,
+            result_sessions: Default::default(),
         };
         let mut report = temporary_state.analyze_workspace_storage(Default::default())?;
         report.secret_count = secret_count;
@@ -462,6 +470,7 @@ impl ManagedAppState {
         let mut imported_state = ManagedAppState {
             app: self.app.clone(),
             snapshot: next_snapshot,
+            result_sessions: Default::default(),
         };
         let secret_changes = match imported_state.migrate_embedded_connection_string_secrets() {
             Ok(changes) => changes,
@@ -1070,6 +1079,9 @@ pub(super) fn migrate_snapshot(mut snapshot: WorkspaceSnapshot) -> WorkspaceSnap
     snapshot.ui = normalize_ui_state(&snapshot);
     migrate_v11_snapshot_to_v12(&mut snapshot);
     migrate_v12_snapshot_to_v13(&mut snapshot);
+    if snapshot.schema_version == 13 {
+        snapshot.schema_version = 14;
+    }
 
     snapshot
 }
@@ -1823,6 +1835,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
                 explorer_nodes: Vec::new(),
                 adapter_manifests: Vec::new(),
                 preferences: AppPreferences {
+                    query_results: Default::default(),
                     theme: "dark".into(),
                     telemetry: "opt-in".into(),
                     lock_after_minutes: 15,
@@ -1858,6 +1871,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
         explorer_nodes: Vec::new(),
         adapter_manifests: adapters::manifests(),
         preferences: AppPreferences {
+            query_results: Default::default(),
             theme: "dark".into(),
             telemetry: "opt-in".into(),
             lock_after_minutes: 15,

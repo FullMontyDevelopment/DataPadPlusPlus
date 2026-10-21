@@ -2,6 +2,7 @@ import type { WorkspaceSnapshot } from '@datapadplusplus/shared-types'
 
 export type SettingsSection =
   | 'appearance'
+  | 'query-results'
   | 'workspace'
   | 'updates'
   | 'security'
@@ -12,6 +13,7 @@ export type SettingsSection =
 
 export const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string }> = [
   { id: 'appearance', label: 'Appearance' },
+  { id: 'query-results', label: 'Queries & Results' },
   { id: 'workspace', label: 'Workspace + Backups' },
   { id: 'updates', label: 'Updates' },
   { id: 'security', label: 'Security' },

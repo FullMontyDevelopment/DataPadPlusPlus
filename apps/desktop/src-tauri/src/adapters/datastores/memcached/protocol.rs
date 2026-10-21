@@ -2,12 +2,86 @@ use std::collections::BTreeMap;
 
 use serde_json::{json, Value};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
     time::{timeout, Duration},
 };
 
 use super::super::super::*;
+
+pub(super) async fn stream_result(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+) -> Result<(), CommandError> {
+    crate::adapters::result_stream::validate_read_request(request)?;
+    let line = selected_query(request).trim();
+    let parts = line.split_whitespace().collect::<Vec<_>>();
+    let command = parts
+        .first()
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+    if line.contains(['\r', '\n'])
+        || !matches!(command.as_str(), "get" | "gets")
+        || parts.len() < 2
+        || parts[1..]
+            .iter()
+            .any(|key| key.len() > 250 || key.chars().any(char::is_control))
+    {
+        return Err(CommandError::new("result-export-unsupported", "Full Memcached export supports a single get or gets command with explicit keys. Key enumeration and mutations are unavailable."));
+    }
+    let expected = parts[1..]
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    let wire = format!("{command} {}\r\nquit\r\n", parts[1..].join(" "));
+    let mut socket = memcached_connect(connection, &memcached_address(connection)).await?;
+    memcached_io_timeout(connection, async {
+        socket.write_all(wire.as_bytes()).await?;
+        let mut reader = BufReader::new(socket);
+        loop {
+            let mut header = String::new();
+            (&mut reader).take(1024).read_line(&mut header).await?;
+            if !header.ends_with("\r\n") {
+                return Err(incomplete_export());
+            }
+            let fields = header.trim_end_matches("\r\n").split(' ').collect::<Vec<_>>();
+            if fields.as_slice() == ["END"] {
+                return Ok(());
+            }
+            if fields.first() != Some(&"VALUE")
+                || fields.len() != if command == "gets" { 5 } else { 4 }
+                || !expected.contains(fields[1])
+                || fields[2].parse::<u32>().is_err()
+                || (command == "gets" && fields[4].parse::<u64>().is_err())
+            {
+                return Err(incomplete_export());
+            }
+            let length = fields[3].parse::<usize>().map_err(|_| incomplete_export())?;
+            if length > 128 * 1024 * 1024 {
+                return Err(CommandError::new("result-export-row-too-large", "A Memcached value exceeds the export transport limit. No completed file was published."));
+            }
+            let mut bytes = vec![0; length];
+            reader.read_exact(&mut bytes).await.map_err(|_| incomplete_export())?;
+            let mut terminator = [0; 2];
+            reader.read_exact(&mut terminator).await.map_err(|_| incomplete_export())?;
+            if terminator != *b"\r\n" {
+                return Err(incomplete_export());
+            }
+            let value = match String::from_utf8(bytes) {
+                Ok(text) => Value::String(text),
+                Err(error) => json!(error.into_bytes()),
+            };
+            let mut row = json!({ "key": fields[1], "value": value, "flags": fields[2] });
+            if command == "gets" { row["cas"] = json!(fields[4]); }
+            if !sink.row(row)? { return Ok(()); }
+        }
+    }).await
+}
+
+fn incomplete_export() -> CommandError {
+    CommandError::new("memcached-stream-incomplete", "Memcached returned an incomplete or invalid read response. No completed file was published.")
+}
 
 pub(super) async fn memcached_request(
     connection: &ResolvedConnectionProfile,

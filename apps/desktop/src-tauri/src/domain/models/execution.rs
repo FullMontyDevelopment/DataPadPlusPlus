@@ -79,6 +79,12 @@ pub struct QueryTabActiveExecution {
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryTabState {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::ui_state::deserialize_query_fetch_override"
+    )]
+    pub query_fetch_batch_size: Option<u32>,
     pub id: String,
     pub title: String,
     #[serde(default)]
@@ -385,6 +391,8 @@ pub struct ExecutionRequest {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResultPageRequest {
+    #[serde(default)]
+    pub result_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution_id: Option<String>,
     pub tab_id: String,

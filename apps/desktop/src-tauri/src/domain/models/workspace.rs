@@ -3,6 +3,8 @@ use super::*;
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportResultFileRequest {
+    #[serde(default)]
+    pub export_id: Option<String>,
     pub suggested_file_name: String,
     pub extension: String,
     pub mime_type: String,
@@ -17,6 +19,10 @@ pub struct ResultExportReference {
     pub result_id: String,
     pub renderer: String,
     pub format: String,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub loaded_rows: Option<u32>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -24,6 +30,10 @@ pub struct ResultExportReference {
 pub struct ExportResultFileResponse {
     pub saved: bool,
     pub path: Option<String>,
+    #[serde(default)]
+    pub exported_rows: Option<u64>,
+    #[serde(default)]
+    pub limited: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]

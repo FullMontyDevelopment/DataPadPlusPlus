@@ -1093,6 +1093,7 @@ export interface ExecutionResponse {
 }
 
 export interface ResultPageRequest {
+  resultId?: string
   executionId?: string
   tabId: string
   connectionId: string
@@ -1403,6 +1404,9 @@ export type DatastoreTransferJobStatus =
 
 export interface DatastoreTransferJob {
   id: string
+  source?: 'datastore' | 'query-results'
+  exportedRows?: number
+  limited?: boolean
   connectionId: string
   environmentId: string
   engine: DatastoreEngine

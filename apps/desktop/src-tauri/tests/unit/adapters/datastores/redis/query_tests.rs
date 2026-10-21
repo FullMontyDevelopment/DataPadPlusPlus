@@ -56,29 +56,29 @@ fn redis_resp_formatter_keeps_wire_style_available() {
 }
 
 #[test]
-fn redis_scan_result_caps_over_returned_keys_for_all_renderers() {
+fn redis_scan_result_preserves_over_returned_keys_for_all_renderers() {
     let keys = (0..101)
         .map(|index| format!("session:{index}"))
         .collect::<Vec<_>>();
 
     let result = redis_scan_result(keys, 100);
 
-    assert!(result.truncated);
-    assert_eq!(result.visible_count, 100);
-    assert_eq!(result.payloads[0]["rows"].as_array().unwrap().len(), 100);
+    assert!(!result.truncated);
+    assert_eq!(result.visible_count, 101);
+    assert_eq!(result.payloads[0]["rows"].as_array().unwrap().len(), 101);
     assert_eq!(
         result.payloads[1]["value"]["keys"]
             .as_array()
             .unwrap()
             .len(),
-        100
+        101
     );
-    assert!(!result.payloads[2]["text"]
+    assert!(result.payloads[2]["text"]
         .as_str()
         .unwrap()
         .contains("session:100"));
     assert!(result.payloads[3]["text"]
         .as_str()
         .unwrap()
-        .starts_with("*100"));
+        .starts_with("*101"));
 }

@@ -12,6 +12,7 @@ mod import_export;
 mod metadata;
 mod paging;
 mod query;
+mod result_stream;
 
 pub(crate) use browser::{inspect_redis_key, read_key_value, scan_redis_keys};
 pub(crate) use editing::execute_redis_data_edit;
@@ -28,6 +29,18 @@ pub(crate) struct RedisAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for RedisAdapter {
+    fn supports_result_stream(&self) -> bool {
+        true
+    }
+
+    async fn stream_read_result(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &ExecutionRequest,
+        sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+    ) -> Result<(), CommandError> {
+        result_stream::stream_result(connection, request, sink).await
+    }
     fn supports_standard_live_operations(&self) -> bool {
         true
     }

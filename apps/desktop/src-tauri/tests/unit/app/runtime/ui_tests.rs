@@ -77,6 +77,7 @@ fn normalization_repairs_active_tabs_and_clamps_editor_dimensions() {
 
 fn tab(id: &str, kind: &str) -> QueryTabState {
     QueryTabState {
+        query_fetch_batch_size: None,
         id: id.into(),
         title: id.into(),
         tab_kind: Some(kind.into()),

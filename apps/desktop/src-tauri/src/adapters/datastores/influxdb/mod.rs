@@ -8,6 +8,7 @@ mod import_export;
 mod query;
 mod query_request;
 mod query_results;
+mod result_stream;
 
 use catalog::*;
 use connection::test_influxdb_connection;
@@ -18,6 +19,19 @@ pub(crate) struct InfluxDbAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for InfluxDbAdapter {
+    fn supports_result_stream(&self) -> bool {
+        true
+    }
+
+    async fn stream_read_result(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &ExecutionRequest,
+        sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+    ) -> Result<(), CommandError> {
+        result_stream::stream_result(connection, request, sink).await
+    }
+
     fn supports_standard_live_operations(&self) -> bool {
         true
     }

@@ -471,7 +471,7 @@ pub(super) async fn cancel_oracle_managed(execution_id: &str) -> Result<bool, Co
         .unwrap_or(false))
 }
 
-fn oracle_connection_payload(
+pub(super) fn oracle_connection_payload(
     connection: &ResolvedConnectionProfile,
 ) -> Result<Value, CommandError> {
     let options = connection.oracle_options.as_ref();
@@ -729,7 +729,7 @@ fn oracle_request_timeout_ms(connection: &ResolvedConnectionProfile) -> u64 {
         .clamp(1_000, 300_000)
 }
 
-fn oracle_sidecar_path() -> Result<PathBuf, CommandError> {
+pub(super) fn oracle_sidecar_path() -> Result<PathBuf, CommandError> {
     let candidates = oracle_sidecar_candidates();
     candidates
         .iter()

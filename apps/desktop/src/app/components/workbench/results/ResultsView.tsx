@@ -252,10 +252,10 @@ export function ResultsView({
     const response = await onExportResultFile(request)
 
     if (response?.saved) {
-      setOperationMessage('Result exported.')
+      setOperationMessage(response.limited ? `Exported ${response.exportedRows ?? ''} rows. The configured export limit was reached; this is not the complete result.` : `Result exported${response.exportedRows === undefined ? '' : ` (${response.exportedRows.toLocaleString()} rows)`}.`)
+      setExportDialogOpen(false)
     }
-
-    setExportDialogOpen(false)
+    if (!response) throw new Error('The result could not be exported. Check the application messages and try again.')
   }
 
   return (

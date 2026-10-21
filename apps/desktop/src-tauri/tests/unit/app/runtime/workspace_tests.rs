@@ -136,7 +136,7 @@ fn workspace_migration_keeps_vault_backed_connection_string_mode() {
     snapshot.connections.push(connection);
 
     let migrated = migrate_snapshot(snapshot);
-    assert_eq!(migrated.schema_version, 13);
+    assert_eq!(migrated.schema_version, 14);
     assert_eq!(
         serde_json::to_value(&migrated.connections[0]).unwrap(),
         original
@@ -242,8 +242,9 @@ fn authenticated_bundles_check_the_source_schema_before_migration() {
     for (source_version, envelope_version, expected_error) in [
         (12, 12, None),
         (13, 13, None),
+        (14, 14, None),
         (12, 13, Some("workspace-bundle-schema-mismatch")),
-        (14, 14, Some("workspace-bundle-newer-version")),
+        (15, 15, Some("workspace-bundle-newer-version")),
     ] {
         let mut snapshot = blank_workspace_snapshot();
         snapshot.schema_version = source_version;
@@ -1123,6 +1124,7 @@ fn workspace_export_sanitizer_keeps_mcp_token_metadata_when_including_secrets() 
 fn workspace_persistence_strips_refreshable_tab_payloads_but_keeps_targets() {
     let mut snapshot = blank_workspace_snapshot();
     let mut tab = QueryTabState {
+        query_fetch_batch_size: None,
         id: "tab-object".into(),
         title: "Orders".into(),
         tab_kind: Some("object-view".into()),
@@ -1211,6 +1213,7 @@ fn workspace_persistence_bounds_history_by_count_and_serialized_bytes() {
     let mut snapshot = blank_workspace_snapshot();
     for tab_index in 0..2 {
         let mut tab = QueryTabState {
+            query_fetch_batch_size: None,
             id: format!("tab-{tab_index}"),
             title: format!("Tab {tab_index}"),
             ..QueryTabState::default()
@@ -1529,6 +1532,7 @@ fn tabs_for_reorder_tests() -> Vec<QueryTabState> {
     ["tab-one", "tab-two", "tab-three"]
         .into_iter()
         .map(|id| QueryTabState {
+            query_fetch_batch_size: None,
             id: id.into(),
             title: id.into(),
             ..QueryTabState::default()

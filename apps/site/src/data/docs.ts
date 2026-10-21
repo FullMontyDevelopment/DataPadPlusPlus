@@ -430,9 +430,9 @@ const legacyDocArticles: LegacyDocArticle[] = [
   {
     slug: 'result-export',
     title: 'Export Result Files',
-    description: 'Save query and object-view results in formats that match the current payload.',
+    description: 'Export accumulated loaded results or stream a supported original query, with explicit limits and progress.',
     category: 'Import, export, and native backup',
-    readingTime: '5 min',
+    readingTime: '7 min',
     screenshots: ['result-export', 'sql-query-results'],
     steps: [
       {
@@ -444,16 +444,24 @@ const legacyDocArticles: LegacyDocArticle[] = [
         body: 'Use the result toolbar export action. DataPad++ chooses sensible defaults from the renderer instead of asking you to guess the file format first.',
       },
       {
+        title: 'Choose loaded results or the original full query',
+        body: 'Loaded results is the default and includes all accumulated pages, not just the visible rows or first 500 documents. Desktop table/document exports use canonical captured values, not efficiency-mode placeholders. Full query results re-runs a supported original read query with its original connection, environment, scope, parameters, filters and limits; the current editor draft is not substituted and data may have changed.',
+      },
+      {
         title: 'Choose a payload-aware format',
-        body: 'Tables can export as CSV or JSON. Documents commonly use JSON or NDJSON. Raw values can export as text, and graph or key-value payloads keep structured JSON available.',
+        body: 'Tables can export as CSV or JSON; documents offer JSON or NDJSON. Full-query export offers CSV, JSON and NDJSON independently of the current renderer, including key-value, graph and raw views. Use JSON or NDJSON for heterogeneous documents: streamed CSV fails if later records introduce columns it cannot preserve. Native document wrappers and legitimate datastore field names are retained. Loaded exports from other result views keep their existing supported formats.',
       },
       {
-        title: 'Review redaction and shape',
-        body: 'Export serializers preserve payload shape and redact only confirmed secret evidence. Ordinary returned values are not masked merely because a field name resembles a credential.',
+        title: 'Set batch and cumulative limits independently',
+        body: 'Settings → Queries & Results defaults to batches of 500 with no cumulative loaded/exported row cap. Batch sizes range from 1 to 5,000; a tab can override the default. No limit still loads incrementally through Load More. Builder Query limit and explicit SQL LIMIT/TOP remain query constraints. DynamoDB Items evaluated and Search Hit limit retain their native meanings.',
       },
       {
-        title: 'Save through the desktop file picker',
-        body: 'Pick the target path with the operating system save dialog, then keep large or sensitive exports in the environment-specific location your team expects.',
+        title: 'Choose a location and monitor progress',
+        body: 'Desktop query exports show progress in Transfers and can run in the background or be canceled. Temporary output replaces the destination only after success. An export stopped by the configured row cap is reported as limited. Canceling the save picker leaves the dialog ready to retry. Browser preview supports loaded downloads only.',
+      },
+      {
+        title: 'Check compatibility and freshness',
+        body: 'Scripts, writes and unsupported query shapes cannot use full export. Oracle requires the built-in runtime; Memcached requires explicit get/gets keys; InfluxDB supports v1-compatible InfluxQL rather than Flux or v3 SQL. Prometheus, OpenTSDB, JanusGraph, Neptune, Snowflake and BigQuery full-query streams are not implemented yet. Some adapters cannot continue the results view even when full export is available. Connection/environment changes or edits without reliable row identity require rerunning the query; an explicit error prevents stale export. Live cloud validation and release-platform checks remain separate from implementation availability.',
       },
     ],
   },
@@ -490,7 +498,7 @@ const legacyDocArticles: LegacyDocArticle[] = [
       },
       {
         title: 'Import file first and review',
-        body: 'Select the file, unlock it, review workspace-schema compatibility, sizes, counts, warnings and secrets, then name a new workspace or explicitly replace the current workspace with recovery state. Current workspaces use schema 13; supported older workspaces migrate without changing the encrypted bundle format.',
+        body: 'Select the file, unlock it, review workspace-schema compatibility, sizes, counts, warnings and secrets, then name a new workspace or explicitly replace the current workspace with recovery state. Current workspaces use schema 14; supported older workspaces migrate without changing the encrypted bundle format.',
       },
     ],
   },
@@ -996,7 +1004,7 @@ const legacyDocArticles: LegacyDocArticle[] = [
       },
       {
         title: 'Review schema, counts, and secrets',
-        body: 'The review shows format, workspace schema, encrypted/decrypted sizes, object counts, warnings, and whether secret material is available. Schema 13 is the current synchronized workspace contract; supported older schemas migrate, and newer unsupported schemas are rejected. Bundle format remains 2.',
+        body: 'The review shows format, workspace schema, encrypted/decrypted sizes, object counts, warnings, and whether secret material is available. Schema 14 is the current synchronized workspace contract; supported older schemas migrate, and newer unsupported schemas are rejected. Bundle format remains 2.',
       },
       {
         title: 'Name and commit the workspace',

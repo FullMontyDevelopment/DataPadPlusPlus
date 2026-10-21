@@ -5,6 +5,37 @@ namespace DataPadPlusPlus.OracleSidecar.Tests;
 
 public sealed class OracleSidecarTests
 {
+    [Theory]
+    [InlineData("select level from dual connect by level <= 1501", true)]
+    [InlineData("select * from items fetch first 501 rows only", true)]
+    [InlineData("select * from items for update", false)]
+    [InlineData("select 1 from dual; select 2 from dual", false)]
+    [InlineData("begin delete from items; end;", false)]
+    public void FullExportValidatesBeforeOpeningConnectionAndPreservesAuthoredLimit(string sql, bool valid)
+    {
+        var request = System.Text.Json.JsonSerializer.Deserialize<OracleRequest>(
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                protocolVersion = 1, requestId = "export-test", operation = "execute",
+                statement = sql, mode = "full", readOnly = true, streamResults = true,
+            }), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        if (valid)
+            Assert.Equal(sql, Program.ExportStatement(request));
+        else
+            Assert.Equal("result-export-read-only", Assert.Throws<SidecarException>(() => Program.ExportStatement(request)).Code);
+        Assert.Throws<SidecarException>(() => Program.ExportStatement(request with { ReadOnly = false }));
+        Assert.Throws<SidecarException>(() => Program.ExportStatement(request with { Mode = "explain" }));
+        Assert.Throws<SidecarException>(() => Program.ExportStatement(request with { Operation = "exportcsv" }));
+    }
+
+    [Fact]
+    public void FullExportRejectsDuplicateColumnsWithoutMergingCaseDistinctNames()
+    {
+        Program.ValidateExportColumns(new[] { "id", "ID", "λ" });
+        var error = Assert.Throws<SidecarException>(() => Program.ValidateExportColumns(new[] { "id", "id" }));
+        Assert.Equal("result-export-duplicate-column", error.Code);
+    }
+
     [Fact]
     public void HealthIsCredentialFreeAndReportsRuntimeMetadata()
     {

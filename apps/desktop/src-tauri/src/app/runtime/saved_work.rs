@@ -130,6 +130,7 @@ impl ManagedAppState {
             .or_else(|| connection.environment_ids.first().cloned())
             .unwrap_or_else(|| self.snapshot.ui.active_environment_id.clone());
         let tab = QueryTabState {
+            query_fetch_batch_size: None,
             id: generate_id("tab"),
             title: item.name.clone(),
             tab_kind: Some("query".into()),

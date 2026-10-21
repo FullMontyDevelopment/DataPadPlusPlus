@@ -45,9 +45,60 @@ pub(super) async fn execute_redis_query(
             .or(Some(adapter.execution_capabilities().default_row_limit)),
     );
     let mut redis = redis_connection(connection).await?;
+    let mut scan_cursor = None;
+    // A SCAN cursor is continuation state, not a page-sized LIMIT.
+    if lines.len() == 1
+        && lines[0]
+            .split_whitespace()
+            .next()
+            .is_some_and(|value| value.eq_ignore_ascii_case("SCAN"))
+    {
+        let parts = lines[0].split_whitespace().collect::<Vec<_>>();
+        let cursor = parts
+            .get(1)
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or_else(|| {
+                CommandError::new("redis-scan-cursor", "SCAN requires a numeric cursor.")
+            })?;
+        let mut scan = redis::cmd("SCAN");
+        scan.arg(cursor);
+        let mut options = parts[2..].chunks_exact(2);
+        for option in &mut options {
+            if !matches!(
+                option[0].to_ascii_uppercase().as_str(),
+                "MATCH" | "TYPE" | "COUNT"
+            ) {
+                return Err(CommandError::new(
+                    "redis-scan-option",
+                    "Unsupported SCAN option.",
+                ));
+            }
+            if !option[0].eq_ignore_ascii_case("COUNT") {
+                scan.arg(option[0]).arg(option[1]);
+            }
+        }
+        if !options.remainder().is_empty() {
+            return Err(CommandError::new(
+                "redis-scan-option",
+                "SCAN options require a value.",
+            ));
+        }
+        scan.arg("COUNT").arg(row_limit);
+        let (next, keys): (u64, Vec<String>) = scan.query_async(&mut redis).await?;
+        let scan = redis_scan_result(keys, row_limit);
+        scan_cursor = Some((next, scan));
+    }
     let (payloads, summary, truncated) = if lines.len() == 1 {
-        let outcome = execute_redis_single_command(&mut redis, &lines[0], row_limit).await?;
-        (outcome.payloads, outcome.summary, outcome.truncated)
+        if let Some((next, scan)) = &scan_cursor {
+            (
+                scan.payloads.clone(),
+                format!("Redis scan loaded {} key(s).", scan.visible_count),
+                *next != 0,
+            )
+        } else {
+            let outcome = execute_redis_single_command(&mut redis, &lines[0], row_limit).await?;
+            (outcome.payloads, outcome.summary, outcome.truncated)
+        }
     } else {
         let mut rows = Vec::new();
         let mut raw_sections = Vec::new();
@@ -148,7 +199,7 @@ pub(super) async fn execute_redis_query(
         .map(String::as_str)
         .collect::<Vec<&str>>();
 
-    Ok(build_result(ResultEnvelopeInput {
+    let mut result = build_result(ResultEnvelopeInput {
         engine: &connection.engine,
         summary,
         default_renderer: &default_renderer,
@@ -159,7 +210,13 @@ pub(super) async fn execute_redis_query(
         row_limit: Some(row_limit),
         truncated,
         explain_payload: None,
-    }))
+    });
+    if let Some((cursor, _)) = scan_cursor {
+        if let Some(info) = result.page_info.as_mut() {
+            info.next_cursor = (cursor != 0).then(|| cursor.to_string());
+        }
+    }
+    Ok(result)
 }
 
 async fn execute_redis_single_command(
@@ -347,8 +404,7 @@ struct RedisScanPayloads {
 }
 
 fn redis_scan_result(keys: Vec<String>, row_limit: u32) -> RedisScanPayloads {
-    let bounded = bounded_items(keys, row_limit);
-    let keys = bounded.visible;
+    let _ = row_limit;
     let visible_count = keys.len();
     let payloads = vec![
         payload_table(
@@ -365,7 +421,7 @@ fn redis_scan_result(keys: Vec<String>, row_limit: u32) -> RedisScanPayloads {
     RedisScanPayloads {
         payloads,
         visible_count,
-        truncated: bounded.truncated,
+        truncated: false,
     }
 }
 

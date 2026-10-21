@@ -374,7 +374,7 @@ pub async fn inspect_redis_key(
     mark_tab_execution_running(&state, &tab_id, &execution_id, None)?;
     let mut runtime = clone_runtime(&state)?;
     let response = match runtime.inspect_redis_key(request).await {
-        Ok(response) => merge_execution_response(&state, response),
+        Ok(response) => merge_execution_response(&state, response, None),
         Err(error) => {
             let message = error.message.clone();
             let error_code = error.code.clone();

@@ -9,6 +9,7 @@ export {
   createResultExportFileReference,
   defaultExportOptionForPayload,
   exportOptionsForPayload,
+  fullQueryExportOptions,
   payloadToText,
   serializePayloadForExport,
   type ResultExportFormat,

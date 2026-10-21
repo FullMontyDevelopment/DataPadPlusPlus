@@ -148,6 +148,7 @@ pub(super) fn build_query_tab(
     title: String,
 ) -> QueryTabState {
     QueryTabState {
+        query_fetch_batch_size: None,
         id: generate_id("tab"),
         title,
         tab_kind: Some("query".into()),
@@ -244,6 +245,7 @@ pub(super) fn build_explorer_tab(
     let title = unique_query_tab_title(snapshot, &format!("Explorer - {}", connection.name));
 
     QueryTabState {
+        query_fetch_batch_size: None,
         id: generate_id("tab"),
         title,
         tab_kind: Some("explorer".into()),
@@ -286,6 +288,7 @@ pub(super) fn build_metrics_tab(
     let metrics_environment_id = environment_id.clone();
 
     QueryTabState {
+        query_fetch_batch_size: None,
         id: generate_id("metrics-tab"),
         title,
         tab_kind: Some("metrics".into()),
@@ -335,6 +338,7 @@ pub(super) fn build_environment_tab(
     let title = unique_query_tab_title(snapshot, &format!("Environment - {}", environment.label));
 
     QueryTabState {
+        query_fetch_batch_size: None,
         id: generate_id("environment-tab"),
         title,
         tab_kind: Some("environment".into()),
@@ -381,6 +385,7 @@ pub(super) fn build_object_view_tab(
     let title = unique_query_tab_title(snapshot, &object_view_title(&request, connection));
 
     QueryTabState {
+        query_fetch_batch_size: None,
         id: generate_id("object-view-tab"),
         title,
         tab_kind: Some("object-view".into()),

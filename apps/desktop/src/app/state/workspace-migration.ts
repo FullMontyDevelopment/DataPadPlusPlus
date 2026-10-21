@@ -12,6 +12,9 @@ import type {
 import {
   CONSOLIDATED_LEGACY_WORKSPACE_SCHEMA_VERSION,
   CURRENT_WORKSPACE_SCHEMA_VERSION,
+  DEFAULT_QUERY_RESULT_PREFERENCES,
+  MAX_QUERY_FETCH_BATCH_SIZE,
+  validateQueryResultPreferences,
   DATAPADPLUSPLUS_ADAPTER_MANIFESTS,
   datastoreBacklogByEngine,
 } from '@datapadplusplus/shared-types'
@@ -330,6 +333,13 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   next.lockState.isLocked = false
   next.lockState.lockedAt = undefined
   next.closedTabs ??= []
+  for (const tab of [...next.tabs, ...next.closedTabs]) {
+    if (tab.queryFetchBatchSize === undefined || tab.queryFetchBatchSize === null) continue
+    if (!Number.isInteger(tab.queryFetchBatchSize) || tab.queryFetchBatchSize < 1 ||
+        tab.queryFetchBatchSize > MAX_QUERY_FETCH_BATCH_SIZE) {
+      throw new Error('Tab fetch batch size must be a whole number from 1 to 5,000.')
+    }
+  }
   next.savedWork ??= []
   next.libraryNodes ??= []
   next.adapterManifests = DATAPADPLUSPLUS_ADAPTER_MANIFESTS
@@ -356,6 +366,10 @@ export function migrateWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Workspace
   migrateTabSaveTargets(next.closedTabs)
   migrateV11SnapshotToV12(next)
   migrateV12SnapshotToV13(next)
+  if (next.schemaVersion === 13) {
+    next.preferences.queryResults ??= { ...DEFAULT_QUERY_RESULT_PREFERENCES }
+    next.schemaVersion = 14
+  }
   next.workspaceRevision ??= 0
   next.ui = normalizeUiState(next)
 
@@ -466,7 +480,10 @@ function generatedSqlServerScope(queryText: string) {
 function normalizePreferences(
   preferences: WorkspaceSnapshot['preferences'] | undefined,
 ): WorkspaceSnapshot['preferences'] {
+  const queryResults = { ...DEFAULT_QUERY_RESULT_PREFERENCES, ...preferences?.queryResults }
+  validateQueryResultPreferences(queryResults)
   return {
+    queryResults,
     theme: preferences?.theme ?? 'dark',
     telemetry: preferences?.telemetry ?? 'opt-in',
     lockAfterMinutes: preferences?.lockAfterMinutes ?? 15,

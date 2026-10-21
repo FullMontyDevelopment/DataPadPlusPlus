@@ -33,7 +33,22 @@ use crate::{
 impl ManagedAppState {
     pub async fn execute_query(
         &mut self,
+        request: ExecutionRequest,
+    ) -> Result<ExecutionResponse, CommandError> {
+        self.execute_query_internal(request, false).await
+    }
+
+    pub async fn execute_workbench_query(
+        &mut self,
+        request: ExecutionRequest,
+    ) -> Result<ExecutionResponse, CommandError> {
+        self.execute_query_internal(request, true).await
+    }
+
+    async fn execute_query_internal(
+        &mut self,
         mut request: ExecutionRequest,
+        retain_result_session: bool,
     ) -> Result<ExecutionResponse, CommandError> {
         self.ensure_unlocked()?;
         validate_execution_request(&mut request)?;
@@ -180,6 +195,26 @@ impl ManagedAppState {
         });
         execution_notices.retain(|notice| !notice.message.is_empty());
 
+        let preview_documents = retain_result_session
+            && resolved_connection.engine == "mongodb"
+            && request.document_efficiency_mode == Some(true)
+            && serde_json::from_str::<Value>(&query_text).is_ok_and(|input| {
+                input.get("projection").is_none()
+                    && input.get("pipeline").is_none()
+                    && matches!(
+                        input
+                            .get("operation")
+                            .and_then(Value::as_str)
+                            .unwrap_or("find")
+                            .to_lowercase()
+                            .as_str(),
+                        "find" | "findone"
+                    )
+            });
+        // Keep the full values in the session; efficiency mode affects presentation only.
+        if preview_documents {
+            resolved_request.document_efficiency_mode = Some(false);
+        }
         let result = if guardrail.status == "block" {
             None
         } else {
@@ -190,10 +225,48 @@ impl ManagedAppState {
             )
             .await
             {
-                Ok(result) => Some(std::sync::Arc::new(prepare_execution_result_for_workspace(
-                    result,
-                    &resolved_environment,
-                ))),
+                Ok(mut result) => {
+                    let limit = retain_result_session
+                        .then_some(self.snapshot.preferences.query_results.maximum_loaded_rows)
+                        .flatten();
+                    if let Some(limit) = limit {
+                        for payload in &mut result.payloads {
+                            super::result_sessions::truncate_payload(payload, limit as usize);
+                        }
+                        if let Some(info) = &mut result.page_info {
+                            info.buffered_rows = info.buffered_rows.min(limit);
+                            if info.buffered_rows >= limit {
+                                info.has_more = false;
+                            }
+                        }
+                    }
+                    if retain_result_session {
+                        let mut session_request = resolved_request.clone();
+                        session_request.document_efficiency_mode = Some(preview_documents);
+                        let mut session = super::result_sessions::ResultSession::new(
+                            session_request,
+                            resolved_connection.clone(),
+                            &result,
+                            limit,
+                        );
+                        session.context_stamp = super::result_sessions::context_stamp(
+                            &self.snapshot,
+                            &request.connection_id,
+                        );
+                        self.result_sessions.insert(result.id.clone(), session);
+                    }
+                    if preview_documents {
+                        for payload in &mut result.payloads {
+                            if payload.get("renderer").and_then(Value::as_str) == Some("document") {
+                                *payload = super::result_sessions::document_preview(payload);
+                            }
+                        }
+                    }
+                    Some(std::sync::Arc::new(prepare_execution_result_for_workspace(
+                        result,
+                        &resolved_environment,
+                    )))
+                }
                 Err(error) => {
                     return Err(enrich_sql_execution_error(
                         &resolved_connection,
@@ -338,7 +411,7 @@ impl ManagedAppState {
         adapters::fetch_document_node_children(&resolved, &request).await
     }
 
-    fn validate_result_context(
+    pub(crate) fn validate_result_context(
         &self,
         tab_id: &str,
         connection_id: &str,

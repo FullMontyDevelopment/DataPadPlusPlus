@@ -1,7 +1,46 @@
+use futures_util::TryStreamExt;
 use sqlx::{Column, Row};
 
 use super::super::super::*;
 use super::connection::{mysql_pool, stringify_mysql_cell};
+
+pub(crate) async fn stream_mysql_result(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+) -> Result<(), CommandError> {
+    crate::adapters::result_stream::validate_sql(request)?;
+    let pool = mysql_pool(connection, 1).await?;
+    let mut client = pool.acquire().await?;
+    sqlx::query(sqlx::AssertSqlSafe("SET TRANSACTION READ ONLY"))
+        .execute(&mut *client)
+        .await?;
+    let mut transaction = sqlx::Acquire::begin(&mut *client).await?;
+    let mut rows =
+        sqlx::query(sqlx::AssertSqlSafe(selected_query(request))).fetch(&mut *transaction);
+    while let Some(row) = rows.try_next().await? {
+        let cells = row
+            .columns()
+            .iter()
+            .enumerate()
+            .map(|(index, column)| {
+                Ok((
+                    column.name().to_owned(),
+                    super::connection::export_mysql_cell(&row, index)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, CommandError>>()?;
+        let record = crate::adapters::result_stream::object_row(cells)?;
+        if !sink.row(record)? {
+            break;
+        }
+    }
+    drop(rows);
+    transaction.rollback().await?;
+    drop(client);
+    pool.close().await;
+    Ok(())
+}
 
 pub(crate) async fn fetch_mysql_page(
     connection: &ResolvedConnectionProfile,

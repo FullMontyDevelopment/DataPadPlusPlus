@@ -95,6 +95,7 @@ fn result_page_request(
     query_text: &str,
 ) -> ResultPageRequest {
     ResultPageRequest {
+        result_id: None,
         execution_id: None,
         tab_id: format!("tab-{connection_id}"),
         connection_id: connection_id.to_string(),

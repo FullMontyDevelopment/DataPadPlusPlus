@@ -81,7 +81,7 @@ See [Native Datastore Transfers](datastore-transfers.md) for the status model an
 
 ## Workspaces And Backups
 
-- Workspace schema version 13 is the synchronized TypeScript/Rust contract. Schema version, workspace revision, and encrypted bundle format version are separate concepts.
+- Workspace schema version 14 is the synchronized TypeScript/Rust contract. Schema version, workspace revision, and encrypted bundle format version are separate concepts. [Queries & Results settings](result-exports.md) distinguish batch size, loaded rows, exported rows, and authored query limits.
 - Legacy workspaces are normalized and migrated transactionally. Newer unsupported schemas fail with an actionable error instead of being downgraded.
 - Persistent workspace state retains reconstructible drafts, saved work, targets, environment context, and layout while omitting refreshable result/diagnostic payloads.
 - Execution history is bounded independently from saved queries and current drafts.

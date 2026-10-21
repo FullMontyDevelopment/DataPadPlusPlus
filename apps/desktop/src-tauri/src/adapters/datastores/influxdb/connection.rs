@@ -47,21 +47,30 @@ pub(super) async fn influxdb_get(
     connection: &ResolvedConnectionProfile,
     path_and_query: &str,
 ) -> Result<InfluxDbResponse, CommandError> {
+    let response = influxdb_get_request(connection, path_and_query)?
+        .send()
+        .await
+        .map_err(|error| {
+            CommandError::new(
+                "influxdb-http-error",
+                format!("InfluxDB could not be reached over HTTP: {error}"),
+            )
+        })?;
+    read_influxdb_response(response).await
+}
+
+pub(super) fn influxdb_get_request(
+    connection: &ResolvedConnectionProfile,
+    path_and_query: &str,
+) -> Result<reqwest::RequestBuilder, CommandError> {
     let endpoint = InfluxDbEndpoint::from_connection(connection)?;
-    let client = influxdb_http_client(connection)?;
-    let mut request = client
+    let mut request = influxdb_http_client(connection)?
         .get(endpoint.url(path_and_query))
         .header(header::ACCEPT, "application/json");
     if let Some(authorization) = influxdb_authorization(connection)? {
         request = request.header(header::AUTHORIZATION, authorization);
     }
-    let response = request.send().await.map_err(|error| {
-        CommandError::new(
-            "influxdb-http-error",
-            format!("InfluxDB could not be reached over HTTP: {error}"),
-        )
-    })?;
-    read_influxdb_response(response).await
+    Ok(request)
 }
 
 pub(super) async fn influxdb_post(

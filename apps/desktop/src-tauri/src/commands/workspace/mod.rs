@@ -131,6 +131,7 @@ fn clone_runtime(state: &State<'_, SharedAppState>) -> Result<ManagedAppState, C
     Ok(ManagedAppState {
         app: state.app.clone(),
         snapshot: state.snapshot.clone(),
+        result_sessions: state.result_sessions.clone(),
     })
 }
 
@@ -201,10 +202,10 @@ fn mark_tab_execution_running(
         .find(|tab| tab.id == tab_id)
         .ok_or_else(|| CommandError::new("tab-missing", "Tab was not found."))?;
 
-    if tab.tab_kind.as_deref() == Some("test-suite") && tab.active_execution.is_some() {
+    if tab.active_execution.is_some() {
         return Err(CommandError::new(
-            "test-run-active",
-            "This test suite already has an active run.",
+            "execution-active",
+            "This tab already has an active operation. Wait for it to finish or cancel it first.",
         ));
     }
 
@@ -349,6 +350,7 @@ fn clear_tab_execution_after_cancel(
 fn merge_execution_response(
     state: &State<'_, SharedAppState>,
     mut response: ExecutionResponse,
+    session: Option<crate::app::runtime::result_sessions::ResultSession>,
 ) -> Result<ExecutionResponse, CommandError> {
     let mut state = lock_state(state)?;
     let Some(index) = state
@@ -362,6 +364,25 @@ fn merge_execution_response(
     };
 
     let current_tab = state.snapshot.tabs[index].clone();
+    if let Some(session) = session.as_ref() {
+        if current_tab
+            .active_execution
+            .as_ref()
+            .is_none_or(|active| active.execution_id != response.execution_id)
+            || session.context_stamp
+                != crate::app::runtime::result_sessions::context_stamp(
+                    &state.snapshot,
+                    &session.request.connection_id,
+                )
+            || current_tab.connection_id != session.request.connection_id
+            || current_tab.environment_id != session.request.environment_id
+        {
+            return Err(CommandError::new(
+                "execution-stale",
+                "The query context changed while this result was loading. Run the query again.",
+            ));
+        }
+    }
     if current_tab
         .active_execution
         .as_ref()
@@ -384,11 +405,15 @@ fn merge_execution_response(
         response.tab.document_efficiency_mode = current_tab.document_efficiency_mode;
     }
     response.tab.builder_state = current_tab.builder_state;
+    response.tab.query_fetch_batch_size = current_tab.query_fetch_batch_size;
     response.tab.dirty = current_tab.dirty;
     response.tab.active_execution = None;
 
     let is_active_tab = state.snapshot.ui.active_tab_id == response.tab.id;
     state.snapshot.tabs[index] = response.tab.clone();
+    if let (Some(result), Some(session)) = (&response.result, session) {
+        state.result_sessions.insert(result.id.clone(), session);
+    }
     state.snapshot.guardrails = vec![response.guardrail.clone()];
 
     if is_active_tab {
@@ -430,6 +455,8 @@ mod datastore_transfer;
 mod execution;
 mod import_export;
 mod library;
+mod result_export;
+pub use result_export::*;
 mod mcp_server;
 mod security;
 mod sqlserver_auth;
@@ -549,8 +576,14 @@ fn validate_export_result_file_request(
     if let Some(reference) = request.result_reference.as_ref() {
         if reference.tab_id.trim().is_empty()
             || reference.result_id.trim().is_empty()
-            || reference.renderer != "document"
-            || !matches!(reference.format.as_str(), "json" | "ndjson")
+            || reference.renderer.trim().is_empty()
+            || (reference.scope.as_deref() != Some("full-query")
+                && !matches!(reference.renderer.as_str(), "document" | "table"))
+            || !matches!(reference.format.as_str(), "json" | "ndjson" | "csv")
+            || !matches!(
+                reference.scope.as_deref(),
+                None | Some("loaded" | "full-query")
+            )
             || reference.format != request.extension
         {
             return Err(CommandError::new(

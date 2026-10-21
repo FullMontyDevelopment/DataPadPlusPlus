@@ -18,6 +18,18 @@ pub(crate) struct CassandraAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for CassandraAdapter {
+    fn supports_result_stream(&self) -> bool {
+        true
+    }
+
+    async fn stream_read_result(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &ExecutionRequest,
+        sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+    ) -> Result<(), CommandError> {
+        native::stream_result(connection, request, sink).await
+    }
     fn supports_standard_live_operations(&self) -> bool {
         true
     }

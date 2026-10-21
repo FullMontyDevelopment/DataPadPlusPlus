@@ -1,5 +1,6 @@
 import { startTransition, useCallback, useMemo, useRef } from 'react'
 import type { ExecutionRequest } from '@datapadplusplus/shared-types'
+import { effectiveQueryBatchSize } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
 import { tabEnvironmentConflict } from '../../services/runtime/library-connection-helpers'
 import type { ConnectionHealthSource } from './connection-health'
@@ -92,7 +93,7 @@ export function useQueryExecutionActions({
           scriptText,
           selectedText: selectedText?.trim() ? selectedText : undefined,
           mode,
-          rowLimit: 500,
+          rowLimit: effectiveQueryBatchSize(latest.payload.snapshot.preferences.queryResults, tab.queryFetchBatchSize),
           documentEfficiencyMode,
           confirmedGuardrailId,
           builderState,

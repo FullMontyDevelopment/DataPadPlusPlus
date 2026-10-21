@@ -450,7 +450,7 @@ fn profile_stage(name: String, time_in_nanos: u64, details: Value) -> Value {
     })
 }
 
-fn search_index_path_segment(index: &str) -> Result<String, CommandError> {
+pub(super) fn search_index_path_segment(index: &str) -> Result<String, CommandError> {
     if index.contains('\r')
         || index.contains('\n')
         || index.contains('/')

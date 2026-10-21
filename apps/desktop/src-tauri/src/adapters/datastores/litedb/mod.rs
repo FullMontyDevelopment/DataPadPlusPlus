@@ -22,6 +22,17 @@ pub(crate) struct LiteDbAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for LiteDbAdapter {
+    fn supports_result_stream(&self) -> bool {
+        true
+    }
+    async fn stream_read_result(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &ExecutionRequest,
+        sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+    ) -> Result<(), CommandError> {
+        query::stream_result(connection, request, sink).await
+    }
     fn handles_explorer_paging(&self) -> bool {
         true
     }

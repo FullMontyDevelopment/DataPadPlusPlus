@@ -133,7 +133,7 @@ export function parseCqlPartitionQueryText(
     clusteringKeys: [],
     filters: conditions.slice(1),
     allowFiltering,
-    limit: limit ? Number(limit) : 20,
+    limit: limit ? Number(limit) : null,
   }
 
   if (state.partitionKeys.length === 0) {

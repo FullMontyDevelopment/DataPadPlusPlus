@@ -37,7 +37,7 @@ Open a collection's **Query** action in Explorer to start its LiteDB builder. Th
 - Strings, numbers, booleans, nulls, dates, GUIDs, ObjectIds, and JSON share the standard value editors. Dates, GUIDs, and ObjectIds compile to LiteDB Extended JSON parameters, not ordinary strings.
 - **In** and **Not in** accept comma-separated typed values, or a JSON array. Use JSON with `$numberLong` or `$numberDecimal` wrappers when exact large-integer or decimal precision is needed.
 - **Has Items**, **Has No Items**, and **Has Length** use native array checks; missing, null, and scalar values do not match. Computed predicates may scan documents.
-- LiteDB supports one native sort expression; dropping a different field onto **Sort** replaces that field and keeps the direction. Set ascending/descending order, Skip, and the toolbar Fetch size. **Count** applies the filters but ignores Skip and Fetch size.
+- LiteDB supports one native sort expression; dropping a different field onto **Sort** replaces that field and keeps the direction. Set ascending/descending order, Skip, and the toolbar **Query limit**. **Count** applies the filters but ignores Skip and Query limit. **Batch size** controls fetching, not the authored query's limit.
 - Field paths use dots for nested members, such as `address.city`. Comparisons follow the database's collation.
 
 The builder emits the adapter's JSON request format with a native parameterized `filter`, not MongoDB query syntax. Raw mode remains available for custom LiteDB expressions. Only empty-filter Find requests are automatically adopted into the builder; custom raw predicates are never silently discarded.
@@ -57,6 +57,10 @@ The builder emits the adapter's JSON request format with a native parameterized 
 ## SQL Scope
 
 Supported SQL tabs store database/catalog and schema selection in tab scope. The runtime applies supported session/database routing, and generated builder SQL contains only the query. Engines without a safe session-level mechanism keep qualification or connection-level database behavior.
+
+## Result Limits And Exports
+
+See [Result exports and query limits](result-exports.md). **Batch size**, **Query limit**, **Maximum loaded rows**, and **Maximum exported rows** have different purposes. Removing a cumulative cap does not automatically load the whole datastore into the results view.
 
 ## Environment Context
 

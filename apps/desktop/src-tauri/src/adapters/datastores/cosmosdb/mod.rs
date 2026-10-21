@@ -22,6 +22,18 @@ pub(crate) struct CosmosDbAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for CosmosDbAdapter {
+    fn supports_result_stream(&self) -> bool {
+        true
+    }
+
+    async fn stream_read_result(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &ExecutionRequest,
+        sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+    ) -> Result<(), CommandError> {
+        query::stream_result(connection, request, sink).await
+    }
     fn supports_standard_live_operations(&self) -> bool {
         true
     }
@@ -112,6 +124,20 @@ impl DatastoreAdapter for CosmosDbAdapter {
         request: &ResultPageRequest,
     ) -> Result<ResultPageResponse, CommandError> {
         paging::fetch_cosmosdb_page(connection, request).await
+    }
+
+    fn prepare_result_page(
+        &self,
+        executed: &ExecutionRequest,
+        mut page: ResultPageRequest,
+    ) -> Result<ResultPageRequest, CommandError> {
+        if let Some(input) = query::cosmos_sql_execution_request(executed)? {
+            // Retain typed parameters and routing from the executed editor input,
+            // never the mutable editor or a bare SQL string without parameters.
+            page.query_text = serde_json::to_string(&input)?;
+            page.selected_text = None;
+        }
+        Ok(page)
     }
 
     async fn execute_data_edit(

@@ -1,6 +1,51 @@
 use super::*;
 
 #[tauri::command]
+pub fn set_query_fetch_batch_size(
+    state: State<'_, SharedAppState>,
+    tab_id: String,
+    batch_size: Option<u32>,
+) -> Result<BootstrapPayload, CommandError> {
+    let mut state = lock_state(&state)?;
+    state.ensure_unlocked()?;
+    if batch_size.is_some_and(|size| !(1..=5_000).contains(&size)) {
+        return Err(CommandError::new(
+            "query-batch-size-invalid",
+            "Batch size must be from 1 to 5,000.",
+        ));
+    }
+    let tab = state
+        .snapshot
+        .tabs
+        .iter_mut()
+        .find(|tab| tab.id == tab_id)
+        .ok_or_else(|| CommandError::new("tab-missing", "Query tab is no longer available."))?;
+    if tab.active_execution.is_some() {
+        return Err(CommandError::new(
+            "query-busy",
+            "Wait for the current operation before changing batch size.",
+        ));
+    }
+    let previous = tab.query_fetch_batch_size;
+    tab.query_fetch_batch_size = batch_size;
+    if let Err(error) = state.persist() {
+        if let Some(tab) = state.snapshot.tabs.iter_mut().find(|tab| tab.id == tab_id) {
+            tab.query_fetch_batch_size = previous;
+        }
+        return Err(error);
+    }
+    Ok(state.bootstrap_payload())
+}
+
+#[tauri::command]
+pub fn set_query_result_preferences(
+    state: State<'_, SharedAppState>,
+    preferences: crate::domain::models::QueryResultPreferences,
+) -> Result<BootstrapPayload, CommandError> {
+    lock_state(&state)?.set_query_result_preferences(preferences)
+}
+
+#[tauri::command]
 pub fn set_theme(
     state: State<'_, SharedAppState>,
     theme: String,

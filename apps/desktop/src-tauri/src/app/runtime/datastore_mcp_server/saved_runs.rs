@@ -480,6 +480,7 @@ impl DatapadMcpTools {
         let mut runtime = ManagedAppState {
             app: current.app.clone(),
             snapshot: current.snapshot.clone(),
+            result_sessions: Default::default(),
         };
         let (item, mut tab) = run_tab(&runtime, &plan.args, suites)?;
         let (config, token) = token_config(&runtime.snapshot, &plan.server_id, token_id)?;

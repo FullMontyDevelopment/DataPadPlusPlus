@@ -151,7 +151,16 @@ async fn read_mongodb_documents(
         override_limit.or(Some(adapter.execution_capabilities().default_row_limit)),
     );
     let row_limit = effective_mongodb_row_limit(input, requested_row_limit);
-    let cursor_limit = cursor_limit_for_row_limit(row_limit);
+    let cursor_limit = if mongodb_operation(input) == "findone" {
+        1
+    } else {
+        input
+            .get("limit")
+            .and_then(Value::as_u64)
+            .filter(|limit| *limit > 0)
+            .map(|limit| limit.min(cursor_limit_for_row_limit(row_limit) as u64) as i64)
+            .unwrap_or_else(|| cursor_limit_for_row_limit(row_limit))
+    };
 
     if let Some(pipeline) = input.get("pipeline").and_then(Value::as_array) {
         let pipeline = bounded_pipeline(pipeline, cursor_limit)?;

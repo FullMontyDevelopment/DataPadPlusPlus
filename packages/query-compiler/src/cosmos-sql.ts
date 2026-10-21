@@ -191,11 +191,14 @@ export function buildCosmosSqlStatement(
 ) {
   const count = options.count ?? false
   const offset = boundedWholeNumber(state.offset, 0)
-  const limit = boundedWholeNumber(state.limit, 50, 1)
+  const limit = state.limit === null ? undefined : boundedWholeNumber(state.limit, 50, 1)
   const projection = count
     ? 'VALUE COUNT(1)'
     : cosmosProjection(state)
-  const top = !count && offset === 0 && limit > 0 ? ` TOP ${limit}` : ''
+  if (!count && offset > 0 && limit === undefined) {
+    throw new Error('Cosmos DB OFFSET requires a query limit. Set the offset to zero to use No limit.')
+  }
+  const top = !count && offset === 0 && limit !== undefined ? ` TOP ${limit}` : ''
   const clauses = [`SELECT${top} ${projection} FROM c`]
   const predicates = state.filters
     .filter((filter) => filter.enabled ?? true)
@@ -634,7 +637,7 @@ function simpleCosmosSqlShape(sql: string) {
   if (!paged) return undefined
   return {
     offset: Number(paged[1] ?? 0),
-    limit: Number(paged[2] ?? 50),
+    limit: paged[2] === undefined ? null : Number(paged[2]),
   }
 }
 

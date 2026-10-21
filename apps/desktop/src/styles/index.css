@@ -1800,6 +1800,8 @@ button:disabled:hover {
 
 .result-export-dialog {
   width: min(520px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
 }
 
 .result-export-format-grid {
@@ -4233,6 +4235,20 @@ button:disabled:hover {
 
 .toolbar-fetch-size input[aria-invalid="true"] {
   border-color: var(--danger);
+}
+
+.toolbar-query-unlimited {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.toolbar-query-unlimited input {
+  accent-color: var(--accent);
+  margin: 0;
 }
 
 .toolbar-action {

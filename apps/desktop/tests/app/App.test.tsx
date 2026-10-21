@@ -2542,10 +2542,10 @@ describe('App', () => {
 
     const builder = screen.getByLabelText('MongoDB query builder')
     const toolbar = screen.getByLabelText('Editor toolbar')
-    expect(within(builder).queryByLabelText('Fetch size')).not.toBeInTheDocument()
+    expect(within(builder).queryByLabelText('Query limit')).not.toBeInTheDocument()
     expect(within(builder).queryByRole('button', { name: 'Count' })).not.toBeInTheDocument()
     expect(within(toolbar).getByRole('button', { name: 'Count' })).toBeEnabled()
-    fireEvent.change(within(toolbar).getByLabelText('Fetch size'), { target: { value: '37' } })
+    fireEvent.change(within(toolbar).getByLabelText('Query limit'), { target: { value: '37' } })
     const addFilterButton = within(builder).getAllByRole('button', { name: 'Add Filter' })[0] as HTMLElement
 
     fireEvent.click(addFilterButton)
@@ -2682,7 +2682,7 @@ describe('App', () => {
       target: { value: '10' },
     })
     expect(within(builder).queryByLabelText('Limit')).not.toBeInTheDocument()
-    fireEvent.change(within(screen.getByLabelText('Editor toolbar')).getByLabelText('Fetch size'), {
+    fireEvent.change(within(screen.getByLabelText('Editor toolbar')).getByLabelText('Query limit'), {
       target: { value: '20' },
     })
 
@@ -2716,7 +2716,7 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Raw' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Query Editor' }))
-    expect(screen.queryByLabelText('Fetch size')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Query limit')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Count' })).not.toBeInTheDocument()
     expect(await screen.findByLabelText('Query editor')).toHaveValue(
       'SELECT VALUE c.id FROM c WHERE c.status = @status',
@@ -3070,7 +3070,7 @@ describe('App', () => {
     })
     expect(anchorClick).toHaveBeenCalled()
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:datapadplusplus-result')
-    expect(screen.getByText(/Result exported\./)).toBeInTheDocument()
+    expect(screen.getByText(/Result exported \(.* rows\)\./)).toBeInTheDocument()
     expect(screen.getByText(/\d{2}:\d{2}:\d{2}\.\d{3}/)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Query editor'), {

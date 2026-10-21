@@ -23527,7 +23527,14 @@
           "description": "Preview an engine-specific index creation request."
         }
       ],
-      "queryBuilders": [],
+      "queryBuilders": [
+        {
+          "kind": "litedb-find",
+          "label": "Find Builder",
+          "scope": "collection",
+          "defaultMode": "visual"
+        }
+      ],
       "editableScopes": [
         {
           "scope": "collection",

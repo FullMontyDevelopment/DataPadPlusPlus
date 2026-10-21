@@ -4,12 +4,15 @@ use crate::domain::models::MySqlConnectionOptions;
 use sqlx::{
     mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions},
     types::chrono::{NaiveDate, NaiveDateTime, NaiveTime},
-    Column, Row, TypeInfo,
+    Column, Row, TypeInfo, ValueRef,
 };
 
 use super::super::super::*;
 
 pub(super) fn stringify_mysql_cell(row: &sqlx::mysql::MySqlRow, index: usize) -> String {
+    if row.try_get_raw(index).is_ok_and(|value| value.is_null()) {
+        return "null".into();
+    }
     stringify_sqlx_common(
         [
             row.try_get::<Option<String>, _>(index).ok().flatten(),
@@ -44,10 +47,52 @@ pub(super) fn stringify_mysql_cell(row: &sqlx::mysql::MySqlRow, index: usize) ->
             row.try_get::<Option<Vec<u8>>, _>(index)
                 .ok()
                 .flatten()
-                .map(|item| format!("<{} bytes>", item.len())),
+                .map(|item| crate::adapters::result_stream::binary_hex(&item)),
         ],
         format!("<{}>", row.columns()[index].type_info().name()),
     )
+}
+
+pub(super) fn export_mysql_cell(
+    row: &sqlx::mysql::MySqlRow,
+    index: usize,
+) -> Result<Value, CommandError> {
+    if row.try_get_raw(index)?.is_null() {
+        return Ok(Value::Null);
+    }
+    macro_rules! scalar {
+        ($($ty:ty),+) => { $(if let Ok(value) = row.try_get::<$ty, _>(index) { return Ok(serde_json::json!(value)); })+ };
+    }
+    // MySQL TINYINT is a numeric type, not necessarily a Boolean.
+    scalar!(
+        i64,
+        u64,
+        i32,
+        u32,
+        i16,
+        u16,
+        i8,
+        u8,
+        serde_json::Value,
+        String
+    );
+    macro_rules! formatted {
+        ($($ty:ty),+) => { $(if let Ok(value) = row.try_get::<$ty, _>(index) { return Ok(Value::String(value.to_string())); })+ };
+    }
+    formatted!(sqlx::types::BigDecimal, NaiveDateTime, NaiveDate, NaiveTime);
+    if let Ok(value) = row.try_get::<f64, _>(index) {
+        return Ok(if value.is_finite() {
+            serde_json::json!(value)
+        } else {
+            Value::String(value.to_string())
+        });
+    }
+    if let Ok(value) = row.try_get::<Vec<u8>, _>(index) {
+        return Ok(Value::String(crate::adapters::result_stream::binary_hex(
+            &value,
+        )));
+    }
+    Err(CommandError::new("result-export-type", "A MySQL column has a type this export codec cannot preserve. Cast it explicitly in the query before exporting."))
 }
 
 fn stringify_sqlx_common<const N: usize>(

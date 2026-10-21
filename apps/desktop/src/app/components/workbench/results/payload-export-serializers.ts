@@ -16,6 +16,10 @@ export interface ResultExportOption {
   description: string
 }
 
+export function fullQueryExportOptions(): ResultExportOption[] {
+  return [EXPORT_FORMATS.json, EXPORT_FORMATS.ndjson, EXPORT_FORMATS.csv]
+}
+
 export function payloadToText(payload: ResultPayload) {
   return serializePayloadForExport(payload, defaultExportOptionForPayload(payload).format)
 }
@@ -89,15 +93,20 @@ export function createResultExportFileReference(
   payload: ResultPayload,
   result: ExecutionResultEnvelope,
   tabId: string,
-  option: ResultExportOption & { format: 'json' | 'ndjson' },
+  option: ResultExportOption & { format: 'json' | 'ndjson' | 'csv' },
 ): ExportResultFileRequest {
+  const documents = result.payloads.find(item => item.renderer === 'document')
+  const documentSource = payload.renderer === 'json' && documents?.renderer === 'document'
+    ? documents
+    : undefined
   return {
     ...createResultExportFileMetadata(payload, result, option),
     resultReference: {
       tabId,
       resultId: result.id,
-      renderer: payload.renderer,
+      renderer: documentSource?.renderer ?? payload.renderer,
       format: option.format,
+      loadedRows: documentSource?.documents.length ?? (payload.renderer === 'document' ? payload.documents.length : payload.renderer === 'table' ? payload.rows.length : undefined),
     },
   }
 }
@@ -106,6 +115,9 @@ export function serializePayloadForExport(
   payload: ResultPayload,
   format: ResultExportFormat,
 ) {
+  if (payload.renderer === 'document' && payload.hydrationMode === 'lazy') {
+    throw new Error('Complete values are required for export. Use desktop Export or run the query without efficiency mode.')
+  }
   if (format === 'csv') {
     return payloadToCsv(payload)
   }
@@ -156,9 +168,6 @@ function payloadToJsonValue(payload: ResultPayload): unknown {
       members: payload.members,
       ttl: payload.ttl,
       memoryUsage: payload.memoryUsage,
-      metadata: payload.metadata,
-      moduleMetadata: payload.moduleMetadata,
-      disabledActions: payload.disabledActions,
     }
   }
 
@@ -231,6 +240,9 @@ function payloadToPlainText(payload: ResultPayload): string {
 }
 
 function tableRowsToObjects(columns: string[], rows: string[][]) {
+  if (new Set(columns).size !== columns.length) {
+    throw new Error('This query returns duplicate column names. Give each column a unique alias before exporting as objects.')
+  }
   return rows.map((row) =>
     Object.fromEntries(columns.map((column, index) => [column, row[index] ?? ''])),
   )

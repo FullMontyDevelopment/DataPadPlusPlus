@@ -6,6 +6,33 @@ namespace DataPadPlusPlus.LiteDbSidecar.Tests;
 
 public sealed class LiteDbSidecarTests
 {
+    [Theory]
+    [InlineData(501)]
+    [InlineData(1500)]
+    public async Task Result_stream_preserves_all_rows_and_native_query_limits(int count)
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var file = Path.Combine(root, "stream.db");
+            await SeedAsync(file, Enumerable.Range(1, count).Select(id => (object)new { _id = id, nested = new { value = "Unicode λ" } }).ToArray());
+            foreach (var limit in new int?[] { null, 23 })
+            {
+                var output = await InvokeRawAsync(new {
+                    engine = "litedb", protocolVersion = 1, databasePath = file, operation = "Find",
+                    request = new { collection = "items", limit }, rowLimit = 5, readOnly = true, streamResults = true
+                });
+                var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                Assert.Equal((limit ?? count) + 1, lines.Length);
+                using var last = JsonDocument.Parse(lines[^1]);
+                Assert.Equal("complete", last.RootElement.GetProperty("kind").GetString());
+                Assert.Equal(limit ?? count, last.RootElement.GetProperty("count").GetInt32());
+                using var first = JsonDocument.Parse(lines[0]);
+                Assert.Equal("Unicode λ", first.RootElement.GetProperty("value").GetProperty("nested").GetProperty("value").GetString());
+            }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
     [Fact]
     public async Task Explorer_metadata_reads_real_collections_indexes_counts_and_pragmas_without_writing()
     {
@@ -368,6 +395,9 @@ public sealed class LiteDbSidecarTests
     };
 
     private static async Task<JsonDocument> InvokeAsync(object request, bool allowFixtureSeed = false)
+        => JsonDocument.Parse(await InvokeRawAsync(request, allowFixtureSeed));
+
+    private static async Task<string> InvokeRawAsync(object request, bool allowFixtureSeed = false)
     {
         var sidecarAssembly = typeof(SidecarRequest).Assembly.Location;
         var startInfo = new ProcessStartInfo("dotnet")
@@ -395,7 +425,7 @@ public sealed class LiteDbSidecarTests
 
         Assert.True(process.ExitCode == 0, $"LiteDB sidecar exited with {process.ExitCode}: {error}");
         Assert.False(string.IsNullOrWhiteSpace(output), $"LiteDB sidecar returned no response: {error}");
-        return JsonDocument.Parse(output);
+        return output;
     }
 
     private static string CreateTemporaryDirectory()

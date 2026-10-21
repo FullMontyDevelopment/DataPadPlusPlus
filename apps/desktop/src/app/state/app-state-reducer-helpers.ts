@@ -375,6 +375,7 @@ export function applyResultPageToPayload(
   if (!tab?.result) {
     return next
   }
+  if (page.resultId && page.resultId !== tab.result.id) return payload
   if (
     options.executionId &&
     tab.activeExecution &&
@@ -411,6 +412,18 @@ export function applyResultPageToPayload(
       mergedPayload = mergeResultPayload(currentPayload, incomingPayload)
       tab.result.payloads[payloadIndex] = mergedPayload
     }
+  }
+
+  if (incomingPayload.renderer === 'document') {
+    // These are alternative presentations of the same documents, not separate
+    // results. Rebuild them from the accumulated canonical source after paging.
+    const alternateModes = tab.result.rendererModes.filter(mode =>
+      mode === 'table' || mode === 'json' || mode === 'raw')
+    tab.result.payloads = tab.result.payloads.filter(item =>
+      item.renderer !== 'table' && item.renderer !== 'json' && item.renderer !== 'raw')
+    tab.result.deferredRendererModes = Array.from(new Set([
+      ...(tab.result.deferredRendererModes ?? []), ...alternateModes,
+    ]))
   }
 
   tab.result.pageInfo = {

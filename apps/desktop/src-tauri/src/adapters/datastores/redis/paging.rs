@@ -20,14 +20,20 @@ pub(crate) async fn fetch_redis_page(
         .map(|window| window[1])
         .unwrap_or("*");
     let mut redis = redis_connection(connection).await?;
-    let (next_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
-        .arg(cursor)
+    let mut scan = redis::cmd("SCAN");
+    scan.arg(cursor)
         .arg("MATCH")
         .arg(pattern)
         .arg("COUNT")
-        .arg(page_size)
-        .query_async(&mut redis)
-        .await?;
+        .arg(page_size);
+    if let Some(kind) = parts
+        .windows(2)
+        .find(|window| window[0].eq_ignore_ascii_case("TYPE"))
+        .map(|window| window[1])
+    {
+        scan.arg("TYPE").arg(kind);
+    }
+    let (next_cursor, keys): (u64, Vec<String>) = scan.query_async(&mut redis).await?;
     let page_keys = bounded_redis_page_keys(keys, page_size, next_cursor);
 
     Ok(page_response(
@@ -59,8 +65,8 @@ fn bounded_redis_page_keys(
     page_size: u32,
     next_cursor: u64,
 ) -> BoundedRedisPageKeys {
-    let bounded = bounded_items(keys, page_size);
-    let keys = bounded.visible;
+    // SCAN COUNT is a hint, not a maximum. Dropping overflow loses keys forever.
+    let _ = page_size;
     let has_more = next_cursor != 0;
 
     BoundedRedisPageKeys {

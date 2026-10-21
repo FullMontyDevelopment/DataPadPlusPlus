@@ -15,6 +15,99 @@ const READ_OPERATIONS: &[&str] = &[
     "ExecuteStatement",
 ];
 
+pub(super) async fn stream_result(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+) -> Result<(), CommandError> {
+    crate::adapters::result_stream::validate_read_request(request)?;
+    let mut input: Value = serde_json::from_str(selected_query(request))?;
+    let operation = dynamodb_operation(&mut input)?;
+    if !matches!(
+        operation.as_str(),
+        "Query" | "Scan" | "ExecuteStatement" | "GetItem"
+    ) {
+        return Err(CommandError::new(
+            "result-export-unsupported",
+            "Full DynamoDB export supports Query, Scan, GetItem, and read-only PartiQL.",
+        ));
+    }
+    let mut body = Value::Object(
+        input
+            .as_object()
+            .ok_or_else(|| {
+                CommandError::new(
+                    "result-export-query",
+                    "DynamoDB requires an object request.",
+                )
+            })?
+            .iter()
+            .map(|(key, value)| (normalize_request_key(key), value.clone()))
+            .collect(),
+    );
+    if body.get("Select").and_then(Value::as_str) == Some("COUNT") {
+        return Err(CommandError::new(
+            "result-export-unsupported",
+            "DynamoDB COUNT requests return statistics rather than an item stream. Export the loaded count result instead.",
+        ));
+    }
+    if operation_supports_limit(&operation) {
+        // Limit is the native per-request evaluated-item bound, never a total matching-row cap.
+        let batch = u64::from(bounded_page_size(request.row_limit));
+        let limit = body.get("Limit").and_then(Value::as_u64).unwrap_or(batch);
+        if limit == 0 {
+            return Err(CommandError::new(
+                "result-export-query",
+                "DynamoDB Limit must be positive.",
+            ));
+        }
+        body["Limit"] = json!(limit.min(batch));
+    }
+    validate_dynamodb_request(&operation, &body)?;
+    loop {
+        let response = dynamodb_call(connection, &operation, &body).await?;
+        if operation == "GetItem" {
+            if let Some(item) = response.get("Item") {
+                sink.row(item.clone())?;
+            }
+            return Ok(());
+        }
+        let items = response
+            .get("Items")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                CommandError::new(
+                "result-export-response",
+                "DynamoDB returned an unexpected item response. No completed export was published.",
+            )
+            })?;
+        for item in items {
+            if !sink.row(item.clone())? {
+                return Ok(());
+            }
+        }
+        let (response_key, request_key) = if operation == "ExecuteStatement" {
+            ("NextToken", "NextToken")
+        } else {
+            ("LastEvaluatedKey", "ExclusiveStartKey")
+        };
+        let Some(next) = response.get(response_key).filter(|value| {
+            !value.is_null()
+                && value.as_object().is_none_or(|key| !key.is_empty())
+                && value.as_str() != Some("")
+        }) else {
+            return Ok(());
+        };
+        if body.get(request_key) == Some(next) {
+            return Err(CommandError::new(
+                "result-export-continuation",
+                "DynamoDB repeated a continuation token. No completed export was published.",
+            ));
+        }
+        body[request_key] = next.clone();
+    }
+}
+
 pub(super) async fn execute_dynamodb_query(
     adapter: &DynamoDbAdapter,
     connection: &ResolvedConnectionProfile,

@@ -8,6 +8,70 @@ use super::payloads::clickhouse_json_payloads_bounded;
 use super::query_request::clickhouse_query_request;
 use super::ClickHouseAdapter;
 
+pub(super) async fn stream_result(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+) -> Result<(), CommandError> {
+    use futures_util::StreamExt;
+    crate::adapters::result_stream::validate_sql(request)?;
+    if super::query_request::has_explicit_format_clause(selected_query(request)) {
+        return Err(CommandError::new("result-export-unsupported", "Full ClickHouse export selects a streaming format. Remove the authored FORMAT clause or export loaded results."));
+    }
+    let response = super::connection::clickhouse_http_request(connection, None)?
+        .query(&[
+            ("default_format", "JSONEachRow"),
+            ("readonly", "1"),
+            ("result_overflow_mode", "throw"),
+        ])
+        .body(selected_query(request).to_owned())
+        .send()
+        .await
+        .map_err(|_| {
+            CommandError::new(
+                "result-export-connection",
+                "ClickHouse could not start the export.",
+            )
+        })?;
+    let response = super::connection::ensure_clickhouse_success(response).await?;
+    let mut stream = response.bytes_stream();
+    let mut line = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|_| {
+            CommandError::new(
+                "result-export-read",
+                "ClickHouse export was interrupted before completion.",
+            )
+        })?;
+        for part in chunk.split_inclusive(|byte| *byte == b'\n') {
+            if line.len().saturating_add(part.len()) > 128 * 1024 * 1024 {
+                return Err(CommandError::new("result-export-value-size", "A ClickHouse row exceeded the streaming decoder's memory budget. Select smaller fields or use a native datastore transfer."));
+            }
+            line.extend_from_slice(part);
+            if part.last() == Some(&b'\n') {
+                if !line.iter().all(u8::is_ascii_whitespace) {
+                    let value = serde_json::from_slice(&line).map_err(|_| CommandError::new(
+                        "result-export-response", "ClickHouse returned an invalid or incomplete row. No completed export was published.",
+                    ))?;
+                    if !sink.row(value)? {
+                        return Ok(());
+                    }
+                }
+                line.clear();
+            }
+        }
+    }
+    if !line.iter().all(u8::is_ascii_whitespace) {
+        sink.row(serde_json::from_slice(&line).map_err(|_| {
+            CommandError::new(
+                "result-export-response",
+                "ClickHouse returned an incomplete final row.",
+            )
+        })?)?;
+    }
+    Ok(())
+}
+
 pub(super) async fn execute_clickhouse_query(
     adapter: &ClickHouseAdapter,
     connection: &ResolvedConnectionProfile,

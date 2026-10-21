@@ -120,7 +120,7 @@ export function parseSqlSelectQueryText(
     filters: [],
     filterLogic: 'and',
     sort: sortFromQuery(normalized, engine),
-    limit: limitFromQuery(normalized, engine) ?? 20,
+    limit: limitFromQuery(normalized, engine) ?? null,
   }
 
   return {

@@ -7,6 +7,99 @@ use super::query_request::duckdb_query_request;
 use super::query_results::{duckdb_plan_payload, query_table_with_truncation, QueryTableResult};
 use super::DuckDbAdapter;
 
+struct ExportInterrupt(
+    std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<duckdb::InterruptHandle>>>>,
+);
+impl Drop for ExportInterrupt {
+    fn drop(&mut self) {
+        if let Ok(handle) = self.0.lock() {
+            if let Some(handle) = handle.as_ref() {
+                handle.interrupt();
+            }
+        }
+    }
+}
+
+pub(super) async fn stream_result(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+) -> Result<(), CommandError> {
+    crate::adapters::result_stream::validate_sql(request)?;
+    let connection = connection.clone();
+    let request = request.clone();
+    let interrupt = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let worker_interrupt = interrupt.clone();
+    let _cancel = ExportInterrupt(interrupt);
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
+    let worker = tokio::task::spawn_blocking(move || -> Result<(), CommandError> {
+        if sender.is_closed() {
+            return Ok(());
+        }
+        let db = super::connection::open_duckdb_read_connection(&connection)?;
+        *worker_interrupt.lock().map_err(|_| {
+            CommandError::new(
+                "result-export-runtime",
+                "DuckDB export coordination failed.",
+            )
+        })? = Some(db.interrupt_handle());
+        if sender.is_closed() {
+            return Ok(());
+        }
+        apply_duckdb_schema_scope(&db, request.sql_scope.as_ref())?;
+        let mut statement = db
+            .prepare(selected_query(&request))
+            .map_err(super::connection::duckdb_error)?;
+        let batches = statement
+            .stream_arrow([])
+            .map_err(super::connection::duckdb_error)?;
+        for batch in batches {
+            let schema = batch.schema();
+            for row in 0..batch.num_rows() {
+                if sender.is_closed() {
+                    return Ok(());
+                }
+                let cells = schema
+                    .fields()
+                    .iter()
+                    .zip(batch.columns())
+                    .map(|(field, array)| {
+                        if array.is_null(row) {
+                            return Ok((field.name().clone(), Value::Null));
+                        }
+                        duckdb::arrow::util::display::array_value_to_string(array.as_ref(), row)
+                            .map(|value| (field.name().clone(), Value::String(value)))
+                            .map_err(|_| {
+                                CommandError::new(
+                                    "result-export-decode",
+                                    "A DuckDB value could not be encoded.",
+                                )
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if sender
+                    .blocking_send(crate::adapters::result_stream::object_row(cells)?)
+                    .is_err()
+                {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    });
+    while let Some(value) = receiver.recv().await {
+        if !sink.row(value)? {
+            return Ok(());
+        }
+    }
+    worker.await.map_err(|_| {
+        CommandError::new(
+            "result-export-read",
+            "DuckDB result streaming failed before completion.",
+        )
+    })?
+}
+
 pub(super) async fn execute_duckdb_query(
     adapter: &DuckDbAdapter,
     connection: &ResolvedConnectionProfile,

@@ -7,6 +7,7 @@ pub(super) fn fixture_query_tab(
     created_at: &str,
 ) -> QueryTabState {
     QueryTabState {
+        query_fetch_batch_size: None,
         id: format!("tab-{}", seed.id),
         title: if environment_id == "env-local-demo" {
             screenshot_tab_title(connection, seed)

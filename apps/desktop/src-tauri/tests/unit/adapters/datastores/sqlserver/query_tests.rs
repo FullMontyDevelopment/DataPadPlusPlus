@@ -9,10 +9,33 @@ use tiberius::{
 };
 
 use super::{
-    payload_table, sqlserver_explain_payload, sqlserver_profile_payload,
+    export_tiberius_cell, payload_table, sqlserver_explain_payload, sqlserver_profile_payload,
     sqlserver_showplan_operators, stringify_tiberius_cell, SqlServerResultSection,
 };
 
+#[test]
+fn full_export_preserves_native_null_boolean_integer_and_binary_values() {
+    assert_eq!(
+        export_tiberius_cell(&ColumnData::String(None)).unwrap(),
+        Value::Null
+    );
+    assert_eq!(
+        export_tiberius_cell(&ColumnData::String(Some(Cow::Borrowed("null")))).unwrap(),
+        Value::String("null".into())
+    );
+    assert_eq!(
+        export_tiberius_cell(&ColumnData::Bit(Some(true))).unwrap(),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        export_tiberius_cell(&ColumnData::I64(Some(i64::MAX))).unwrap(),
+        serde_json::json!(i64::MAX)
+    );
+    assert_eq!(
+        export_tiberius_cell(&ColumnData::Binary(Some(Cow::Borrowed(&[0, 255])))).unwrap(),
+        Value::String("0x00ff".into())
+    );
+}
 #[test]
 fn sqlserver_temporal_cells_render_as_native_values() {
     let date = sqlserver_date(2026, 5, 16);

@@ -13,6 +13,7 @@ interface DatastoreTransfersCenterProps {
   onClose(): void
   onDismiss(jobId: string): void
   onRetry(jobId: string): void
+  onCancel?(jobId: string): void
 }
 
 export function DatastoreTransfersCenter({
@@ -20,6 +21,7 @@ export function DatastoreTransfersCenter({
   onClose,
   onDismiss,
   onRetry,
+  onCancel,
 }: DatastoreTransfersCenterProps) {
   return (
     <aside className="datastore-transfers-center" aria-label="Datastore transfers">
@@ -34,10 +36,14 @@ export function DatastoreTransfersCenter({
             <div className="datastore-transfer-job-copy">
               <strong>{capitalize(job.action)} {job.objectNames[0] || job.engine}</strong>
               <span>{job.fileName || job.formatId} · {capitalize(job.status)}</span>
+              {job.exportedRows !== undefined ? <small>{job.exportedRows.toLocaleString()} rows exported{job.limited ? ' · Limit reached' : ''}</small> : null}
               {job.error ? <small role="alert">{job.error}</small> : job.warnings[0] ? <small>{job.warnings[0]}</small> : null}
             </div>
             <div className="datastore-transfer-job-actions">
-              {job.status === 'failed' ? (
+              {job.status === 'running' && job.source === 'query-results' && onCancel ? (
+                <button type="button" aria-label="Cancel result export" title="Cancel export" onClick={() => onCancel(job.id)}><CloseIcon /></button>
+              ) : null}
+              {job.status === 'failed' && job.source !== 'query-results' ? (
                 <button type="button" aria-label={`Retry ${job.action}`} title="Retry" onClick={() => onRetry(job.id)}><RefreshIcon /></button>
               ) : null}
               {job.status !== 'running' && job.status !== 'queued' ? (

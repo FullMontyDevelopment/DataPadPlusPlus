@@ -2195,6 +2195,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-updater",
  "tauri-plugin-wdio-webdriver",
+ "tempfile",
  "tiberius",
  "tokio",
  "tokio-tungstenite",

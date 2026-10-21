@@ -28,3 +28,25 @@ fn rejects_invalid_layout_numbers() {
 
     assert!(error.to_string().contains("finite non-negative number"));
 }
+#[test]
+fn query_result_preferences_validate_persisted_and_imported_limits() {
+    use crate::domain::models::QueryResultPreferences;
+    for value in [
+        serde_json::json!({"fetchBatchSize": 0}),
+        serde_json::json!({"fetchBatchSize": 5001}),
+        serde_json::json!({"fetchBatchSize": 1.5}),
+        serde_json::json!({"maximumLoadedRows": 0}),
+        serde_json::json!({"maximumExportedRows": 0}),
+        serde_json::json!({"maximumExportedRows": -1}),
+    ] {
+        assert!(serde_json::from_value::<QueryResultPreferences>(value).is_err());
+    }
+    let defaults: QueryResultPreferences = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert_eq!(defaults.fetch_batch_size, 500);
+    assert_eq!(defaults.maximum_exported_rows, None);
+    let custom: QueryResultPreferences = serde_json::from_value(
+        serde_json::json!({"fetchBatchSize": 5000, "maximumLoadedRows": 1500, "maximumExportedRows": null}),
+    ).unwrap();
+    assert_eq!(custom.fetch_batch_size, 5000);
+    assert_eq!(custom.maximum_loaded_rows, Some(1500));
+}

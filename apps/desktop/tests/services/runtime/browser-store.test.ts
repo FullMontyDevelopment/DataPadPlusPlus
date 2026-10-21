@@ -49,7 +49,7 @@ describe('browser workspace storage', () => {
     const loaded = loadBrowserSnapshot()
     expect(loaded.schemaVersion).toBe(CURRENT_WORKSPACE_SCHEMA_VERSION)
     expect(loaded.tabs.find(tab => tab.id === 'schema-draft')?.queryText).toBe('select 42;')
-    const recoveryKey = 'datapadplusplus.workspace.snapshot.v1.default.schema-12-to-13.recovery'
+    const recoveryKey = `datapadplusplus.workspace.snapshot.v1.default.schema-12-to-${CURRENT_WORKSPACE_SCHEMA_VERSION}.recovery`
     expect(JSON.parse(window.localStorage.getItem(recoveryKey)!)).toMatchObject({ schemaVersion: 12 })
     const recovery = window.localStorage.getItem(recoveryKey)
     saveBrowserSnapshot(loaded)

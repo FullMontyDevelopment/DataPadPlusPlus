@@ -56,7 +56,7 @@ export function buildSearchDslQueryText(state: SearchDslBuilderState) {
   }
   const aggs = Object.fromEntries(aggEntries)
 
-  if (state.size && state.size > 0) {
+  if (state.size !== undefined && state.size >= 0) {
     body.size = Math.floor(state.size)
   }
   if (source.length > 0) {

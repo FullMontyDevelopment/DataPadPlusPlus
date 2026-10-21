@@ -185,6 +185,7 @@ fn bundle_payload_interns_repeated_history_queries_and_restores_them() {
     let mut snapshot = blank_workspace_snapshot();
     let query = "select * from audit_log where actor_id = 42";
     let mut tab = QueryTabState {
+        query_fetch_batch_size: None,
         id: "tab-history".into(),
         title: "Audit".into(),
         ..QueryTabState::default()

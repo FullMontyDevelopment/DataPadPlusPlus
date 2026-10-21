@@ -1,7 +1,43 @@
+use futures_util::TryStreamExt;
 use sqlx::{Column, Row};
 
 use super::super::super::*;
 use super::connection::{sqlite_pool, stringify_sqlite_cell};
+
+pub(crate) async fn stream_sqlite_result(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+) -> Result<(), CommandError> {
+    crate::adapters::result_stream::validate_sql(request)?;
+    let pool = sqlite_pool(connection).await?;
+    let mut client = pool.acquire().await?;
+    sqlx::query(sqlx::AssertSqlSafe("PRAGMA query_only = ON"))
+        .execute(&mut *client)
+        .await?;
+    let mut rows = sqlx::query(sqlx::AssertSqlSafe(selected_query(request))).fetch(&mut *client);
+    while let Some(row) = rows.try_next().await? {
+        let cells = row
+            .columns()
+            .iter()
+            .enumerate()
+            .map(|(index, column)| {
+                Ok((
+                    column.name().to_owned(),
+                    super::connection::export_sqlite_cell(&row, index)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, CommandError>>()?;
+        let record = crate::adapters::result_stream::object_row(cells)?;
+        if !sink.row(record)? {
+            break;
+        }
+    }
+    drop(rows);
+    drop(client);
+    pool.close().await;
+    Ok(())
+}
 
 pub(crate) async fn fetch_sqlite_page(
     connection: &ResolvedConnectionProfile,

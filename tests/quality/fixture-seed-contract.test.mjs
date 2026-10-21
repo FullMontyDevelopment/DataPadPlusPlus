@@ -83,6 +83,20 @@ test('fixture seed runner executes all datastore init scripts in order', async (
   assert.deepEqual(failures, [])
 })
 
+test('InfluxDB container bootstrap imports native line protocol rather than mixed shell queries', async () => {
+  const folder = 'tests/fixtures/influxdb/init'
+  const files = await readdir(absolutePath(folder))
+  assert.equal(files.some(file => file.endsWith('.iql')), false)
+  const script = await read(`${folder}/001_seed.sh`)
+  assert.match(script, /influx .* -import -path=\/docker-entrypoint-initdb.d\/seed.lp -precision=ns/)
+  assert.equal(script.includes('\r'), false, 'sourced container shell scripts require LF line endings')
+  const payload = await read(`${folder}/seed.lp`)
+  assert.match(payload, /# DDL\nCREATE DATABASE metrics\n# DML\n# CONTEXT-DATABASE: metrics/)
+  const points = payload.split(/\r?\n/).filter(line => line && !line.startsWith('#') && !line.startsWith('CREATE '))
+  assert.equal(points.length, 5)
+  assert.equal(points.some(line => line.startsWith('insert ')), false)
+})
+
 test('screenshot launcher seeds running fixtures before resetting and opening the workspace', async () => {
   const [launcher, workspaceHelper] = await Promise.all([
     read('tests/fixtures/launch-screenshot-seed.mjs'),

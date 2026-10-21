@@ -77,6 +77,13 @@ pub(super) fn is_read_only_cypher(statement: &str) -> bool {
     )
 }
 
+pub(super) fn is_streamable_cypher(statement: &str) -> bool {
+    is_read_only_cypher(statement)
+        && !cypher_tokens(statement)
+            .iter()
+            .any(|token| matches!(token.as_str(), "call" | "explain" | "profile" | "show"))
+}
+
 fn cypher_starts_with(statement: &str, keyword: &str) -> bool {
     cypher_tokens(statement).first().map(String::as_str) == Some(keyword)
 }

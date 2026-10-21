@@ -162,6 +162,7 @@ async fn cosmosdb_fetch_page_replays_opaque_continuation_and_session_state() {
         .unwrap()
         .unwrap();
     let request = ResultPageRequest {
+        result_id: None,
         execution_id: Some("execution-page-2".into()),
         tab_id: "tab-cosmos".into(),
         connection_id: "conn-cosmos".into(),

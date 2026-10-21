@@ -69,6 +69,14 @@ pub async fn fetch_result_page(
         .await
 }
 
+pub fn prepare_result_page(
+    connection: &ResolvedConnectionProfile,
+    executed: &ExecutionRequest,
+    page: ResultPageRequest,
+) -> Result<ResultPageRequest, CommandError> {
+    adapter_for_engine(&connection.engine)?.prepare_result_page(executed, page)
+}
+
 pub async fn fetch_document_node_children(
     connection: &ResolvedConnectionProfile,
     request: &DocumentNodeChildrenRequest,

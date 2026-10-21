@@ -233,7 +233,7 @@ export interface MongoFindBuilderState {
   projectionFields: MongoFindProjectionField[]
   sort: MongoFindSortRow[]
   skip?: number
-  limit?: number
+  limit?: number | null
   lastAppliedQueryText?: string
 }
 
@@ -257,7 +257,7 @@ export interface LiteDbFindBuilderState {
   filterGroups: MongoFindFilterGroup[]
   sort: MongoFindSortRow[]
   skip?: number
-  limit?: number
+  limit?: number | null
   lastAppliedQueryText?: string
 }
 
@@ -273,7 +273,7 @@ export interface MongoAggregationBuilderState {
   database?: string
   collection: string
   stages: MongoAggregationStageRow[]
-  limit?: number
+  limit?: number | null
   lastAppliedQueryText?: string
 }
 
@@ -337,7 +337,7 @@ export interface CosmosSqlBuilderState {
   filterLogic: 'and' | 'or'
   sort: CosmosSqlSortRow[]
   offset?: number
-  limit?: number
+  limit?: number | null
   partitionKeyEnabled?: boolean
   partitionKeyValue?: string
   partitionKeyValueType?: CosmosSqlBuilderValueType
@@ -418,7 +418,7 @@ export interface SqlSelectBuilderState {
   filters: SqlSelectFilterRow[]
   filterLogic: 'and' | 'or'
   sort: SqlSelectSortRow[]
-  limit?: number
+  limit?: number | null
   lastAppliedQueryText?: string
 }
 
@@ -472,7 +472,7 @@ export interface DynamoDbKeyConditionBuilderState {
   filters: DynamoDbConditionRow[]
   projectionFields: DynamoDbProjectionField[]
   consistentRead?: boolean
-  limit?: number
+  limit?: number | null
   lastAppliedQueryText?: string
 }
 
@@ -510,7 +510,7 @@ export interface CqlPartitionBuilderState {
   clusteringKeys: CqlConditionRow[]
   filters: CqlConditionRow[]
   allowFiltering?: boolean
-  limit?: number
+  limit?: number | null
   lastAppliedQueryText?: string
 }
 
@@ -1117,6 +1117,7 @@ export interface UserFacingError {
 }
 
 export interface QueryTabState extends QueryTabDefinition {
+  queryFetchBatchSize?: number
   editorLabel: string
   queryText: string
   queryViewMode?: QueryViewMode
@@ -1234,21 +1235,39 @@ export interface SaveQueryTabToLocalFileRequest {
 }
 
 export interface ExportResultFileRequest {
+  exportId?: string
   suggestedFileName: string
   extension: string
   mimeType: string
   contents?: string
+  /** Counts for already formatted browser downloads; desktop sessions calculate their own counts. */
+  preparedResult?: { rowCount: number; sourceRowCount: number }
   resultReference?: {
     tabId: string
     resultId: string
     renderer: ResultRenderer
-    format: 'json' | 'ndjson'
+    format: 'json' | 'ndjson' | 'csv'
+    scope?: 'loaded' | 'full-query'
+    loadedRows?: number
   }
 }
 
 export interface ExportResultFileResponse {
   saved: boolean
   path?: string
+  exportedRows?: number
+  limited?: boolean
+}
+
+export interface ResultExportContext {
+  connectionName?: string
+  environmentName?: string
+  database?: string
+  schema?: string
+  fetchBatchSize?: number
+  maximumLoadedRows?: number | null
+  fullQuerySupported: boolean
+  maximumExportedRows: number | null
 }
 
 export interface WorkspaceBundleFileExportRequest {

@@ -39,6 +39,7 @@ mod query_tabs_scoped;
 mod query_tabs_scoped_redis;
 mod response_redaction;
 mod response_redaction_keys;
+pub mod result_sessions;
 mod saved_work;
 mod settings_tabs;
 mod sql_hints;
@@ -61,6 +62,7 @@ pub use workspace::{blank_workspace_snapshot, generate_id, timestamp_now};
 pub struct ManagedAppState {
     pub app: AppHandle,
     pub snapshot: WorkspaceSnapshot,
+    pub result_sessions: HashMap<String, result_sessions::ResultSession>,
 }
 
 #[derive(Default)]

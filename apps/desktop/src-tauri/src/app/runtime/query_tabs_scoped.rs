@@ -107,6 +107,7 @@ pub(super) fn build_scoped_query_tab(
         effective_connection_environment_id(snapshot, &connection.id, request.environment_id);
 
     QueryTabState {
+        query_fetch_batch_size: None,
         id: generate_id("tab"),
         title,
         tab_kind: Some("query".into()),

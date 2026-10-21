@@ -18,6 +18,82 @@ use crate::domain::models::{ExecutionRequest, ResolvedConnectionProfile};
 
 static LITEDB_PROCESS_SIDECAR_FIXTURE: OnceLock<PathBuf> = OnceLock::new();
 
+#[tokio::test]
+#[ignore = "Requires the bundled runtime; run npm run rust:test:litedb"]
+async fn litedb_bundled_result_stream_preserves_all_rows_limits_and_cancellation() {
+    use super::super::connection::{bundled_litedb_sidecar_path, create_litedb_database};
+    use crate::adapters::result_stream::ResultRowSink;
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("stream.db");
+    let source = directory.path().join("seed.json");
+    let documents = (1..=1501)
+        .map(|id| {
+            json!({
+                "_id": id, "nested": {"value": "Unicode λ"}, "empty": null,
+                "__datapadLazyNode": "native user field"
+            })
+        })
+        .collect::<Vec<_>>();
+    std::fs::write(&source, serde_json::to_vec(&documents).unwrap()).unwrap();
+    create_litedb_database(&database, None).await.unwrap();
+    let profile = ResolvedConnectionProfile {
+        engine: "litedb".into(),
+        database: Some(database.to_string_lossy().into_owned()),
+        ..Default::default()
+    };
+    let sidecar = bundled_litedb_sidecar_path().unwrap();
+    let imported = super::execute_litedb_sidecar_operation(
+        &profile,
+        "ImportCollection",
+        &json!({"collection": "items", "sourcePath": source, "format": "json", "limit": 1501}),
+        1501,
+        &sidecar,
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(imported.response["importedCount"], 1501);
+    let before = std::fs::read(&database).unwrap();
+    struct Sink {
+        count: usize,
+        stop: Option<usize>,
+    }
+    impl ResultRowSink for Sink {
+        fn row(
+            &mut self,
+            value: serde_json::Value,
+        ) -> Result<bool, crate::domain::error::CommandError> {
+            self.count += 1;
+            assert_eq!(value["_id"], self.count);
+            assert_eq!(value["nested"]["value"], "Unicode λ");
+            assert!(value["empty"].is_null());
+            assert_eq!(value["__datapadLazyNode"], "native user field");
+            Ok(self.stop.is_none_or(|stop| self.count < stop))
+        }
+    }
+    for (limit, stop, expected) in [
+        (None, None, 1501),
+        (Some(501), None, 501),
+        (None, Some(9), 9),
+    ] {
+        let request: ExecutionRequest = serde_json::from_value(json!({
+            "tabId": "isolated", "connectionId": "isolated", "environmentId": "",
+            "language": "json", "queryText": json!({"operation": "Find", "collection": "items", "limit": limit}).to_string(),
+            "rowLimit": 7
+        })).unwrap();
+        let mut sink = Sink { count: 0, stop };
+        super::stream_result(&profile, &request, &mut sink)
+            .await
+            .unwrap();
+        assert_eq!(sink.count, expected);
+    }
+    assert_eq!(
+        std::fs::read(&database).unwrap(),
+        before,
+        "read exports must not change the database"
+    );
+}
+
 fn connection() -> ResolvedConnectionProfile {
     ResolvedConnectionProfile {
         id: "conn-litedb".into(),

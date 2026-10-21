@@ -1179,6 +1179,7 @@ fn clone_runtime(app: &AppHandle) -> Result<ManagedAppState, ApiRouteError> {
     Ok(ManagedAppState {
         app: state.app.clone(),
         snapshot: state.snapshot.clone(),
+        result_sessions: Default::default(),
     })
 }
 

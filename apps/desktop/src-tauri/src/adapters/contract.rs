@@ -3,6 +3,20 @@ use async_trait::async_trait;
 
 #[async_trait]
 pub trait DatastoreAdapter: Send + Sync {
+    fn supports_result_stream(&self) -> bool {
+        false
+    }
+    async fn stream_read_result(
+        &self,
+        _connection: &ResolvedConnectionProfile,
+        _request: &ExecutionRequest,
+        _sink: &mut dyn super::result_stream::ResultRowSink,
+    ) -> Result<(), CommandError> {
+        Err(CommandError::new(
+            "result-export-unsupported",
+            "Full-query export is not implemented for this adapter. Export loaded results instead.",
+        ))
+    }
     fn manifest(&self) -> AdapterManifest;
     fn execution_capabilities(&self) -> ExecutionCapabilities;
     fn experience_manifest(&self) -> DatastoreExperienceManifest {
@@ -176,6 +190,15 @@ pub trait DatastoreAdapter: Send + Sync {
             "result-page-unsupported",
             "Paged result loading is not supported for this adapter.",
         ))
+    }
+    /// Adapter-owned lowering of captured execution parameters for continuation.
+    /// The caller has already restored connection, scope, and query from the session.
+    fn prepare_result_page(
+        &self,
+        _executed: &ExecutionRequest,
+        page: ResultPageRequest,
+    ) -> Result<ResultPageRequest, CommandError> {
+        Ok(page)
     }
     async fn cancel(
         &self,

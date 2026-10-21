@@ -326,7 +326,7 @@ describe('QueryBuilderPanel', () => {
     expect(screen.queryByText('Live query')).not.toBeInTheDocument()
     expect(screen.queryByText('Mongo Find Builder')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'products' })).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Fetch size')).toHaveValue(20)
+    expect(screen.getByLabelText(/^(Query limit|Items evaluated|Hit limit)$/)).toHaveValue(20)
     expect(screen.queryByLabelText('Collection')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Mongo query scope')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Filter group logic Group 1')).not.toBeInTheDocument()
@@ -386,7 +386,7 @@ describe('QueryBuilderPanel', () => {
     expect(screen.queryByLabelText('Mongo query scope')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Collection')).not.toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Fetch size'), { target: { value: '25' } })
+    fireEvent.change(screen.getByLabelText(/^(Query limit|Items evaluated|Hit limit)$/), { target: { value: '25' } })
 
     const nextState = onBuilderStateChange.mock.calls.at(-1)?.[1] as
       | (QueryBuilderState & { lastAppliedQueryText?: string })
@@ -625,7 +625,7 @@ describe('QueryBuilderPanel', () => {
     )
 
     expect(screen.getByRole('region', { name: 'MongoDB aggregation builder' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Fetch size')).toHaveValue(20)
+    expect(screen.getByLabelText(/^(Query limit|Items evaluated|Hit limit)$/)).toHaveValue(20)
     expect(screen.queryByLabelText('Collection')).not.toBeInTheDocument()
     expect(within(screen.getByLabelText('MongoDB aggregation builder')).getByRole(
       'button',

@@ -49,6 +49,8 @@ pub struct MultiWindowTabsPreferences {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppPreferences {
+    #[serde(default)]
+    pub query_results: QueryResultPreferences,
     pub theme: String,
     pub telemetry: String,
     pub lock_after_minutes: u32,
@@ -74,6 +76,78 @@ pub struct AppPreferences {
     pub first_install_guide: FirstInstallGuidePreferences,
     #[serde(default)]
     pub explorer_folder_orders: HashMap<String, Vec<String>>,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct QueryResultPreferences {
+    #[serde(deserialize_with = "deserialize_fetch_batch_size")]
+    pub fetch_batch_size: u32,
+    #[serde(deserialize_with = "deserialize_query_row_limit")]
+    pub maximum_loaded_rows: Option<u32>,
+    #[serde(deserialize_with = "deserialize_query_row_limit")]
+    pub maximum_exported_rows: Option<u32>,
+}
+
+fn deserialize_fetch_batch_size<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u32, D::Error> {
+    let value = u32::deserialize(deserializer)?;
+    if !(1..=5_000).contains(&value) {
+        return Err(serde::de::Error::custom(
+            "Fetch batch size must be between 1 and 5,000.",
+        ));
+    }
+    Ok(value)
+}
+
+fn deserialize_query_row_limit<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u32>, D::Error> {
+    let value = Option::<u32>::deserialize(deserializer)?;
+    if value == Some(0) {
+        return Err(serde::de::Error::custom(
+            "Query row limits must be positive or null for No limit.",
+        ));
+    }
+    Ok(value)
+}
+
+pub(super) fn deserialize_query_fetch_override<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u32>, D::Error> {
+    let value = Option::<u32>::deserialize(deserializer)?;
+    if value.is_some_and(|size| !(1..=5_000).contains(&size)) {
+        return Err(serde::de::Error::custom(
+            "Tab fetch batch size must be between 1 and 5,000.",
+        ));
+    }
+    Ok(value)
+}
+
+impl Default for QueryResultPreferences {
+    fn default() -> Self {
+        Self {
+            fetch_batch_size: 500,
+            maximum_loaded_rows: None,
+            maximum_exported_rows: None,
+        }
+    }
+}
+
+impl QueryResultPreferences {
+    pub fn validate(&self) -> Result<(), crate::domain::error::CommandError> {
+        if !(1..=5_000).contains(&self.fetch_batch_size)
+            || self.maximum_loaded_rows == Some(0)
+            || self.maximum_exported_rows == Some(0)
+        {
+            return Err(crate::domain::error::CommandError::new(
+                "query-result-settings-invalid",
+                "Fetch batch size must be between 1 and 5,000. Row limits must be positive or No limit.",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Default, PartialEq, Eq)]

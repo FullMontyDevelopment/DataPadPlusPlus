@@ -409,6 +409,8 @@ export interface Actions {
   clearWorkbenchMessages(): void
   setTheme(theme: WorkspaceSnapshot['preferences']['theme']): Promise<void>
   setSafeModeEnabled(enabled: boolean): Promise<void>
+  setQueryResultPreferences(preferences: import('@datapadplusplus/shared-types').QueryResultPreferences): Promise<boolean>
+  setQueryFetchBatchSize(tabId: string, batchSize?: number): Promise<boolean>
   setKeyboardShortcut(shortcutId: AppShortcutId, shortcut: string): Promise<void>
   setFirstInstallGuideStatus(
     status: FirstInstallGuidePersistedStatus,

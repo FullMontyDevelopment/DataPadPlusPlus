@@ -383,6 +383,23 @@ describe('applyResultPageToPayload', () => {
     expect(result?.pageInfo?.bufferedRows).toBe(2)
   })
 
+  it('invalidates alternate document views after paging so they cannot export an old page set', () => {
+    const payload = payloadWithResult({ renderer: 'document', documents: [{ _id: 1 }] })
+    const original = resultFrom(payload)
+    original.rendererModes = ['document', 'table', 'json', 'raw']
+    original.payloads.push(
+      { renderer: 'table', columns: ['document'], rows: [['{"_id":1}']] },
+      { renderer: 'json', value: [{ _id: 1 }] },
+      { renderer: 'raw', text: '[{"_id":1}]' },
+    )
+    const result = resultFrom(applyResultPageToPayload(
+      payload, pageFor({ renderer: 'document', documents: [{ _id: 2 }] }),
+    ))
+    expect(result.payloads).toEqual([{ renderer: 'document', documents: [{ _id: 1 }, { _id: 2 }] }])
+    expect(result.deferredRendererModes).toEqual(['table', 'json', 'raw'])
+    expect(original.payloads).toHaveLength(4)
+  })
+
   it('appends Cosmos DB JSON document pages and preserves page metadata', () => {
     const payload = payloadWithResult({
       renderer: 'json',

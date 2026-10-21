@@ -25,6 +25,64 @@ use crate::domain::error::redact_sensitive_text;
 const DEFAULT_CONNECT_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
 
+pub(super) async fn stream_result(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+) -> Result<(), CommandError> {
+    crate::adapters::result_stream::validate_sql(request)?;
+    let session = connect_cassandra(connection).await?;
+    let mut statement = Statement::new(selected_query(request));
+    statement.set_page_size(bounded_page_size(request.row_limit) as i32);
+    statement.set_consistency(cassandra_consistency(connection)?);
+    statement.set_serial_consistency(cassandra_serial_consistency(connection)?);
+    statement.set_is_idempotent(false);
+    statement.set_request_timeout(Some(Duration::from_millis(
+        connection
+            .cassandra_options
+            .as_ref()
+            .and_then(|value| value.request_timeout_ms.or(value.read_timeout_ms))
+            .unwrap_or(DEFAULT_REQUEST_TIMEOUT_MS),
+    )));
+    let mut paging_state = PagingState::start();
+    loop {
+        let (result, paging) = session
+            .query_single_page(statement.clone(), (), paging_state)
+            .await
+            .map_err(|error| cassandra_driver_error(connection, "cassandra-query-failed", error))?;
+        let rows = result.into_rows_result().map_err(|error| {
+            cassandra_driver_error(connection, "cassandra-response-invalid", error)
+        })?;
+        let columns = rows
+            .column_specs()
+            .as_slice()
+            .iter()
+            .map(|column| column.name().to_owned())
+            .collect::<Vec<_>>();
+        for row in rows.rows::<Row>().map_err(|error| {
+            cassandra_driver_error(connection, "cassandra-response-invalid", error)
+        })? {
+            let row = row.map_err(|error| {
+                cassandra_driver_error(connection, "cassandra-response-invalid", error)
+            })?;
+            let value = crate::adapters::result_stream::object_row(
+                columns.iter().cloned().zip(
+                    row.columns
+                        .into_iter()
+                        .map(|cell| cell.map(cql_value_to_json).unwrap_or(Value::Null)),
+                ),
+            )?;
+            if !sink.row(value)? {
+                return Ok(());
+            }
+        }
+        match paging.into_paging_control_flow() {
+            ControlFlow::Break(()) => return Ok(()),
+            ControlFlow::Continue(next) => paging_state = next,
+        }
+    }
+}
+
 pub(super) async fn connect_cassandra(
     connection: &ResolvedConnectionProfile,
 ) -> Result<Session, CommandError> {

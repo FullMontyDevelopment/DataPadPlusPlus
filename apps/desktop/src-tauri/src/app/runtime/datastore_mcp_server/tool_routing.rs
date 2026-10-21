@@ -26,6 +26,7 @@ impl DatapadMcpTools {
         Ok(ManagedAppState {
             app: state.app.clone(),
             snapshot: state.snapshot.clone(),
+            result_sessions: Default::default(),
         })
     }
 
@@ -701,6 +702,7 @@ fn clone_runtime(app: &AppHandle) -> Result<ManagedAppState, McpError> {
     Ok(ManagedAppState {
         app: state.app.clone(),
         snapshot: state.snapshot.clone(),
+        result_sessions: Default::default(),
     })
 }
 

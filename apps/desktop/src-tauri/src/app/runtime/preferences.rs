@@ -11,6 +11,24 @@ use super::ui::{
 };
 
 impl ManagedAppState {
+    pub fn set_query_result_preferences(
+        &mut self,
+        preferences: crate::domain::models::QueryResultPreferences,
+    ) -> Result<BootstrapPayload, CommandError> {
+        self.ensure_unlocked()?;
+        preferences.validate()?;
+        let previous = self.snapshot.preferences.query_results.clone();
+        let previous_updated_at = self.snapshot.updated_at.clone();
+        self.snapshot.preferences.query_results = preferences;
+        self.snapshot.updated_at = timestamp_now();
+        if let Err(error) = self.persist() {
+            self.snapshot.preferences.query_results = previous;
+            self.snapshot.updated_at = previous_updated_at;
+            return Err(error);
+        }
+        Ok(self.bootstrap_payload())
+    }
+
     pub fn set_theme(&mut self, theme: &str) -> Result<BootstrapPayload, CommandError> {
         self.snapshot.preferences.theme = theme.into();
         self.snapshot.updated_at = timestamp_now();

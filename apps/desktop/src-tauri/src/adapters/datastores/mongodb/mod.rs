@@ -17,6 +17,7 @@ mod metadata;
 mod paging;
 mod principals;
 mod query;
+mod result_stream;
 mod script;
 mod script_cancellation;
 mod script_operations;
@@ -38,6 +39,17 @@ pub(crate) struct MongoDbAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for MongoDbAdapter {
+    fn supports_result_stream(&self) -> bool {
+        true
+    }
+    async fn stream_read_result(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &ExecutionRequest,
+        sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+    ) -> Result<(), CommandError> {
+        result_stream::stream(connection, request, sink).await
+    }
     async fn plan_operation(
         &self,
         connection: &ResolvedConnectionProfile,

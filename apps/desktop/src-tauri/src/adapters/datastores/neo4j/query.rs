@@ -6,6 +6,63 @@ use super::query_request::{is_read_only_cypher, neo4j_query_request, Neo4jQueryR
 use super::query_results::{normalize_neo4j_result, NormalizedNeo4jResult};
 use super::Neo4jAdapter;
 
+pub(super) async fn stream_result(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+) -> Result<(), CommandError> {
+    crate::adapters::result_stream::validate_read_request(request)?;
+    if super::connection::neo4j_connect_mode(connection) != "neo4j-bolt"
+        || !super::query_request::is_streamable_cypher(selected_query(request))
+    {
+        return Err(CommandError::new("result-export-unsupported", "Full Neo4j export requires a read-only Bolt query without procedures. Use loaded results for HTTP mode or procedure calls."));
+    }
+    let mut scoped = connection.clone();
+    scoped
+        .graph_options
+        .get_or_insert_with(Default::default)
+        .fetch_size = Some(bounded_page_size(request.row_limit));
+    let (graph, timeout_ms, _) = super::connection::neo4j_bolt_graph(&scoped).await?;
+    let run = async {
+        let mut rows = graph
+            .execute(neo4rs::query(selected_query(request)))
+            .await
+            .map_err(|_| {
+                CommandError::new(
+                    "result-export-query",
+                    "Neo4j could not start the export query.",
+                )
+            })?;
+        while let Some(row) = rows.next().await.map_err(|_| {
+            CommandError::new(
+                "result-export-read",
+                "Neo4j export was interrupted before completion.",
+            )
+        })? {
+            let (columns, values) = super::bolt_results::neo4j_bolt_row(&row).map_err(|_| {
+                CommandError::new(
+                    "result-export-decode",
+                    "A Neo4j value could not be encoded.",
+                )
+            })?;
+            if !sink.row(crate::adapters::result_stream::object_row(
+                columns.into_iter().zip(values),
+            )?)? {
+                break;
+            }
+        }
+        Ok(())
+    };
+    tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), run)
+        .await
+        .map_err(|_| {
+            CommandError::new(
+                "result-export-timeout",
+                "Neo4j export exceeded the configured query timeout.",
+            )
+        })?
+}
+
 pub(super) async fn execute_neo4j_query(
     adapter: &Neo4jAdapter,
     connection: &ResolvedConnectionProfile,

@@ -24,6 +24,7 @@ import { SettingsAboutPanel } from './SettingsAboutPanel'
 import { SettingsExperimentalPanel } from './SettingsExperimentalPanel'
 import { SettingsLogsPanel } from './SettingsLogsPanel'
 import { SettingsSecurityPanel } from './SettingsSecurityPanel'
+import { SettingsQueryResultsPanel } from './SettingsQueryResultsPanel'
 import { SettingsShortcutsPanel } from './SettingsShortcutsPanel'
 import { SETTINGS_SECTIONS, THEMES, type SettingsSection } from './SettingsWorkspace.constants'
 import { SettingsPanel } from './SettingsWorkspace.parts'
@@ -63,6 +64,7 @@ export function SettingsWorkspace({
   onRestoreBackup,
   onSetKeyboardShortcut,
   onSetSafeMode,
+  onSetQueryResultPreferences,
   onSetTheme,
   onSetUpdatePrereleases,
   onOpenApiServer,
@@ -97,6 +99,7 @@ export function SettingsWorkspace({
   onRestoreBackup(backupId: string, passphrase: string, importSecrets: boolean): Promise<boolean>
   onSetKeyboardShortcut(shortcutId: AppShortcutId, shortcut: string): Promise<void>
   onSetSafeMode(enabled: boolean): void
+  onSetQueryResultPreferences?(preferences: import('@datapadplusplus/shared-types').QueryResultPreferences): Promise<boolean>
   onSetTheme(theme: WorkspaceSnapshot['preferences']['theme']): void
   onUpdateBackupSettings(request: {
     enabled: boolean
@@ -155,6 +158,10 @@ export function SettingsWorkspace({
       </aside>
 
       <div className="settings-content">
+        {section === 'query-results' ? <SettingsQueryResultsPanel
+          preferences={preferences.queryResults}
+          onSave={onSetQueryResultPreferences ?? (async () => false)}
+        /> : null}
         {section === 'appearance' ? (
           <SettingsPanel title="Appearance" icon={<ThemeIcon className="panel-inline-icon" />}>
             <div className="theme-grid" role="list">

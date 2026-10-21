@@ -410,6 +410,7 @@ export interface GuardrailEvaluationInput {
 }
 
 export interface AppPreferences {
+  queryResults?: import('./query-results').QueryResultPreferences
   theme: ThemeMode
   telemetry: TelemetryMode
   lockAfterMinutes: number

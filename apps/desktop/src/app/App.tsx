@@ -12,6 +12,7 @@ import type {
   DatastoreQueryEditorState,
   EnvironmentProfile,
   ExecutionRequest,
+  ExportResultFileRequest,
   ExplorerNode,
   LibraryItemKind,
   LibraryNode,
@@ -45,6 +46,7 @@ import { DatastoreQueryEditor } from './components/workbench/datastores/Datastor
 import { EditorTabs } from './components/workbench/EditorTabs'
 import { EditorToolbar } from './components/workbench/EditorToolbar'
 import { QueryBuilderExecutionControls } from './components/workbench/query-builder/QueryBuilderExecutionControls'
+import { QueryBatchSizeControl } from './components/workbench/QueryBatchSizeControl'
 import { FirstInstallGuide } from './components/workbench/FirstInstallGuide'
 import { comparableEnvironment } from './components/workbench/EnvironmentWorkspace.helpers'
 import { useReviewConfirmation } from './components/workbench/use-review-confirmation'
@@ -98,6 +100,7 @@ import {
 } from './state/connection-health'
 import { ConnectionHealthChip } from './components/workbench/ConnectionHealthBadge'
 import { desktopClient } from '../services/runtime/client'
+import { isTauriRuntime } from '../services/runtime/desktop-bridge'
 import {
   createFrontendCorrelationId,
   describeUnknownError,
@@ -303,6 +306,20 @@ function DesktopWorkspace() {
   const [workspaceTransferNotice, setWorkspaceTransferNotice] = useState('')
   const [datastoreTransferRequest, setDatastoreTransferRequest] = useState<OperationPlanRequest>()
   const [datastoreTransferJobs, setDatastoreTransferJobs] = useState<DatastoreTransferJob[]>([])
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    let disposed = false
+    let unsubscribe: (() => void) | undefined
+    void import('@tauri-apps/api/event').then(async ({ listen }) => {
+      const stop = await listen<{ exportId: string; exportedRows: number }>('datapad://result-export-progress', ({ payload: progress }) => {
+        if (!disposed) setDatastoreTransferJobs(jobs => jobs.map(job => job.id === progress.exportId
+          ? { ...job, exportedRows: progress.exportedRows } : job))
+      })
+      if (disposed) stop()
+      else unsubscribe = stop
+    }).catch(() => { /* Export completion remains authoritative if progress is unavailable. */ })
+    return () => { disposed = true; unsubscribe?.() }
+  }, [])
   const [datastoreTransfersOpen, setDatastoreTransfersOpen] = useState(false)
   const datastoreTransferRequestsRef = useRef<Record<string, OperationExecutionRequest>>({})
   const [rendererPreference, setRendererPreference] = useState<{
@@ -312,6 +329,7 @@ function DesktopWorkspace() {
   const [materializedRenderer, setMaterializedRenderer] = useState<{
     error?: string
     payload?: ResultPayload
+    sourcePayloads: ResultPayload[]
     renderer: ResultRenderer
     resultId: string
     tabId: string
@@ -680,6 +698,7 @@ function DesktopWorkspace() {
       activeResult &&
       materializedRenderer?.tabId === activeTabId &&
       materializedRenderer?.resultId === activeResult.id &&
+      materializedRenderer.sourcePayloads === activeResult.payloads &&
       materializedRenderer?.renderer === activeRenderer
         ? materializedRenderer?.payload
         : undefined
@@ -692,6 +711,7 @@ function DesktopWorkspace() {
       !(
         materializedRenderer?.tabId === activeTabId &&
         materializedRenderer?.resultId === activeResult.id &&
+        materializedRenderer.sourcePayloads === activeResult.payloads &&
         materializedRenderer?.renderer === activeRenderer &&
         materializedRenderer?.error
       ),
@@ -701,6 +721,7 @@ function DesktopWorkspace() {
     activeRenderer &&
     materializedRenderer?.tabId === activeTabId &&
     materializedRenderer?.resultId === activeResult.id &&
+    materializedRenderer.sourcePayloads === activeResult.payloads &&
     materializedRenderer?.renderer === activeRenderer
       ? materializedRenderer?.error
       : undefined
@@ -735,6 +756,7 @@ function DesktopWorkspace() {
 
         setMaterializedRenderer({
           ...request,
+          sourcePayloads: activeResult.payloads,
           payload: response.payload,
         })
       })
@@ -745,6 +767,7 @@ function DesktopWorkspace() {
 
         setMaterializedRenderer({
           ...request,
+          sourcePayloads: activeResult.payloads,
           error: error instanceof Error
             ? error.message
             : `The ${request.renderer} view could not be prepared.`,
@@ -2166,6 +2189,35 @@ function DesktopWorkspace() {
     const request = datastoreTransferRequestsRef.current[jobId]
     if (request) startDatastoreTransfer(request)
   }, [startDatastoreTransfer])
+
+  const exportQueryResult = useCallback(async (request: ExportResultFileRequest) => {
+    const tab = snapshot?.tabs.find(item => item.id === request.resultReference?.tabId)
+    const connection = snapshot?.connections.find(item => item.id === tab?.connectionId)
+    if (!request.exportId || !tab || !connection) return actions.exportResultFile(request)
+    const id = request.exportId
+    const job: DatastoreTransferJob = {
+      id, source: 'query-results', action: 'export', connectionId: connection.id,
+      environmentId: tab.environmentId, engine: connection.engine, objectNames: ['query results'],
+      formatId: request.extension, status: 'running', phase: 'transferring',
+      startedAt: new Date().toISOString(), messages: [], warnings: [], exportedRows: 0,
+    }
+    setDatastoreTransferJobs(jobs => [job, ...jobs.filter(item => item.id !== id)].slice(0, 50))
+    try {
+      const response = await actions.exportResultFile(request)
+      setDatastoreTransferJobs(jobs => jobs.map(job => job.id === id ? {
+        ...job, status: response ? (response.saved ? 'completed' : 'canceled') : 'failed',
+        phase: 'finished', completedAt: new Date().toISOString(),
+        exportedRows: response?.exportedRows ?? job.exportedRows, limited: response?.limited,
+        warnings: response?.limited ? ['The configured export limit was reached; this is not the complete result.'] : [],
+        error: response ? undefined : 'Export failed. Review application messages before trying again.',
+      } : job))
+      return response
+    } catch (error) {
+      setDatastoreTransferJobs(jobs => jobs.map(job => job.id === id
+        ? { ...job, status: 'failed', phase: 'finished', error: 'Export failed. No completed file was published.' } : job))
+      throw error
+    }
+  }, [actions, snapshot?.connections, snapshot?.tabs])
 
   const persistBuilderState = (tabId: string, builderState: QueryBuilderState) => {
     if (!snapshot) {
@@ -4148,7 +4200,7 @@ function DesktopWorkspace() {
               <Suspense fallback={<WorkbenchPaneFallback />}>
                 {activeTabIsSettings && activeTab ? (
                   <SettingsWorkspace
-                    key={`settings-workspace-${settingsInitialSectionRequest.revision}`}
+                    key={`settings-workspace-${workspaceSwitcherStatus?.activeWorkspaceId ?? ''}-${settingsInitialSectionRequest.revision}`}
                     diagnostics={diagnostics}
                     health={payload.health}
                     initialSection={settingsInitialSectionRequest.section}
@@ -4186,6 +4238,7 @@ function DesktopWorkspace() {
                     }
                     onSetKeyboardShortcut={actions.setKeyboardShortcut}
                     onSetSafeMode={(enabled) => void actions.setSafeModeEnabled(enabled)}
+                    onSetQueryResultPreferences={actions.setQueryResultPreferences}
                     onSetTheme={(theme) => void actions.setTheme(theme)}
                     onSetUpdatePrereleases={(enabled) => void actions.setAppUpdateSettings(enabled)}
                     onOpenApiServer={() => void actions.createApiServerTab()}
@@ -4456,7 +4509,15 @@ function DesktopWorkspace() {
                 ) : activeConnection && activeEnvironment && activeTab ? (
                   <>
                     <EditorToolbar
-                      queryExecutionControls={activeQueryWindowMode === 'builder' && activeBuilderState ? (
+                      queryExecutionControls={<>
+                        <QueryBatchSizeControl
+                          key={`${activeTab.id}:${activeTab.queryFetchBatchSize}:${snapshot?.preferences.queryResults?.fetchBatchSize}`}
+                          value={activeTab.queryFetchBatchSize}
+                          inheritedValue={snapshot?.preferences.queryResults?.fetchBatchSize ?? 500}
+                          disabled={activeExecutionLocked || Boolean(activeEnvironmentConflict)}
+                          onChange={value => actions.setQueryFetchBatchSize(activeTab.id, value)}
+                        />
+                        {activeQueryWindowMode === 'builder' && activeBuilderState ? (
                         <QueryBuilderExecutionControls
                           key={activeTab.id}
                           connection={activeConnection}
@@ -4466,7 +4527,7 @@ function DesktopWorkspace() {
                           onBuilderStateChange={persistBuilderState}
                           onCount={countQueryBuilderResults}
                         />
-                      ) : undefined}
+                      ) : null}</>}
                       executionStatus={activeExecutionStatus}
                       executionLocked={activeExecutionLocked || Boolean(activeEnvironmentConflict)}
                       capabilities={runtimeCapabilities}
@@ -4787,7 +4848,7 @@ function DesktopWorkspace() {
                     : undefined
                 }
                 onResultRendered={actions.markExecutionDisplayed}
-                onExportResultFile={actions.exportResultFile}
+                onExportResultFile={exportQueryResult}
                 onFetchDocumentNodeChildren={actions.fetchDocumentNodeChildren}
                 onResize={(nextSize) =>
                   void actions.updateUiState(
@@ -4953,6 +5014,10 @@ function DesktopWorkspace() {
             setDatastoreTransferJobs((current) => current.filter((job) => job.id !== jobId))
           }}
           onRetry={retryDatastoreTransfer}
+          onCancel={(id) => { void desktopClient.cancelResultExport(id).catch(() => {
+            setDatastoreTransferJobs(jobs => jobs.map(job => job.id === id
+              ? { ...job, warnings: ['Cancellation could not be requested. Try again.'] } : job))
+          }) }}
         />
       ) : null}
 

@@ -91,6 +91,8 @@ const defaultActions: Actions = {
   clearWorkbenchMessages: () => undefined,
   setTheme: noop,
   setSafeModeEnabled: noop,
+  setQueryResultPreferences: async () => false,
+  setQueryFetchBatchSize: async () => false,
   setKeyboardShortcut: noop,
   setFirstInstallGuideStatus: noop,
   setExplorerFolderOrder: noop,

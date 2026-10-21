@@ -75,7 +75,7 @@ export function parseMongoFindQueryText(queryText: string): MongoFindBuilderStat
     projectionFields: projection.fields,
     sort,
     skip: skip ?? 0,
-    limit: limit ?? 20,
+    limit: limit ?? null,
     lastAppliedQueryText: queryText,
   }
 }

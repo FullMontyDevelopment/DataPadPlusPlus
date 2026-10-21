@@ -64,6 +64,24 @@ describe('exact payload export', () => {
     expect(payloadToText(payload)).toContain('"password": "redis-secret"')
   })
 
+  it('exports native key/value data without application inspection metadata', () => {
+    const payload: ResultPayload = {
+      renderer: 'keyvalue',
+      entries: { metadata: 'real user field', disabledActions: 'also user data', __datapadLazyNode: 'native value' },
+      metadata: { preview: true, runtime: 'datapad' },
+      disabledActions: { rename: 'internal UI guard' },
+    }
+    expect(JSON.parse(serializePayloadForExport(payload, 'json'))).toEqual({
+      entries: payload.entries,
+    })
+  })
+
+  it('rejects ambiguous table column names rather than silently dropping cells', () => {
+    const payload: ResultPayload = { renderer: 'table', columns: ['id', 'id'], rows: [['first', 'second']] }
+    expect(() => serializePayloadForExport(payload, 'json')).toThrow('duplicate column names')
+    expect(() => serializePayloadForExport(payload, 'csv')).toThrow('duplicate column names')
+  })
+
   it('copies the exact displayed text to the clipboard', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {

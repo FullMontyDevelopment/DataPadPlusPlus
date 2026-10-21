@@ -25,6 +25,114 @@ const READ_OPERATIONS: &[&str] = &[
     "ValidateEncryptedFile",
 ];
 
+pub(super) async fn stream_result(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+) -> Result<(), CommandError> {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+    crate::adapters::result_stream::validate_read_request(request)?;
+    let input = parse_litedb_request(selected_query(request))?;
+    let operation = litedb_operation(&input)?;
+    if !matches!(operation.as_str(), "Find" | "FindById") {
+        return Err(CommandError::new(
+            "result-export-unsupported",
+            "Full LiteDB export supports Find and FindById queries.",
+        ));
+    }
+    let sidecar = litedb_sidecar_path(connection).ok_or_else(|| {
+        CommandError::new(
+            "litedb-sidecar-unavailable",
+            "Prepare or reinstall the LiteDB runtime before exporting.",
+        )
+    })?;
+    validate_litedb_sidecar_path(&sidecar)?;
+    let mut command = Command::new(sidecar);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|_| {
+            CommandError::new(
+                "litedb-sidecar-unavailable",
+                "The LiteDB export runtime could not start.",
+            )
+        })?;
+    let body = json!({
+        "engine": "litedb", "protocolVersion": 1, "databasePath": litedb_file_path(connection),
+        "password": connection.password, "operation": operation, "request": input, "readOnly": true,
+        "streamResults": true, "rowLimit": bounded_page_size(request.row_limit),
+    });
+    let mut stdin = child.stdin.take().ok_or_else(|| {
+        CommandError::new(
+            "litedb-sidecar-stdin",
+            "The LiteDB runtime input is unavailable.",
+        )
+    })?;
+    stdin.write_all(&serde_json::to_vec(&body)?).await?;
+    drop(stdin);
+    let stdout = child.stdout.take().ok_or_else(|| {
+        CommandError::new(
+            "litedb-sidecar-stdout",
+            "The LiteDB runtime output is unavailable.",
+        )
+    })?;
+    let mut reader = BufReader::new(stdout);
+    let stall_timeout = Duration::from_millis(litedb_sidecar_timeout_ms(connection));
+    let mut received = 0_u64;
+    loop {
+        let mut line = String::new();
+        // One BSON document can expand up to sixfold in JSON. Never buffer the full result.
+        let read = timeout(
+            stall_timeout,
+            (&mut reader).take(128 * 1024 * 1024).read_line(&mut line),
+        )
+        .await
+        .map_err(|_| {
+            CommandError::new(
+                "litedb-sidecar-timeout",
+                "The LiteDB export stopped responding.",
+            )
+        })??;
+        if read == 0 || !line.ends_with('\n') {
+            return Err(CommandError::new(
+                "litedb-stream-incomplete",
+                "LiteDB did not complete its export stream. No completed file was published.",
+            ));
+        }
+        let frame: Value = serde_json::from_str(&line).map_err(|_| {
+            CommandError::new(
+                "litedb-stream-invalid",
+                "LiteDB returned an invalid export frame.",
+            )
+        })?;
+        match frame.get("kind").and_then(Value::as_str) {
+            Some("row") => {
+                let value = frame.get("value").ok_or_else(|| CommandError::new("litedb-stream-invalid", "LiteDB returned a row without a value."))?;
+                received += 1;
+                if !sink.row(value.clone())? {
+                    child.kill().await?;
+                    return Ok(());
+                }
+            }
+            Some("complete") => {
+                if frame.get("count").and_then(Value::as_u64) != Some(received) {
+                    return Err(CommandError::new("litedb-stream-incomplete", "LiteDB's completion count did not match the received rows. No completed file was published."));
+                }
+                if !child.wait().await?.success() {
+                    return Err(CommandError::new("litedb-stream-incomplete", "The LiteDB export runtime failed before completion."));
+                }
+                return Ok(());
+            }
+            _ => return Err(CommandError::new("litedb-stream-failed", "The LiteDB runtime could not stream this query. Verify the query and update the bundled runtime.")),
+        }
+    }
+}
+
 pub(super) async fn execute_litedb_query(
     adapter: &LiteDbAdapter,
     connection: &ResolvedConnectionProfile,

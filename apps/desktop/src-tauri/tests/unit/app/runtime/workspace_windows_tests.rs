@@ -100,6 +100,7 @@ fn stale_or_foreign_reorder_leaves_the_entire_snapshot_unchanged() {
 
 fn tab(id: &str) -> QueryTabState {
     QueryTabState {
+        query_fetch_batch_size: None,
         id: id.into(),
         tab_kind: Some("query".into()),
         title: format!("Draft {id}"),

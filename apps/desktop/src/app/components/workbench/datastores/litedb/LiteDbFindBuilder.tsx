@@ -80,7 +80,7 @@ function LiteDbFindBuilderContent({ state, tab, collectionOptions, theme, onBuil
         <datalist id={`litedb-collections-${tab.id}`}>{[...new Set(collectionOptions)].map(name => <option key={name} value={name} />)}</datalist>
       </label> : null}
       <label className="query-builder-field query-builder-field--number"><span>Skip</span><input aria-label="Skip" type="number" min={0} step={1} value={Number.isNaN(state.skip) ? '' : state.skip ?? 0} onChange={event => update({ skip: event.target.valueAsNumber })} /></label>
-      {showFetchSize ? <label className="query-builder-field query-builder-field--number"><span>Fetch size</span><input aria-label="Fetch size" type="number" min={1} step={1} value={Number.isNaN(state.limit) ? '' : state.limit ?? 20} onChange={event => update({ limit: event.target.valueAsNumber })} /></label> : null}
+      {showFetchSize ? <label className="query-builder-field query-builder-field--number"><span>Query limit</span><input aria-label="Query limit" type="number" min={1} step={1} disabled={state.limit === null} value={Number.isNaN(state.limit) ? '' : state.limit ?? ''} onChange={event => update({ limit: event.target.valueAsNumber })} /></label> : null}
       {countControl}
     </div>
     <BuilderSection title="Filters" actionLabel="Add Group" onAdd={() => update({ filterGroups: [...state.filterGroups, { id: newId(), label: `Group ${state.filterGroups.length + 1}`, logic: 'and' }] })} secondaryActionLabel="Add Filter" onSecondaryAdd={() => addFilter()} dropHint="Drop a result field to filter" dropZone="filters" dragActive={activeDropZone === 'filters'}>

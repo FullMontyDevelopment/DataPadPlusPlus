@@ -448,14 +448,20 @@ function MongoFindBuilder({
     >
       {showFetchSize ? <div className="mongo-query-builder-controls">
         <label className="query-builder-field query-builder-field--number">
-          <span>Fetch size</span>
+          <span>Query limit</span>
           <input
-            aria-label="Fetch size"
+            aria-label="Query limit"
             min={1}
             type="number"
             value={draft.limit ?? 20}
+            disabled={draft.limit === null}
             onChange={(event) => updateDraft({ limit: positiveInteger(event.target.value, 20) })}
           />
+        </label>
+        <label className="query-builder-field">
+          <input type="checkbox" aria-label="No query limit" checked={draft.limit === null}
+            onChange={event => updateDraft({ limit: event.target.checked ? null : 20 })} />
+          No limit
         </label>
         {countControl}
       </div> : null}

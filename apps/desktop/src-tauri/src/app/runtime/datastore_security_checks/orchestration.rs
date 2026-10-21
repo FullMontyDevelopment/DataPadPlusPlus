@@ -229,6 +229,7 @@ fn prepare_refresh(
 
     Ok(Some(PreparedRefresh {
         runtime: ManagedAppState {
+            result_sessions: Default::default(),
             app: runtime.app.clone(),
             snapshot: runtime.snapshot.clone(),
         },

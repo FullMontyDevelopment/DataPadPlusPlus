@@ -155,6 +155,7 @@ fn validators_reject_invalid_object_view_and_renderer_inputs() {
     assert!(object_error.message.contains("Object view node id"));
 
     let mut page = ResultPageRequest {
+        result_id: None,
         execution_id: None,
         tab_id: "tab-1".into(),
         connection_id: "conn-1".into(),
@@ -179,6 +180,7 @@ fn validators_reject_invalid_object_view_and_renderer_inputs() {
 #[test]
 fn validators_accept_bounded_cosmos_continuation_state_and_execution_ids() {
     let mut page = ResultPageRequest {
+        result_id: None,
         execution_id: Some("execution-cosmos-page-1".into()),
         tab_id: "tab-cosmos".into(),
         connection_id: "conn-cosmos".into(),

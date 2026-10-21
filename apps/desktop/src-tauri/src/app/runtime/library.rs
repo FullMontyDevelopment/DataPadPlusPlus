@@ -960,6 +960,7 @@ impl ManagedAppState {
         }
 
         let tab = QueryTabState {
+            query_fetch_batch_size: None,
             id: generate_id("tab"),
             title: item.name.clone(),
             tab_kind: Some(if item.kind == "test-suite" {

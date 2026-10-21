@@ -10,7 +10,7 @@ export const MAX_REDIS_COUNT = 1_000
 export const MAX_REDIS_PAGE_SIZE = 1_000
 export const MAX_REDIS_SAMPLE_SIZE = 5_000
 export const MAX_LOCAL_SAVE_PATH_LENGTH = 32_768
-export const MAX_RESULT_PAGE_SIZE = 1000
+export const MAX_RESULT_PAGE_SIZE = 5000
 export const MAX_RESULT_PAGE_INDEX = 100_000
 
 const MAX_JSON_BYTES = 64 * 1024

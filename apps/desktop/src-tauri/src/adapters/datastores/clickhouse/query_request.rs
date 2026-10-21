@@ -140,7 +140,7 @@ fn first_clickhouse_token(statement: &str) -> Option<String> {
     clickhouse_sql_tokens(statement).into_iter().next()
 }
 
-fn has_explicit_format_clause(statement: &str) -> bool {
+pub(super) fn has_explicit_format_clause(statement: &str) -> bool {
     let tokens = clickhouse_sql_tokens(statement);
     tokens.iter().any(|token| token == "format")
 }

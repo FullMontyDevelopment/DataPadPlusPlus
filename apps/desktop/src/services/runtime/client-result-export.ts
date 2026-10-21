@@ -1,12 +1,25 @@
 import type {
   ExportResultFileRequest,
   ExportResultFileResponse,
+  ResultExportContext,
 } from '@datapadplusplus/shared-types'
 import { isTauriRuntime, invokeDesktop } from './desktop-bridge'
+import { loadBrowserSnapshot } from './browser-store'
+import { browserResultExportContext } from './browser-result-sessions'
 
 const ALLOWED_RESULT_EXPORT_EXTENSIONS = new Set(['csv', 'json', 'ndjson', 'txt'])
 
 export const clientResultExport = {
+  async cancelResultExport(exportId: string): Promise<boolean> {
+    return invokeDesktop<boolean>('cancel_result_export', { exportId })
+  },
+  async getResultExportContext(tabId: string, resultId: string): Promise<ResultExportContext> {
+    if (!isTauriRuntime()) {
+      const snapshot = loadBrowserSnapshot()
+      return browserResultExportContext(snapshot, tabId, resultId)
+    }
+    return invokeDesktop<ResultExportContext>('result_export_context', { tabId, resultId })
+  },
   async exportResultFile(
     request: ExportResultFileRequest,
   ): Promise<ExportResultFileResponse> {
@@ -16,7 +29,15 @@ export const clientResultExport = {
       return invokeDesktop<ExportResultFileResponse>('export_result_file', { request })
     }
 
+    if (request.resultReference?.scope === 'full-query') {
+      throw new Error('Full-query export requires the desktop application.')
+    }
     downloadBrowserResultFile(request)
+    if (request.preparedResult) return {
+      saved: true,
+      exportedRows: request.preparedResult.rowCount,
+      limited: request.preparedResult.rowCount < request.preparedResult.sourceRowCount,
+    }
     return { saved: true }
   },
 }
@@ -40,7 +61,7 @@ function validateResultExportRequest(request: ExportResultFileRequest) {
       !request.resultReference ||
       !request.resultReference.tabId ||
       !request.resultReference.resultId ||
-      !['json', 'ndjson'].includes(request.resultReference.format)
+      !['json', 'ndjson', 'csv'].includes(request.resultReference.format)
     )
   ) {
     throw new Error('Result export content or result reference is invalid.')

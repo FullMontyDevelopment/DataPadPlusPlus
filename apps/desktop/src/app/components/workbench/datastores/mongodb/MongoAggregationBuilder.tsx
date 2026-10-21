@@ -128,9 +128,9 @@ export function MongoAggregationBuilder({
     <section className="query-builder-panel" aria-label="MongoDB aggregation builder">
       {showFetchSize ? <div className="mongo-query-builder-controls">
         <label className="query-builder-field query-builder-field--number">
-          <span>Fetch size</span>
+          <span>Query limit</span>
           <input
-            aria-label="Fetch size"
+            aria-label="Query limit"
             min={1}
             type="number"
             value={draft.limit ?? 20}

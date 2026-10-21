@@ -32,6 +32,7 @@ fn mcp_saved_execution_requires_separate_explicit_read_and_write_permissions() {
 fn mcp_suite_preflight_covers_all_enabled_phases_and_selected_cases() {
     let step = |id: &str, query: &str| json!({"id":id,"kind":"query","queryText":query});
     let tab = QueryTabState {
+        query_fetch_batch_size: None,
         tab_kind: Some("test-suite".into()),
         test_suite: Some(json!({
             "variables":{"value":"42"},"cases":[{"id":"one","setup":[step("setup","insert into isolated values ({{value}})")],"execute":[step("query","select 1")],"teardown":[step("cleanup","delete from isolated")]},

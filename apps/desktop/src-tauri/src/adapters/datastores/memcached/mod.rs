@@ -18,6 +18,19 @@ pub(crate) struct MemcachedAdapter;
 
 #[async_trait]
 impl DatastoreAdapter for MemcachedAdapter {
+    fn supports_result_stream(&self) -> bool {
+        true
+    }
+
+    async fn stream_read_result(
+        &self,
+        connection: &ResolvedConnectionProfile,
+        request: &ExecutionRequest,
+        sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+    ) -> Result<(), CommandError> {
+        protocol::stream_result(connection, request, sink).await
+    }
+
     fn supports_standard_live_operations(&self) -> bool {
         true
     }

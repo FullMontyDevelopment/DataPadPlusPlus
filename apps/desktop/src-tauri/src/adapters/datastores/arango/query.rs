@@ -8,6 +8,84 @@ use super::query_results::{
 };
 use super::ArangoDbAdapter;
 
+struct ExportCursor {
+    connection: ResolvedConnectionProfile,
+    id: Option<String>,
+}
+impl Drop for ExportCursor {
+    fn drop(&mut self) {
+        if let Some(id) = self.id.take() {
+            let connection = self.connection.clone();
+            tokio::spawn(async move {
+                let encoded =
+                    percent_encoding::utf8_percent_encode(&id, percent_encoding::NON_ALPHANUMERIC);
+                let _ = arango_delete(&connection, &format!("/_api/cursor/{encoded}")).await;
+            });
+        }
+    }
+}
+
+pub(super) async fn stream_result(
+    connection: &ResolvedConnectionProfile,
+    request: &ExecutionRequest,
+    sink: &mut dyn crate::adapters::result_stream::ResultRowSink,
+) -> Result<(), CommandError> {
+    crate::adapters::result_stream::validate_read_request(request)?;
+    let query = arango_query_request(
+        selected_query(request),
+        "full",
+        bounded_page_size(request.row_limit),
+    )?;
+    if !is_read_only_aql(&query.query) {
+        return Err(CommandError::new(
+            "result-export-read-only",
+            "Full ArangoDB export requires a read-only AQL query.",
+        ));
+    }
+    let mut body: Value = serde_json::from_str(&query.cursor_body)?;
+    body["batchSize"] = json!(bounded_page_size(request.row_limit));
+    body["stream"] = json!(true);
+    body["ttl"] = json!(60);
+    let mut response = arango_post_json(connection, "/_api/cursor", &body.to_string()).await?;
+    let mut lease = ExportCursor {
+        connection: connection.clone(),
+        id: None,
+    };
+    loop {
+        let value = parse_arango_json(&response.body)?;
+        validate_arango_response(&value)?;
+        lease.id = value.get("id").and_then(Value::as_str).map(str::to_owned);
+        let rows = value
+            .get("result")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                CommandError::new(
+                    "result-export-response",
+                    "ArangoDB returned an unexpected cursor response.",
+                )
+            })?;
+        for row in rows {
+            if !sink.row(row.clone())? {
+                return Ok(());
+            }
+        }
+        if value.get("hasMore").and_then(Value::as_bool) != Some(true) {
+            return Ok(());
+        }
+        let id = lease
+            .id
+            .as_ref()
+            .filter(|id| id.chars().all(|ch| ch.is_ascii_digit()))
+            .ok_or_else(|| {
+                CommandError::new(
+                    "result-export-continuation",
+                    "ArangoDB did not return a valid cursor.",
+                )
+            })?;
+        response = arango_put_json(connection, &format!("/_api/cursor/{id}"), "{}").await?;
+    }
+}
+
 pub(super) async fn execute_arango_query(
     adapter: &ArangoDbAdapter,
     connection: &ResolvedConnectionProfile,

@@ -179,6 +179,7 @@ fn mcp_library_legacy_migration_does_not_duplicate_or_replace_canonical_items() 
 fn mcp_library_updates_only_clean_linked_tabs_and_preserves_layout() {
     let mut snapshot = snapshot();
     snapshot.tabs.push(QueryTabState {
+        query_fetch_batch_size: None,
         id: "open".into(),
         saved_query_id: Some("q1".into()),
         pinned: Some(true),

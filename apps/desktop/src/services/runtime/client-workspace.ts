@@ -1,4 +1,5 @@
 import type {
+  QueryResultPreferences,
   BootstrapPayload,
   DiagnosticsReport,
   ExportBundle,
@@ -41,6 +42,7 @@ import type {
   FirstInstallGuidePersistedStatus,
   FirstInstallGuideStepId,
 } from '@datapadplusplus/shared-types'
+import { validateQueryResultPreferences } from '@datapadplusplus/shared-types'
 import { createBrowserPreviewHealth } from '../../app/data/workspace-factory'
 import { buildDiagnosticsReport, migrateWorkspaceSnapshot } from '../../app/state/helpers'
 import { redactErrorMessage } from '../../app/state/security-redaction'
@@ -203,6 +205,31 @@ export const clientWorkspace = {
     const next = cloneSnapshot(loadBrowserSnapshot())
     next.preferences.safeModeEnabled = enabled
     next.updatedAt = new Date().toISOString()
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
+  },
+
+  async setQueryResultPreferences(preferences: QueryResultPreferences): Promise<BootstrapPayload> {
+    validateQueryResultPreferences(preferences)
+    if (isTauriRuntime()) {
+      return invokeDesktop<BootstrapPayload>('set_query_result_preferences', { preferences })
+    }
+    const next = cloneSnapshot(loadBrowserSnapshot())
+    if (next.lockState.isLocked) throw new Error('Unlock the workspace before changing query settings.')
+    next.preferences.queryResults = { ...preferences }
+    next.updatedAt = new Date().toISOString()
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
+  },
+
+  async setQueryFetchBatchSize(tabId: string, batchSize?: number): Promise<BootstrapPayload> {
+    if (batchSize !== undefined && (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 5000)) throw new Error('Batch size must be from 1 to 5,000.')
+    if (isTauriRuntime()) return invokeDesktop<BootstrapPayload>('set_query_fetch_batch_size', { tabId, batchSize: batchSize ?? null })
+    const next = cloneSnapshot(loadBrowserSnapshot())
+    if (next.lockState.isLocked) throw new Error('Unlock the workspace before changing batch size.')
+    const tab = next.tabs.find(tab => tab.id === tabId)
+    if (!tab || tab.activeExecution) throw new Error('The query tab is unavailable or busy.')
+    tab.queryFetchBatchSize = batchSize
     saveBrowserSnapshot(next)
     return buildBrowserPayload(next)
   },

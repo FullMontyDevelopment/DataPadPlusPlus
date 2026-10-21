@@ -57,7 +57,7 @@ export function validateLiteDbFindBuilder(state: LiteDbFindBuilderState): QueryB
   }
   for (const key of ['skip', 'limit'] as const) {
     const value = state[key]
-    if (value !== undefined && (!Number.isSafeInteger(value) || value < (key === 'limit' ? 1 : 0) || value > 2_147_483_647)) {
+    if (value != null && (!Number.isSafeInteger(value) || value < (key === 'limit' ? 1 : 0) || value > 2_147_483_647)) {
       errors.push({ field: key, message: `Enter a ${key === 'limit' ? 'positive' : 'non-negative'} whole number up to 2147483647.` })
     }
   }
@@ -105,7 +105,7 @@ export function buildLiteDbFindQueryText(state: LiteDbFindBuilderState, count = 
     ...(Object.keys(parameters).length ? { parameters } : {}),
     ...(!count ? {
       ...(sort ? { orderBy: { expression: liteDbFieldPath(sort.field), direction: sort.direction } } : {}),
-      skip: state.skip ?? 0, limit: state.limit ?? 20,
+      skip: state.skip ?? 0, ...(state.limit === null ? {} : { limit: state.limit ?? 20 }),
     } : {}),
   }, null, 2)
 }
@@ -121,7 +121,7 @@ export function parseLiteDbFindQueryText(text: string, collection = ''): LiteDbF
     if (request.filter !== undefined && (request.filter === null || typeof request.filter !== 'object' || Array.isArray(request.filter) || Object.keys(request.filter).length)) return undefined
     const state = { ...createDefaultLiteDbFindBuilderState(request.collection),
       skip: request.skip === undefined ? 0 : request.skip as number,
-      limit: request.limit === undefined ? 20 : request.limit as number,
+      limit: request.limit === undefined ? null : request.limit as number,
     }
     // A new unscoped tab has an empty collection. Keep it editable, but compilation still blocks Run.
     return validateLiteDbFindBuilder(state).some(error => error.field !== 'Collection') ? undefined : { ...state, lastAppliedQueryText: text }

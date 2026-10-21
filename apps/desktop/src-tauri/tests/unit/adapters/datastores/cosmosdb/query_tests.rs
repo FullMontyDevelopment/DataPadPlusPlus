@@ -43,6 +43,37 @@ fn cosmosdb_execution_input_builds_a_parameterized_query_request() {
 }
 
 #[test]
+fn continuation_retains_executed_cosmos_parameters_and_partition_scope() {
+    use crate::adapters::contract::DatastoreAdapter;
+    let mut executed = execution_request("SELECT * FROM c WHERE c.score > @score");
+    executed.datastore_execution_input = Some(json!({
+        "kind": "cosmos-sql", "database": "catalog", "container": "orders",
+        "sql": executed.query_text, "partitionKey": "north",
+        "parameters": [{"name": "@score", "value": "42", "valueType": "number"}]
+    }));
+    let page = serde_json::from_value(json!({
+        "tabId": "tab", "connectionId": "conn", "environmentId": "env",
+        "language": "sql", "queryText": "SELECT * FROM another_container",
+        "selectedText": "stale selection", "renderer": "document", "cursor": "native-cursor"
+    }))
+    .unwrap();
+    let page = super::super::CosmosDbAdapter
+        .prepare_result_page(&executed, page)
+        .unwrap();
+    let input: serde_json::Value = serde_json::from_str(&page.query_text).unwrap();
+    assert_eq!(input["query"], executed.query_text);
+    assert_eq!(input["database"], "catalog");
+    assert_eq!(input["container"], "orders");
+    assert_eq!(input["partitionKey"], "north");
+    assert_eq!(
+        input["parameters"],
+        json!([{"name": "@score", "value": 42}])
+    );
+    assert!(page.selected_text.is_none());
+    assert_eq!(page.cursor.as_deref(), Some("native-cursor"));
+}
+
+#[test]
 fn cosmosdb_execution_input_rejects_missing_bindings_and_multiple_statements() {
     let mut request = execution_request("SELECT * FROM c WHERE c.id = @id");
     request.datastore_execution_input = Some(json!({
