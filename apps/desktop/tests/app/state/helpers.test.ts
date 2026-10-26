@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { CURRENT_WORKSPACE_SCHEMA_VERSION } from '@datapadplusplus/shared-types'
 import { createSeedSnapshot } from '../../fixtures/seed-workspace'
 import { createBlankBootstrapPayload } from '../../../src/app/data/workspace-factory'
+import { migrateLegacyVariableTokens } from '../../../src/app/state/workspace-variable-migration'
 import {
   evaluateGuardrails,
   migrateWorkspaceSnapshot,
@@ -11,6 +12,29 @@ import {
 } from '../../../src/app/state/helpers'
 
 describe('resolveEnvironment', () => {
+  it('preserves script templates in open, closed and saved work while migrating ordinary queries', () => {
+    const snapshot = structuredClone(createSeedSnapshot())
+    const source = 'const NAME = "catalog"; print(`${NAME}`)'
+    snapshot.tabs[0]!.queryViewMode = 'script'
+    snapshot.tabs[0]!.queryText = source
+    snapshot.tabs[0]!.scriptText = source
+    snapshot.closedTabs = [{ ...snapshot.tabs[0]!, closedAt: '2026-10-23', closeReason: 'user' }]
+    snapshot.libraryNodes = [{ id: 'script', name: 'Script', kind: 'script', queryText: source,
+      tags: [], favorite: false, createdAt: '2026-10-23', updatedAt: '2026-10-23' }]
+    snapshot.savedWork = [{ id: 'saved', name: 'Script', kind: 'script', queryText: source,
+      summary: '', tags: [], updatedAt: '2026-10-23' }]
+    const rawTab = snapshot.tabs.find(tab => tab.id !== snapshot.tabs[0]!.id)!
+    rawTab.queryViewMode = 'raw'
+    rawTab.queryText = 'select * from ${SCHEMA}.items'
+    migrateLegacyVariableTokens(snapshot)
+    expect(snapshot.tabs[0]!.queryText).toBe(source)
+    expect(snapshot.tabs[0]!.scriptText).toBe(source)
+    expect(snapshot.closedTabs[0]!.queryText).toBe(source)
+    expect(snapshot.libraryNodes[0]!.queryText).toBe(source)
+    expect(snapshot.savedWork[0]!.queryText).toBe(source)
+    expect(rawTab.queryText).toBe('select * from {{SCHEMA}}.items')
+  })
+
   it('resolves inherited variables for prod', () => {
     const snapshot = structuredClone(createSeedSnapshot())
     const resolved = resolveEnvironment(snapshot.environments, 'env-prod')
@@ -594,7 +618,7 @@ describe('migrateWorkspaceSnapshot', () => {
           ...snapshot.tabs[0]!,
           id: 'tab-variable-migration',
           queryText: 'select * from ${DB_SCHEMA}.accounts where token = ${API_TOKEN}',
-          scriptText: 'db.${COLLECTION}.find({})',
+          scriptText: 'const COLLECTION = "products"; print(`${COLLECTION}`)',
         },
       ],
       closedTabs: [
@@ -625,7 +649,7 @@ describe('migrateWorkspaceSnapshot', () => {
 
     expect(migrated.tabs[0]?.queryText).toContain('{{DB_SCHEMA}}')
     expect(migrated.tabs[0]?.queryText).toContain('{{API_TOKEN}}')
-    expect(migrated.tabs[0]?.scriptText).toBe('db.{{COLLECTION}}.find({})')
+    expect(migrated.tabs[0]?.scriptText).toBe('const COLLECTION = "products"; print(`${COLLECTION}`)')
     expect(migrated.closedTabs[0]?.queryText).toBe('select * from {{DB_SCHEMA}}.accounts')
     expect(migrated.libraryNodes[0]?.queryText).toBe('select {{VALUE}};')
     expect(JSON.stringify(migrated.environments[0])).not.toContain('plaintext-token')

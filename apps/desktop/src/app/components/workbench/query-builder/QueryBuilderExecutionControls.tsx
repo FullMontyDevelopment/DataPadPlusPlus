@@ -1,5 +1,6 @@
 import type { ConnectionProfile, QueryBuilderState, QueryTabState } from '@datapadplusplus/shared-types'
-import { useState } from 'react'
+import { QueryLimitInput } from './QueryLimitInput'
+import { queryLimitValue } from '../../../../../../../packages/query-compiler/src/query-limit-settings'
 import {
   builderStateWithCompiledQueryText,
   compileQueryBuilderState,
@@ -26,16 +27,10 @@ export function QueryBuilderExecutionControls({
   onBuilderStateChange,
   onCount,
 }: QueryBuilderExecutionControlsProps) {
-  const locked = executionLocked || Boolean(tab.activeExecution) || tab.status === 'queued'
+  const locked = executionLocked || Boolean(tab.activeExecution) || tab.status === 'queued' || tab.status === 'running'
   const invalid = !compileQueryBuilderState(builderState, connection, tab).ok
-  const size = builderState.kind === 'redis-key-browser'
-    ? undefined
-    : builderState.kind === 'search-dsl'
-      ? builderState.size ?? 20
-      : builderState.limit ?? (builderState.kind === 'cosmos-sql' ? 50 : 20)
+  const size = queryLimitValue(builderState)
   const minimum = builderState.kind === 'search-dsl' ? 0 : 1
-  const supportsUnlimited = !['redis-key-browser', 'search-dsl', 'dynamodb-key-condition'].includes(builderState.kind)
-  const unlimited = 'limit' in builderState && builderState.limit === null
   const sizeHelp = builderState.kind === 'dynamodb-key-condition'
     ? 'Maximum items evaluated per request, before DynamoDB filters are applied.'
     : builderState.kind === 'search-dsl'
@@ -57,21 +52,16 @@ export function QueryBuilderExecutionControls({
   return (
     <div className="toolbar-group toolbar-group--query-results" role="group" aria-label="Query result controls">
       {size !== undefined ? (
-        <FetchSizeInput
+        <QueryLimitInput
           key={`${tab.id}:${builderState.kind}`}
           value={size}
           minimum={minimum}
-          disabled={locked || unlimited || !onBuilderStateChange}
+          disabled={locked || !onBuilderStateChange}
           title={sizeHelp}
           label={builderState.kind === 'dynamodb-key-condition' ? 'Items evaluated' : builderState.kind === 'search-dsl' ? 'Hit limit' : 'Query limit'}
           onChange={updateSize}
         />
       ) : null}
-      {supportsUnlimited ? <label className="toolbar-query-unlimited" title="Do not add a total limit to the authored query. Results still load one batch at a time.">
-        <input type="checkbox" aria-label="No query limit" checked={unlimited}
-          disabled={locked || !onBuilderStateChange} onChange={event => updateSize(event.target.checked ? null : 20)} />
-        <span>No limit</span>
-      </label> : null}
       <QueryBuilderCountButton
         activeExecution={locked || invalid}
         builderState={builderState}
@@ -80,47 +70,5 @@ export function QueryBuilderExecutionControls({
         appearance="toolbar"
       />
     </div>
-  )
-}
-
-function FetchSizeInput({ value, minimum, disabled, title, label, onChange }: {
-  value: number
-  minimum: number
-  disabled: boolean
-  title: string
-  label: string
-  onChange(value: number): void
-}) {
-  const [draft, setDraft] = useState({ source: value, text: String(value) })
-  const text = draft.source === value ? draft.text : String(value)
-  const valid = /^\d+$/.test(text) && Number.isSafeInteger(Number(text)) && Number(text) >= minimum
-
-  return (
-    <label className="toolbar-fetch-size" title={title}>
-      <span>{label}</span>
-      <input
-        aria-label={label}
-        aria-invalid={text !== '' && !valid}
-        type="number"
-        min={minimum}
-        step={1}
-        disabled={disabled}
-        value={text}
-        onChange={(event) => {
-          const text = event.target.value
-          setDraft({ source: value, text })
-          const next = Number(text)
-          if (/^\d+$/.test(text) && Number.isSafeInteger(next) && next >= minimum) onChange(next)
-        }}
-        onBlur={() => setDraft({ source: value, text: String(value) })}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape' || (event.key === 'Enter' && !event.ctrlKey && !event.metaKey)) {
-            event.preventDefault()
-            event.stopPropagation()
-            event.currentTarget.blur()
-          }
-        }}
-      />
-    </label>
   )
 }

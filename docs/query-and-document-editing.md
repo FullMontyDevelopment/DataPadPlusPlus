@@ -54,6 +54,24 @@ The builder emits the adapter's JSON request format with a native parameterized 
 }
 ```
 
+## MongoDB Scripts
+
+Script mode runs a sandboxed, mongosh-style JavaScript API, not the complete mongosh shell. IntelliSense reports JavaScript syntax errors, undefined functions, and unsupported methods on known database/collection handles. It cannot prove that a command exists on your server or that your account can execute it. Use the scripting guide for supported helpers; server commands such as `collStats` and `compact` can be submitted through `db.runCommand` when authorized.
+
+JavaScript template literals such as `` `${databaseName}: ${bytesSaved}` `` remain JavaScript. Environment values use explicit `{{UPPER_CASE_NAME}}` placeholders **inside a quoted string**; for example, `db.getSiblingDB('{{DATABASE_NAME}}')`. Values are escaped as string data, not executable code. Unresolved placeholders identify the key and script line. Comments are not interpolated. Existing script text is not automatically rewritten to convert `${...}` tokens.
+
+A risky-environment run has one confirmation dialog bound to that exact request and target. Editing the script or changing its target requires a new review. Displaying successful results never approves or executes the script again. Long runs show the current operation beside Run/Cancel, with bounded live console output in Messages.
+
+Configure **Settings → Queries & Results → Scripts** before starting:
+
+- **Connection default** retains the existing per-operation connection timeout.
+- **Custom duration** sets a total script deadline in minutes, including database waiting time. For example, 360 minutes allows six hours.
+- **No timeout** removes DataPad++'s script/operation deadline, not the server's own restrictions or connection-establishment timeouts.
+
+Changes apply to future runs. Cancellation remains available and the execution lock stays active while the script stops and transaction cleanup is attempted. Earlier writes may already have completed, and an in-flight server command may still be running after cancellation or timeout. Cleanup failures are reported; never assume rollback or automatically retry a maintenance command.
+
+The sandbox still enforces 1,000 operations, 64 MiB of JavaScript memory, a 1 MiB stack, bounded result batches, 128 KiB of console output, and a ten-second continuous JavaScript processing budget between database operations. Database waiting does not consume that processing budget. Collection-name discovery is independent of the result batch size and fails explicitly above 100,000 names. Browser preview does not execute live scripts.
+
 ## SQL Scope
 
 Supported SQL tabs store database/catalog and schema selection in tab scope. The runtime applies supported session/database routing, and generated builder SQL contains only the query. Engines without a safe session-level mechanism keep qualification or connection-level database behavior.

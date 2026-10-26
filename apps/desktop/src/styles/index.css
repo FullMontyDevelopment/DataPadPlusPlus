@@ -4218,7 +4218,7 @@ button:disabled:hover {
 }
 
 .toolbar-fetch-size input {
-  width: 72px;
+  width: 86px;
   min-height: 26px;
   padding: 2px 5px;
   border: 1px solid var(--border-strong);
@@ -4236,6 +4236,17 @@ button:disabled:hover {
 .toolbar-fetch-size input[aria-invalid="true"] {
   border-color: var(--danger);
 }
+
+.settings-selected-query {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  min-width: 0;
+}
+
+.settings-selected-query summary { cursor: pointer; font-weight: 600; }
+.settings-query-selector { display: grid; gap: 6px; min-width: 0; }
+.settings-query-selector select { width: 100%; min-width: 0; }
 
 .toolbar-query-unlimited {
   display: inline-flex;
@@ -19107,3 +19118,5 @@ td {
   border: 1px solid var(--warning, #dba33e);
   background: color-mix(in srgb, var(--warning, #dba33e) 12%, transparent);
 }
+/* Keep script progress beside Run/Cancel without widening a narrow editor. */
+.script-execution-progress { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }

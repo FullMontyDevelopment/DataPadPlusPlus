@@ -26,6 +26,8 @@ interface MongoCursor<T = MongoDocument> extends Iterable<T> {
   explain(verbosity?: 'queryPlanner' | 'executionStats' | 'allPlansExecution'): MongoDocument;
 }
 interface MongoCollection<T = MongoDocument> {
+  getName(): string;
+  getFullName(): string;
   find(filter?: MongoFilter<T>, options?: MongoOptions): MongoCursor<T>;
   findOne(filter?: MongoFilter<T>, options?: MongoOptions): T | null;
   aggregate<TOut = MongoDocument>(pipeline?: MongoDocument[], options?: MongoOptions): MongoCursor<TOut>;
@@ -59,19 +61,19 @@ interface MongoSession {
   withTransaction<T>(callback: (session: MongoSession) => T, options?: MongoOptions): T;
 }
 interface MongoDatabase {
-  readonly [collection: string]: MongoCollection | unknown;
   getName(): string;
   getCollection<T = MongoDocument>(name: string): MongoCollection<T>;
-  getSiblingDB(name: string): MongoDatabase;
+  getSiblingDB(name: string): MongoDatabaseHandle;
   getCollectionNames(options?: MongoOptions): string[];
   runCommand(command: MongoDocument, options?: MongoOptions): MongoDocument;
   adminCommand(command: MongoDocument, options?: MongoOptions): MongoDocument;
   createCollection(name: string, options?: MongoOptions): MongoDocument;
   dropDatabase(options?: MongoOptions): MongoDocument;
   startSession(options?: MongoOptions): MongoSession;
-  getMongo(): MongoDatabase;
+  getMongo(): MongoDatabaseHandle;
 }
-declare const db: MongoDatabase;
+type MongoDatabaseHandle = MongoDatabase & Record<string, MongoCollection>;
+declare const db: MongoDatabaseHandle;
 declare function ObjectId(value?: string): { readonly $oid: string };
 declare function UUID(value: string): { readonly $uuid: string };
 declare function Binary(base64: string, subType?: string): { readonly $binary: { base64: string; subType: string } };

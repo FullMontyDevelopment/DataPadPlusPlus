@@ -1,3 +1,4 @@
+import { QueryLimitInput } from './QueryLimitInput'
 import type {
   CosmosSqlBuilderState,
   CosmosSqlBuilderValueType,
@@ -203,16 +204,7 @@ export function CosmosSqlBuilder({
             onChange={(event) => updateDraft({ offset: wholeNumber(event.target.value, 0, 0) })}
           />
         </label>
-        {showFetchSize ? <label className="query-builder-field query-builder-field--number">
-          <span>Limit</span>
-          <input
-            aria-label="Limit"
-            type="number"
-            min={1}
-            value={draft.limit ?? 50}
-            onChange={(event) => updateDraft({ limit: wholeNumber(event.target.value, 50, 1) })}
-          />
-        </label> : null}
+        {showFetchSize ? <QueryLimitInput label="Limit" value={draft.limit === null ? null : draft.limit ?? 50} className="query-builder-field query-builder-field--number" onChange={limit => updateDraft({ limit })} /> : null}
       </div>
 
       <div className="cosmos-builder-routing" aria-label="Cosmos DB partition routing">

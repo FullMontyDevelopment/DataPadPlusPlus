@@ -22,6 +22,7 @@ import {
   type FieldDragPayload,
 } from '../results/field-drag'
 import { CqlPartitionBuilder } from './CqlPartitionBuilder'
+import { QueryLimitInput } from './QueryLimitInput'
 import { isCqlPartitionBuilderState } from './cql-partition'
 import { workbenchSliceForEngine } from '../datastores/registry'
 import { CosmosSqlBuilder } from './CosmosSqlBuilder'
@@ -447,22 +448,8 @@ function MongoFindBuilder({
       onDropCapture={handleBuilderDrop}
     >
       {showFetchSize ? <div className="mongo-query-builder-controls">
-        <label className="query-builder-field query-builder-field--number">
-          <span>Query limit</span>
-          <input
-            aria-label="Query limit"
-            min={1}
-            type="number"
-            value={draft.limit ?? 20}
-            disabled={draft.limit === null}
-            onChange={(event) => updateDraft({ limit: positiveInteger(event.target.value, 20) })}
-          />
-        </label>
-        <label className="query-builder-field">
-          <input type="checkbox" aria-label="No query limit" checked={draft.limit === null}
-            onChange={event => updateDraft({ limit: event.target.checked ? null : 20 })} />
-          No limit
-        </label>
+        <QueryLimitInput value={draft.limit ?? null}
+          className="query-builder-field query-builder-field--number" onChange={limit => updateDraft({ limit })} />
         {countControl}
       </div> : null}
 
@@ -488,9 +475,4 @@ function MongoFindBuilder({
       />
     </section>
   )
-}
-
-function positiveInteger(value: string, fallback: number) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback
 }

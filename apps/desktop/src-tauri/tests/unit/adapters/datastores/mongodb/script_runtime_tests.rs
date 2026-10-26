@@ -3,6 +3,30 @@ use serde_json::json;
 use std::sync::{Arc, Mutex};
 
 #[test]
+fn configured_deadline_stops_processing_and_never_starts_an_expired_script() {
+    for source in ["while (true) {}", "(async () => { while (true) {} })()"] {
+        let error = execute_javascript_with_deadline(
+            source,
+            "catalog",
+            CancellationToken::new(),
+            Some(Instant::now() + Duration::from_millis(20)),
+            |_| unreachable!(),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "mongodb-script-timeout");
+    }
+    let error = execute_javascript_with_deadline(
+        "db.runCommand({ ping: 1 })",
+        "catalog",
+        CancellationToken::new(),
+        Some(Instant::now()),
+        |_| panic!("expired script must not reach the datastore"),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "mongodb-script-timeout");
+}
+
+#[test]
 fn runs_javascript_language_features_and_bson_constructors() {
     let result = execute_javascript(
         "const values = [1, 2, 3]; function total(items) { let n = 0; for (const item of items) n += item; return n; } ({ total: total(values), id: ObjectId('690000000000000000000001'), count: NumberLong('42') })",

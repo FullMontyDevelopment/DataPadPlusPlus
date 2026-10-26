@@ -23,9 +23,11 @@ Open **Settings → Queries & Results**.
 | Maximum loaded rows | No limit | Optional cumulative results-view cap. Loading remains manual. |
 | Maximum exported rows | No limit | Optional cumulative export cap, disclosed in the export dialog. |
 
-The toolbar **Batch size** overrides the workspace default for that tab. **Default** restores inheritance. Changes affect new executions, not an existing result's continuation.
+The query toolbar keeps only its compact **Query limit** input beside Count. Configure batching and cumulative caps in **Settings → Queries & Results → Fetching and results**. Expand **Selected query** to choose an open query, check its connection and environment, and override its batch size or restore workspace inheritance. Use **Apply to selected query** separately from saving workspace defaults. Changes affect new executions, not an existing result's continuation. Running queries cannot be changed; move detached queries into the Settings window before changing these advanced options.
 
-Builder **Query limit** is a constraint in the actual query. **No limit**, where available, omits that constraint; it does not mean zero or an arbitrarily large number. SQL `LIMIT`/`TOP` and equivalent authored constraints remain effective during full export. DynamoDB's **Items evaluated** and Search's **Hit limit** keep their native semantics, including zero-hit aggregation queries.
+Under **New builder queries**, choose **Datastore default** (the initial setting), **Limited**, or **No limit**. This affects only fresh visual builders, never existing, reopened, duplicated, restored, or imported queries, or conversions of authored text. No limit applies only to builders that support it. Redis scan settings are unchanged.
+
+Builder **Query limit** is a constraint in the actual query. An unlimited builder shows **No limit** inside the input; type a valid number to add a limit. Clearing the input does not remove an existing limit. To remove it deliberately, use **Selected query → Remove builder query limit** in Settings. This removes the builder's outer limit, not authored aggregation stages, raw SQL, or scripts. SQL `LIMIT`/`TOP` and equivalent authored constraints remain effective during full export. DynamoDB's **Items evaluated** and Search's **Hit limit** keep their native semantics, including zero-hit aggregation queries.
 
 Unlimited totals can consume substantial disk space or, when manually loading many pages, memory. Connection timeouts, server limits, Explorer pages, API/MCP limits, and history retention are separate.
 

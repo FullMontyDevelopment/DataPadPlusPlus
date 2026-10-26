@@ -243,9 +243,20 @@ impl ManagedAppState {
         if self.snapshot.tabs.is_empty() {
             if let Some(connection) = self.snapshot.connections.first().cloned() {
                 let title = next_query_tab_title(&self.snapshot, &connection);
-                self.snapshot
-                    .tabs
-                    .push(build_query_tab(&connection, false, title));
+                let mut tab = build_query_tab(&connection, false, title);
+                if let Err(error) = super::query_result_settings::initialize_query_limit(
+                    &mut tab,
+                    &connection,
+                    &self
+                        .snapshot
+                        .preferences
+                        .query_results
+                        .new_builder_query_limit,
+                ) {
+                    self.snapshot = previous_snapshot;
+                    return Err(error);
+                }
+                self.snapshot.tabs.push(tab);
             }
         }
 

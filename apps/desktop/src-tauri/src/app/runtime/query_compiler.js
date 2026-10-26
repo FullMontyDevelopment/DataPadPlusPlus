@@ -24,7 +24,9 @@ var DataPadQueryCompiler = (() => {
   __export(index_exports, {
     compileQueryBuilderState: () => compileQueryBuilderState,
     compileSavedBuilder: () => compileSavedBuilder,
+    initializeQueryLimit: () => initializeQueryLimit,
     prepareSavedExecution: () => prepareSavedExecution,
+    removeQueryLimit: () => removeQueryLimit,
     validateSuiteShape: () => validateSuiteShape
   });
 
@@ -158,6 +160,23 @@ var DataPadQueryCompiler = (() => {
     in: "IN",
     contains: "CONTAINS"
   };
+  function createDefaultCqlPartitionBuilderState(table = "", keyspace = "", limit = 20) {
+    const state = {
+      kind: "cql-partition",
+      keyspace,
+      table,
+      projectionFields: [],
+      partitionKeys: [newCqlCondition()],
+      clusteringKeys: [],
+      filters: [],
+      allowFiltering: false,
+      limit
+    };
+    return {
+      ...state,
+      lastAppliedQueryText: buildCqlPartitionQueryText(state)
+    };
+  }
   function isCqlPartitionBuilderState(state) {
     return state?.kind === "cql-partition";
   }
@@ -183,6 +202,52 @@ var DataPadQueryCompiler = (() => {
       lines.push("allow filtering");
     }
     return `${lines.join("\n")};`;
+  }
+  function parseCqlPartitionQueryText(queryText) {
+    const normalized = queryText.replace(/--.*$/gm, " ").replace(/;+\s*$/g, "").trim();
+    const limit = /\blimit\s+(\d+)\b/i.exec(normalized)?.[1];
+    const allowFiltering = /\ballow\s+filtering\b/i.test(normalized);
+    const statement = normalized.replace(/\ballow\s+filtering\b/ig, " ").replace(/\blimit\s+\d+\b/ig, " ").replace(/\s+/g, " ").trim();
+    const match = /^select\s+(.+?)\s+from\s+(.+?)(?:\s+where\s+(.+))?$/i.exec(statement);
+    if (!match) {
+      return void 0;
+    }
+    const target = parseCqlTarget(match[2] ?? "");
+    const conditions = parseWhereConditions(match[3] ?? "");
+    if (!conditions) {
+      return void 0;
+    }
+    const state = {
+      kind: "cql-partition",
+      keyspace: target.keyspace,
+      table: target.table,
+      projectionFields: parseProjectionFields(match[1] ?? "*"),
+      partitionKeys: conditions.slice(0, 1),
+      clusteringKeys: [],
+      filters: conditions.slice(1),
+      allowFiltering,
+      limit: limit ? Number(limit) : null
+    };
+    if (state.partitionKeys.length === 0) {
+      state.partitionKeys = [newCqlCondition()];
+    }
+    return {
+      ...state,
+      lastAppliedQueryText: buildCqlPartitionQueryText(state)
+    };
+  }
+  function cqlBuilderRowId(prefix) {
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+  function newCqlCondition(field = "", operator = "eq") {
+    return {
+      id: cqlBuilderRowId("cql-condition"),
+      enabled: true,
+      field,
+      operator,
+      value: "",
+      valueType: "string"
+    };
   }
   function cqlCondition(row) {
     const field = row.field.trim();
@@ -217,6 +282,225 @@ var DataPadQueryCompiler = (() => {
   function quoteCqlIdentifier(identifier) {
     return /^[a-z][a-z0-9_]*$/.test(identifier) ? identifier : `"${identifier.replaceAll('"', '""')}"`;
   }
+  function parseCqlTarget(target) {
+    const parts = target.split(".").map((part) => unquoteCqlIdentifier(part.trim())).filter(Boolean);
+    return {
+      keyspace: parts.length > 1 ? parts.at(-2) : void 0,
+      table: parts.at(-1) ?? ""
+    };
+  }
+  function parseProjectionFields(selectList) {
+    if (selectList.trim() === "*") {
+      return [];
+    }
+    return selectList.split(",").map((field) => unquoteCqlIdentifier(field.trim())).filter(Boolean).map((field) => ({ id: cqlBuilderRowId("cql-projection"), field }));
+  }
+  function parseWhereConditions(whereClause) {
+    if (!whereClause.trim()) {
+      return [];
+    }
+    if (containsTopLevelCqlKeyword(whereClause, "or")) {
+      return void 0;
+    }
+    const parts = splitCqlConjunctions(whereClause);
+    if (!parts) {
+      return void 0;
+    }
+    const conditions = [];
+    for (const part of parts) {
+      const condition = parseCondition(part);
+      if (!condition) {
+        return void 0;
+      }
+      conditions.push(condition);
+    }
+    return conditions;
+  }
+  function containsTopLevelCqlKeyword(value, keyword) {
+    let depth = 0;
+    let quoted = false;
+    for (let index = 0; index < value.length; index += 1) {
+      const character = value[index];
+      if (character === "'") {
+        if (quoted && value[index + 1] === "'") {
+          index += 1;
+        } else {
+          quoted = !quoted;
+        }
+        continue;
+      }
+      if (quoted) {
+        continue;
+      }
+      if (character === "(") {
+        depth += 1;
+        continue;
+      }
+      if (character === ")") {
+        depth -= 1;
+        continue;
+      }
+      if (depth === 0 && value.slice(index, index + keyword.length).toLowerCase() === keyword && /\s/.test(value[index - 1] ?? "") && /\s/.test(value[index + keyword.length] ?? "")) {
+        return true;
+      }
+    }
+    return false;
+  }
+  function splitCqlConjunctions(whereClause) {
+    const parts = [];
+    let start = 0;
+    let depth = 0;
+    let quoted = false;
+    for (let index = 0; index < whereClause.length; index += 1) {
+      const character = whereClause[index];
+      if (character === "'") {
+        if (quoted && whereClause[index + 1] === "'") {
+          index += 1;
+        } else {
+          quoted = !quoted;
+        }
+        continue;
+      }
+      if (quoted) {
+        continue;
+      }
+      if (character === "(") {
+        depth += 1;
+        continue;
+      }
+      if (character === ")") {
+        depth -= 1;
+        if (depth < 0) {
+          return void 0;
+        }
+        continue;
+      }
+      if (depth === 0 && whereClause.slice(index, index + 3).toLowerCase() === "and" && /\s/.test(whereClause[index - 1] ?? "") && /\s/.test(whereClause[index + 3] ?? "")) {
+        const part = whereClause.slice(start, index).trim();
+        if (!part) {
+          return void 0;
+        }
+        parts.push(part);
+        index += 2;
+        start = index + 1;
+      }
+    }
+    const finalPart = whereClause.slice(start).trim();
+    if (quoted || depth !== 0 || !finalPart) {
+      return void 0;
+    }
+    parts.push(finalPart);
+    return parts;
+  }
+  function parseCondition(condition) {
+    const match = /^("[^"]+"|[\w.]+)\s*(=|>=|<=|>|<|in|contains)\s*(.+)$/i.exec(condition);
+    if (!match?.[1] || !match[2]) {
+      return void 0;
+    }
+    const operator = operatorFromToken(match[2]);
+    if (operator === "in") {
+      const values = parseCqlInValues(match[3] ?? "");
+      if (!values) {
+        return void 0;
+      }
+      const valueTypes = values.map(inferValueType);
+      if (new Set(valueTypes).size !== 1) {
+        return void 0;
+      }
+      const cleanedValues = values.map(cleanCqlValue);
+      if (cleanedValues.some((value) => value.includes(","))) {
+        return void 0;
+      }
+      return {
+        ...newCqlCondition(unquoteCqlIdentifier(match[1]), operator),
+        value: cleanedValues.join(", "),
+        valueType: valueTypes[0] ?? "string"
+      };
+    }
+    return {
+      ...newCqlCondition(unquoteCqlIdentifier(match[1]), operator),
+      value: cleanCqlValue(match[3] ?? ""),
+      valueType: inferValueType(match[3] ?? "")
+    };
+  }
+  function parseCqlInValues(value) {
+    const trimmed = value.trim();
+    if (!trimmed.startsWith("(") || !trimmed.endsWith(")")) {
+      return void 0;
+    }
+    const content = trimmed.slice(1, -1);
+    const values = [];
+    let start = 0;
+    let quoted = false;
+    for (let index = 0; index < content.length; index += 1) {
+      if (content[index] === "'") {
+        if (quoted && content[index + 1] === "'") {
+          index += 1;
+        } else {
+          quoted = !quoted;
+        }
+        continue;
+      }
+      if (!quoted && content[index] === ",") {
+        const item = content.slice(start, index).trim();
+        if (!item) {
+          return void 0;
+        }
+        values.push(item);
+        start = index + 1;
+      }
+    }
+    if (quoted) {
+      return void 0;
+    }
+    const last = content.slice(start).trim();
+    if (!last) {
+      return void 0;
+    }
+    values.push(last);
+    return values;
+  }
+  function operatorFromToken(token) {
+    switch (token.toLowerCase()) {
+      case ">":
+        return "gt";
+      case ">=":
+        return "gte";
+      case "<":
+        return "lt";
+      case "<=":
+        return "lte";
+      case "in":
+        return "in";
+      case "contains":
+        return "contains";
+      default:
+        return "eq";
+    }
+  }
+  function cleanCqlValue(value) {
+    const trimmed = value.trim().replace(/^\((.*)\)$/s, "$1");
+    if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+      return trimmed.slice(1, -1).replaceAll("''", "'");
+    }
+    return trimmed;
+  }
+  function inferValueType(value) {
+    const cleaned = cleanCqlValue(value);
+    if (cleaned.toLowerCase() === "null") {
+      return "null";
+    }
+    if (cleaned.toLowerCase() === "true" || cleaned.toLowerCase() === "false") {
+      return "boolean";
+    }
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cleaned)) {
+      return "uuid";
+    }
+    return /^-?\d+(?:\.\d+)?$/.test(cleaned) ? "number" : "string";
+  }
+  function unquoteCqlIdentifier(identifier) {
+    return identifier.startsWith('"') && identifier.endsWith('"') ? identifier.slice(1, -1).replaceAll('""', '"') : identifier;
+  }
 
   // packages/query-compiler/src/cosmos-sql.ts
   var BINARY_OPERATORS = {
@@ -227,6 +511,27 @@ var DataPadQueryCompiler = (() => {
     lt: "<",
     lte: "<="
   };
+  function createDefaultCosmosSqlBuilderState(container = "", database, limit = 50) {
+    const state = {
+      kind: "cosmos-sql",
+      database: database?.trim() || void 0,
+      container,
+      projectionFields: [],
+      filters: [],
+      filterLogic: "and",
+      sort: [],
+      offset: 0,
+      limit,
+      partitionKeyEnabled: false,
+      partitionKeyValue: "",
+      partitionKeyValueType: "string",
+      enableCrossPartitionQueries: true
+    };
+    return {
+      ...state,
+      lastAppliedQueryText: buildCosmosSqlQueryText(state)
+    };
+  }
   function isCosmosSqlBuilderState(state) {
     return state?.kind === "cosmos-sql";
   }
@@ -259,6 +564,55 @@ var DataPadQueryCompiler = (() => {
       request.populateIndexMetrics = true;
     }
     return request;
+  }
+  function parseCosmosSqlQueryText(queryText, context = {}) {
+    const trimmed = queryText.trim();
+    if (!trimmed) {
+      return createDefaultCosmosSqlBuilderState(context.container, context.database);
+    }
+    let request = {};
+    let sql = trimmed;
+    if (trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return void 0;
+        }
+        request = parsed;
+        const operation = stringValue(request.operation)?.toLowerCase();
+        if (operation && operation !== "querydocuments" && operation !== "query") {
+          return void 0;
+        }
+        sql = stringValue(request.query) ?? "";
+      } catch {
+        return void 0;
+      }
+    }
+    const shape = simpleCosmosSqlShape(sql);
+    if (!shape) {
+      return void 0;
+    }
+    const database = stringValue(request.database) ?? context.database;
+    const container = stringValue(request.container) ?? stringValue(request.containerName) ?? stringValue(request.collection) ?? context.container ?? "";
+    const partitionKey = request.partitionKey ?? request.partition_key;
+    const partitionValue = cosmosSqlDisplayValue(partitionKey);
+    const state = {
+      kind: "cosmos-sql",
+      database: database?.trim() || void 0,
+      container: container.trim(),
+      projectionFields: [],
+      filters: [],
+      filterLogic: "and",
+      sort: [],
+      offset: shape.offset,
+      limit: shape.limit,
+      partitionKeyEnabled: partitionKey !== void 0,
+      partitionKeyValue: partitionValue.value,
+      partitionKeyValueType: partitionValue.type,
+      enableCrossPartitionQueries: typeof request.enableCrossPartitionQueries === "boolean" ? request.enableCrossPartitionQueries : true,
+      lastAppliedQueryText: queryText
+    };
+    return state;
   }
   function buildCosmosSqlStatement(state, parameters, options) {
     const count = options.count ?? false;
@@ -559,6 +913,21 @@ var DataPadQueryCompiler = (() => {
   function cosmosSqlValue(value, valueType) {
     return parseQueryBuilderValue(value, valueType, { allowEnvironmentToken: true });
   }
+  function simpleCosmosSqlShape(sql) {
+    if (/\bwhere\b|\border\s+by\b/i.test(sql)) {
+      return void 0;
+    }
+    const top = /^\s*select\s+top\s+(\d+)\s+\*\s+from\s+c\s*;?\s*$/i.exec(sql);
+    if (top?.[1]) {
+      return { offset: 0, limit: Number(top[1]) };
+    }
+    const paged = /^\s*select\s+\*\s+from\s+c(?:\s+offset\s+(\d+)\s+limit\s+(\d+))?\s*;?\s*$/i.exec(sql);
+    if (!paged) return void 0;
+    return {
+      offset: Number(paged[1] ?? 0),
+      limit: paged[2] === void 0 ? null : Number(paged[2])
+    };
+  }
   function cosmosSqlDisplayValue(value) {
     if (value === void 0) return { value: "", type: "string" };
     if (value === null) return { value: "", type: "null" };
@@ -622,6 +991,53 @@ var DataPadQueryCompiler = (() => {
       body.expressionAttributeValues = values;
     }
     return JSON.stringify(body, null, 2);
+  }
+  function parseDynamoDbKeyConditionQueryText(queryText) {
+    try {
+      const parsed = JSON.parse(queryText);
+      const operation = stringField(parsed, "operation")?.toLowerCase();
+      if (operation && operation !== "query" && operation !== "scan") {
+        return void 0;
+      }
+      if (stringField(parsed, "filterExpression")?.trim() || stringField(parsed, "FilterExpression")?.trim() || parsed.select !== void 0 || parsed.Select !== void 0) {
+        return void 0;
+      }
+      const partitionKey = parsePartitionKey(parsed);
+      if (!partitionKey) {
+        return void 0;
+      }
+      const table = stringField(parsed, "tableName") ?? stringField(parsed, "TableName") ?? stringField(parsed, "table") ?? "";
+      const state = {
+        kind: "dynamodb-key-condition",
+        table,
+        indexName: stringField(parsed, "indexName") ?? stringField(parsed, "IndexName"),
+        partitionKey,
+        sortKey: void 0,
+        filters: [],
+        projectionFields: projectionFields(parsed),
+        consistentRead: Boolean(parsed.consistentRead ?? parsed.ConsistentRead),
+        limit: numberField(parsed, "limit") ?? numberField(parsed, "Limit") ?? 20
+      };
+      return {
+        ...state,
+        lastAppliedQueryText: buildDynamoDbKeyConditionQueryText(state)
+      };
+    } catch {
+      return void 0;
+    }
+  }
+  function dynamoDbBuilderRowId(prefix) {
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+  function newDynamoDbCondition(field = "", operator = "eq") {
+    return {
+      id: dynamoDbBuilderRowId("ddb-condition"),
+      enabled: true,
+      field,
+      operator,
+      value: "",
+      valueType: "string"
+    };
   }
   function buildKeyConditionExpression(state, expression) {
     if (!hasPartitionKey(state)) {
@@ -744,6 +1160,65 @@ var DataPadQueryCompiler = (() => {
     }
     return { S: String(value) };
   }
+  function parsePartitionKey(parsed) {
+    const names = objectField(parsed, "expressionAttributeNames") ?? objectField(parsed, "ExpressionAttributeNames");
+    const values = objectField(parsed, "expressionAttributeValues") ?? objectField(parsed, "ExpressionAttributeValues");
+    const expression = String(parsed.keyConditionExpression ?? parsed.KeyConditionExpression ?? "").trim();
+    if (!expression) {
+      return newDynamoDbCondition("pk", "eq");
+    }
+    const match = /^(#[\w]+|[\w.]+)\s*=\s*(:[\w]+)$/.exec(expression);
+    const fieldToken = match?.[1];
+    const valueToken = match?.[2];
+    if (!fieldToken || !valueToken || !Object.hasOwn(values ?? {}, valueToken)) {
+      return void 0;
+    }
+    const field = names?.[fieldToken] ? String(names[fieldToken]) : fieldToken;
+    const parsedValue = attributeValueToBuilderValue(values?.[valueToken]);
+    if (!parsedValue) {
+      return void 0;
+    }
+    return {
+      ...newDynamoDbCondition(field, "eq"),
+      value: parsedValue.value,
+      valueType: parsedValue.valueType
+    };
+  }
+  function projectionFields(parsed) {
+    const expression = String(parsed.projectionExpression ?? parsed.ProjectionExpression ?? "");
+    const names = objectField(parsed, "expressionAttributeNames") ?? objectField(parsed, "ExpressionAttributeNames");
+    return expression.split(",").map((part) => part.trim()).filter(Boolean).map((field) => ({
+      id: dynamoDbBuilderRowId("ddb-projection"),
+      field: names?.[field] ? String(names[field]) : field
+    }));
+  }
+  function attributeValueToBuilderValue(value) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const object = value;
+      if (typeof object.S === "string") {
+        return { value: object.S, valueType: "string" };
+      }
+      if (typeof object.N === "string") {
+        return { value: object.N, valueType: "number" };
+      }
+      if (typeof object.BOOL === "boolean") {
+        return { value: String(object.BOOL), valueType: "boolean" };
+      }
+      if (object.NULL === true) {
+        return { value: "", valueType: "null" };
+      }
+    }
+    return void 0;
+  }
+  function stringField(parsed, key) {
+    return typeof parsed[key] === "string" ? parsed[key] : void 0;
+  }
+  function numberField(parsed, key) {
+    return typeof parsed[key] === "number" && Number.isFinite(parsed[key]) ? Math.floor(parsed[key]) : void 0;
+  }
+  function objectField(parsed, key) {
+    return parsed[key] && typeof parsed[key] === "object" && !Array.isArray(parsed[key]) ? parsed[key] : void 0;
+  }
 
   // packages/query-compiler/src/mongo-aggregation.ts
   function isMongoAggregationBuilderState(state) {
@@ -763,6 +1238,48 @@ var DataPadQueryCompiler = (() => {
       null,
       2
     );
+  }
+  function parseMongoAggregationQueryText(queryText) {
+    try {
+      const parsed = JSON.parse(queryText);
+      if (typeof parsed.collection !== "string" || !Array.isArray(parsed.pipeline)) {
+        return void 0;
+      }
+      let pipelineLimit;
+      const stages = parsed.pipeline.flatMap((stage, index) => {
+        if (!isPlainObject(stage)) {
+          return [];
+        }
+        const [name, value] = Object.entries(stage)[0] ?? [];
+        if (!name) {
+          return [];
+        }
+        if (name === "$limit" && typeof value === "number" && Number.isFinite(value) && value > 0) {
+          pipelineLimit = Math.floor(value);
+          return [];
+        }
+        return [{
+          id: `stage-${index + 1}`,
+          enabled: true,
+          stage: name,
+          body: formatStageBody(value)
+        }];
+      });
+      const limit = typeof parsed.limit === "number" && Number.isFinite(parsed.limit) && parsed.limit > 0 ? Math.floor(parsed.limit) : pipelineLimit;
+      const state = {
+        kind: "mongo-aggregation",
+        ...typeof parsed.database === "string" && parsed.database.trim() ? { database: parsed.database.trim() } : typeof parsed.db === "string" && parsed.db.trim() ? { database: parsed.db.trim() } : {},
+        collection: parsed.collection,
+        stages,
+        limit
+      };
+      return {
+        ...state,
+        lastAppliedQueryText: buildMongoAggregationQueryText(state)
+      };
+    } catch {
+      return void 0;
+    }
   }
   function stageToPipelineItem(stage) {
     const name = normalizeStageName(stage.stage);
@@ -790,6 +1307,504 @@ var DataPadQueryCompiler = (() => {
       return Number.isFinite(numeric) ? numeric : trimmed;
     }
   }
+  function formatStageBody(value) {
+    return typeof value === "number" || typeof value === "boolean" || value === null ? String(value) : JSON.stringify(value ?? {}, null, 2);
+  }
+  function isPlainObject(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  // packages/query-compiler/src/mongo-find-defaults.ts
+  function mongoBuilderRowId(prefix) {
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  // packages/query-compiler/src/mongo-find-parser.ts
+  function parseMongoFindQueryText(queryText) {
+    let parsed;
+    try {
+      parsed = JSON.parse(queryText);
+    } catch {
+      return void 0;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return void 0;
+    }
+    const query = parsed;
+    const supportedKeys = /* @__PURE__ */ new Set([
+      "operation",
+      "database",
+      "db",
+      "collection",
+      "filter",
+      "projection",
+      "sort",
+      "skip",
+      "limit"
+    ]);
+    if (Object.keys(query).some((key) => !supportedKeys.has(key))) {
+      return void 0;
+    }
+    if (query.operation !== void 0 && typeof query.operation !== "string" || query.database !== void 0 && typeof query.database !== "string" || query.db !== void 0 && typeof query.db !== "string" || query.collection !== void 0 && typeof query.collection !== "string") {
+      return void 0;
+    }
+    const operation = typeof query.operation === "string" ? query.operation.toLowerCase() : void 0;
+    if (operation && operation !== "find") {
+      return void 0;
+    }
+    const database = typeof query.database === "string" ? query.database : typeof query.db === "string" ? query.db : void 0;
+    const collection = typeof query.collection === "string" ? query.collection : "";
+    const parsedFilter = parseMongoFilter(query.filter);
+    if (!parsedFilter) {
+      return void 0;
+    }
+    const projection = projectionFromQuery(query.projection);
+    const sort = sortRowsFromQuery(query.sort);
+    const skip = numberOrUndefined(query.skip);
+    const limit = numberOrUndefined(query.limit);
+    if (!projection || !sort || query.skip !== void 0 && skip === void 0 || query.limit !== void 0 && limit === void 0) {
+      return void 0;
+    }
+    return {
+      kind: "mongo-find",
+      ...database?.trim() ? { database: database.trim() } : {},
+      collection,
+      filters: parsedFilter.filters,
+      filterGroups: parsedFilter.filterGroups,
+      projectionMode: projection.mode,
+      projectionFields: projection.fields,
+      sort,
+      skip: skip ?? 0,
+      limit: limit ?? null,
+      lastAppliedQueryText: queryText
+    };
+  }
+  function parseMongoFilter(filter) {
+    if (filter === void 0 || filter === null) {
+      return { filters: [], filterGroups: [] };
+    }
+    if (!isPlainObject2(filter)) {
+      return void 0;
+    }
+    if (Object.keys(filter).length === 0) {
+      return { filters: [], filterGroups: [] };
+    }
+    const conjunction = exactLogicalTerms(filter, "$and");
+    if (conjunction) {
+      return parseTopLevelConjunction(conjunction);
+    }
+    const disjunction = exactLogicalTerms(filter, "$or");
+    if (disjunction) {
+      const group = parseLogicalGroup(disjunction, "or", 1);
+      return group ? { filters: group.filters, filterGroups: [group.group] } : void 0;
+    }
+    if (Object.keys(filter).some((field) => field === "$and" || field === "$or")) {
+      return void 0;
+    }
+    const filters = filterRowsFromLeaf(filter);
+    return filters ? { filters, filterGroups: [] } : void 0;
+  }
+  function parseTopLevelConjunction(terms) {
+    const filters = [];
+    const filterGroups = [];
+    for (const term of terms) {
+      if (!isPlainObject2(term)) {
+        return void 0;
+      }
+      const disjunction = exactLogicalTerms(term, "$or");
+      const nestedConjunction = exactLogicalTerms(term, "$and");
+      const logic = disjunction ? "or" : "and";
+      const groupTerms = disjunction ?? nestedConjunction ?? [term];
+      const parsedGroup = parseLogicalGroup(groupTerms, logic, filterGroups.length + 1);
+      if (!parsedGroup) {
+        return void 0;
+      }
+      filters.push(...parsedGroup.filters);
+      filterGroups.push(parsedGroup.group);
+    }
+    return { filters, filterGroups };
+  }
+  function parseLogicalGroup(terms, logic, position) {
+    if (terms.length === 0) {
+      return void 0;
+    }
+    const id = mongoBuilderRowId("filter-group");
+    const filters = [];
+    for (const term of terms) {
+      if (!isPlainObject2(term) || exactLogicalTerms(term, "$and") || exactLogicalTerms(term, "$or")) {
+        return void 0;
+      }
+      const rows = filterRowsFromLeaf(term);
+      if (!rows || rows.length === 0 || logic === "or" && rows.length !== 1) {
+        return void 0;
+      }
+      filters.push(...rows.map((row) => ({ ...row, groupId: id })));
+    }
+    return {
+      filters,
+      group: {
+        id,
+        enabled: true,
+        label: `Group ${position}`,
+        logic
+      }
+    };
+  }
+  function exactLogicalTerms(value, operator) {
+    const keys = Object.keys(value);
+    return keys.length === 1 && keys[0] === operator && Array.isArray(value[operator]) ? value[operator] : void 0;
+  }
+  function filterRowsFromLeaf(filter) {
+    const filters = [];
+    for (const [field, value] of Object.entries(filter)) {
+      if (!field || field === "$and" || field === "$or") {
+        return void 0;
+      }
+      const rows = filterRowsForField(field, value);
+      if (!rows) {
+        return void 0;
+      }
+      filters.push(...rows);
+    }
+    return filters;
+  }
+  function filterRowsForField(field, value) {
+    if (!isPlainObject2(value) || isMongoNativeScalar(value)) {
+      return [equalityFilterRow(field, value)];
+    }
+    const keys = Object.keys(value);
+    if (keys.every((key) => !key.startsWith("$"))) {
+      return [equalityFilterRow(field, value)];
+    }
+    if (keys.some((key) => !key.startsWith("$"))) {
+      return void 0;
+    }
+    const arrayRow = arrayFilterRow(field, value);
+    if (arrayRow) {
+      return [arrayRow];
+    }
+    const supportedOperators = /* @__PURE__ */ new Set([
+      "$eq",
+      "$ne",
+      "$gt",
+      "$gte",
+      "$lt",
+      "$lte",
+      "$regex",
+      "$options",
+      "$exists",
+      "$in",
+      "$nin",
+      "$type",
+      "$size",
+      "$not"
+    ]);
+    if (keys.some((key) => !supportedOperators.has(key))) {
+      return void 0;
+    }
+    if (keys.includes("$options") && !keys.includes("$regex")) {
+      return void 0;
+    }
+    const rows = [];
+    for (const [operator, operatorValue] of Object.entries(value)) {
+      if (operator === "$options") {
+        continue;
+      }
+      const row = operator === "$regex" ? regexFilterRow(field, operatorValue, value.$options) : filterRowForOperator(field, operator, operatorValue);
+      if (!row) {
+        return void 0;
+      }
+      rows.push(row);
+    }
+    return rows;
+  }
+  function equalityFilterRow(field, value) {
+    return {
+      id: mongoBuilderRowId("filter"),
+      enabled: true,
+      field,
+      operator: value === null ? "is-null" : "eq",
+      value: valueToBuilderInput(value),
+      valueType: valueTypeForBuilder(value)
+    };
+  }
+  function filterRowForOperator(field, operator, value) {
+    if (operator === "$exists" && typeof value !== "boolean") {
+      return void 0;
+    }
+    if ((operator === "$in" || operator === "$nin") && !Array.isArray(value)) {
+      return void 0;
+    }
+    if (operator === "$size" && (typeof value !== "number" || !Number.isInteger(value) || value < 0)) {
+      return void 0;
+    }
+    const operatorMap = {
+      $eq: "eq",
+      $ne: "ne",
+      $gt: "gt",
+      $gte: "gte",
+      $lt: "lt",
+      $lte: "lte",
+      $regex: "regex",
+      $exists: "exists",
+      $in: "in",
+      $nin: "not-in",
+      $type: "type",
+      $size: "has-length"
+    };
+    const builderOperator = operator === "$not" ? negatedOperator(value) : positiveOperator(operator, value, operatorMap);
+    if (!builderOperator) {
+      return void 0;
+    }
+    const operatorValue = operatorValueForBuilder(operator, value);
+    const normalizedOperator = builderOperator === "exists" && value === false ? "does-not-exist" : builderOperator === "ne" && value === null ? "is-not-null" : builderOperator;
+    if (normalizedOperator === "has-length" && value === 0) {
+      return {
+        id: mongoBuilderRowId("filter"),
+        enabled: true,
+        field,
+        operator: "has-no-items",
+        value: "",
+        valueType: "number"
+      };
+    }
+    return {
+      id: mongoBuilderRowId("filter"),
+      enabled: true,
+      field,
+      operator: normalizedOperator,
+      value: (normalizedOperator === "in" || normalizedOperator === "not-in") && Array.isArray(operatorValue) ? operatorValue.map(valueToBuilderInput).join(", ") : noValueOperator(normalizedOperator) ? "" : operatorValueToBuilderInput(normalizedOperator, operatorValue),
+      valueType: valueTypeForBuilder(operatorValue)
+    };
+  }
+  function regexFilterRow(field, value, options) {
+    if (typeof value !== "string" || options !== void 0 && options !== "i") {
+      return void 0;
+    }
+    const operator = options === "i" ? positiveRegexOperator(value) : "regex";
+    if (options === "i" && operator === "regex") {
+      return void 0;
+    }
+    return {
+      id: mongoBuilderRowId("filter"),
+      enabled: true,
+      field,
+      operator,
+      value: operatorValueToBuilderInput(operator, value),
+      valueType: "string"
+    };
+  }
+  function positiveOperator(operator, value, operatorMap) {
+    if (operator === "$regex" && typeof value === "string") {
+      return positiveRegexOperator(value);
+    }
+    return operatorMap[operator];
+  }
+  function negatedOperator(value) {
+    if (!isPlainObject2(value)) {
+      return void 0;
+    }
+    const keys = Object.keys(value);
+    if (keys.length === 1 && Object.prototype.hasOwnProperty.call(value, "$type")) {
+      return "not-type";
+    }
+    if (keys.length === 2 && typeof value.$regex === "string" && value.$options === "i") {
+      const operator = positiveRegexOperator(value.$regex);
+      if (operator === "starts-with") {
+        return "not-starts-with";
+      }
+      if (operator === "ends-with") {
+        return "not-ends-with";
+      }
+      return operator === "contains" ? "not-contains" : void 0;
+    }
+    return void 0;
+  }
+  function positiveRegexOperator(value) {
+    if (isContainsRegexPattern(value)) {
+      return "contains";
+    }
+    if (value.startsWith("^")) {
+      return "starts-with";
+    }
+    if (value.endsWith("$")) {
+      return "ends-with";
+    }
+    return "regex";
+  }
+  function operatorValueForBuilder(operator, value) {
+    if (operator === "$not" && isPlainObject2(value)) {
+      if (Object.prototype.hasOwnProperty.call(value, "$regex")) {
+        return value.$regex;
+      }
+      if (Object.prototype.hasOwnProperty.call(value, "$type")) {
+        return value.$type;
+      }
+      return Object.values(value)[0];
+    }
+    return value;
+  }
+  function noValueOperator(operator) {
+    return ["exists", "does-not-exist", "is-null", "is-not-null", "has-items", "has-no-items"].includes(operator);
+  }
+  function operatorValueToBuilderInput(operator, value) {
+    const input = valueToBuilderInput(value);
+    if (operator === "contains" || operator === "not-contains") {
+      return unescapeMongoRegexLiteral(stripContainsRegexPattern(input));
+    }
+    if (operator === "starts-with" || operator === "not-starts-with") {
+      return unescapeMongoRegexLiteral(input.replace(/^\^/, ""));
+    }
+    if (operator === "ends-with" || operator === "not-ends-with") {
+      return unescapeMongoRegexLiteral(input.replace(/\$$/, ""));
+    }
+    return input;
+  }
+  function isContainsRegexPattern(value) {
+    return value.startsWith(".*") && value.endsWith(".*") && value.length >= 4;
+  }
+  function stripContainsRegexPattern(value) {
+    return isContainsRegexPattern(value) ? value.slice(2, -2) : value;
+  }
+  function unescapeMongoRegexLiteral(value) {
+    return value.replace(/\\([.*+?^${}()|[\]\\])/g, "$1");
+  }
+  function projectionFromQuery(projection) {
+    if (projection === void 0 || projection === null) {
+      return { mode: "all", fields: [] };
+    }
+    if (typeof projection !== "object" || Array.isArray(projection)) {
+      return void 0;
+    }
+    const entries = Object.entries(projection).filter(
+      ([field]) => Boolean(field.trim())
+    );
+    if (entries.length === 0) {
+      return { mode: "all", fields: [] };
+    }
+    if (entries.some(([, value]) => value !== 0 && value !== 1)) {
+      return void 0;
+    }
+    const modes = new Set(entries.map(([, value]) => value));
+    if (modes.size !== 1) {
+      return void 0;
+    }
+    const mode = entries[0]?.[1] === 1 ? "include" : "exclude";
+    return {
+      mode,
+      fields: entries.map(([field]) => ({ id: mongoBuilderRowId("projection"), field }))
+    };
+  }
+  function sortRowsFromQuery(sort) {
+    if (sort === void 0 || sort === null) {
+      return [];
+    }
+    if (typeof sort !== "object" || Array.isArray(sort)) {
+      return void 0;
+    }
+    const entries = Object.entries(sort);
+    if (entries.some(([field, direction]) => !field.trim() || direction !== 1 && direction !== -1)) {
+      return void 0;
+    }
+    return entries.map(([field, direction]) => ({
+      id: mongoBuilderRowId("sort"),
+      field,
+      direction: Number(direction) === -1 ? "desc" : "asc"
+    }));
+  }
+  function valueTypeForBuilder(value) {
+    if (isPlainObject2(value)) {
+      if (isMongoDateValue(value)) {
+        return "date";
+      }
+      if (typeof value.$oid === "string") {
+        return "objectId";
+      }
+      if (typeof value.$uuid === "string") {
+        return "uuid";
+      }
+      if (typeof value.$numberLong === "string" || typeof value.$numberInt === "string" || typeof value.$numberDouble === "string") {
+        return "number";
+      }
+    }
+    if (value === null) {
+      return "null";
+    }
+    if (typeof value === "number") {
+      return "number";
+    }
+    if (typeof value === "boolean") {
+      return "boolean";
+    }
+    if (typeof value === "object") {
+      return "json";
+    }
+    return "string";
+  }
+  function valueToBuilderInput(value) {
+    if (value === null) {
+      return "";
+    }
+    if (isPlainObject2(value)) {
+      const dateInput = mongoDateInput(value);
+      if (dateInput !== void 0) {
+        return dateInput;
+      }
+      if (typeof value.$oid === "string") {
+        return value.$oid;
+      }
+      if (typeof value.$uuid === "string") {
+        return value.$uuid;
+      }
+      for (const key of ["$numberLong", "$numberInt", "$numberDouble"]) {
+        if (typeof value[key] === "string") {
+          return value[key];
+        }
+      }
+    }
+    if (typeof value === "string") {
+      return value;
+    }
+    return JSON.stringify(value);
+  }
+  function numberOrUndefined(value) {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : void 0;
+  }
+  function isPlainObject2(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+  function isMongoNativeScalar(value) {
+    return isMongoDateValue(value) || typeof value.$oid === "string" || typeof value.$uuid === "string";
+  }
+  function arrayFilterRow(field, value) {
+    if (Object.keys(value).length === 2 && value.$type === "array" && isPlainObject2(value.$not) && Object.keys(value.$not).length === 1 && value.$not.$size === 0) {
+      return {
+        id: mongoBuilderRowId("filter"),
+        enabled: true,
+        field,
+        operator: "has-items",
+        value: "",
+        valueType: "number"
+      };
+    }
+    return void 0;
+  }
+  function isMongoDateValue(value) {
+    return typeof value.$date === "string" || isMongoDateNumberLong(value.$date);
+  }
+  function mongoDateInput(value) {
+    if (typeof value.$date === "string") {
+      return value.$date;
+    }
+    if (isMongoDateNumberLong(value.$date)) {
+      const milliseconds = Number(value.$date.$numberLong);
+      return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : value.$date.$numberLong;
+    }
+    return void 0;
+  }
+  function isMongoDateNumberLong(value) {
+    return isPlainObject2(value) && typeof value.$numberLong === "string";
+  }
 
   // packages/query-compiler/src/mongo-find.ts
   var COMPARISON_OPERATOR_MAP = {
@@ -802,6 +1817,26 @@ var DataPadQueryCompiler = (() => {
     in: "$in",
     "not-in": "$nin"
   };
+  function createDefaultMongoFindBuilderState(collection, limit = 20, database) {
+    const normalizedDatabase = database?.trim() || void 0;
+    const state = {
+      kind: "mongo-find",
+      ...normalizedDatabase ? { database: normalizedDatabase } : {},
+      collection,
+      filters: [],
+      filterGroups: [],
+      projectionMode: "all",
+      projectionFields: [],
+      sort: [],
+      skip: 0,
+      limit
+    };
+    const queryText = buildMongoFindQueryText(state);
+    return {
+      ...state,
+      lastAppliedQueryText: queryText
+    };
+  }
   function isMongoFindBuilderState(state) {
     return state?.kind === "mongo-find";
   }
@@ -937,7 +1972,7 @@ var DataPadQueryCompiler = (() => {
     "$size"
   ]);
   function isMergeableMongoOperatorObject(value) {
-    return isPlainObject(value) && Object.keys(value).length > 0 && Object.keys(value).every((key) => MERGEABLE_MONGO_OPERATORS.has(key));
+    return isPlainObject3(value) && Object.keys(value).length > 0 && Object.keys(value).every((key) => MERGEABLE_MONGO_OPERATORS.has(key));
   }
   function buildMongoProjection(state) {
     if (state.projectionMode === "all") {
@@ -981,7 +2016,7 @@ var DataPadQueryCompiler = (() => {
     const numeric = Number(trimmed);
     return trimmed && Number.isInteger(numeric) ? numeric : trimmed;
   }
-  function isPlainObject(value) {
+  function isPlainObject3(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
@@ -1110,6 +2145,9 @@ var DataPadQueryCompiler = (() => {
   function isLiteDbFindBuilderState(state) {
     return state?.kind === "litedb-find";
   }
+  function createDefaultLiteDbFindBuilderState(collection = "", limit = 20) {
+    return { kind: "litedb-find", collection, filterLogic: "and", filters: [], filterGroups: [], sort: [], skip: 0, limit };
+  }
   function liteDbFieldPath(field) {
     const parts = field.trim().replace(/^\$\./, "").split(".");
     if (parts.some((part) => !part || [...part].some((character) => character.charCodeAt(0) < 32))) throw new Error("Enter a field name or dot-separated field path.");
@@ -1202,6 +2240,24 @@ var DataPadQueryCompiler = (() => {
       } : {}
     }, null, 2);
   }
+  function parseLiteDbFindQueryText(text, collection = "") {
+    if (!text.trim()) return createDefaultLiteDbFindBuilderState(collection);
+    try {
+      const request = JSON.parse(text);
+      if (!request || Array.isArray(request) || typeof request !== "object") return void 0;
+      if (Object.keys(request).some((key) => !["operation", "collection", "filter", "limit", "skip"].includes(key))) return void 0;
+      if (String(request.operation ?? "Find").toLowerCase() !== "find" || typeof request.collection !== "string") return void 0;
+      if (request.filter !== void 0 && (request.filter === null || typeof request.filter !== "object" || Array.isArray(request.filter) || Object.keys(request.filter).length)) return void 0;
+      const state = {
+        ...createDefaultLiteDbFindBuilderState(request.collection),
+        skip: request.skip === void 0 ? 0 : request.skip,
+        limit: request.limit === void 0 ? null : request.limit
+      };
+      return validateLiteDbFindBuilder(state).some((error) => error.field !== "Collection") ? void 0 : { ...state, lastAppliedQueryText: text };
+    } catch {
+      return void 0;
+    }
+  }
 
   // packages/query-compiler/src/redis-key-browser.ts
   function isRedisKeyBrowserState(state) {
@@ -1264,12 +2320,64 @@ var DataPadQueryCompiler = (() => {
       { terms: { field: trimmedField, size: Math.max(1, Math.floor(row.size ?? 10)) } }
     ];
   }
+  function parseAggregations(body) {
+    const aggs = objectField2(body, "aggs") ?? objectField2(body, "aggregations");
+    return Object.entries(aggs ?? {}).flatMap(([name, value]) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return [];
+      }
+      const aggregation = value;
+      for (const type of [
+        "terms",
+        "date_histogram",
+        "histogram",
+        "avg",
+        "sum",
+        "min",
+        "max",
+        "cardinality"
+      ]) {
+        const body2 = objectField2(aggregation, type);
+        const field = stringField2(body2, "field");
+        if (!field) {
+          continue;
+        }
+        const normalizedType = type === "date_histogram" ? "date-histogram" : type;
+        return [
+          {
+            id: rowId("search-agg"),
+            name,
+            field,
+            type: normalizedType,
+            size: numberField2(body2, "size") ?? (type === "terms" ? 10 : void 0),
+            interval: stringField2(body2, "calendar_interval") ?? stringField2(body2, "fixed_interval") ?? stringField2(body2, "interval") ?? numericStringField(body2, "interval")
+          }
+        ];
+      }
+      return [];
+    });
+  }
   function defaultAggregationName(field, type) {
     return `${field.replaceAll(".", "_")}_${type.replaceAll("-", "_")}`;
   }
   function positiveNumber(value, fallback) {
     const parsed = Number(value);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : Math.max(1, Math.floor(fallback));
+  }
+  function rowId(prefix) {
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+  function stringField2(object, key) {
+    return typeof object?.[key] === "string" ? object[key] : void 0;
+  }
+  function numberField2(object, key) {
+    return typeof object?.[key] === "number" && Number.isFinite(object[key]) ? Math.floor(object[key]) : void 0;
+  }
+  function numericStringField(object, key) {
+    return typeof object?.[key] === "number" && Number.isFinite(object[key]) ? String(object[key]) : void 0;
+  }
+  function objectField2(object, key) {
+    return object?.[key] && typeof object[key] === "object" && !Array.isArray(object[key]) ? object[key] : void 0;
   }
 
   // packages/query-compiler/src/search-dsl.ts
@@ -1310,6 +2418,47 @@ var DataPadQueryCompiler = (() => {
       null,
       2
     );
+  }
+  function parseSearchDslQueryText(queryText) {
+    try {
+      const parsed = JSON.parse(queryText);
+      const body = objectField3(parsed, "body") ?? parsed;
+      const query = objectField3(body, "query");
+      const mainQuery2 = parseMainQuery(query);
+      const filters = parseFilters(query);
+      if (!mainQuery2 || !filters) {
+        return void 0;
+      }
+      const state = {
+        kind: "search-dsl",
+        index: stringField3(parsed, "index") ?? "",
+        ...mainQuery2,
+        filters,
+        sourceFields: parseSourceFields(body),
+        sort: parseSort(body),
+        aggregations: parseAggregations(body),
+        size: numberField3(body, "size") ?? 20
+      };
+      return {
+        ...state,
+        lastAppliedQueryText: buildSearchDslQueryText(state)
+      };
+    } catch {
+      return void 0;
+    }
+  }
+  function searchDslBuilderRowId(prefix) {
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+  function newSearchFilter(field = "", operator = "term") {
+    return {
+      id: searchDslBuilderRowId("search-filter"),
+      enabled: true,
+      field,
+      operator,
+      value: "",
+      valueType: "string"
+    };
   }
   function searchQuery(state) {
     const main = mainQuery(state);
@@ -1395,6 +2544,219 @@ var DataPadQueryCompiler = (() => {
   function scalarValue(value, type) {
     return parseQueryBuilderValue(value, type);
   }
+  function parseMainQuery(query) {
+    if (!query) {
+      return mainQueryState("match-all");
+    }
+    const bool = objectField3(query, "bool");
+    if (bool && Object.keys(bool).some((key) => key !== "must" && key !== "filter")) {
+      return void 0;
+    }
+    const mustEntries = Array.isArray(bool?.must) ? bool.must : void 0;
+    if (bool && (!mustEntries || mustEntries.length !== 1)) {
+      return void 0;
+    }
+    const must = mustEntries?.[0];
+    const main = must && typeof must === "object" && !Array.isArray(must) ? must : bool ? void 0 : query;
+    if (!main || Object.keys(main).length !== 1) {
+      return void 0;
+    }
+    if (objectField3(main, "match_all")) {
+      return mainQueryState("match-all");
+    }
+    if (objectField3(main, "query_string")) {
+      return mainQueryState("query-string", "", stringField3(objectField3(main, "query_string"), "query") ?? "*");
+    }
+    for (const mode of ["match", "term", "range"]) {
+      const clause = objectField3(main, mode);
+      const field = clause ? Object.keys(clause)[0] : void 0;
+      if (clause && field && Object.keys(clause).length === 1) {
+        const bounds = mode === "range" ? objectField3(clause, field) : void 0;
+        if (mode === "range" && (!bounds || Object.keys(bounds).length !== 1 || bounds.gte === void 0)) {
+          return void 0;
+        }
+        const value = mode === "range" ? bounds?.gte : clause[field];
+        return mainQueryState(mode, field, String(value ?? ""), inferValueType2(value));
+      }
+    }
+    return void 0;
+  }
+  function mainQueryState(queryMode, field = "", value = "", valueType = "string") {
+    return { queryMode, field, value, valueType };
+  }
+  function parseFilters(query) {
+    const bool = objectField3(query, "bool");
+    if (!bool || bool.filter === void 0) {
+      return [];
+    }
+    if (!Array.isArray(bool.filter)) {
+      return void 0;
+    }
+    const rows = [];
+    for (const filter of bool.filter) {
+      const row = parseFilter(filter);
+      if (!row) {
+        return void 0;
+      }
+      rows.push(row);
+    }
+    return rows;
+  }
+  function parseFilter(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return void 0;
+    }
+    const filter = value;
+    const bool = objectField3(filter, "bool");
+    if (bool && (Object.keys(bool).length !== 1 || !Array.isArray(bool.must_not) || bool.must_not.length !== 1)) {
+      return void 0;
+    }
+    const mustNot = Array.isArray(bool?.must_not) ? bool.must_not[0] : void 0;
+    const negated = parseNegatedFilter(mustNot);
+    if (negated) {
+      return negated;
+    }
+    if (bool) {
+      return void 0;
+    }
+    const exists = objectField3(filter, "exists");
+    if (exists) {
+      return { ...newSearchFilter(stringField3(exists, "field") ?? "", "exists"), value: "" };
+    }
+    const prefix = objectField3(filter, "prefix");
+    const prefixField = prefix ? Object.keys(prefix)[0] : void 0;
+    if (prefix && prefixField) {
+      const raw = prefix[prefixField];
+      return {
+        ...newSearchFilter(prefixField, "starts-with"),
+        value: String(raw ?? ""),
+        valueType: inferValueType2(raw)
+      };
+    }
+    const wildcard = objectField3(filter, "wildcard");
+    const wildcardField = wildcard ? Object.keys(wildcard)[0] : void 0;
+    if (wildcard && wildcardField && Object.keys(wildcard).length === 1) {
+      const raw = wildcard[wildcardField];
+      const rawValue = String(raw ?? "");
+      if (!rawValue.startsWith("*") || rawValue.endsWith("*")) {
+        return void 0;
+      }
+      return {
+        ...newSearchFilter(wildcardField, "ends-with"),
+        value: rawValue.slice(1),
+        valueType: inferValueType2(raw)
+      };
+    }
+    for (const operator of ["term", "match"]) {
+      const clause = objectField3(filter, operator);
+      const field2 = clause ? Object.keys(clause)[0] : void 0;
+      if (clause && field2 && Object.keys(clause).length === 1) {
+        const raw = clause[field2];
+        return {
+          ...newSearchFilter(field2, operator),
+          value: String(raw ?? ""),
+          valueType: inferValueType2(raw)
+        };
+      }
+    }
+    const range = objectField3(filter, "range");
+    const field = range ? Object.keys(range)[0] : void 0;
+    const bounds = field ? objectField3(range, field) : void 0;
+    if (field && bounds && Object.keys(range ?? {}).length === 1 && Object.keys(bounds).length === 1) {
+      if (bounds.gte === void 0 && bounds.lte === void 0) {
+        return void 0;
+      }
+      const key = bounds.gte !== void 0 ? "gte" : "lte";
+      return {
+        ...newSearchFilter(field, key === "gte" ? "range-gte" : "range-lte"),
+        value: String(bounds[key] ?? ""),
+        valueType: inferValueType2(bounds[key])
+      };
+    }
+    return void 0;
+  }
+  function parseNegatedFilter(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return void 0;
+    }
+    const filter = value;
+    const exists = objectField3(filter, "exists");
+    if (exists) {
+      return { ...newSearchFilter(stringField3(exists, "field") ?? "", "does-not-exist"), value: "" };
+    }
+    const prefix = objectField3(filter, "prefix");
+    const prefixField = prefix ? Object.keys(prefix)[0] : void 0;
+    if (prefix && prefixField) {
+      const raw = prefix[prefixField];
+      return {
+        ...newSearchFilter(prefixField, "not-starts-with"),
+        value: String(raw ?? ""),
+        valueType: inferValueType2(raw)
+      };
+    }
+    const wildcard = objectField3(filter, "wildcard");
+    const wildcardField = wildcard ? Object.keys(wildcard)[0] : void 0;
+    if (wildcard && wildcardField) {
+      const raw = wildcard[wildcardField];
+      const rawValue = String(raw ?? "");
+      const containsValue = rawValue.match(/^\*(.+)\*$/s)?.[1];
+      if (containsValue !== void 0) {
+        return {
+          ...newSearchFilter(wildcardField, "not-contains"),
+          value: containsValue,
+          valueType: inferValueType2(raw)
+        };
+      }
+      return {
+        ...newSearchFilter(wildcardField, "not-ends-with"),
+        value: rawValue.replace(/^\*/, ""),
+        valueType: inferValueType2(raw)
+      };
+    }
+    const terms = objectField3(filter, "terms");
+    const termsField = terms ? Object.keys(terms)[0] : void 0;
+    const rawTerms = termsField ? terms?.[termsField] : void 0;
+    if (termsField && Array.isArray(rawTerms)) {
+      return {
+        ...newSearchFilter(termsField, "not-in"),
+        value: rawTerms.map((item) => String(item)).join(", "),
+        valueType: inferValueType2(rawTerms[0])
+      };
+    }
+    return void 0;
+  }
+  function parseSourceFields(body) {
+    const source = body._source;
+    return Array.isArray(source) ? source.filter((field) => typeof field === "string").map((field) => ({ id: searchDslBuilderRowId("search-source"), field })) : [];
+  }
+  function parseSort(body) {
+    return Array.isArray(body.sort) ? body.sort.flatMap((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        return [];
+      }
+      const field = Object.keys(item)[0];
+      const order = field ? objectField3(item, field)?.order : void 0;
+      return field ? [{ id: searchDslBuilderRowId("search-sort"), field, direction: order === "desc" ? "desc" : "asc" }] : [];
+    }) : [];
+  }
+  function inferValueType2(value) {
+    if (typeof value === "number") {
+      return "number";
+    }
+    if (typeof value === "boolean") {
+      return "boolean";
+    }
+    return "string";
+  }
+  function stringField3(object, key) {
+    return typeof object?.[key] === "string" ? object[key] : void 0;
+  }
+  function numberField3(object, key) {
+    return typeof object?.[key] === "number" && Number.isFinite(object[key]) ? Math.floor(object[key]) : void 0;
+  }
+  function objectField3(object, key) {
+    return object?.[key] && typeof object[key] === "object" && !Array.isArray(object[key]) ? object[key] : void 0;
+  }
 
   // packages/query-compiler/src/sql-select.ts
   var SQL_OPERATORS = {
@@ -1444,6 +2806,37 @@ var DataPadQueryCompiler = (() => {
       clauses.push(`limit ${limit}`);
     }
     return `${clauses.join(" ")};`;
+  }
+  function parseSqlSelectQueryText(queryText, engine = "postgresql") {
+    const normalized = stripSqlComments(queryText);
+    if (!isRepresentableSqlSelect(normalized, engine)) {
+      return void 0;
+    }
+    const target = parseSqlTableReference(normalized, engine);
+    if (!target?.table) {
+      return void 0;
+    }
+    const projectionFields2 = projectionFromQuery2(normalized, engine).map((field) => ({
+      id: sqlBuilderRowId("projection"),
+      field
+    }));
+    const state = {
+      kind: "sql-select",
+      schema: target.schema,
+      table: target.table,
+      projectionFields: projectionFields2,
+      filters: [],
+      filterLogic: "and",
+      sort: sortFromQuery(normalized, engine),
+      limit: limitFromQuery(normalized, engine) ?? null
+    };
+    return {
+      ...state,
+      lastAppliedQueryText: buildSqlSelectQueryText(state, engine)
+    };
+  }
+  function sqlBuilderRowId(prefix) {
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
   function buildSqlWhereClause(state, engine) {
     const predicates = state.filters.filter((row) => row.enabled ?? true).map((row) => sqlPredicate(row, engine)).filter(Boolean);
@@ -1562,6 +2955,92 @@ var DataPadQueryCompiler = (() => {
   function escapeSqlLikeValue(value) {
     return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
   }
+  function stripSqlComments(queryText) {
+    return queryText.replace(/--.*$/gm, " ");
+  }
+  function isRepresentableSqlSelect(queryText, engine) {
+    if (/\b(?:distinct|join|group\s+by|having|union|intersect|except|offset)\b/i.test(queryText)) {
+      return false;
+    }
+    const where = /\bwhere\s+(.+?)(?:\border\s+by\b|\blimit\b|\boffset\b|\bfetch\b|;|$)/is.exec(queryText)?.[1]?.trim();
+    if (!where) {
+      return true;
+    }
+    return engine === "oracle" && /^\(?\s*rownum\s*<=\s*\d+\s*\)?$/i.test(where);
+  }
+  function parseSqlTableReference(queryText, engine) {
+    const fromMatch = /\bfrom\s+(.+?)(?:\s+where\b|\s+order\s+by\b|\s+limit\b|\s+offset\b|\s+fetch\b|;|$)/i.exec(
+      queryText
+    );
+    if (!fromMatch?.[1]) {
+      return void 0;
+    }
+    const reference = tableReferenceFromFromClause(fromMatch[1]);
+    const identifiers = reference?.match(identifierPattern)?.map((identifier) => unquoteIdentifier(identifier, engine)).filter(Boolean);
+    if (!identifiers?.length) {
+      return void 0;
+    }
+    return {
+      schema: identifiers.length > 1 ? identifiers.at(-2) : void 0,
+      table: identifiers.at(-1)
+    };
+  }
+  var identifierPattern = /(?:"(?:[^"]|"")+"|`(?:[^`]|``)+`|\[(?:[^\]]|\]\])+\]|[A-Za-z_][\w$-]*)/g;
+  function tableReferenceFromFromClause(fromClause) {
+    const trimmed = fromClause.trim();
+    if (!trimmed || trimmed.startsWith("(")) {
+      return void 0;
+    }
+    return /^(?:"(?:[^"]|"")+"|`(?:[^`]|``)+`|\[(?:[^\]]|\]\])+\]|[A-Za-z_][\w$-]*)(?:\s*\.\s*(?:"(?:[^"]|"")+"|`(?:[^`]|``)+`|\[(?:[^\]]|\]\])+\]|[A-Za-z_][\w$-]*))*/.exec(
+      trimmed
+    )?.[0];
+  }
+  function projectionFromQuery2(queryText, engine) {
+    const match = /^\s*select\s+(?:top\s+\d+\s+)?(.+?)\s+from\s+/is.exec(queryText);
+    const selection = match?.[1]?.trim();
+    if (!selection || selection === "*") {
+      return [];
+    }
+    return selection.split(",").map((part) => unquotePath(part.trim(), engine)).filter(Boolean);
+  }
+  function sortFromQuery(queryText, engine) {
+    const match = /\border\s+by\s+(.+?)(?:\s+limit\b|\s+offset\b|\s+fetch\b|;|$)/i.exec(queryText);
+    if (!match?.[1]) {
+      return [];
+    }
+    return match[1].split(",").map((part) => {
+      const [field = "", direction = "asc"] = part.trim().split(/\s+/);
+      return {
+        id: sqlBuilderRowId("sort"),
+        field: unquotePath(field, engine),
+        direction: direction.toLowerCase() === "desc" ? "desc" : "asc"
+      };
+    }).filter((row) => row.field);
+  }
+  function limitFromQuery(queryText, engine) {
+    const match = engine === "sqlserver" ? /\btop\s+(\d+)/i.exec(queryText) : engine === "oracle" ? /\bfetch\s+(?:first|next)\s+(\d+)\s+rows?\s+only/i.exec(queryText) ?? /\brownum\s*<=\s*(\d+)/i.exec(queryText) : /\blimit\s+(\d+)/i.exec(queryText);
+    const parsed = Number(match?.[1]);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : void 0;
+  }
+  function unquotePath(path, engine) {
+    return path.split(".").map((part) => unquoteIdentifier(part.trim(), engine)).join(".");
+  }
+  function unquoteIdentifier(identifier, engine) {
+    if (identifier.startsWith('"') && identifier.endsWith('"')) {
+      const unquoted = identifier.slice(1, -1).replace(/""/g, '"');
+      if (engine === "oracle") {
+        return /^[A-Z][A-Z0-9_$#]*$/.test(unquoted) ? unquoted : identifier;
+      }
+      return unquoted;
+    }
+    if (identifier.startsWith("`") && identifier.endsWith("`")) {
+      return identifier.slice(1, -1).replace(/``/g, "`");
+    }
+    if (identifier.startsWith("[") && identifier.endsWith("]")) {
+      return identifier.slice(1, -1).replace(/\]\]/g, "]");
+    }
+    return identifier;
+  }
 
   // packages/query-compiler/src/query-builder-validation.ts
   function validateQueryBuilderState(state) {
@@ -1626,21 +3105,21 @@ var DataPadQueryCompiler = (() => {
       validateValue(errors, row.id, row.field, row.value, row.valueType, row.operator);
     }
   }
-  function validateValue(errors, rowId, field, value, valueType, operator, prefix) {
+  function validateValue(errors, rowId2, field, value, valueType, operator, prefix) {
     if (queryBuilderOperatorArity(operator) === "none") return;
     try {
       parseQueryBuilderValue(value, valueType, { operator, allowEnvironmentToken: true });
     } catch (error) {
       addError(
         errors,
-        rowId,
+        rowId2,
         field,
         `${prefix ? `${prefix}: ` : ""}${error instanceof Error ? error.message : "Enter a valid value."}`
       );
     }
   }
-  function addError(errors, rowId, field, message) {
-    errors.push({ rowId, field, message });
+  function addError(errors, rowId2, field, message) {
+    errors.push({ rowId: rowId2, field, message });
   }
 
   // packages/query-compiler/src/query-builder-routing.ts
@@ -1762,6 +3241,66 @@ var DataPadQueryCompiler = (() => {
     return { queryText: selectedText?.trim() || state.sql, builderState, datastoreExecutionInput: validation.input, errors: validation.errors, warnings: validation.warnings };
   }
 
+  // packages/query-compiler/src/query-limit-settings.ts
+  function supportsUnlimitedQueryLimit(state) {
+    return Boolean(state && ["mongo-find", "mongo-aggregation", "litedb-find", "cosmos-sql", "sql-select", "cql-partition"].includes(state.kind));
+  }
+  function queryLimitBuilder(tab, connection) {
+    if (tab.queryViewMode !== "builder") return void 0;
+    if (tab.builderState) return tab.builderState;
+    switch (connection.engine) {
+      case "mongodb": {
+        const aggregation = parseMongoAggregationQueryText(tab.queryText);
+        if (aggregation) {
+          const request = JSON.parse(tab.queryText);
+          if (request.pipeline.some((stage) => !stage || Array.isArray(stage) || Object.keys(stage).length !== 1)) return void 0;
+          return { ...aggregation, limit: request.limit ?? null, stages: request.pipeline.map((stage, index) => {
+            const [name, body] = Object.entries(stage)[0];
+            return { id: `stage-${index + 1}`, enabled: true, stage: name, body: JSON.stringify(body) };
+          }) };
+        }
+        return parseMongoFindQueryText(tab.queryText) ?? (!tab.queryText.trim() ? createDefaultMongoFindBuilderState("") : void 0);
+      }
+      case "litedb":
+        return parseLiteDbFindQueryText(tab.queryText) ?? (!tab.queryText.trim() ? createDefaultLiteDbFindBuilderState("") : void 0);
+      case "cosmosdb":
+        return parseCosmosSqlQueryText(tab.queryText);
+      case "cassandra":
+        return parseCqlPartitionQueryText(tab.queryText) ?? (!tab.queryText.trim() ? createDefaultCqlPartitionBuilderState("", connection.database ?? "") : void 0);
+      case "elasticsearch":
+      case "opensearch":
+        return parseSearchDslQueryText(tab.queryText);
+      case "dynamodb":
+        return parseDynamoDbKeyConditionQueryText(tab.queryText);
+      case "redis":
+      case "valkey":
+        return void 0;
+      default:
+        return parseSqlSelectQueryText(tab.queryText, connection.engine);
+    }
+  }
+  function initializeQueryLimit({ tab, connection, policy }) {
+    if (!policy || policy.mode === "datastore-default") return tab;
+    const state = queryLimitBuilder(tab, connection);
+    if (!state || !supportsUnlimitedQueryLimit(state) && (policy.mode === "unlimited" || !["search-dsl", "dynamodb-key-condition"].includes(state.kind))) return tab;
+    const limit = policy.mode === "unlimited" ? null : policy.value;
+    const builderState = state.kind === "search-dsl" ? { ...state, size: limit } : { ...state, limit };
+    const compiled = compileQueryBuilderState(builderState, connection, tab);
+    return {
+      ...tab,
+      builderState: compiled.ok && compiled.queryText !== void 0 ? { ...builderState, lastAppliedQueryText: compiled.queryText } : builderState,
+      queryText: compiled.ok && compiled.queryText !== void 0 ? compiled.queryText : tab.queryText
+    };
+  }
+  function removeQueryLimit({ tab, connection }) {
+    const state = queryLimitBuilder(tab, connection);
+    if (!state || !supportsUnlimitedQueryLimit(state)) throw new Error("This query does not support removing a builder limit. Raw queries and native limits are unchanged.");
+    const builderState = { ...state, limit: null };
+    const compiled = compileQueryBuilderState(builderState, connection, tab);
+    if (!compiled.ok || compiled.queryText === void 0) throw new Error("Fix the query builder draft before changing its limit in Settings.");
+    return { queryText: compiled.queryText, builderState: { ...builderState, lastAppliedQueryText: compiled.queryText } };
+  }
+
   // packages/query-compiler/src/index.ts
   var engines = {
     "litedb-find": ["litedb"],
@@ -1784,7 +3323,7 @@ var DataPadQueryCompiler = (() => {
     const shape = state;
     for (const field of ["limit", "skip", "offset"]) {
       const value = shape[field];
-      if (value !== void 0 && (!Number.isSafeInteger(value) || Number(value) < 0)) {
+      if (value !== void 0 && !(field === "limit" && value === null) && (!Number.isSafeInteger(value) || Number(value) < 0)) {
         return { ok: false, errors: [{ field, message: "Enter a non-negative safe integer." }] };
       }
     }

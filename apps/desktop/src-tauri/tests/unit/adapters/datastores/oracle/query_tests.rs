@@ -111,6 +111,8 @@ fn oracle_managed_explain_returns_one_first_class_plan_payload() {
         environment_id: "env-local".into(),
         language: "sql".into(),
         query_text: "select * from accounts".into(),
+        script_progress: None,
+        script_timeout: Default::default(),
         execution_input_mode: Some("raw".into()),
         script_text: None,
         selected_text: None,

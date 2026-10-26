@@ -369,6 +369,7 @@ export interface Actions {
     selectedText?: string,
     builderState?: QueryBuilderState,
     datastoreExecutionInput?: ExecutionRequest['datastoreExecutionInput'],
+    confirmedRequest?: ExecutionRequest,
   ): Promise<void>
   executeBuilderCount(request: {
     tabId: string; builderState: QueryBuilderState; queryText: string; countQueryText: string
@@ -411,6 +412,7 @@ export interface Actions {
   setSafeModeEnabled(enabled: boolean): Promise<void>
   setQueryResultPreferences(preferences: import('@datapadplusplus/shared-types').QueryResultPreferences): Promise<boolean>
   setQueryFetchBatchSize(tabId: string, batchSize?: number): Promise<boolean>
+  setQueryTabResultSettings(request: import('@datapadplusplus/shared-types').QueryTabResultSettingsRequest): Promise<boolean>
   setKeyboardShortcut(shortcutId: AppShortcutId, shortcut: string): Promise<void>
   setFirstInstallGuideStatus(
     status: FirstInstallGuidePersistedStatus,

@@ -2,6 +2,7 @@ import { startTransition, useCallback, useMemo, useRef } from 'react'
 import type { ExecutionRequest } from '@datapadplusplus/shared-types'
 import { effectiveQueryBatchSize } from '@datapadplusplus/shared-types'
 import { desktopClient } from '../../services/runtime/client'
+import { listenScriptProgress } from '../../services/runtime/script-progress'
 import { tabEnvironmentConflict } from '../../services/runtime/library-connection-helpers'
 import type { ConnectionHealthSource } from './connection-health'
 import { ensureWorkspaceUnlocked } from './app-state-factories'
@@ -44,6 +45,7 @@ export function useQueryExecutionActions({
   recordIssue,
 }: QueryExecutionActionContext): QueryExecutionActions {
   const dispatchingTabsRef = useRef(new Set<string>())
+  const consumedApprovalsRef = useRef(new Set<string>())
   const executeQuery = useCallback<Actions['executeQuery']>(
     async (
       tabId,
@@ -56,6 +58,7 @@ export function useQueryExecutionActions({
       selectedText,
       builderState,
       datastoreExecutionInput,
+      confirmedRequest,
     ) => {
       if (dispatchingTabsRef.current.has(tabId)) {
         return
@@ -64,6 +67,7 @@ export function useQueryExecutionActions({
       const executionId = createId('execution')
       const activityStartedAt = Date.now()
       let activityStarted = false
+      let stopProgress: (() => void) | undefined
       try {
         const latest = stateRef.current
         if (!latest.payload) {
@@ -80,10 +84,19 @@ export function useQueryExecutionActions({
         if (isQueryTabExecutionLocked(tab, latest.executionsByTab[tabId])) {
           return
         }
+        if (confirmedRequest) {
+          if (!confirmedGuardrailId || consumedApprovalsRef.current.has(confirmedGuardrailId)) return
+          if (latest.lastExecutionRequest?.executionId !== confirmedRequest.executionId) throw new Error('The pending execution changed. Run again to review the current request.')
+          if (tab.connectionId !== confirmedRequest.connectionId || tab.environmentId !== confirmedRequest.environmentId ||
+            JSON.stringify(tab.sqlScope) !== JSON.stringify(confirmedRequest.sqlScope) ||
+            JSON.stringify(tab.scopedTarget) !== JSON.stringify(confirmedRequest.scopedTarget)) {
+            throw new Error('The query target changed. Run it again to review the new target.')
+          }
+          consumedApprovalsRef.current.add(confirmedGuardrailId)
+        }
         dispatchingTabsRef.current.add(tabId)
 
         const executionRequest: ExecutionRequest = {
-          executionId,
           tabId: tab.id,
           connectionId: tab.connectionId,
           environmentId: tab.environmentId,
@@ -95,11 +108,13 @@ export function useQueryExecutionActions({
           mode,
           rowLimit: effectiveQueryBatchSize(latest.payload.snapshot.preferences.queryResults, tab.queryFetchBatchSize),
           documentEfficiencyMode,
-          confirmedGuardrailId,
           builderState,
           scopedTarget: tab.scopedTarget,
           sqlScope: tab.sqlScope,
           datastoreExecutionInput,
+          ...(confirmedRequest ?? {}),
+          executionId,
+          confirmedGuardrailId,
         }
 
         dispatch({
@@ -108,8 +123,21 @@ export function useQueryExecutionActions({
           execution: tabExecution(executionId, 'server'),
         })
         activityStarted = true
+        if (executionRequest.executionInputMode === 'script') {
+          stopProgress = await listenScriptProgress(progress => {
+            if (progress.executionId !== executionId || progress.tabId !== tabId || stateRef.current.payload?.snapshot.lockState.isLocked ||
+              stateRef.current.workspaceSwitcherStatus?.activeWorkspaceId !== latest.workspaceSwitcherStatus?.activeWorkspaceId) return
+            dispatch({ type: 'EXECUTION_PHASE', tabId, executionId, phase: 'server', message: `Operation ${progress.sequence}: ${progress.method} — ${progress.status}` })
+            if (progress.console) dispatch({ type: 'WORKBENCH_MESSAGE_ADDED', openMessages: false, message: {
+              id: `script-console-${executionId}`, severity: 'info', source: 'Script console',
+              message: progress.console, createdAt: new Date().toISOString(),
+            } })
+          })
+        }
         await nextFrame()
         const execution = await desktopClient.executeQuery(executionRequest)
+        stopProgress?.()
+        stopProgress = undefined
         const executionWithId = { ...execution, executionId }
         if (executionWithId.result) {
           dispatch({ type: 'EXECUTION_PHASE', tabId, executionId, phase: 'rendering' })
@@ -186,6 +214,7 @@ export function useQueryExecutionActions({
         }
         handleError(error, { suppressWorkbenchMessage: true })
       } finally {
+        stopProgress?.()
         dispatchingTabsRef.current.delete(tabId)
       }
     },

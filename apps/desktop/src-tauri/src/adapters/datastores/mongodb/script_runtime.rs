@@ -22,6 +22,7 @@ pub(super) struct JavaScriptExecution {
     pub(super) value: Value,
 }
 
+#[cfg(test)]
 pub(super) fn execute_javascript<F>(
     source: &str,
     database: &str,
@@ -31,18 +32,42 @@ pub(super) fn execute_javascript<F>(
 where
     F: FnMut(String) -> String + 'static,
 {
+    execute_javascript_with_deadline(source, database, cancellation, None, call_host)
+}
+
+pub(super) fn execute_javascript_with_deadline<F>(
+    source: &str,
+    database: &str,
+    cancellation: CancellationToken,
+    deadline: Option<Instant>,
+    call_host: F,
+) -> Result<JavaScriptExecution, CommandError>
+where
+    F: FnMut(String) -> String + 'static,
+{
+    if deadline.is_some_and(|end| Instant::now() >= end) {
+        return Err(deadline_error(deadline, String::new()));
+    }
     let runtime = Runtime::new().map_err(quickjs_runtime_error)?;
     runtime.set_memory_limit(JAVASCRIPT_MEMORY_LIMIT);
     runtime.set_max_stack_size(JAVASCRIPT_STACK_LIMIT);
     let started = Instant::now();
     let blocked_millis = Arc::new(AtomicU64::new(0));
     let interrupt_blocked_millis = Arc::clone(&blocked_millis);
+    let cpu_checkpoint = Arc::new(AtomicU64::new(0));
+    let interrupt_checkpoint = Arc::clone(&cpu_checkpoint);
     let interrupt_cancellation = cancellation;
     runtime.set_interrupt_handler(Some(Box::new(move || {
         let elapsed = started.elapsed();
         let blocked = Duration::from_millis(interrupt_blocked_millis.load(Ordering::Relaxed));
         interrupt_cancellation.is_cancelled()
-            || elapsed.saturating_sub(blocked) >= JAVASCRIPT_CPU_BUDGET
+            || deadline.is_some_and(|end| Instant::now() >= end)
+            || elapsed
+                .saturating_sub(blocked)
+                .saturating_sub(Duration::from_millis(
+                    interrupt_checkpoint.load(Ordering::Relaxed),
+                ))
+                >= JAVASCRIPT_CPU_BUDGET
     })));
 
     let context = Context::full(&runtime).map_err(quickjs_runtime_error)?;
@@ -50,13 +75,29 @@ where
     context.with(|ctx| {
         let callback_host = Rc::clone(&host);
         let callback_blocked = Arc::clone(&blocked_millis);
+        let callback_checkpoint = Arc::clone(&cpu_checkpoint);
         let callback = Function::new(ctx.clone(), move |request: String| {
-            let started = Instant::now();
+            let call_started = Instant::now();
+            let is_database_operation = serde_json::from_str::<Value>(&request)
+                .ok()
+                .and_then(|value| {
+                    value["method"]
+                        .as_str()
+                        .map(|method| !method.starts_with("__"))
+                })
+                .unwrap_or(false);
             let response = (callback_host.borrow_mut())(request);
             callback_blocked.fetch_add(
-                started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                call_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
                 Ordering::Relaxed,
             );
+            if is_database_operation {
+                callback_checkpoint.store(
+                    (started.elapsed().as_millis() as u64)
+                        .saturating_sub(callback_blocked.load(Ordering::Relaxed)),
+                    Ordering::Relaxed,
+                );
+            }
             response
         })
         .map_err(quickjs_runtime_error)?;
@@ -66,17 +107,17 @@ where
         let bootstrap = bootstrap_for_database(database);
         ctx.eval::<(), _>(bootstrap.as_str())
             .catch(&ctx)
-            .map_err(|error| quickjs_script_error(error.to_string()))?;
+            .map_err(|error| deadline_error(deadline, error.to_string()))?;
 
         let evaluated = ctx
             .eval::<JsValue<'_>, _>(source)
             .catch(&ctx)
-            .map_err(|error| quickjs_script_error(error.to_string()))?;
+            .map_err(|error| deadline_error(deadline, error.to_string()))?;
         let evaluated = if let Some(promise) = evaluated.as_promise() {
             promise
                 .finish::<JsValue<'_>>()
                 .catch(&ctx)
-                .map_err(|error| quickjs_script_error(error.to_string()))?
+                .map_err(|error| deadline_error(deadline, error.to_string()))?
         } else {
             evaluated
         };
@@ -86,7 +127,7 @@ where
         let output = ctx
             .eval::<String, _>("JSON.stringify(__dpFinalize(globalThis.__dpLastValue))")
             .catch(&ctx)
-            .map_err(|error| quickjs_script_error(error.to_string()))?;
+            .map_err(|error| deadline_error(deadline, error.to_string()))?;
         let value = serde_json::from_str(&output).map_err(|error| {
             CommandError::new(
                 "mongodb-script-result-invalid",
@@ -95,6 +136,14 @@ where
         })?;
         Ok(JavaScriptExecution { value })
     })
+}
+
+fn deadline_error(deadline: Option<Instant>, message: String) -> CommandError {
+    if deadline.is_some_and(|end| Instant::now() >= end) {
+        CommandError::new("mongodb-script-timeout", "The configured script duration expired. Earlier mutations may have completed and the server operation may still be running. Check its outcome before retrying.")
+    } else {
+        quickjs_script_error(message)
+    }
 }
 
 fn quickjs_runtime_error(error: impl std::fmt::Display) -> CommandError {
@@ -110,7 +159,7 @@ fn quickjs_script_error(error: impl Into<String>) -> CommandError {
     if lower.contains("interrupted") {
         return CommandError::new(
             "mongodb-script-cpu-limit",
-            "MongoDB script exceeded the 10-second JavaScript CPU budget.",
+            "MongoDB script exceeded the 10-second uninterrupted JavaScript processing budget. Database waiting time is excluded; check for a runaway loop.",
         );
     }
     if lower.contains("stack overflow") {

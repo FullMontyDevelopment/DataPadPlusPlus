@@ -1232,26 +1232,32 @@ fn migrate_legacy_variable_tokens(snapshot: &mut WorkspaceSnapshot) {
     }
 
     for tab in &mut snapshot.tabs {
-        tab.query_text = legacy_to_brace_tokens(&tab.query_text);
-        tab.script_text = tab.script_text.as_deref().map(legacy_to_brace_tokens);
+        if tab.query_view_mode.as_deref() != Some("script") && tab.language != "javascript" {
+            tab.query_text = legacy_to_brace_tokens(&tab.query_text);
+        }
     }
 
     for closed_tab in &mut snapshot.closed_tabs {
-        closed_tab.tab.query_text = legacy_to_brace_tokens(&closed_tab.tab.query_text);
-        closed_tab.tab.script_text = closed_tab
-            .tab
-            .script_text
-            .as_deref()
-            .map(legacy_to_brace_tokens);
+        if closed_tab.tab.query_view_mode.as_deref() != Some("script")
+            && closed_tab.tab.language != "javascript"
+        {
+            closed_tab.tab.query_text = legacy_to_brace_tokens(&closed_tab.tab.query_text);
+        }
     }
 
     for node in &mut snapshot.library_nodes {
-        node.query_text = node.query_text.as_deref().map(legacy_to_brace_tokens);
-        node.script_text = node.script_text.as_deref().map(legacy_to_brace_tokens);
+        if node.query_view_mode.as_deref() != Some("script")
+            && node.kind != "script"
+            && node.language.as_deref() != Some("javascript")
+        {
+            node.query_text = node.query_text.as_deref().map(legacy_to_brace_tokens);
+        }
     }
 
     for item in &mut snapshot.saved_work {
-        item.query_text = item.query_text.as_deref().map(legacy_to_brace_tokens);
+        if item.kind != "script" && item.language.as_deref() != Some("javascript") {
+            item.query_text = item.query_text.as_deref().map(legacy_to_brace_tokens);
+        }
     }
 }
 
@@ -1905,3 +1911,7 @@ pub fn blank_workspace_snapshot() -> WorkspaceSnapshot {
 #[cfg(test)]
 #[path = "../../../tests/unit/app/runtime/workspace/api_server_migration_tests.rs"]
 mod api_server_migration_tests;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/app/runtime/workspace/script_template_migration_tests.rs"]
+mod script_template_migration_tests;

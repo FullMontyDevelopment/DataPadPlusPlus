@@ -2,6 +2,7 @@ import type { LiteDbFindBuilderState, LiteDbFilterOperator } from '@datapadplusp
 import { useCallback, useRef } from 'react'
 import type { DatastoreQueryBuilderProps } from '../types'
 import { BuilderSection } from '../../query-builder/BuilderSection'
+import { QueryLimitInput } from '../../query-builder/QueryLimitInput'
 import { QueryBuilderIconButton } from '../../query-builder/QueryBuilderIconButton'
 import { QueryBuilderValueInput } from '../../query-builder/QueryBuilderValueInput'
 import { queryBuilderOperatorArity, queryBuilderValueTypeLabel } from '../../query-builder/query-value-codec'
@@ -80,7 +81,7 @@ function LiteDbFindBuilderContent({ state, tab, collectionOptions, theme, onBuil
         <datalist id={`litedb-collections-${tab.id}`}>{[...new Set(collectionOptions)].map(name => <option key={name} value={name} />)}</datalist>
       </label> : null}
       <label className="query-builder-field query-builder-field--number"><span>Skip</span><input aria-label="Skip" type="number" min={0} step={1} value={Number.isNaN(state.skip) ? '' : state.skip ?? 0} onChange={event => update({ skip: event.target.valueAsNumber })} /></label>
-      {showFetchSize ? <label className="query-builder-field query-builder-field--number"><span>Query limit</span><input aria-label="Query limit" type="number" min={1} step={1} disabled={state.limit === null} value={Number.isNaN(state.limit) ? '' : state.limit ?? ''} onChange={event => update({ limit: event.target.valueAsNumber })} /></label> : null}
+      {showFetchSize ? <QueryLimitInput value={state.limit === null ? null : state.limit ?? 20} className="query-builder-field query-builder-field--number" onChange={limit => update({ limit })} /> : null}
       {countControl}
     </div>
     <BuilderSection title="Filters" actionLabel="Add Group" onAdd={() => update({ filterGroups: [...state.filterGroups, { id: newId(), label: `Group ${state.filterGroups.length + 1}`, logic: 'and' }] })} secondaryActionLabel="Add Filter" onSecondaryAdd={() => addFilter()} dropHint="Drop a result field to filter" dropZone="filters" dragActive={activeDropZone === 'filters'}>

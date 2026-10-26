@@ -318,6 +318,8 @@ async fn run_step(
         environment_id: context.test_tab.environment_id.clone(),
         language: context.provider.query_language().to_string(),
         query_text: query_text.clone(),
+        script_progress: None,
+        script_timeout: Default::default(),
         execution_input_mode: Some(if kind == "builder" { "builder" } else { "raw" }.into()),
         script_text: None,
         selected_text: None,

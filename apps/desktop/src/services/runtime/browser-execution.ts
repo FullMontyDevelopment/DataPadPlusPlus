@@ -36,7 +36,7 @@ export function applyExecutionRequestLocally(
       : selectedText ?? request.queryText
 
   const referencedSecrets = referencedSensitiveEnvironmentVariableKeys(
-    queryTemplate,
+    request.executionInputMode === 'script' ? [...queryTemplate.matchAll(/\{\{[A-Z_][A-Z0-9_]*\}\}/g)].map(match => match[0]).join(' ') : queryTemplate,
     resolvedEnvironment.sensitiveKeys,
   )
   if (referencedSecrets.length > 0) {
@@ -99,7 +99,8 @@ export function applyExecutionRequestLocally(
     }
   }
 
-  const queryText = interpolateEnvironmentVariables(
+  // Preview never executes JavaScript or substitutes values into its source.
+  const queryText = request.executionInputMode === 'script' ? queryTemplate : interpolateEnvironmentVariables(
     queryTemplate,
     resolvedEnvironment.variables,
   )
@@ -161,6 +162,10 @@ export function applyExecutionRequestLocally(
         },
       }
     }
+    guardrail.status = 'allow'
+    guardrail.id = undefined
+    guardrail.requiredConfirmationText = undefined
+    guardrail.reasons = ['Execution approved for this run.']
   }
 
   const executionId = request.executionId ?? createId('execution')

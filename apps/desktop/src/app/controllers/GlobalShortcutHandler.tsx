@@ -63,6 +63,12 @@ export function GlobalShortcutHandler({
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      // Opt-in local controls must not invoke a user-remapped global action
+      // (for example Run query = Space). Modified application shortcuts remain global.
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.target instanceof Element) {
+        const localKeys = event.target.closest('[data-local-shortcut-keys]')?.getAttribute('data-local-shortcut-keys')?.split(' ')
+        if (localKeys?.includes(event.key === ' ' ? 'Space' : event.key)) return
+      }
       if (shortcutMatchesEvent(event, keyboardShortcuts.refresh)) {
         event.preventDefault()
         if (!executionLocked && activeTab && !activeTabIsExplorer && !activeTabIsEnvironment && !activeTabIsSettings && !activeTabIsApiServer && !activeTabIsMcpServer && !activeTabIsWorkspaceSearch && !activeTabIsSecurityChecks) {

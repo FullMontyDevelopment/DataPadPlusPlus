@@ -16,6 +16,7 @@ type WorkspaceActions = Pick<
   | 'setSafeModeEnabled'
   | 'setQueryResultPreferences'
   | 'setQueryFetchBatchSize'
+  | 'setQueryTabResultSettings'
   | 'setKeyboardShortcut'
   | 'setFirstInstallGuideStatus'
   | 'setExplorerFolderOrder'
@@ -159,6 +160,14 @@ export function useWorkspaceActions({
       }
     },
     [applyPayload, handleError],
+  )
+  const setQueryTabResultSettings = useCallback<Actions['setQueryTabResultSettings']>(
+    async request => {
+      try {
+        applyPayload(await desktopClient.setQueryTabResultSettings(request))
+        return true
+      } catch (error) { handleError(error); return false }
+    }, [applyPayload, handleError],
   )
   const setQueryFetchBatchSize = useCallback<Actions['setQueryFetchBatchSize']>(
     async (tabId, batchSize) => {
@@ -1156,6 +1165,7 @@ export function useWorkspaceActions({
       setSafeModeEnabled,
       setQueryResultPreferences,
       setQueryFetchBatchSize,
+      setQueryTabResultSettings,
       setKeyboardShortcut,
       setFirstInstallGuideStatus,
       setExplorerFolderOrder,
@@ -1292,6 +1302,7 @@ export function useWorkspaceActions({
       setSafeModeEnabled,
       setQueryResultPreferences,
       setQueryFetchBatchSize,
+      setQueryTabResultSettings,
       setKeyboardShortcut,
       setFirstInstallGuideStatus,
       setExplorerFolderOrder,

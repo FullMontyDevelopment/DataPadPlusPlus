@@ -312,6 +312,8 @@ async fn execute_custom_endpoint(
         environment_id: state.environment_id.clone(),
         language: endpoint.language.clone(),
         query_text: query_template.clone(),
+        script_progress: None,
+        script_timeout: Default::default(),
         execution_input_mode: endpoint
             .query_view_mode
             .clone()
@@ -684,6 +686,8 @@ async fn execute_resource_read(
         environment_id: state.environment_id.clone(),
         language: language_for(&connection),
         query_text: query_text.clone(),
+        script_progress: None,
+        script_timeout: Default::default(),
         execution_input_mode: Some("raw".into()),
         script_text: None,
         selected_text: None,

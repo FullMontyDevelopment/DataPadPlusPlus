@@ -45,6 +45,7 @@ interface EditorToolbarProps {
   scriptingGuideVisible?: boolean
   onToggleScriptingGuide?(): void
   queryExecutionControls?: ReactNode
+  executionMessage?: string
 }
 
 export function EditorToolbar({
@@ -74,6 +75,7 @@ export function EditorToolbar({
   scriptingGuideVisible = false,
   onToggleScriptingGuide = noop,
   queryExecutionControls,
+  executionMessage,
 }: EditorToolbarProps) {
   const queryWindowModeButtonLabels: Record<
     QueryViewMode,
@@ -135,6 +137,7 @@ export function EditorToolbar({
           <StopIcon className="toolbar-icon" />
           <span>Cancel</span>
         </button>
+        {executionStatus === 'loading' && executionMessage ? <small className="script-execution-progress" role="status" title={executionMessage}>{executionMessage}</small> : null}
 
         <button
           type="button"

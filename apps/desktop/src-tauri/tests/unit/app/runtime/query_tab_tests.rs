@@ -71,6 +71,82 @@ fn bulk_tab_close_deduplicates_and_reports_locked_and_missing_tabs() {
 }
 
 #[test]
+fn selected_query_settings_are_revision_bound_and_preserve_other_state() {
+    use super::query_result_settings::prepare_query_tab_settings;
+    use crate::domain::models::{QueryTabResultSettingsRequest, WorkspaceWindowState};
+    let connection = test_connection("selected", "Selected", "postgresql", "sql");
+    let mut snapshot = blank_workspace_snapshot();
+    snapshot.connections.push(connection.clone());
+    let mut tab = build_query_tab(&connection, true, "Selected".into());
+    tab.query_view_mode = Some("builder".into());
+    tab.builder_state = Some(
+        serde_json::json!({"kind":"sql-select","table":"items","projectionFields":[],"filters":[],"filterLogic":"and","sort":[],"limit":20}),
+    );
+    tab.query_text = "SELECT * FROM items LIMIT 20".into();
+    snapshot.tabs.push(tab.clone());
+    snapshot.ui.active_tab_id = "settings".into();
+    snapshot.ui.active_connection_id = "unrelated".into();
+    let mut request = QueryTabResultSettingsRequest {
+        tab_id: tab.id.clone(),
+        expected_revision: snapshot.workspace_revision,
+        fetch_batch_size: Some(750),
+        remove_query_limit: true,
+    };
+    let original = serde_json::to_value(&snapshot).unwrap();
+    let (_, updated) = prepare_query_tab_settings(&snapshot, "main", &request).unwrap();
+    assert_eq!(updated.query_fetch_batch_size, Some(750));
+    assert!(updated.builder_state.unwrap()["limit"].is_null());
+    assert!(!updated.query_text.contains("LIMIT"));
+    assert_eq!(updated.environment_id, tab.environment_id);
+    assert_eq!(updated.connection_id, tab.connection_id);
+    assert_eq!(serde_json::to_value(&snapshot).unwrap(), original);
+    request.expected_revision += 1;
+    assert!(prepare_query_tab_settings(&snapshot, "main", &request).is_err());
+    request.expected_revision = snapshot.workspace_revision;
+    for status in ["running", "queued"] {
+        snapshot.tabs[0].status = status.into();
+        assert!(prepare_query_tab_settings(&snapshot, "main", &request).is_err());
+    }
+    snapshot.tabs[0].status = "idle".into();
+    snapshot.ui.workspace_windows = vec![WorkspaceWindowState {
+        id: "editor-other".into(),
+        tab_ids: vec![tab.id.clone()],
+        ..WorkspaceWindowState::default()
+    }];
+    assert!(prepare_query_tab_settings(&snapshot, "main", &request).is_err());
+    snapshot.ui.workspace_windows.clear();
+    snapshot.tabs[0].query_view_mode = Some("raw".into());
+    assert!(prepare_query_tab_settings(&snapshot, "main", &request).is_err());
+    request.remove_query_limit = false;
+    assert!(prepare_query_tab_settings(&snapshot, "main", &request).is_ok());
+    snapshot.tabs.clear();
+    assert!(prepare_query_tab_settings(&snapshot, "main", &request).is_err());
+}
+
+#[test]
+fn fresh_builder_query_defaults_do_not_change_raw_queries() {
+    use super::query_result_settings::initialize_query_limit;
+    use crate::domain::models::NewBuilderQueryLimit;
+    let connection = test_connection("mongo", "Mongo", "mongodb", "document");
+    let mut tab = build_query_tab(&connection, true, "Fresh".into());
+    initialize_query_limit(
+        &mut tab,
+        &connection,
+        &NewBuilderQueryLimit::Limited { value: 75 },
+    )
+    .unwrap();
+    assert_eq!(tab.builder_state.as_ref().unwrap()["limit"], 75);
+    initialize_query_limit(&mut tab, &connection, &NewBuilderQueryLimit::Unlimited).unwrap();
+    assert!(tab.builder_state.as_ref().unwrap()["limit"].is_null());
+    let sql = test_connection("sql", "Sql", "postgresql", "sql");
+    let mut raw = build_query_tab(&sql, true, "Raw".into());
+    let before = raw.query_text.clone();
+    initialize_query_limit(&mut raw, &sql, &NewBuilderQueryLimit::Unlimited).unwrap();
+    assert_eq!(raw.query_text, before);
+    assert!(raw.builder_state.is_none());
+}
+
+#[test]
 fn bulk_tab_close_selects_the_nearest_surviving_tab_and_bounds_history() {
     let connection = test_connection("conn-postgres", "Postgres", "postgresql", "sql");
     let mut snapshot = blank_workspace_snapshot();

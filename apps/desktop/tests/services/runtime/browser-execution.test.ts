@@ -280,5 +280,17 @@ describe('browser execution runtime', () => {
     expect(response.diagnostics).toEqual([])
     expect(executed.ui.bottomPanelVisible).toBe(false)
     expect(executed.ui.activeBottomPanelTab).toBe('results')
+    const approved = applyExecutionRequestLocally(executed, {
+      tabId: tab.id,
+      connectionId: tab.connectionId,
+      environmentId: tab.environmentId,
+      language: tab.language,
+      queryText: 'update accounts set status = "inactive" where id = 1;',
+      confirmedGuardrailId: response.guardrail.id,
+    }).response
+    expect(approved.result).toBeDefined()
+    expect(approved.guardrail.status).toBe('allow')
+    expect(approved.guardrail.id).toBeUndefined()
+    expect(approved.guardrail.requiredConfirmationText).toBeUndefined()
   })
 })

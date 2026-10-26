@@ -23,8 +23,13 @@ describe('Query toolbar layout', () => {
 
   it('uses a compact, readable result-size input with a keyboard focus indicator', () => {
     const input = styles.match(/\.toolbar-fetch-size input\s*\{([^}]+)\}/)?.[1]
-    expect(input).toContain('width: 72px;')
+    // Keep the inline "No limit" state legible alongside native number steppers.
+    expect(input).toContain('width: 86px;')
     expect(input).toContain('background: var(--input-bg);')
     expect(styles.match(/\.toolbar-fetch-size input:focus-visible\s*\{([^}]+)\}/)?.[1]).toContain('outline: 1px solid var(--accent);')
+  })
+  it('keeps selected-query controls contained in narrow settings panes', () => {
+    expect(styles.match(/\.settings-query-selector select\s*\{([^}]+)\}/)?.[1]).toContain('min-width: 0;')
+    expect(styles.match(/\.settings-query-selector select\s*\{([^}]+)\}/)?.[1]).toContain('width: 100%;')
   })
 })

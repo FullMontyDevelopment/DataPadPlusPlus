@@ -13,6 +13,7 @@ import {
 } from './cql-partition'
 import { QueryBuilderValueInput } from './QueryBuilderValueInput'
 import { QueryBuilderIconButton } from './QueryBuilderIconButton'
+import { QueryLimitInput } from './QueryLimitInput'
 import { queryBuilderValueTypeLabel } from './query-value-codec'
 import { builderStateWithCompiledQueryText } from '../../../controllers/query-builder-routing'
 
@@ -75,16 +76,7 @@ export function CqlPartitionBuilder({
             {tableOptionsList.map((table) => <option key={table} value={table} />)}
           </datalist>
         </label>
-        {showFetchSize ? <label className="query-builder-field">
-          <span>Limit</span>
-          <input
-            aria-label="Limit"
-            min={1}
-            type="number"
-            value={draft.limit ?? 20}
-            onChange={(event) => updateDraft({ limit: numberValue(event.target.value, 20) })}
-          />
-        </label> : null}
+        {showFetchSize ? <QueryLimitInput label="Limit" value={draft.limit ?? null} className="query-builder-field" onChange={limit => updateDraft({ limit })} /> : null}
         <label className="query-builder-toggle query-builder-toggle--inline">
           <input
             type="checkbox"
@@ -269,11 +261,6 @@ function ConditionRow({
       />
     </div>
   )
-}
-
-function numberValue(value: string, fallback: number) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback
 }
 
 function uniqueValues(values: string[]) {

@@ -1,5 +1,44 @@
 use super::*;
 
+#[test]
+fn script_timeout_policy_overrides_connection_cap_without_disabling_default_timeouts() {
+    use crate::domain::models::ScriptTimeoutPolicy;
+    let now = Instant::now();
+    let six_hours = Duration::from_secs(6 * 3600);
+    let connection = Duration::from_secs(120);
+    assert_eq!(
+        operation_timeout(
+            &ScriptTimeoutPolicy::ConnectionDefault,
+            None,
+            connection,
+            now
+        ),
+        Some(connection)
+    );
+    assert_eq!(
+        operation_timeout(&ScriptTimeoutPolicy::Unlimited, None, connection, now),
+        None
+    );
+    assert_eq!(
+        operation_timeout(
+            &ScriptTimeoutPolicy::Custom { seconds: 21600 },
+            Some(now + six_hours),
+            connection,
+            now
+        ),
+        Some(six_hours)
+    );
+    assert_eq!(
+        operation_timeout(
+            &ScriptTimeoutPolicy::Custom { seconds: 1 },
+            Some(now),
+            connection,
+            now
+        ),
+        Some(Duration::ZERO)
+    );
+}
+
 fn request(method: &str, args: Vec<Value>, options: Value) -> ScriptOperationRequest {
     ScriptOperationRequest {
         database: Some("catalog".into()),

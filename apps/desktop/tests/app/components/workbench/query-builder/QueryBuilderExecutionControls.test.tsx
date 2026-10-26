@@ -14,6 +14,7 @@ import { createDefaultDynamoDbKeyConditionBuilderState } from '../../../../../sr
 import { createDefaultSearchDslBuilderState } from '../../../../../src/app/components/workbench/query-builder/search-dsl'
 import { createDefaultRedisKeyBrowserState } from '../../../../../src/app/components/workbench/query-builder/redis-key-browser'
 import { compileQueryBuilderState } from '../../../../../src/app/controllers/query-builder-routing'
+import { initializeQueryLimit, supportsUnlimitedQueryLimit } from '../../../../../../../packages/query-compiler/src/query-limit-settings'
 
 const sqlEngines: ConnectionProfile['engine'][] = [
   'postgresql', 'mysql', 'mariadb', 'sqlite', 'sqlserver', 'cockroachdb',
@@ -31,6 +32,39 @@ const cases: { engine: ConnectionProfile['engine']; builder: QueryBuilderState }
 ]
 
 describe('QueryBuilderExecutionControls', () => {
+  it.each(cases)('applies fresh-builder policies with $engine / $builder.kind semantics', ({ engine, builder }) => {
+    const query = { ...tab(builder), queryViewMode: 'builder' as const }
+    const profile = connection(engine)
+    expect(initializeQueryLimit({ tab: query, connection: profile })).toBe(query)
+    expect(initializeQueryLimit({ tab: query, connection: profile, policy: { mode: 'datastore-default' } })).toBe(query)
+    const limited = initializeQueryLimit({ tab: query, connection: profile, policy: { mode: 'limited', value: 75 } })
+    expect(limited.builderState).toMatchObject(builder.kind === 'search-dsl' ? { size: 75 } : { limit: 75 })
+    const unlimited = initializeQueryLimit({ tab: query, connection: profile, policy: { mode: 'unlimited' } })
+    if (supportsUnlimitedQueryLimit(builder)) expect(unlimited.builderState).toMatchObject({ limit: null })
+    else expect(unlimited).toBe(query)
+    expect(query.builderState).toBe(builder)
+  })
+  it('shows an unlimited limit in the input and restores a finite limit by typing', () => {
+    const onChange = vi.fn()
+    render(<Harness initialState={{ ...createDefaultMongoFindBuilderState('orders'), limit: null }} onChange={onChange} />)
+    const input = screen.getByLabelText('Query limit')
+    expect(input).toHaveAttribute('placeholder', 'No limit')
+    expect(input).toBeEnabled()
+    expect(screen.queryByRole('checkbox', { name: /No.*limit/i })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Batch size/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Default' })).not.toBeInTheDocument()
+    fireEvent.change(input, { target: { value: '85' } })
+    expect(onChange).toHaveBeenLastCalledWith('tab-fixture', expect.objectContaining({ limit: 85 }))
+    onChange.mockClear()
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.blur(input)
+    expect(input).toHaveValue(85)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+  it.each(cases.filter(({ builder }) => ['mongo-find', 'mongo-aggregation', 'sql-select', 'cql-partition'].includes(builder.kind)))('displays the legacy omitted limit as unlimited for $engine / $builder.kind', ({ engine, builder }) => {
+    render(<Harness engine={engine} initialState={{ ...builder, limit: undefined } as QueryBuilderState} onChange={vi.fn()} />)
+    expect(screen.getByLabelText('Query limit')).toHaveAttribute('placeholder', 'No limit')
+  })
   it.each(cases)('moves $engine / $builder.kind controls to the toolbar and preserves native compilation', async ({ engine, builder }) => {
     const onChange = vi.fn()
     const onCount = vi.fn().mockResolvedValue(undefined)

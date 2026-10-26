@@ -199,6 +199,8 @@ async fn neo4j_bolt_fixture_returns_graph_entities() {
             environment_id: "env-local-demo".into(),
             language: "cypher".into(),
             query_text: "MATCH (n) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m LIMIT 25".into(),
+            script_progress: None,
+            script_timeout: Default::default(),
             execution_input_mode: None,
             script_text: None,
             selected_text: None,

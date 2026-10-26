@@ -25,13 +25,17 @@ export function useEditorLanguageSupport({
     if (!runtime || language !== 'javascript' || !ambientDeclarations) {
       return undefined
     }
-    const defaults = runtime.monaco.languages.typescript?.javascriptDefaults
+    const typescript = runtime.monaco.typescript ?? runtime.monaco.languages.typescript
+    const defaults = typescript?.javascriptDefaults
     defaults?.setCompilerOptions?.({
       allowNonTsExtensions: true,
+      allowJs: true,
       checkJs: true,
-      target: runtime.monaco.languages.typescript?.ScriptTarget?.ES2022,
+      target: typescript?.ScriptTarget?.ES2022,
+      moduleDetection: 3,
       lib: ['es2022'],
     })
+    defaults?.setDiagnosticsOptions?.({ noSemanticValidation: false, noSyntaxValidation: false })
     const disposable = defaults?.addExtraLib?.(
       ambientDeclarations,
       'inmemory://datapadplusplus/mongodb-sandbox.d.ts',

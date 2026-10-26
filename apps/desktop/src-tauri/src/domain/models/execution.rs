@@ -365,6 +365,11 @@ pub struct LockState {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionRequest {
+    /// Captured from workspace preferences by the backend, never accepted from IPC.
+    #[serde(skip)]
+    pub script_timeout: super::ScriptTimeoutPolicy,
+    #[serde(skip)]
+    pub script_progress: Option<std::sync::Arc<dyn Fn(Value) + Send + Sync>>,
     pub execution_id: Option<String>,
     pub tab_id: String,
     pub connection_id: String,

@@ -576,6 +576,7 @@ pub fn run() {
             commands::workspace::set_safe_mode_enabled,
             commands::workspace::set_query_result_preferences,
             commands::workspace::set_query_fetch_batch_size,
+            commands::workspace::set_query_tab_result_settings,
             commands::workspace::set_theme,
             commands::workspace::set_ui_state,
             commands::workspace::start_datastore_api_server,

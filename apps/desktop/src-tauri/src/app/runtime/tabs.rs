@@ -90,6 +90,15 @@ impl ManagedAppState {
         let mut tab = build_query_tab(&connection, true, title);
         tab.environment_id =
             effective_connection_environment_id(&self.snapshot, &connection.id, None);
+        super::query_result_settings::initialize_query_limit(
+            &mut tab,
+            &connection,
+            &self
+                .snapshot
+                .preferences
+                .query_results
+                .new_builder_query_limit,
+        )?;
         self.snapshot.tabs.push(tab.clone());
         focus_query_tab(&mut self.snapshot.ui, &tab);
         self.snapshot.updated_at = timestamp_now();
@@ -339,7 +348,16 @@ impl ManagedAppState {
             return Ok(self.bootstrap_payload());
         }
 
-        let tab = build_scoped_query_tab(&self.snapshot, &connection, request);
+        let mut tab = build_scoped_query_tab(&self.snapshot, &connection, request);
+        super::query_result_settings::initialize_query_limit(
+            &mut tab,
+            &connection,
+            &self
+                .snapshot
+                .preferences
+                .query_results
+                .new_builder_query_limit,
+        )?;
 
         self.snapshot.tabs.push(tab.clone());
         focus_query_tab(&mut self.snapshot.ui, &tab);

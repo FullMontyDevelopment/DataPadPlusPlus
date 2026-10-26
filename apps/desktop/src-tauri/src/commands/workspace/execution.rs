@@ -330,7 +330,9 @@ pub async fn cancel_execution_request(
     executions: State<'_, SharedExecutionRegistry>,
     request: CancelExecutionRequest,
 ) -> Result<CancelExecutionResult, CommandError> {
-    adapters::cancel_mongodb_script_execution(&request.execution_id);
+    if adapters::cancel_mongodb_script_execution(&request.execution_id) {
+        return Ok(CancelExecutionResult { ok: true, supported: true, message: "Cancellation requested. Waiting for script cleanup; server-side operations may still be running.".into() });
+    }
     {
         let mut executions = lock_executions(&executions)?;
         if executions.abort(&request.execution_id) {

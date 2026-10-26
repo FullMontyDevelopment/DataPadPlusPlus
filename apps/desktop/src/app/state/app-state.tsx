@@ -93,6 +93,7 @@ const defaultActions: Actions = {
   setSafeModeEnabled: noop,
   setQueryResultPreferences: async () => false,
   setQueryFetchBatchSize: async () => false,
+  setQueryTabResultSettings: async () => false,
   setKeyboardShortcut: noop,
   setFirstInstallGuideStatus: noop,
   setExplorerFolderOrder: noop,

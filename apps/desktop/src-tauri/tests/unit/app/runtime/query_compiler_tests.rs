@@ -54,6 +54,15 @@ fn mcp_compiler_embedded_runtime_generates_valid_sql() {
         result["builderState"]["lastAppliedQueryText"]
     );
 }
+
+#[test]
+fn shared_compiler_accepts_unlimited_builder_query_limits() {
+    let mut value = input();
+    value["builderState"]["limit"] = Value::Null;
+    let result = invoke("compileSavedBuilder", &value).unwrap();
+    assert_eq!(result["ok"], true, "{result}");
+    assert!(!result["queryText"].as_str().unwrap().contains("LIMIT"));
+}
 #[test]
 fn mcp_compiler_invalid_values_never_use_stale_queries() {
     let mut input = input();

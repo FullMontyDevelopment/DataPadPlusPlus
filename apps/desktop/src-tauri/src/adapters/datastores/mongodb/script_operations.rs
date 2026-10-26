@@ -21,6 +21,24 @@ const DEFAULT_QUERY_TIMEOUT_MS: u64 = 120_000;
 const MIN_QUERY_TIMEOUT_MS: u64 = 1_000;
 const MAX_QUERY_TIMEOUT_MS: u64 = 30 * 60 * 1_000;
 
+fn operation_timeout(
+    policy: &crate::domain::models::ScriptTimeoutPolicy,
+    deadline: Option<Instant>,
+    connection_timeout: Duration,
+    now: Instant,
+) -> Option<Duration> {
+    use crate::domain::models::ScriptTimeoutPolicy;
+    match policy {
+        ScriptTimeoutPolicy::ConnectionDefault => Some(connection_timeout),
+        ScriptTimeoutPolicy::Custom { .. } => Some(
+            deadline
+                .map(|end| end.saturating_duration_since(now))
+                .unwrap_or_default(),
+        ),
+        ScriptTimeoutPolicy::Unlimited => None,
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ScriptOperationRequest {
@@ -53,6 +71,10 @@ pub(super) struct MongoScriptHost {
     operation_count: usize,
     row_limit: u32,
     query_timeout: Duration,
+    script_timeout: crate::domain::models::ScriptTimeoutPolicy,
+    deadline: Option<Instant>,
+    pub(super) progress: Option<std::sync::Arc<dyn Fn(Value) + Send + Sync>>,
+    last_progress: Option<Instant>,
     records: Vec<ScriptOperationRecord>,
     console: String,
     console_truncated: bool,
@@ -84,6 +106,10 @@ impl MongoScriptHost {
             operation_count: 0,
             row_limit,
             query_timeout: Duration::from_millis(timeout_ms),
+            script_timeout: Default::default(),
+            deadline: None,
+            progress: None,
+            last_progress: None,
             records: Vec::new(),
             console: String::new(),
             console_truncated: false,
@@ -96,6 +122,32 @@ impl MongoScriptHost {
 
     pub(super) fn records(&self) -> &[ScriptOperationRecord] {
         &self.records
+    }
+
+    fn report_progress(&mut self, method: &str, status: &str) {
+        if status == "console"
+            && self
+                .last_progress
+                .is_some_and(|last| last.elapsed() < Duration::from_millis(200))
+        {
+            return;
+        }
+        self.last_progress = Some(Instant::now());
+        if let Some(callback) = &self.progress {
+            callback(
+                json!({ "sequence": self.operation_count, "method": method, "status": status,
+                "console": &self.console[..safe_char_boundary(&self.console, self.console.len().min(16 * 1024))] }),
+            );
+        }
+    }
+
+    pub(super) fn set_timeout_policy(
+        &mut self,
+        policy: crate::domain::models::ScriptTimeoutPolicy,
+        deadline: Option<Instant>,
+    ) {
+        self.script_timeout = policy;
+        self.deadline = deadline;
     }
 
     pub(super) fn console(&self) -> &str {
@@ -118,13 +170,16 @@ impl MongoScriptHost {
         self.truncated
     }
 
-    pub(super) async fn abort_open_transaction(&mut self) {
+    pub(super) async fn abort_open_transaction(&mut self) -> Result<(), CommandError> {
         if self.transaction_open {
             if let Some(session) = self.session.as_mut() {
-                let _ = session.abort_transaction().await;
+                tokio::time::timeout(Duration::from_secs(30), async { session.abort_transaction().await })
+                    .await
+                    .map_err(|_| CommandError::new("mongodb-script-cleanup-timeout", "Transaction cleanup timed out; its outcome is uncertain. Check the database before retrying."))??;
             }
             self.transaction_open = false;
         }
+        Ok(())
     }
 
     pub(super) async fn execute_json_request(&mut self, raw: &str) -> String {
@@ -148,6 +203,7 @@ impl MongoScriptHost {
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             self.append_console(text);
+            self.report_progress("print", "console");
             return json!({ "ok": true, "value": null }).to_string();
         }
         if request.method == "__newObjectId" {
@@ -178,22 +234,37 @@ impl MongoScriptHost {
             ));
         }
 
-        let timeout = self.query_timeout;
+        let timeout = operation_timeout(
+            &self.script_timeout,
+            self.deadline,
+            self.query_timeout,
+            Instant::now(),
+        );
         let cancellation = self.cancellation.clone();
+        self.report_progress(&request.method, "running");
         let result = tokio::select! {
-            result = tokio::time::timeout(timeout, self.execute_operation(&request)) => result,
+            result = async {
+                match timeout {
+                    Some(duration) => tokio::time::timeout(duration, self.execute_operation(&request)).await,
+                    None => Ok(self.execute_operation(&request).await),
+                }
+            } => result,
             _ = cancellation.cancelled() => return error_response(cancelled_error()),
         };
         let operation_value = match result {
             Ok(Ok(value)) => value,
-            Ok(Err(error)) => return error_response(error),
+            Ok(Err(error)) => {
+                self.report_progress(&request.method, "failed");
+                return error_response(error);
+            }
             Err(_) => {
+                self.report_progress(&request.method, "timed out");
                 return error_response(CommandError::new(
                     "mongodb-script-timeout",
                     format!(
-                        "MongoDB operation `{}` exceeded the configured {} ms timeout.",
+                        "MongoDB operation `{}` exceeded the configured timeout ({} ms remaining). The server operation may still be running; do not retry a mutation without checking its outcome.",
                         request.method,
-                        timeout.as_millis()
+                        timeout.unwrap_or_default().as_millis()
                     ),
                 ));
             }
@@ -212,6 +283,7 @@ impl MongoScriptHost {
             mutation,
             duration_ms: duration_ms(started),
         });
+        self.report_progress(&request.method, "completed");
         json!({ "ok": true, "value": operation_value.value }).to_string()
     }
 
@@ -298,7 +370,7 @@ impl MongoScriptHost {
     }
 
     async fn end_session(&mut self) -> Result<OperationValue, CommandError> {
-        self.abort_open_transaction().await;
+        self.abort_open_transaction().await?;
         self.session = None;
         Ok(OperationValue::status(json!({ "sessionEnded": true })))
     }
@@ -314,7 +386,14 @@ impl MongoScriptHost {
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| self.connection.database.as_deref().unwrap_or("test"));
         let collection = request.collection.as_deref();
-        let command = build_command(request, database_name, self.row_limit)?;
+        // Metadata enumeration must never silently inherit a result-view batch cap.
+        let metadata = request.method == "getCollectionNames";
+        let collection_limit = if metadata { 100_000 } else { self.row_limit };
+        let command = build_command(
+            request,
+            database_name,
+            if metadata { 500 } else { self.row_limit },
+        )?;
         let inserted_ids = inserted_ids_from_command(request, &command);
         let created_index_names = index_names_from_command(request, &command);
         let command_database_name = if request.method == "renameCollection" {
@@ -334,14 +413,17 @@ impl MongoScriptHost {
                 &database,
                 response,
                 collection,
-                self.row_limit,
+                collection_limit,
                 self.session.as_mut(),
                 &self.cancellation,
             )
             .await?;
             let mut documents = documents;
-            if documents.len() > self.row_limit as usize {
-                documents.truncate(self.row_limit as usize);
+            if metadata && documents.len() > collection_limit as usize {
+                return Err(CommandError::new("mongodb-script-metadata-limit", "Collection enumeration exceeds the 100,000 collection safety limit. No complete inventory is available; narrow the scope before maintenance."));
+            }
+            if documents.len() > collection_limit as usize {
+                documents.truncate(collection_limit as usize);
                 self.truncated = true;
             }
             let documents_json = documents
@@ -544,7 +626,7 @@ async fn collect_command_cursor(
         let get_more = doc! {
             "getMore": cursor_id,
             "collection": collection,
-            "batchSize": i64::try_from(remaining).unwrap_or(i64::MAX),
+            "batchSize": i64::try_from(remaining.min(500)).unwrap_or(500),
         };
         let response = match session.as_mut() {
             Some(session) => {

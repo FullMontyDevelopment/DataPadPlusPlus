@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use super::super::super::*;
 use super::connection::{mongodb_client, mongodb_database_name};
 use super::script_operations::{MongoScriptHost, ScriptOperationRecord};
-use super::script_runtime::execute_javascript;
+use super::script_runtime::execute_javascript_with_deadline;
 use super::MongoDbAdapter;
 
 struct ScriptRunOutput {
@@ -46,6 +46,15 @@ pub(super) async fn execute_mongodb_script(
     let database_for_runtime = database.clone();
     let cancellation_guard = super::script_cancellation::register(request.execution_id.as_deref());
     let cancellation = cancellation_guard.token();
+    let timeout_policy = request.script_timeout.clone();
+    let progress = request.script_progress.clone();
+    timeout_policy.validate()?;
+    let deadline = match timeout_policy {
+        crate::domain::models::ScriptTimeoutPolicy::Custom { seconds } => {
+            Some(started + std::time::Duration::from_secs(u64::from(seconds)))
+        }
+        _ => None,
+    };
 
     let run = tokio::task::spawn_blocking(move || {
         let _cancellation_guard = cancellation_guard;
@@ -69,11 +78,14 @@ pub(super) async fn execute_mongodb_script(
             analysis.looks_write,
         )));
         let callback_host = Rc::clone(&host);
+        host.borrow_mut().set_timeout_policy(timeout_policy, deadline);
+        host.borrow_mut().progress = progress;
         let callback_runtime = Rc::clone(&async_runtime);
-        let execution = execute_javascript(
+        let execution = execute_javascript_with_deadline(
             &script,
             &database_for_runtime,
             cancellation.clone(),
+            deadline,
             move |raw| {
                 callback_runtime.block_on(callback_host.borrow_mut().execute_json_request(&raw))
             },
@@ -82,11 +94,12 @@ pub(super) async fn execute_mongodb_script(
         let mut host = host.borrow_mut();
         if let Err(mut error) = execution {
             let partial_mutations = host.completed_mutations();
-            async_runtime.block_on(host.abort_open_transaction());
+            let cleanup_failed = async_runtime.block_on(host.abort_open_transaction()).is_err();
+            let cleanup_warning = if cleanup_failed { " Transaction cleanup could not be confirmed; check the database before retrying." } else { "" };
             if cancellation.is_cancelled() {
                 return Err(CommandError::new(
                     "execution-cancelled",
-                    "MongoDB script execution was cancelled.",
+                    format!("MongoDB script execution was cancelled. {partial_mutations} earlier mutation(s) completed. An in-flight server operation may still be running; check its outcome before retrying.{cleanup_warning}"),
                 ));
             }
             if partial_mutations > 0 {
@@ -94,12 +107,13 @@ pub(super) async fn execute_mongodb_script(
                     " {partial_mutations} earlier non-transactional mutation(s) may already have completed; review the script results and database state before retrying."
                 ));
             }
+            error.message.push_str(cleanup_warning);
             return Err(error);
         }
 
         let open_transaction_aborted = host.transaction_open();
         if open_transaction_aborted {
-            async_runtime.block_on(host.abort_open_transaction());
+            async_runtime.block_on(host.abort_open_transaction())?;
         }
         let execution = execution.expect("successful execution was checked");
         Ok(ScriptRunOutput {

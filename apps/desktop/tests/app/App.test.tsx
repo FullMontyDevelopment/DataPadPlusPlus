@@ -401,6 +401,35 @@ describe('App', () => {
     window.localStorage.clear()
   })
 
+  it('asks once for a risky script and never asks again to display its result', async () => {
+    const snapshot = createBlankBootstrapPayload().snapshot
+    const environment = { ...testEnvironment('env-local', 'Risky test'), risk: 'high' as const, requiresConfirmation: true }
+    const connection = { ...startupConnection('script-connection', 'Script fixture'), engine: 'mongodb' as const, family: 'document' as const, port: 27018, database: 'catalog' }
+    const source = 'const NAME = "products"; print(`${NAME}`); db.products.insertOne({ fixture: true })'
+    snapshot.environments = [environment]
+    snapshot.connections = [connection]
+    snapshot.tabs = [{ id: 'script-tab', title: 'Maintenance', connectionId: connection.id, environmentId: environment.id, family: 'document', language: 'mongodb', editorLabel: 'MongoDB Script', queryText: source, scriptText: source, queryViewMode: 'script', status: 'idle', dirty: false, history: [] }]
+    snapshot.ui.activeTabId = 'script-tab'
+    snapshot.ui.activeConnectionId = connection.id
+    snapshot.ui.activeEnvironmentId = environment.id
+    saveBrowserSnapshot(snapshot)
+    const execute = vi.spyOn(desktopClient, 'executeQuery')
+    render(<App />)
+    await screen.findByLabelText('MongoDB script editor')
+    fireEvent.click(screen.getByRole('button', { name: 'Run query' }))
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1))
+    const response = await execute.mock.results[0]?.value
+    expect(response.guardrail.status).toBe('confirm')
+    const dialog = await screen.findByRole('dialog', { name: 'Run this guarded query?' }, { timeout: 4000 })
+    expect(screen.queryByText('Execution requires explicit confirmation before running.')).not.toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Run' }))
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(loadBrowserSnapshot().tabs.find(tab => tab.id === 'script-tab')?.status).toBe('success'))
+    expect(screen.queryByRole('dialog', { name: 'Run this guarded query?' })).not.toBeInTheDocument()
+    expect(execute.mock.calls[1]?.[0]).toEqual(expect.objectContaining({ tabId: 'script-tab', scriptText: source, connectionId: connection.id, environmentId: environment.id }))
+    expect(execute).toHaveBeenCalledTimes(2)
+  }, 15000)
+
   it('renders a blank desktop workbench with first-run onboarding', async () => {
     render(<App />)
 
@@ -2542,6 +2571,9 @@ describe('App', () => {
 
     const builder = screen.getByLabelText('MongoDB query builder')
     const toolbar = screen.getByLabelText('Editor toolbar')
+    expect(within(toolbar).queryByLabelText(/Batch size/i)).not.toBeInTheDocument()
+    expect(within(toolbar).queryByRole('button', { name: 'Default' })).not.toBeInTheDocument()
+    expect(within(toolbar).queryByRole('checkbox', { name: /No.*limit/i })).not.toBeInTheDocument()
     expect(within(builder).queryByLabelText('Query limit')).not.toBeInTheDocument()
     expect(within(builder).queryByRole('button', { name: 'Count' })).not.toBeInTheDocument()
     expect(within(toolbar).getByRole('button', { name: 'Count' })).toBeEnabled()
@@ -2574,6 +2606,29 @@ describe('App', () => {
       expect(JSON.parse(latestExecution?.queryText ?? '{}').limit).toBe(37)
     })
     expect(updateBuilderSpy).not.toHaveBeenCalled()
+  })
+
+  it('preselects the prior query in Settings and applies advanced limits without executing it', async () => {
+    const executeSpy = vi.spyOn(desktopClient, 'executeQuery')
+    const applySpy = vi.spyOn(desktopClient, 'setQueryTabResultSettings')
+    render(<App />)
+    await createCatalogMongoWithBuilderTab()
+    const queryId = loadBrowserSnapshot().ui.activeTabId
+    fireEvent.change(within(screen.getByLabelText('Editor toolbar')).getByLabelText('Query limit'), { target: { value: '37' } })
+    fireEvent.click(screen.getByLabelText('Open settings'))
+    const settings = await screen.findByLabelText('Settings')
+    fireEvent.click(within(settings).getByRole('button', { name: 'Queries & Results' }))
+    fireEvent.click(within(settings).getByText('Selected query'))
+    expect(within(settings).getByLabelText('Open query')).toHaveValue(queryId)
+    fireEvent.click(within(settings).getByRole('checkbox', { name: 'Remove builder query limit' }))
+    fireEvent.click(within(settings).getByRole('button', { name: 'Apply to selected query' }))
+    await waitFor(() => expect(applySpy).toHaveBeenCalledWith(expect.objectContaining({ tabId: queryId, removeQueryLimit: true })))
+    await waitFor(() => expect(loadBrowserSnapshot().tabs.find(tab => tab.id === queryId)?.builderState).toMatchObject({ limit: null }))
+    expect(executeSpy).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByLabelText('Close tab Settings'))
+    await waitFor(() => expect(screen.getByLabelText('Query limit')).toHaveAttribute('placeholder', 'No limit'))
+    fireEvent.change(screen.getByLabelText('Query limit'), { target: { value: '19' } })
+    await waitFor(() => expect(loadBrowserSnapshot().tabs.find(tab => tab.id === queryId)?.builderState).toMatchObject({ limit: 19 }))
   })
 
   it('blocks invalid builder drafts instead of falling back to the last raw query', async () => {

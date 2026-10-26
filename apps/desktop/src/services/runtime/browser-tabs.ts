@@ -20,6 +20,7 @@ import {
 } from './browser-tab-scoped-builders'
 import { cloneSnapshot, findTab } from './browser-store'
 import { effectiveConnectionEnvironmentId } from './library-connection-helpers'
+import { initializeQueryLimit } from '../../../../../packages/query-compiler/src/query-limit-settings'
 
 const MAX_CLOSED_TABS = 25
 
@@ -28,7 +29,7 @@ export function createQueryTabForConnection(
   connection: ConnectionProfile,
   dirty: boolean,
 ): QueryTabState {
-  return {
+  return initializeQueryLimit({ tab: {
     id: createId('tab'),
     title: defaultQueryTabTitle(snapshot, connection),
     tabKind: 'query',
@@ -44,7 +45,7 @@ export function createQueryTabForConnection(
     status: 'idle',
     dirty,
     history: [],
-  }
+  }, connection, policy: snapshot.preferences.queryResults?.newBuilderQueryLimit })
 }
 
 export function createExplorerTabInSnapshot(
@@ -470,7 +471,7 @@ export function createScopedQueryTabInSnapshot(
     history: [],
   }
 
-  return upsertTab(next, tab)
+  return upsertTab(next, initializeQueryLimit({ tab, connection, policy: next.preferences.queryResults?.newBuilderQueryLimit }))
 }
 
 function scopedBuilderKind(

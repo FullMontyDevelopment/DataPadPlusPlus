@@ -29,7 +29,7 @@ export function buildMongoScriptItems(context: EditorCompletionContext): Complet
         'collection',
         collection.detail ?? 'MongoDB collection',
       )),
-      ...['getCollection', 'getName', 'getSiblingDB', 'runCommand', 'adminCommand', 'createCollection', 'dropDatabase', 'startSession'].map((name) =>
+      ...['getCollection', 'getCollectionNames', 'getName', 'getSiblingDB', 'getMongo', 'runCommand', 'adminCommand', 'createCollection', 'dropDatabase', 'startSession'].map((name) =>
         suggestion(name, methodInsert(name), 'function', `MongoDB db.${name}`),
       ),
     )

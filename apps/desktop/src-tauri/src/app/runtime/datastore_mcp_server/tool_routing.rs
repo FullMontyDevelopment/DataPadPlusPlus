@@ -670,6 +670,8 @@ async fn execute_mcp_query(
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| language_for(&connection)),
         query_text: query_text.clone(),
+        script_progress: None,
+        script_timeout: Default::default(),
         execution_input_mode: Some("raw".into()),
         script_text: None,
         selected_text: None,

@@ -125,6 +125,20 @@ describe('workspace revision ordering', () => {
 })
 
 describe('app-state command error routing', () => {
+  it('ignores progress and cancellation acknowledgements after completion or replacement', () => {
+    const payload = payloadWithTwoTabs()
+    const tab = expectTab(payload.snapshot.tabs[0])
+    const state: StateShape = { ...initialState, status: 'ready', payload }
+    const progress = { type: 'EXECUTION_PHASE' as const, tabId: tab.id,
+      executionId: 'old-run', phase: 'server' as const, message: 'Cancelling…' }
+    expect(reducer(state, progress)).toBe(state)
+    const running = reducer(state, { type: 'EXECUTION_LOADING', tabId: tab.id,
+      execution: activeExecution('new-run') })
+    expect(reducer(running, progress)).toBe(running)
+    expect(reducer(running, { ...progress, executionId: 'new-run' })
+      .executionsByTab[tab.id]?.message).toBe('Cancelling…')
+  })
+
   it('lets scoped actions suppress generic Desktop command messages', () => {
     expect(shouldDispatchCommandError({ suppressWorkbenchMessage: true })).toBe(false)
     expect(shouldDispatchCommandError()).toBe(true)

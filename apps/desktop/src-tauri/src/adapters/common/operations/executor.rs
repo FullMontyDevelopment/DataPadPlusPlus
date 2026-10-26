@@ -178,6 +178,8 @@ pub(crate) async fn execute_standard_live_operation<A: DatastoreAdapter + ?Sized
             environment_id: request.environment_id.clone(),
             language: plan.request_language.clone(),
             query_text: operation_query_execution_text(request, &plan),
+            script_progress: None,
+            script_timeout: Default::default(),
             execution_input_mode: None,
             script_text: None,
             selected_text: None,

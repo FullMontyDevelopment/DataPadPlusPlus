@@ -248,6 +248,8 @@ fn execution_request(query_text: String, row_limit: Option<u32>) -> ExecutionReq
         environment_id: "env-local".into(),
         language: "litedb".into(),
         query_text,
+        script_progress: None,
+        script_timeout: Default::default(),
         execution_input_mode: None,
         script_text: None,
         selected_text: None,

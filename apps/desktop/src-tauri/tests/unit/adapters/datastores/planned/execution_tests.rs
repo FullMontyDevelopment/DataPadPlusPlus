@@ -46,6 +46,8 @@ fn beta_execution_clamps_large_requested_row_limits() {
         environment_id: "env".into(),
         language: "snowflake-sql".into(),
         query_text: "select 1".into(),
+        script_progress: None,
+        script_timeout: Default::default(),
         execution_input_mode: None,
         script_text: None,
         selected_text: None,

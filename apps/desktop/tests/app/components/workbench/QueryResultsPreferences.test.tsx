@@ -6,11 +6,26 @@ import {
   validateQueryResultPreferences,
 } from '@datapadplusplus/shared-types'
 import { SettingsQueryResultsPanel } from '../../../../src/app/components/workbench/SettingsQueryResultsPanel'
-import { QueryBatchSizeControl } from '../../../../src/app/components/workbench/QueryBatchSizeControl'
 
 afterEach(cleanup)
 
 describe('workspace query preferences', () => {
+  it('saves multi-hour script durations and explicit no timeout separately from query limits', async () => {
+    const onSave = vi.fn().mockResolvedValue(true)
+    render(<SettingsQueryResultsPanel onSave={onSave} />)
+    fireEvent.change(screen.getByLabelText('Script timeout'), { target: { value: 'custom' } })
+    fireEvent.change(screen.getByLabelText('Script duration (minutes)'), { target: { value: '360' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save query settings' }))
+    await waitFor(() => expect(onSave).toHaveBeenLastCalledWith({ ...DEFAULT_QUERY_RESULT_PREFERENCES, scriptTimeout: { mode: 'custom', seconds: 21600 } }))
+    await screen.findByRole('status')
+    fireEvent.change(screen.getByLabelText('Script timeout'), { target: { value: 'unlimited' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save query settings' }))
+    await waitFor(() => expect(onSave).toHaveBeenLastCalledWith({ ...DEFAULT_QUERY_RESULT_PREFERENCES, scriptTimeout: { mode: 'unlimited' } }))
+  })
+
+  it.each([0, -1, 1.1, NaN, Infinity, 31_536_001])('rejects invalid script duration %s', seconds => {
+    expect(() => validateQueryResultPreferences({ ...DEFAULT_QUERY_RESULT_PREFERENCES, scriptTimeout: { mode: 'custom', seconds } })).toThrow()
+  })
   it('defaults to bounded batches and unlimited totals', () => {
     expect(DEFAULT_QUERY_RESULT_PREFERENCES).toEqual({
       fetchBatchSize: 500, maximumLoadedRows: null, maximumExportedRows: null,
@@ -50,19 +65,7 @@ describe('workspace query preferences', () => {
     expect(onSave).not.toHaveBeenCalled()
   })
 
-  it('validates the tab override and supports returning to the workspace default', async () => {
-    const onChange = vi.fn().mockResolvedValue(true)
-    render(<QueryBatchSizeControl value={750} inheritedValue={500} disabled={false} onChange={onChange} />)
-    const input = screen.getByLabelText('Fetch batch size')
-    fireEvent.change(input, { target: { value: '0' } })
-    fireEvent.blur(input)
-    expect(screen.getByRole('alert')).toHaveTextContent('1 to 5,000')
-    expect(onChange).not.toHaveBeenCalled()
-    fireEvent.change(input, { target: { value: '1200' } })
-    fireEvent.blur(input)
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith(1200))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Default' })).not.toBeDisabled())
-    fireEvent.click(screen.getByRole('button', { name: 'Default' }))
-    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(undefined))
+  it.each([0, -1, 1.5, 4_294_967_296, Number.NaN])('rejects invalid new-builder limits: %s', value => {
+    expect(() => validateQueryResultPreferences({ ...DEFAULT_QUERY_RESULT_PREFERENCES, newBuilderQueryLimit: { mode: 'limited', value } })).toThrow()
   })
 })

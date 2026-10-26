@@ -40,6 +40,8 @@ const KEYBOARD_RESIZE_STEP = 24
 type ResultsDock = 'bottom' | 'right'
 
 interface BottomPanelProps {
+  workspaceId?: string
+  workspaceLocked?: boolean
   activeTab?: QueryTabState
   activeConnection?: ConnectionProfile
   activeEnvironment?: EnvironmentProfile
@@ -92,6 +94,8 @@ interface BottomPanelProps {
 }
 
 export function BottomPanel({
+  workspaceId,
+  workspaceLocked,
   activeTab,
   activeConnection,
   activeEnvironment,
@@ -346,6 +350,8 @@ export function BottomPanel({
       <div className="bottom-panel-body">
         {safePanelTab === 'results' ? (
           <ResultsView
+            workspaceId={workspaceId}
+            workspaceLocked={workspaceLocked}
             capabilities={capabilities}
             connection={activeConnection}
             activeTab={activeTab}

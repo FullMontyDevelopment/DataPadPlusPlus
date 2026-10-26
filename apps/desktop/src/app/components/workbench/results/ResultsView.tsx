@@ -26,8 +26,11 @@ import { TestRunResultsView } from './TestRunResultsView'
 import { copyText } from './payload-export'
 import { prepareResultClipboardPayload, resultPayloadToClipboardText } from './result-copy'
 import { formatDurationClock } from './result-runtime'
+import { ResultsEmptyState } from './empty-state/ResultsEmptyState'
 
 interface ResultsViewProps {
+  workspaceId?: string
+  workspaceLocked?: boolean
   capabilities: ExecutionCapabilities
   connection?: ConnectionProfile
   activeTab?: QueryTabState
@@ -62,6 +65,8 @@ interface ResultsViewProps {
 }
 
 export function ResultsView({
+  workspaceId,
+  workspaceLocked = false,
   capabilities,
   connection,
   activeTab,
@@ -175,6 +180,18 @@ export function ResultsView({
     )
   }
 
+  // An absent payload alone is not an idle view: queued work, errors and an
+  // empty successful execution must never expose the Easter egg.
+  if (activeTab && (activeTab.tabKind ?? 'query') === 'query' && activeTab.status === 'idle' &&
+    !payload && !result && !activeTab.result && !activeTab.activeExecution &&
+    !executionLocked && !workspaceLocked && !rendererPreparing && !rendererError) {
+    return <div className="panel-body-frame panel-body-frame--results panel-body-frame--empty">
+      <ResultsEmptyState key={JSON.stringify([workspaceId, activeTab.id, activeTab.connectionId,
+        activeTab.environmentId, activeTab.scopedTarget?.kind, activeTab.scopedTarget?.label,
+        activeTab.scopedTarget?.path, activeTab.scopedTarget?.scope, activeTab.sqlScope])} theme={theme} />
+    </div>
+  }
+
   const usesDocumentPayload = connection?.family === 'document' && payload?.renderer === 'document'
   const usesPageablePayload = payload
     ? ['document', 'table', 'json', 'keyvalue', 'schema'].includes(payload.renderer)
@@ -260,7 +277,7 @@ export function ResultsView({
 
   return (
     <div className="panel-body-frame panel-body-frame--results">
-      <div className="panel-title-row panel-title-row--compact">
+      {result || payload ? <div className="panel-title-row panel-title-row--compact">
         <div className="panel-title-actions">
           <div className="renderer-switcher">
             {(result?.rendererModes ?? []).map((mode) => (
@@ -296,7 +313,7 @@ export function ResultsView({
             <DownloadIcon className="panel-inline-icon" />
           </button>
         </div>
-      </div>
+      </div> : null}
 
       {rendererPreparing ? (
         <div className="result-preparing-state" role="status" aria-live="polite">

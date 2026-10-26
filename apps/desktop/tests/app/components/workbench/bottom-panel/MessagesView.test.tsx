@@ -1,10 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { ExecutionResponse } from '@datapadplusplus/shared-types'
 import { MessagesView } from '../../../../../src/app/components/workbench/bottom-panel/MessagesView'
 
 describe('MessagesView', () => {
-  it('links global safe mode guardrails to Security settings', () => {
+  it('does not duplicate the application approval dialog in Messages', () => {
     const onOpenSecuritySettings = vi.fn()
     const lastExecution = {
       guardrail: {
@@ -27,8 +27,8 @@ describe('MessagesView', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Security settings' }))
-
-    expect(onOpenSecuritySettings).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: /confirm|run|approve/i })).not.toBeInTheDocument()
+    expect(screen.queryByText('Global safe mode requires confirmation for risky work.')).not.toBeInTheDocument()
+    expect(onOpenSecuritySettings).not.toHaveBeenCalled()
   })
 })

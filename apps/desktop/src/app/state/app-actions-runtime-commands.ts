@@ -39,9 +39,11 @@ export function useRuntimeCommandActions({
           })
         } else if (tabId) {
           dispatch({
-            type: 'EXECUTION_DISPLAYED',
+            type: 'EXECUTION_PHASE',
             tabId,
             executionId,
+            phase: 'server',
+            message: 'Cancelling… waiting for execution to stop.',
           })
         }
       } catch (error) {

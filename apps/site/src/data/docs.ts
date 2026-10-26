@@ -453,7 +453,7 @@ const legacyDocArticles: LegacyDocArticle[] = [
       },
       {
         title: 'Set batch and cumulative limits independently',
-        body: 'Settings → Queries & Results defaults to batches of 500 with no cumulative loaded/exported row cap. Batch sizes range from 1 to 5,000; a tab can override the default. No limit still loads incrementally through Load More. Builder Query limit and explicit SQL LIMIT/TOP remain query constraints. DynamoDB Items evaluated and Search Hit limit retain their native meanings.',
+        body: 'The query toolbar shows only Query limit beside Count. An unlimited builder shows No limit inside that input; entering a number adds a limit, while clearing it does not remove one. Settings → Queries & Results contains Fetching and results (batches of 500, range 1–5,000, and unlimited cumulative loaded/exported rows by default), New builder queries (Datastore default, Limited, or No limit), and a collapsed Selected query section. Select an open query to adjust its batch override or remove a supported builder limit, then use Apply to selected query. Saving workspace defaults is separate and never changes existing queries. No limit still loads incrementally through Load More. Raw SQL/scripts and explicit native constraints remain unchanged; DynamoDB Items evaluated and Search Hit limit retain their native meanings, including Search zero.',
       },
       {
         title: 'Choose a location and monitor progress',
@@ -864,7 +864,15 @@ const legacyDocArticles: LegacyDocArticle[] = [
       },
       {
         title: 'Use the scripting guide',
-        body: 'Search the resizable guide for query, CRUD, aggregation, bulk, transaction, index, administration, BSON, output, and safety examples. Insert examples at the cursor, and use JavaScript IntelliSense for live collections and discovered fields.',
+        body: 'Search the resizable guide for query, CRUD, aggregation, bulk, transaction, index, administration, BSON, output, and safety examples. IntelliSense checks syntax, undefined functions, and supported helper methods, alongside live collection suggestions. This is a sandboxed API, not the full mongosh shell; server-command availability and permissions are checked by MongoDB.',
+      },
+      {
+        title: 'Keep script expressions and environment values distinct',
+        body: 'JavaScript ${expression} template literals remain JavaScript. Use explicit {{UPPER_CASE_NAME}} placeholders inside quoted strings for environment values, for example db.getSiblingDB(\'{{DATABASE_NAME}}\'). Values are escaped as data; comments are not interpolated. Missing values identify the variable and script line without displaying secret contents.',
+      },
+      {
+        title: 'Configure long-running scripts',
+        body: 'Settings → Queries & Results → Scripts offers Connection default, Custom duration in minutes, and No timeout. Use 360 minutes for six hours. The custom deadline covers the whole script, including database waiting; changes affect future runs. Operation progress appears beside Run/Cancel and bounded console output appears in Messages. Server limits, bounded operations/results, memory safeguards, and the ten-second continuous JavaScript processing limit remain active; database waiting is excluded from that processing limit.',
       },
       {
         title: 'Inspect documents efficiently',
@@ -876,7 +884,7 @@ const legacyDocArticles: LegacyDocArticle[] = [
       },
       {
         title: 'Use guarded document edits',
-        body: 'Document edits and script mutations share read-only checks and environment confirmations. The script sandbox cannot access files, processes, packages, or arbitrary networks, and cancellation aborts any open transaction.',
+        body: 'Document edits and script mutations share read-only checks and environment confirmations. A script run has one approval dialog bound to its exact request and target; displaying results does not request approval or execute again. The sandbox cannot access files, processes, packages, or arbitrary networks. Cancellation attempts transaction cleanup and reports uncertain outcomes: earlier writes may have completed and an in-flight command may still be running. Check the database before retrying.',
       },
       {
         title: 'Manage database users and roles',

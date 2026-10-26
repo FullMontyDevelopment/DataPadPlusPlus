@@ -326,7 +326,11 @@ fn preflight(
                 "A saved query or enabled step is empty.",
             ));
         }
-        let query = resolve_string_template(&text, &resolved.variables)?;
+        let query = if profile.engine == "mongodb" && tab.query_view_mode.as_deref() == Some("script") {
+            super::super::script_templates::resolve_script_template(&text, &resolved.variables)?
+        } else {
+            resolve_string_template(&text, &resolved.variables)?
+        };
         // Authorization follows the adapter, not a saved editor's display language.
         let language = language_for(&profile);
         may_write |= authorize_saved_query(&token.scopes, &query, &language)?;
@@ -731,7 +735,11 @@ async fn execute_saved(
             .as_str()
             .unwrap_or_default()
             .to_string();
-        let resolved = resolve_string_template(&query, &environment.variables)?;
+        let resolved = if profile.engine == "mongodb" && tab.query_view_mode.as_deref() == Some("script") {
+            super::super::script_templates::resolve_script_template(&query, &environment.variables)?
+        } else {
+            resolve_string_template(&query, &environment.variables)?
+        };
         let request = ExecutionRequest {
             execution_id: Some(run_id.into()),
             tab_id: tab.id.clone(),
@@ -739,6 +747,8 @@ async fn execute_saved(
             environment_id: tab.environment_id.clone(),
             language: tab.language.clone(),
             query_text: query,
+            script_progress: None,
+            script_timeout: Default::default(),
             execution_input_mode: tab.query_view_mode.clone(),
             script_text: tab.script_text.clone(),
             selected_text: None,

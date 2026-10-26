@@ -65,6 +65,7 @@ export interface MonacoEditorLike {
 }
 
 export interface MonacoApiLike {
+  typescript?: MonacoApiLike['languages']['typescript']
   MarkerSeverity?: Record<string, number>
   editor?: {
     setModelMarkers?(
@@ -93,6 +94,7 @@ export interface MonacoApiLike {
       javascriptDefaults?: {
         addExtraLib?(content: string, filePath?: string): MonacoDisposableLike
         setCompilerOptions?(options: Record<string, unknown>): void
+          setDiagnosticsOptions?(options: Record<string, unknown>): void
       }
     }
     CompletionItemKind?: Record<string, number>

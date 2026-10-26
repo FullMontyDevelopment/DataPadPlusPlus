@@ -150,6 +150,8 @@ async fn cassandra_live_fixture_returns_real_rows() {
             environment_id: "env-local-demo".into(),
             language: "cql".into(),
             query_text: "select account_id, order_id, status, total_amount, updated_at from datapadplusplus.orders_by_account where account_id = 1 limit 25;".into(),
+            script_progress: None,
+            script_timeout: Default::default(),
             execution_input_mode: None,
             script_text: None,
             selected_text: None,

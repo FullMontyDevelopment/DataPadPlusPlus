@@ -25,33 +25,28 @@ export function migrateLegacyVariableTokens(snapshot: WorkspaceSnapshot) {
   }
 
   for (const tab of snapshot.tabs) {
-    tab.queryText = legacyToBraceVariables(tab.queryText)
-    tab.scriptText = tab.scriptText ? legacyToBraceVariables(tab.scriptText) : tab.scriptText
+    if (tab.queryViewMode !== 'script') tab.queryText = legacyToBraceVariables(tab.queryText)
     if (tab.testSuite) {
       tab.testSuite = migrateJsonVariableTokens(tab.testSuite)
     }
   }
 
   for (const closedTab of snapshot.closedTabs) {
-    closedTab.queryText = legacyToBraceVariables(closedTab.queryText)
-    closedTab.scriptText = closedTab.scriptText
-      ? legacyToBraceVariables(closedTab.scriptText)
-      : closedTab.scriptText
+    if (closedTab.queryViewMode !== 'script') closedTab.queryText = legacyToBraceVariables(closedTab.queryText)
     if (closedTab.testSuite) {
       closedTab.testSuite = migrateJsonVariableTokens(closedTab.testSuite)
     }
   }
 
   for (const node of snapshot.libraryNodes) {
-    node.queryText = node.queryText ? legacyToBraceVariables(node.queryText) : node.queryText
-    node.scriptText = node.scriptText ? legacyToBraceVariables(node.scriptText) : node.scriptText
+    if (node.queryViewMode !== 'script' && node.kind !== 'script') node.queryText = node.queryText ? legacyToBraceVariables(node.queryText) : node.queryText
     if (node.testSuite) {
       node.testSuite = migrateJsonVariableTokens(node.testSuite)
     }
   }
 
   for (const item of snapshot.savedWork) {
-    item.queryText = item.queryText ? legacyToBraceVariables(item.queryText) : item.queryText
+    if (item.kind !== 'script') item.queryText = item.queryText ? legacyToBraceVariables(item.queryText) : item.queryText
   }
 }
 
@@ -68,7 +63,7 @@ function migrateJsonVariableTokens<T>(value: T): T {
     return Object.fromEntries(
       Object.entries(value).map(([key, child]) => [
         key,
-        migrateJsonVariableTokens(child),
+        key === 'scriptText' ? child : migrateJsonVariableTokens(child),
       ]),
     ) as T
   }

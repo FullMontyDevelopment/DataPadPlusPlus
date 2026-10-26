@@ -25,6 +25,7 @@ import { SettingsExperimentalPanel } from './SettingsExperimentalPanel'
 import { SettingsLogsPanel } from './SettingsLogsPanel'
 import { SettingsSecurityPanel } from './SettingsSecurityPanel'
 import { SettingsQueryResultsPanel } from './SettingsQueryResultsPanel'
+import type { SelectedQuerySettingsProps } from './SettingsSelectedQuery'
 import { SettingsShortcutsPanel } from './SettingsShortcutsPanel'
 import { SETTINGS_SECTIONS, THEMES, type SettingsSection } from './SettingsWorkspace.constants'
 import { SettingsPanel } from './SettingsWorkspace.parts'
@@ -65,6 +66,7 @@ export function SettingsWorkspace({
   onSetKeyboardShortcut,
   onSetSafeMode,
   onSetQueryResultPreferences,
+  selectedQuerySettings,
   onSetTheme,
   onSetUpdatePrereleases,
   onOpenApiServer,
@@ -84,6 +86,7 @@ export function SettingsWorkspace({
   health: AppHealth
   initialSection?: LegacySettingsSection
   preferences: WorkspaceSnapshot['preferences']
+  selectedQuerySettings?: SelectedQuerySettingsProps
   workspaceSwitcherStatus?: WorkspaceSwitcherStatus
   onClearLogFile(fileName: string): Promise<AppLogFileContent | undefined>
   onCreateBackup(automatic?: boolean): Promise<WorkspaceBackupRunResponse | undefined>
@@ -160,6 +163,7 @@ export function SettingsWorkspace({
       <div className="settings-content">
         {section === 'query-results' ? <SettingsQueryResultsPanel
           preferences={preferences.queryResults}
+          selectedQuery={selectedQuerySettings}
           onSave={onSetQueryResultPreferences ?? (async () => false)}
         /> : null}
         {section === 'appearance' ? (

@@ -1,3 +1,4 @@
+import { QueryLimitInput } from '../../query-builder/QueryLimitInput'
 import type {
   ConnectionProfile,
   MongoAggregationBuilderState,
@@ -127,16 +128,8 @@ export function MongoAggregationBuilder({
   return (
     <section className="query-builder-panel" aria-label="MongoDB aggregation builder">
       {showFetchSize ? <div className="mongo-query-builder-controls">
-        <label className="query-builder-field query-builder-field--number">
-          <span>Query limit</span>
-          <input
-            aria-label="Query limit"
-            min={1}
-            type="number"
-            value={draft.limit ?? 20}
-            onChange={(event) => updateDraft({ limit: positiveInteger(event.target.value, 20) })}
-          />
-        </label>
+        <QueryLimitInput value={draft.limit ?? null}
+          className="query-builder-field query-builder-field--number" onChange={limit => updateDraft({ limit })} />
         {countControl}
       </div> : null}
 
@@ -252,10 +245,6 @@ export function MongoAggregationBuilder({
   )
 }
 
-function positiveInteger(value: string, fallback: number) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback
-}
 
 type RowDropPlacement = 'before' | 'after'
 

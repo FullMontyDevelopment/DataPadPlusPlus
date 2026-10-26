@@ -14,20 +14,12 @@ interface MessagesViewProps {
 }
 
 export function MessagesView({
-  lastExecution,
-  lastExecutionRequest,
   messages,
   workbenchMessages,
-  onConfirmExecution,
   onDismissWorkbenchMessage,
   onClearWorkbenchMessages,
   onOpenSecuritySettings,
 }: MessagesViewProps) {
-  const confirmationGuardrailId =
-    lastExecution?.guardrail.status === 'confirm' ? lastExecution.guardrail.id : undefined
-  const confirmationMentionsGlobalSafeMode = lastExecution?.guardrail.reasons.some(
-    mentionsGlobalSafeMode,
-  )
   const hasMessages = workbenchMessages.length > 0 || messages.length > 0
 
   return (
@@ -50,7 +42,7 @@ export function MessagesView({
         ) : null}
       </div>
 
-      {!hasMessages && !confirmationGuardrailId ? (
+      {!hasMessages ? (
         <div className="messages-empty">
           <WarningIcon className="empty-icon" />
           <p>No messages.</p>
@@ -105,35 +97,6 @@ export function MessagesView({
         </ul>
       ) : null}
 
-      {confirmationGuardrailId ? (
-        <div className="panel-confirmation">
-          <div>
-            <strong>Confirmation required</strong>
-            <p>{lastExecution?.guardrail.reasons.join(' ')}</p>
-            {onOpenSecuritySettings && confirmationMentionsGlobalSafeMode ? (
-              <button
-                type="button"
-                className="message-inline-action"
-                onClick={onOpenSecuritySettings}
-              >
-                Security settings
-              </button>
-            ) : null}
-            {lastExecution?.guardrail.requiredConfirmationText ? (
-              <code>{lastExecution.guardrail.requiredConfirmationText}</code>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            className="drawer-button drawer-button--primary"
-            onClick={() =>
-              onConfirmExecution(confirmationGuardrailId, lastExecutionRequest?.mode ?? 'full')
-            }
-          >
-            Run
-          </button>
-        </div>
-      ) : null}
     </div>
   )
 }

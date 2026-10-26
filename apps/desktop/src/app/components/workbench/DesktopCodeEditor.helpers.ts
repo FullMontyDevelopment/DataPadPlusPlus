@@ -18,6 +18,7 @@ export function variableDecorations(
     getPositionAt?(offset: number): { lineNumber: number; column: number }
   },
   context: EditorCompletionContext | undefined,
+  language?: string,
 ) {
   const text = model.getValue()
   const positionAt = model.getPositionAt
@@ -42,7 +43,9 @@ export function variableDecorations(
     }
     options: { inlineClassName: string; hoverMessage?: { value: string } }
   }> = []
-  const tokenPattern = /\{\{([A-Z_][A-Z0-9_]*)\}\}|\$\{([A-Z_][A-Z0-9_]*)\}/g
+  const tokenPattern = language === 'javascript'
+    ? /\{\{([A-Z_][A-Z0-9_]*)\}\}/g
+    : /\{\{([A-Z_][A-Z0-9_]*)\}\}|\$\{([A-Z_][A-Z0-9_]*)\}/g
 
   for (const match of text.matchAll(tokenPattern)) {
     const start = match.index ?? 0

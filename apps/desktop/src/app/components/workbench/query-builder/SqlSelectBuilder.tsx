@@ -1,3 +1,4 @@
+import { QueryLimitInput } from './QueryLimitInput'
 import type {
   ConnectionProfile,
   QueryBuilderState,
@@ -105,16 +106,7 @@ export function SqlSelectBuilder({
             ))}
           </datalist>
         </label>
-        {showFetchSize ? <label className="query-builder-field">
-          <span>Limit</span>
-          <input
-            aria-label="Limit"
-            type="number"
-            min={1}
-            value={draft.limit ?? 20}
-            onChange={(event) => updateDraft({ limit: numberValue(event.target.value, 20) })}
-          />
-        </label> : null}
+        {showFetchSize ? <QueryLimitInput label="Limit" value={draft.limit ?? null} className="query-builder-field" onChange={limit => updateDraft({ limit })} /> : null}
       </div>
 
       <BuilderSection
@@ -367,11 +359,6 @@ function newSortRow(): SqlSelectBuilderState['sort'][number] {
     field: '',
     direction: 'asc',
   }
-}
-
-function numberValue(value: string, fallback: number) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback
 }
 
 function uniqueValues(values: string[]) {

@@ -25,6 +25,8 @@ use sqlx::Executor;
 mod mongodb_large_documents;
 #[path = "support/mongodb_principals.rs"]
 mod mongodb_principals;
+#[path = "support/mongodb_scripts.rs"]
+mod mongodb_scripts;
 
 fn fixtures_enabled() -> bool {
     env::var("DATAPADPLUSPLUS_FIXTURE_RUN").unwrap_or_default() == "1"
@@ -74,6 +76,8 @@ fn execution_request(
         environment_id: environment_id.to_string(),
         language: language.to_string(),
         query_text: query_text.to_string(),
+        script_progress: None,
+        script_timeout: Default::default(),
         execution_input_mode: None,
         script_text: None,
         selected_text: None,
@@ -3526,6 +3530,7 @@ print("Committed documents:", committedCount);
     assert!(script_batch["console"]
         .as_str()
         .is_some_and(|console| console.contains("Committed documents: 1")));
+    mongodb_scripts::validate_scripts(&connection, &script_collection).await?;
     let _ = client
         .database(database)
         .collection::<mongodb::bson::Document>(&script_collection)

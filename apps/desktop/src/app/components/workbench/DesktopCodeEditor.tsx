@@ -153,7 +153,7 @@ export function DesktopCodeEditor({
   useEffect(() => {
     let mounted = true
 
-    void import('@monaco-editor/react')
+    void import('./monaco-runtime')
       .then((module) => {
         if (mounted) {
           setLoadedEditor(() => module.default as ElementType<{
@@ -299,7 +299,7 @@ export function DesktopCodeEditor({
       decorationIds =
         monacoRuntime.editor.deltaDecorations?.(
           decorationIds,
-          variableDecorations(model, completionRef.current.completionContext),
+          variableDecorations(model, completionRef.current.completionContext, language),
         ) ?? []
     }
     const scheduleUpdateDecorations = () => {
@@ -323,7 +323,7 @@ export function DesktopCodeEditor({
       disposable?.dispose()
       monacoRuntime.editor.deltaDecorations?.(decorationIds, [])
     }
-  }, [monacoRuntime])
+  }, [language, monacoRuntime])
 
   const handleDragOver = (event: DragEvent<HTMLElement>) => {
     if (readOnly || !onDropField) {

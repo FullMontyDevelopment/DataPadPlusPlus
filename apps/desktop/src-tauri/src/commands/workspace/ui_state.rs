@@ -1,6 +1,15 @@
 use super::*;
 
 #[tauri::command]
+pub fn set_query_tab_result_settings(
+    state: State<'_, SharedAppState>,
+    window: tauri::WebviewWindow,
+    request: crate::domain::models::QueryTabResultSettingsRequest,
+) -> Result<BootstrapPayload, CommandError> {
+    lock_state(&state)?.set_query_tab_result_settings(window.label(), request)
+}
+
+#[tauri::command]
 pub fn set_query_fetch_batch_size(
     state: State<'_, SharedAppState>,
     tab_id: String,

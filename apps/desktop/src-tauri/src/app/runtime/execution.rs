@@ -75,7 +75,16 @@ impl ManagedAppState {
         {
             security::analyze_mongodb_script(&query_template)?;
         }
-        let query_text = resolve_string_template(&query_template, &resolved_environment.variables)?;
+        let is_script = profile.engine == "mongodb"
+            && request.execution_input_mode.as_deref() == Some("script");
+        let query_text = if is_script {
+            super::script_templates::resolve_script_template(
+                &query_template,
+                &resolved_environment.variables,
+            )?
+        } else {
+            resolve_string_template(&query_template, &resolved_environment.variables)?
+        };
         super::datastore_mcp_server::authorize_run_step(
             &self.app,
             request.execution_id.as_deref(),
@@ -83,23 +92,54 @@ impl ManagedAppState {
             &request.language,
         )?;
         let mut resolved_request = request.clone();
-        resolved_request.query_text =
-            resolve_string_template(&request.query_text, &resolved_environment.variables)?;
-        resolved_request.selected_text = request
-            .selected_text
-            .as_deref()
-            .map(|value| resolve_string_template(value, &resolved_environment.variables))
-            .transpose()?;
-        resolved_request.script_text = request
-            .script_text
-            .as_deref()
-            .map(|value| resolve_string_template(value, &resolved_environment.variables))
-            .transpose()?;
-        resolved_request.datastore_execution_input = request
-            .datastore_execution_input
-            .as_ref()
-            .map(|value| resolve_json_templates(value, &resolved_environment.variables))
-            .transpose()?;
+        if is_script {
+            resolved_request.script_timeout = self
+                .snapshot
+                .preferences
+                .query_results
+                .script_timeout
+                .clone();
+            resolved_request.script_timeout.validate()?;
+            let app = self.app.clone();
+            let environment = resolved_environment.clone();
+            let execution_id = request.execution_id.clone();
+            let tab_id = request.tab_id.clone();
+            resolved_request.script_progress = Some(std::sync::Arc::new(move |mut progress| {
+                use tauri::{Emitter, Manager};
+                if app
+                    .try_state::<super::SharedAppState>()
+                    .is_some_and(|state| {
+                        state
+                            .try_lock()
+                            .map(|runtime| runtime.snapshot.lock_state.is_locked)
+                            .unwrap_or(true)
+                    })
+                {
+                    return;
+                }
+                super::response_redaction::redact_external_value(&mut progress, &environment);
+                progress["executionId"] = serde_json::json!(execution_id);
+                progress["tabId"] = serde_json::json!(tab_id);
+                let _ = app.emit("query-script-progress", progress);
+            }));
+            // Only the chosen source participates in validation and execution.
+            resolved_request.query_text = query_text.clone();
+            resolved_request.script_text = Some(query_text.clone());
+            resolved_request.selected_text = None;
+        } else {
+            resolved_request.query_text = query_text.clone();
+            resolved_request.selected_text = None;
+            resolved_request.script_text = None;
+        }
+        resolved_request.datastore_execution_input = if is_script {
+            None
+        } else {
+            request
+                .datastore_execution_input
+                .as_ref()
+                .map(|value| resolve_json_templates(value, &resolved_environment.variables))
+                .transpose()?
+        };
         let mut guardrail = security::evaluate_guardrails(
             &profile,
             &environment,
@@ -107,14 +147,49 @@ impl ManagedAppState {
             &query_text,
             self.snapshot.preferences.safe_mode_enabled,
         );
-        if guardrail.status == "confirm" {
-            let guardrail_id = confirmation_guardrail_id(
+        let required_approval = guardrail.status == "confirm";
+        if required_approval {
+            let legacy_guardrail_id = confirmation_guardrail_id(
                 &profile.id,
                 &environment.id,
                 request.mode.as_deref().unwrap_or("full"),
                 &query_text,
                 request.sql_scope.as_ref(),
             );
+            let guardrail_id = if retain_result_session {
+                let mut bound_request = request.clone();
+                bound_request.execution_id = None;
+                bound_request.confirmed_guardrail_id = None;
+                let workspace_id = self.workspace_switcher_status()?.active_workspace_id;
+                let context = serde_json::to_value((
+                    workspace_id,
+                    bound_request,
+                    &query_text,
+                    (
+                        &resolved_connection.host,
+                        &resolved_connection.database,
+                        &resolved_connection.connection_string,
+                        &resolved_connection.username,
+                        &resolved_connection.password,
+                    ),
+                    &profile,
+                    &environment,
+                    self.snapshot.preferences.safe_mode_enabled,
+                    &self.snapshot.preferences.query_results,
+                ))?;
+                let binding = Sha256::digest(serde_json::to_vec(&context)?)
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>();
+                if let Some(id) = request.confirmed_guardrail_id.as_deref() {
+                    super::execution_approvals::consume(id, &binding)?;
+                    id.to_string()
+                } else {
+                    super::execution_approvals::issue(binding)?
+                }
+            } else {
+                legacy_guardrail_id
+            };
             guardrail.id = Some(guardrail_id.clone());
             guardrail.required_confirmation_text = Some(format!("CONFIRM {}", environment.label));
 
@@ -155,8 +230,6 @@ impl ManagedAppState {
                 };
 
                 self.snapshot.guardrails = vec![guardrail.clone()];
-                self.snapshot.ui.bottom_panel_visible = true;
-                self.snapshot.ui.active_bottom_panel_tab = "messages".into();
                 self.snapshot.updated_at = timestamp_now();
 
                 return Ok(ExecutionResponse {
@@ -166,18 +239,20 @@ impl ManagedAppState {
                     tab: tab_response,
                     result: None,
                     guardrail,
-                    diagnostics: vec![
-                        "Execution requires explicit confirmation before running.".into()
-                    ],
+                    diagnostics: Vec::new(),
                     persistence_warning: None,
                 });
             }
+            guardrail.status = "allow".into();
+            guardrail.id = None;
+            guardrail.required_confirmation_text = None;
+            guardrail.reasons = vec!["Execution approved for this run.".into()];
         }
 
-        let mut execution_notices = if guardrail.status == "confirm" {
+        let mut execution_notices = if required_approval {
             vec![QueryExecutionNotice {
-                code: "guardrail-confirm".into(),
-                level: "warning".into(),
+                code: "guardrail-approved".into(),
+                level: "info".into(),
                 message: guardrail
                     .reasons
                     .first()

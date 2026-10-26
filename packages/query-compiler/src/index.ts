@@ -6,6 +6,7 @@ import { prepareCosmosExecution } from './cosmos-execution'
 import { buildRedisKeyBrowserQueryText } from './redis-key-browser'
 
 export { compileQueryBuilderState } from './query-builder-routing'
+export { initializeQueryLimit, removeQueryLimit } from './query-limit-settings'
 
 const engines: Record<string, readonly string[]> = {
   'litedb-find': ['litedb'],
@@ -26,7 +27,7 @@ export function compileSavedBuilder(input: { builderState: unknown; connection: 
   const shape = state as unknown as Record<string, unknown>
   for (const field of ['limit', 'skip', 'offset']) {
     const value = shape[field]
-    if (value !== undefined && (!Number.isSafeInteger(value) || Number(value) < 0)) {
+    if (value !== undefined && !(field === 'limit' && value === null) && (!Number.isSafeInteger(value) || Number(value) < 0)) {
       return { ok: false, errors: [{ field, message: 'Enter a non-negative safe integer.' }] }
     }
   }

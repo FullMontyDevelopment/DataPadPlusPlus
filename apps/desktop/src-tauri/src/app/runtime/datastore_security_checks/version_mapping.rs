@@ -148,6 +148,8 @@ async fn detect_version_by_query(
         environment_id: environment.id.clone(),
         language: query.language.into(),
         query_text: query.text.into(),
+        script_progress: None,
+        script_timeout: Default::default(),
         execution_input_mode: Some("raw".into()),
         script_text: None,
         selected_text: None,

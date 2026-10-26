@@ -263,6 +263,8 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         payload: markTabExecutionLoading(state.payload, action.tabId, action.execution),
       }
     case 'EXECUTION_PHASE':
+      // Late progress/cancel acknowledgements must not resurrect finished runs.
+      if (action.tabId && state.executionsByTab[action.tabId]?.executionId !== action.executionId) return state
       return {
         ...state,
         executionsByTab: action.tabId
@@ -447,7 +449,7 @@ export function reducer(state: StateShape, action: AppAction): StateShape {
         payload: action.openMessages === false
           ? state.payload
           : openMessagesPayload(state.payload),
-        workbenchMessages: [action.message, ...state.workbenchMessages],
+        workbenchMessages: [action.message, ...state.workbenchMessages.filter(message => message.id !== action.message.id)],
       }
     case 'WORKBENCH_MESSAGES_OPENED':
       return {

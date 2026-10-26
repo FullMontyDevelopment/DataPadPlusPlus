@@ -20,6 +20,7 @@ import type {
   OperationExecutionRequest,
   QueryBuilderState,
   QueryTabState,
+  QueryTabResultSettingsRequest,
   QueryViewMode,
   ResultPayload,
   ResultRenderer,
@@ -30,6 +31,7 @@ import type {
   WorkspaceWindowTarget,
 } from '@datapadplusplus/shared-types'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { removeQueryLimit } from '../../../../packages/query-compiler/src/query-limit-settings'
 import {
   CloseSavedTabDialog,
   DeleteConnectionDialog,
@@ -46,7 +48,6 @@ import { DatastoreQueryEditor } from './components/workbench/datastores/Datastor
 import { EditorTabs } from './components/workbench/EditorTabs'
 import { EditorToolbar } from './components/workbench/EditorToolbar'
 import { QueryBuilderExecutionControls } from './components/workbench/query-builder/QueryBuilderExecutionControls'
-import { QueryBatchSizeControl } from './components/workbench/QueryBatchSizeControl'
 import { FirstInstallGuide } from './components/workbench/FirstInstallGuide'
 import { comparableEnvironment } from './components/workbench/EnvironmentWorkspace.helpers'
 import { useReviewConfirmation } from './components/workbench/use-review-confirmation'
@@ -363,6 +364,7 @@ function DesktopWorkspace() {
   const environmentDraftsRef = useRef<Record<string, EnvironmentProfile>>({})
   const environmentSecretDraftsRef = useRef<Record<string, Record<string, string>>>({})
   const builderStateDraftRef = useRef<Record<string, QueryBuilderState>>({})
+  const [settingsQueryTabId, setSettingsQueryTabId] = useState<string>()
   const [builderStateDrafts, setBuilderStateDrafts] = useState<
     Record<string, QueryBuilderState>
   >({})
@@ -2027,6 +2029,9 @@ function DesktopWorkspace() {
     reasons: string[] = [],
     requiredConfirmationText?: string,
   ) => {
+    const captured = lastExecutionRequest
+    if (!captured || lastExecution?.result || lastExecution?.guardrail.id !== guardrailId ||
+      captured.confirmedGuardrailId === guardrailId) return
     const confirmed = await confirmReview({
       title: 'Run this guarded query?',
       action: requiredConfirmationText
@@ -2037,14 +2042,24 @@ function DesktopWorkspace() {
     })
 
     if (confirmed) {
-      runCurrentTabQuery(mode, guardrailId)
+      const currentDraft = captured.executionInputMode === 'script'
+        ? scriptTextDraftRef.current[captured.tabId] ?? captured.scriptText
+        : queryTextDraftRef.current[captured.tabId] ?? captured.queryText
+      if (currentDraft !== (captured.executionInputMode === 'script' ? captured.scriptText : captured.queryText)) {
+        actions.addWorkbenchMessage({ severity: 'warning', source: 'Execution', message: 'The draft changed while approval was open. Run again to review the updated script or query.' })
+        return
+      }
+      void actions.executeQuery(captured.tabId, mode, guardrailId, captured.queryText,
+        captured.executionInputMode, captured.scriptText, captured.documentEfficiencyMode,
+        captured.selectedText, captured.builderState, captured.datastoreExecutionInput, captured)
     }
-  }, [confirmReview, runCurrentTabQuery])
+  }, [actions, confirmReview, lastExecution, lastExecutionRequest])
 
   useEffect(() => {
     const executionId = lastExecution?.executionId
     const guardrail = lastExecution?.guardrail
-    if (!executionId || guardrail?.status !== 'confirm' || !guardrail.id) {
+    if (!executionId || guardrail?.status !== 'confirm' || !guardrail.id || lastExecution?.result ||
+      lastExecutionRequest?.confirmedGuardrailId === guardrail.id) {
       return
     }
 
@@ -2064,6 +2079,8 @@ function DesktopWorkspace() {
     confirmExecutionGuardrail,
     lastExecution?.executionId,
     lastExecution?.guardrail,
+    lastExecution?.result,
+    lastExecutionRequest?.confirmedGuardrailId,
     lastExecutionRequest?.mode,
   ])
 
@@ -2232,7 +2249,7 @@ function DesktopWorkspace() {
 
     const liveQueryText = buildQueryTextForBuilderState(
       builderState,
-      activeConnection,
+      snapshot.connections.find(connection => connection.id === targetTab.connectionId),
       targetTab,
     )
     const nextBuilderState =
@@ -3219,11 +3236,45 @@ function DesktopWorkspace() {
 
   const openDiagnosticsDrawer = (section?: SettingsSection) => {
     setConnectionDraft(undefined)
+    const queryTabId = activeTab && (!activeTab.tabKind || activeTab.tabKind === 'query') ? activeTab.id : undefined
+    if (queryTabId) setSettingsQueryTabId(queryTabId)
     setSettingsInitialSectionRequest((current) => ({
       revision: current.revision + 1,
       section: typeof section === 'string' ? section : 'appearance',
     }))
-    void actions.createSettingsTab()
+    void (async () => {
+      if (queryTabId) await flushQueryTabDrafts(queryTabId)
+      await actions.createSettingsTab()
+    })()
+  }
+
+  const selectWorkbenchTab = async (tabId: string) => {
+    if (snapshot?.tabs.find(tab => tab.id === tabId)?.tabKind === 'settings' && activeTab && (!activeTab.tabKind || activeTab.tabKind === 'query')) {
+      setSettingsQueryTabId(activeTab.id)
+      await flushQueryTabDrafts(activeTab.id)
+    }
+    await actions.selectTab(tabId)
+  }
+
+  const applySelectedQuerySettings = async (request: QueryTabResultSettingsRequest) => {
+    const tab = snapshot?.tabs.find(tab => tab.id === request.tabId)
+    const connection = snapshot?.connections.find(connection => connection.id === tab?.connectionId)
+    if (!tab || !connection || isQueryTabExecutionLocked(tab, executionsByTab[tab.id])) throw new Error('The selected query is unavailable or running.')
+    const builderDraft = builderStateDraftRef.current[tab.id]
+    const textDraft = queryTextDraftRef.current[tab.id]
+    if ((builderDraft && JSON.stringify(builderDraft) !== JSON.stringify(tab.builderState)) || (textDraft !== undefined && textDraft !== tab.queryText)) {
+      await flushQueryTabDrafts(tab.id)
+      throw new Error('The latest query draft has been saved. Review the selected query and apply again.')
+    }
+    const updated = request.removeQueryLimit ? removeQueryLimit({ tab, connection }) : undefined
+    const success = await actions.setQueryTabResultSettings(request)
+    if (success && updated) {
+      builderStateDraftRef.current[tab.id] = updated.builderState
+      setBuilderStateDrafts(current => ({ ...current, [tab.id]: updated.builderState }))
+      rememberQueryTextDraft(tab.id, updated.queryText)
+      mirrorQueryTextDraft(tab.id, updated.queryText)
+    }
+    return success
   }
 
   const openLibraryForGuide = () => {
@@ -4168,7 +4219,7 @@ function DesktopWorkspace() {
                   activeTabId={activeTab?.id ?? ''}
                   connections={snapshot.connections}
                   environments={snapshot.environments}
-                  onSelectTab={(tabId) => void actions.selectTab(tabId)}
+                  onSelectTab={(tabId) => void selectWorkbenchTab(tabId)}
                   onCloseTab={requestCloseTab}
                   onCloseTabs={requestCloseTabs}
                   onRenameTab={(tabId, title) => void actions.renameTab(tabId, title)}
@@ -4205,6 +4256,7 @@ function DesktopWorkspace() {
                     health={payload.health}
                     initialSection={settingsInitialSectionRequest.section}
                     preferences={snapshot.preferences}
+                    selectedQuerySettings={{ snapshot, initialTabId: settingsQueryTabId, windowId: workspaceWindowContext?.windowId ?? 'main', onApply: applySelectedQuerySettings }}
                     workspaceSwitcherStatus={workspaceSwitcherStatus}
                     updateCheckResult={appUpdateCheckResult}
                     updateDownload={appUpdateDownload}
@@ -4311,7 +4363,7 @@ function DesktopWorkspace() {
                       openConnectionDrawerFor(connectionId)
                     }}
                     onOpenLibraryItem={(nodeId) => void actions.openLibraryItem(nodeId)}
-                    onSelectTab={(tabId) => void actions.selectTab(tabId)}
+                    onSelectTab={(tabId) => void selectWorkbenchTab(tabId)}
                     onReopenClosedTab={(closedTabId) => void actions.reopenClosedTab(closedTabId)}
                   />
                 ) : activeTabIsSecurityChecks && activeTab ? (
@@ -4510,13 +4562,6 @@ function DesktopWorkspace() {
                   <>
                     <EditorToolbar
                       queryExecutionControls={<>
-                        <QueryBatchSizeControl
-                          key={`${activeTab.id}:${activeTab.queryFetchBatchSize}:${snapshot?.preferences.queryResults?.fetchBatchSize}`}
-                          value={activeTab.queryFetchBatchSize}
-                          inheritedValue={snapshot?.preferences.queryResults?.fetchBatchSize ?? 500}
-                          disabled={activeExecutionLocked || Boolean(activeEnvironmentConflict)}
-                          onChange={value => actions.setQueryFetchBatchSize(activeTab.id, value)}
-                        />
                         {activeQueryWindowMode === 'builder' && activeBuilderState ? (
                         <QueryBuilderExecutionControls
                           key={activeTab.id}
@@ -4529,6 +4574,7 @@ function DesktopWorkspace() {
                         />
                       ) : null}</>}
                       executionStatus={activeExecutionStatus}
+                      executionMessage={activeTabExecution?.message}
                       executionLocked={activeExecutionLocked || Boolean(activeEnvironmentConflict)}
                       capabilities={runtimeCapabilities}
                       canCancelExecution={canCancelExecution}
@@ -4806,6 +4852,8 @@ function DesktopWorkspace() {
           {shouldShowBottomPanel ? (
             <Suspense fallback={null}>
               <BottomPanel
+                workspaceId={workspaceSwitcherStatus?.activeWorkspaceId}
+                workspaceLocked={snapshot.lockState.isLocked}
                 activeTab={activeTab}
                 activeConnection={activeConnection}
                 activeEnvironment={activeEnvironment}
@@ -5000,7 +5048,7 @@ function DesktopWorkspace() {
             bottomPanelVisible: true,
           })
         }
-        onSelectTab={(tabId) => void actions.selectTab(tabId)}
+        onSelectTab={(tabId) => void selectWorkbenchTab(tabId)}
         onCloseTab={(tabId) => void actions.closeTab(tabId)}
         onRestoreUiState={(patch) => void actions.updateUiState(patch)}
       /> : null}

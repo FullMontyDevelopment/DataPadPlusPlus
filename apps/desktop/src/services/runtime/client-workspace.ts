@@ -1,4 +1,5 @@
 import type {
+  QueryTabResultSettingsRequest,
   QueryResultPreferences,
   BootstrapPayload,
   DiagnosticsReport,
@@ -43,6 +44,7 @@ import type {
   FirstInstallGuideStepId,
 } from '@datapadplusplus/shared-types'
 import { validateQueryResultPreferences } from '@datapadplusplus/shared-types'
+import { removeQueryLimit } from '../../../../../packages/query-compiler/src/query-limit-settings'
 import { createBrowserPreviewHealth } from '../../app/data/workspace-factory'
 import { buildDiagnosticsReport, migrateWorkspaceSnapshot } from '../../app/state/helpers'
 import { redactErrorMessage } from '../../app/state/security-redaction'
@@ -218,6 +220,26 @@ export const clientWorkspace = {
     if (next.lockState.isLocked) throw new Error('Unlock the workspace before changing query settings.')
     next.preferences.queryResults = { ...preferences }
     next.updatedAt = new Date().toISOString()
+    saveBrowserSnapshot(next)
+    return buildBrowserPayload(next)
+  },
+
+  async setQueryTabResultSettings(request: QueryTabResultSettingsRequest): Promise<BootstrapPayload> {
+    if (isTauriRuntime()) return invokeDesktop<BootstrapPayload>('set_query_tab_result_settings', { request })
+    const next = cloneSnapshot(loadBrowserSnapshot())
+    if (next.lockState.isLocked) throw new Error('Unlock the workspace before changing query settings.')
+    if (request.expectedRevision !== next.workspaceRevision) throw new Error('The workspace changed. Review the selected query and try again.')
+    const size = request.fetchBatchSize
+    if (size !== undefined && (!Number.isInteger(size) || size < 1 || size > 5000)) throw new Error('Batch size must be from 1 to 5,000.')
+    const tab = next.tabs.find(tab => tab.id === request.tabId)
+    if (!tab || (tab.tabKind && tab.tabKind !== 'query') || tab.activeExecution || ['queued', 'running'].includes(tab.status)) throw new Error('The selected query is unavailable or running. Wait for it to finish.')
+    if (next.ui.workspaceWindows?.some(window => window.id !== 'main' && window.tabIds.includes(tab.id))) throw new Error('Move this query to this window before changing its advanced settings.')
+    if (request.removeQueryLimit) {
+      const connection = next.connections.find(connection => connection.id === tab.connectionId)
+      if (!connection) throw new Error('The selected query’s connection is no longer available.')
+      Object.assign(tab, removeQueryLimit({ tab, connection }), { dirty: true })
+    }
+    tab.queryFetchBatchSize = size
     saveBrowserSnapshot(next)
     return buildBrowserPayload(next)
   },

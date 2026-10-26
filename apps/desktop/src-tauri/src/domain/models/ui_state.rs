@@ -81,12 +81,70 @@ pub struct AppPreferences {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct QueryResultPreferences {
+    pub script_timeout: ScriptTimeoutPolicy,
+    pub new_builder_query_limit: NewBuilderQueryLimit,
     #[serde(deserialize_with = "deserialize_fetch_batch_size")]
     pub fetch_batch_size: u32,
     #[serde(deserialize_with = "deserialize_query_row_limit")]
     pub maximum_loaded_rows: Option<u32>,
     #[serde(deserialize_with = "deserialize_query_row_limit")]
     pub maximum_exported_rows: Option<u32>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(tag = "mode", rename_all = "kebab-case")]
+pub enum ScriptTimeoutPolicy {
+    #[default]
+    ConnectionDefault,
+    Custom {
+        seconds: u32,
+    },
+    Unlimited,
+}
+
+impl ScriptTimeoutPolicy {
+    pub fn validate(&self) -> Result<(), crate::domain::error::CommandError> {
+        if matches!(self, Self::Custom { seconds } if !(1..=31_536_000).contains(seconds)) {
+            return Err(crate::domain::error::CommandError::new(
+                "script-timeout-invalid",
+                "Script timeout must be between 1 second and 365 days, or No timeout.",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(tag = "mode", rename_all = "kebab-case")]
+pub enum NewBuilderQueryLimit {
+    #[default]
+    DatastoreDefault,
+    Limited {
+        #[serde(deserialize_with = "deserialize_positive_query_limit")]
+        value: u32,
+    },
+    Unlimited,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryTabResultSettingsRequest {
+    pub tab_id: String,
+    pub expected_revision: u64,
+    pub fetch_batch_size: Option<u32>,
+    pub remove_query_limit: bool,
+}
+
+fn deserialize_positive_query_limit<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u32, D::Error> {
+    let value = u32::deserialize(deserializer)?;
+    if value == 0 {
+        return Err(serde::de::Error::custom(
+            "Builder query limits must be positive.",
+        ));
+    }
+    Ok(value)
 }
 
 fn deserialize_fetch_batch_size<'de, D: serde::Deserializer<'de>>(
@@ -128,6 +186,8 @@ pub(super) fn deserialize_query_fetch_override<'de, D: serde::Deserializer<'de>>
 impl Default for QueryResultPreferences {
     fn default() -> Self {
         Self {
+            new_builder_query_limit: NewBuilderQueryLimit::DatastoreDefault,
+            script_timeout: ScriptTimeoutPolicy::default(),
             fetch_batch_size: 500,
             maximum_loaded_rows: None,
             maximum_exported_rows: None,
@@ -137,7 +197,12 @@ impl Default for QueryResultPreferences {
 
 impl QueryResultPreferences {
     pub fn validate(&self) -> Result<(), crate::domain::error::CommandError> {
+        self.script_timeout.validate()?;
         if !(1..=5_000).contains(&self.fetch_batch_size)
+            || matches!(
+                self.new_builder_query_limit,
+                NewBuilderQueryLimit::Limited { value: 0 }
+            )
             || self.maximum_loaded_rows == Some(0)
             || self.maximum_exported_rows == Some(0)
         {
